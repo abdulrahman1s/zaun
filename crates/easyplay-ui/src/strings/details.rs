@@ -210,7 +210,7 @@ pub const CHOOSE_FOLDER: &str = "A folder I choose…";
 /// Section.
 pub const DEVICES: &str = "Devices";
 /// Toggle.
-pub const SOUND: &str = "Sound";
+pub const SOUND: &str = "Sound (speakers and microphone)";
 /// Row.
 pub const CONTROLLERS: &str = "Controllers";
 /// Option.

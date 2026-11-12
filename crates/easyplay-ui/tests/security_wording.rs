@@ -78,11 +78,8 @@ fn required_wording_is_present() {
     assert!(settings::ISOLATION_SHARED.contains("checked after each game"));
 }
 
-/// SECURITY_MODEL §10, "Sound toggle: mentions the microphone". Open: the toggle label is
-/// "Sound" only (THREAT_MODEL T-14 residual risk); the UI owner changes the string and
-/// removes the `ignore`.
+/// SECURITY_MODEL §10, "Sound toggle: mentions the microphone" (label from §5.3).
 #[test]
-#[ignore = "SEC-006 open: the sound toggle does not mention the microphone yet"]
 fn sound_toggle_mentions_the_microphone() {
     assert!(
         details::SOUND.to_lowercase().contains("microphone"),
