@@ -6,6 +6,7 @@
 //! |---|---|
 //! | [`command`] | [`Command`] and its payload types |
 //! | [`event`] | [`Event`], [`Notice`], [`SetupContext`] |
+//! | [`explainer`] | policy explanations for the UI thread |
 //! | [`snapshot`] | [`SnapshotHub`], [`Swap`], [`ActiveSessions`] |
 //! | [`app_service`] | [`AppService`], [`ServiceDeps`], [`ServiceHandle`], the loop |
 //! | [`prompts`] | parked flows |
@@ -15,12 +16,17 @@
 pub mod app_service;
 pub mod command;
 pub mod event;
+pub mod explainer;
 pub mod flows;
 pub mod prompts;
 pub mod session_watch;
 pub mod snapshot;
 
-pub use app_service::{AppService, LaunchEnv, ServiceDeps, ServiceHandle, Waker, open_db};
-pub use command::{AfterCreate, Command, GameEdit, LaunchOrigin, OpenOrigin, StopMode};
+pub use app_service::{
+    AppService, CommandSender, LaunchEnv, ServiceDeps, ServiceHandle, Waker, open_db,
+};
+pub use command::{
+    AfterCreate, Command, FolderRequest, GameEdit, LaunchOrigin, OpenOrigin, StopMode,
+};
 pub use event::{Event, Notice, QueryResult, SetupContext};
 pub use snapshot::{ActiveSessions, SnapshotHub, Swap};

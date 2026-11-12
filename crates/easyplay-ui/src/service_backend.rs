@@ -3,10 +3,11 @@
 //! onto the seam's views. Setup requests go to the setup sheet and prompts to their dialogs;
 //! notices become toasts worded in `strings::service`.
 //!
-//! Commands the service does not implement yet answer at once: queries with
+//! Commands the service does not implement yet (`SearchFixes`, `RescanMissing`, the desktop
+//! actions) answer at once: queries with
 //! `QueryPayload::Failed` (so screens leave their loading state), actions with a warning
-//! toast. `assess` uses the policy-level explainer of [`crate::demo::assess_in`] until core
-//! offers `sandbox::explain` without a full launch plan; `preset_policy` is the real
+//! toast. `assess` is core's `sandbox::explain::explain_policy` through the service's
+//! explainer (the statements of the real launch plan); `preset_policy` is the real
 //! `sandbox::apply_preset` over the probed host facts.
 
 use std::collections::VecDeque;
@@ -16,22 +17,23 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use easyplay_core::artwork::ArtSource;
 use easyplay_core::config::{PreferencePatch, Preferences};
+use easyplay_core::desktop::{HandlerOverall, IntegrationState};
 use easyplay_core::error::catalog::{self, DescribeCtx};
 use easyplay_core::error::{Error, ErrorCode, Severity, UserError};
-use easyplay_core::host::{HostFacts, HostHint};
+use easyplay_core::host::HostFacts;
 use easyplay_core::ids::{GameId, QueryId};
 use easyplay_core::library::LibrarySnapshot;
 use easyplay_core::model::{Activity, BasePreset, RuntimeFamily, SandboxPolicy, UserDir};
 use easyplay_core::service::{
-    AfterCreate as SvcAfter, Command, Event, GameEdit as SvcEdit, LaunchOrigin, Notice,
-    OpenOrigin as SvcOrigin, QueryResult, ServiceHandle, StopMode,
+    AfterCreate as SvcAfter, Command, Event, FolderRequest, GameEdit as SvcEdit, LaunchOrigin,
+    Notice, OpenOrigin as SvcOrigin, QueryResult, ServiceHandle, StopMode,
 };
 
 use crate::bridge::{
-    AfterCreate, ArtworkSource, Backend, CheckState, FolderScan, GameDetail, GameEdit,
-    HandlerState, HostCheck, HostStatus, HostView, LayerInfo, OpenOrigin, PolicyAssessment,
-    QueryPayload, RuntimesView, SetupContext, SetupOrigin, ToastLevel, ToastMsg, UiCommand,
-    UiEvent,
+    AfterCreate, ArtworkSource, Backend, CheckState, FolderScan, FolderTarget, GameDetail,
+    GameEdit, HandlerState, HostCheck, HostStatus, HostView, LayerInfo, OpenOrigin,
+    PolicyAssessment, ProgramFound, QueryPayload, RuntimesView, SetupContext, SetupOrigin,
+    ShortcutInfo, ToastLevel, ToastMsg, UiCommand, UiEvent,
 };
 use crate::strings::service as text;
 
@@ -160,8 +162,14 @@ impl ServiceBackend {
             Event::QueryResult { id, result } => UiEvent::QueryResult {
                 id,
                 payload: match result {
-                    QueryResult::Game(g) => QueryPayload::Game(Box::new(detail(*g))),
+                    QueryResult::Game(g) => {
+                        let mut d = detail(*g);
+                        d.has_shortcut = self.handle.hub.integration.load().has_shortcut(d.game.id);
+                        QueryPayload::Game(Box::new(d))
+                    }
                     QueryResult::Stats(s) => QueryPayload::Stats(s),
+                    QueryResult::Folder(f) => QueryPayload::Folder(folder_scan(f)),
+                    QueryResult::PrefixSize { bytes, .. } => QueryPayload::PrefixSize(bytes),
                     QueryResult::Failed(e) => QueryPayload::Failed(*e),
                 },
             },
@@ -170,7 +178,6 @@ impl ServiceBackend {
 
     fn update(&self, id: GameId, edits: Vec<GameEdit>) {
         let mut out = Vec::new();
-        let mut skipped = false;
         for e in edits {
             out.push(match e {
                 GameEdit::Name(n) => SvcEdit::Name(n),
@@ -180,21 +187,16 @@ impl ServiceBackend {
                 GameEdit::Runtime { reference, follow } => SvcEdit::Runtime { reference, follow },
                 GameEdit::UmuId(u) => SvcEdit::UmuId(u),
                 GameEdit::SteamAppId(a) => SvcEdit::SteamAppId(a),
-                GameEdit::ResetName
-                | GameEdit::Kind(_)
-                | GameEdit::ExeRole(..)
-                | GameEdit::ExeLabel(..)
-                | GameEdit::RemoveExe(_) => {
-                    skipped = true;
-                    continue;
-                }
+                GameEdit::ResetName => SvcEdit::ResetName,
+                GameEdit::Kind(k) => SvcEdit::Kind(k),
+                GameEdit::ExeRole(x, r) => SvcEdit::ExeRole(x, r),
+                GameEdit::ExeLabel(x, l) => SvcEdit::ExeLabel(x, l),
+                GameEdit::ExeArgs(x, a) => SvcEdit::ExeArgs(x, a),
+                GameEdit::RemoveExe(x) => SvcEdit::RemoveExe(x),
             });
         }
         if !out.is_empty() {
             self.handle.send(Command::UpdateGame { id, edits: out });
-        }
-        if skipped {
-            self.unsupported();
         }
     }
 }
@@ -242,6 +244,57 @@ fn notice_text(n: &Notice, lib: &LibrarySnapshot) -> String {
         Notice::RuntimeAdopted { variant, .. } => text::adopted(variant.as_str()),
         Notice::PrefixReset { game } => crate::strings::feedback::prefix_reset(&name(game)),
         Notice::StopRequested { .. } => crate::strings::card::STOPPING.to_owned(),
+        Notice::StatisticsCleared { game, sessions } => {
+            let n = game.as_ref().map(name);
+            text::stats_cleared(n.as_deref(), *sessions)
+        }
+        Notice::SessionRemoved { .. } => text::SESSION_REMOVED.to_owned(),
+        Notice::ProgramAdded { game } => text::program_added(&name(game)),
+        Notice::ProgramLocated { game } => text::program_located(&name(game)),
+        Notice::ToolStarted { game } => text::tool_started(&name(game)),
+        Notice::LaunchCancelled { game } => text::launch_cancelled(&name(game)),
+    }
+}
+
+/// The add-game sheet's view of a core folder scan.
+fn folder_scan(f: easyplay_core::library::FolderScan) -> FolderScan {
+    FolderScan {
+        folder: f.folder,
+        programs: f
+            .programs
+            .into_iter()
+            .map(|p| ProgramFound {
+                path: p.path,
+                role: p.role,
+                filtered: p.filtered,
+                size: p.size,
+            })
+            .collect(),
+        truncated: f.truncated,
+        scanning: false,
+        error: f.error,
+    }
+}
+
+/// The `.exe` handler row from the integration snapshot.
+fn handler_state(i: &IntegrationState) -> HandlerState {
+    match &i.handler {
+        None => HandlerState::Unknown,
+        Some(HandlerOverall::EasyPlay) => HandlerState::EasyPlay,
+        Some(HandlerOverall::Other(name)) => HandlerState::Other(name.clone()),
+        Some(HandlerOverall::Nothing) => HandlerState::None,
+    }
+}
+
+/// The service's folder request for a UI folder target.
+fn folder_request(t: FolderTarget) -> FolderRequest {
+    match t {
+        FolderTarget::GameFolder(g) => FolderRequest::GameFolder(g),
+        FolderTarget::SaveData(g) => FolderRequest::SaveData(g),
+        FolderTarget::Prefix(g) => FolderRequest::Prefix(g),
+        FolderTarget::Session(s) => FolderRequest::Session(s),
+        FolderTarget::DataFolder => FolderRequest::DataFolder,
+        FolderTarget::Path(p) => FolderRequest::Granted(p),
     }
 }
 
@@ -311,11 +364,10 @@ pub fn host_checks(facts: Option<&HostFacts>) -> Vec<HostCheck> {
             name: u.title,
             result: u.message,
             detail: Some(p.detail.clone()),
-            fix_command: match &p.hint {
-                Some(HostHint::Sysctl { setting }) => Some(text::sysctl(setting)),
-                Some(HostHint::AppArmor { sysctl, .. }) => Some(text::sysctl(sysctl)),
-                _ => None,
-            },
+            fix_command: p
+                .hint
+                .as_ref()
+                .and_then(easyplay_core::host::doctor::fix_command),
         });
     }
     out
@@ -428,30 +480,32 @@ impl Backend for ServiceBackend {
                 h.send(Command::QueryStats { request, reply_to });
             }
             UiCommand::LoadGame { id, reply_to } => h.send(Command::LoadGame { id, reply_to }),
-            UiCommand::ScanFolder { folder, reply_to } => self.push(UiEvent::QueryResult {
-                id: reply_to,
-                payload: QueryPayload::Folder(FolderScan {
-                    folder,
-                    error: Some(text::SCAN_NOT_AVAILABLE.to_owned()),
-                    ..FolderScan::default()
-                }),
-            }),
-            UiCommand::MeasurePrefix { reply_to, .. } | UiCommand::SearchFixes { reply_to, .. } => {
-                self.query_unsupported(reply_to)
+            UiCommand::ScanFolder { folder, reply_to } => {
+                h.send(Command::ScanFolder { folder, reply_to });
             }
+            UiCommand::MeasurePrefix { id, reply_to } => {
+                h.send(Command::MeasurePrefix { id, reply_to });
+            }
+            UiCommand::SearchFixes { reply_to, .. } => self.query_unsupported(reply_to),
             UiCommand::Quit => {}
-            UiCommand::AddExecutable { .. }
-            | UiCommand::LocateExecutable { .. }
-            | UiCommand::RescanMissing
-            | UiCommand::CancelLaunch { .. }
-            | UiCommand::RunTool { .. }
-            | UiCommand::SetDefaultHandler { .. }
-            | UiCommand::ClearStatistics
-            | UiCommand::ResetGameStatistics { .. }
-            | UiCommand::RemoveSession { .. }
-            | UiCommand::OpenFolder(_)
-            | UiCommand::ViewLog { .. }
-            | UiCommand::SetShortcut { .. } => self.unsupported(),
+            UiCommand::AddExecutable { id, path, role } => {
+                h.send(Command::AddExecutable { id, path, role });
+            }
+            UiCommand::LocateExecutable { id, exe, new_path } => {
+                h.send(Command::LocateExecutable { id, exe, new_path });
+            }
+            UiCommand::CancelLaunch { id } => h.send(Command::CancelLaunch { id }),
+            UiCommand::RunTool { id, tool } => h.send(Command::RunTool { id, tool }),
+            UiCommand::ClearStatistics => h.send(Command::ClearStatistics),
+            UiCommand::ResetGameStatistics { id } => h.send(Command::ResetGameStatistics { id }),
+            UiCommand::RemoveSession { id } => h.send(Command::RemoveSession { id }),
+            UiCommand::RescanMissing => self.unsupported(),
+            UiCommand::SetDefaultHandler { enable } => {
+                h.send(Command::SetDefaultHandler { enable });
+            }
+            UiCommand::SetShortcut { id, enable } => h.send(Command::SetShortcut { id, enable }),
+            UiCommand::OpenFolder(t) => h.send(Command::OpenFolder(folder_request(t))),
+            UiCommand::ViewLog { session, game } => h.send(Command::ViewLog { session, game }),
         }
     }
 
@@ -480,7 +534,10 @@ impl Backend for ServiceBackend {
 
     fn host(&self) -> Arc<HostView> {
         let facts = self.handle.hub.host.load();
-        let key = Arc::as_ptr(&facts) as usize;
+        let integration = self.handle.hub.integration.load();
+        // Either snapshot changing rebuilds the view.
+        let key =
+            (Arc::as_ptr(&facts) as usize) ^ (Arc::as_ptr(&integration) as usize).rotate_left(17);
         let mut s = self.lock();
         if let Some((k, v)) = &s.host
             && *k == key
@@ -491,10 +548,17 @@ impl Backend for ServiceBackend {
         let v = Arc::new(HostView {
             status: host_status(f),
             checks: host_checks(f),
-            handler: HandlerState::Unknown,
+            handler: handler_state(&integration),
             distro: f.and_then(|f| f.os.pretty_name.clone()).unwrap_or_default(),
             jobs: Vec::new(),
-            shortcuts: Vec::new(),
+            shortcuts: integration
+                .shortcuts
+                .iter()
+                .map(|s| ShortcutInfo {
+                    game: s.id,
+                    name: s.name.clone(),
+                })
+                .collect(),
             reflinks: false,
             input_readable: false,
             mangohud: false,
@@ -556,12 +620,16 @@ impl Backend for ServiceBackend {
 
     fn assess(
         &self,
-        _game: Option<GameId>,
-        name: &str,
+        game: Option<GameId>,
+        _name: &str,
         root: Option<&Path>,
         policy: &SandboxPolicy,
     ) -> PolicyAssessment {
-        crate::demo::assess_in(&self.home, name, root, policy)
+        let e = self.handle.explain_policy(game, root, None, policy);
+        PolicyAssessment {
+            statements: e.statements,
+            issues: e.issues,
+        }
     }
 
     fn preset_policy(&self, preset: BasePreset, policy: &SandboxPolicy) -> SandboxPolicy {
@@ -593,7 +661,7 @@ mod tests {
         f.problems.push(easyplay_core::host::HostProblem {
             code: ErrorCode::HostUsernsUnavailable,
             detail: "kernel.unprivileged_userns_clone = 0".into(),
-            hint: Some(HostHint::Sysctl {
+            hint: Some(easyplay_core::host::HostHint::Sysctl {
                 setting: "kernel.unprivileged_userns_clone=1".into(),
             }),
         });

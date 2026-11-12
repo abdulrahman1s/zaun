@@ -1,0 +1,14 @@
+---
+source: crates/easyplay/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Open Windows programs: start known ones, set up unknown ones
+
+Usage: easyplay open [OPTIONS] [FILES]...
+
+Arguments:
+  [FILES]...  Programs to open
+
+Options:
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+  -h, --help        Print help

@@ -1,0 +1,18 @@
+---
+source: crates/easyplay/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Add a program to the library
+
+Usage: easyplay add [OPTIONS] <FILE>
+
+Arguments:
+  <FILE>  The program
+
+Options:
+      --name <NAME>        Name of the game
+  -v, --verbose...         Increase log verbosity (-v debug, -vv trace)
+      --preset <PRESET>    Protection preset [possible values: offline, online, standard]
+      --no-launch          Do not launch after adding
+      --runtime <RUNTIME>  Compatibility layer: `default`, `umu-proton`, `ge-proton`, a build name, or the absolute path of a Proton directory
+  -h, --help               Print help (see more with '--help')

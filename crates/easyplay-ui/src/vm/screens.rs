@@ -222,6 +222,9 @@ pub struct QuickLaunchVm {
     pub game: Option<GameId>,
     /// When the game reached Running (auto-close 600 ms later).
     pub running_at: Option<MonoInstant>,
+    /// When the launch was refused because the game is already running (auto-close 4 s
+    /// later, SCREEN_SPECS §7).
+    pub already_at: Option<MonoInstant>,
     /// The window switched to the full layout.
     pub expanded: bool,
 }

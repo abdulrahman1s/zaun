@@ -222,6 +222,13 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
         Arc::new(UreqTransport::new()),
         Arc::clone(&clock),
     ));
+    let desktop = easyplay_core::desktop::DesktopServices::real(
+        Arc::clone(&fs),
+        Arc::new(RealRunner::new(Arc::clone(&clock))),
+        &env,
+        &paths,
+    )
+    .map(Arc::new);
     let deps = ServiceDeps {
         fs: Arc::clone(&fs),
         clock: Arc::clone(&clock),
@@ -238,6 +245,7 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
         codec: Some(Arc::clone(&codec)),
         launch_env,
         prefs,
+        desktop,
         http: Some(http),
         app_id_file: Arc::new(FsAppIdFile::new(Arc::clone(&fs))),
         art_index: Arc::clone(&art_index),

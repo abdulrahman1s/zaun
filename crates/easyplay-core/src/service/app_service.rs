@@ -9,8 +9,8 @@
 //!
 //! Start-up (PERFORMANCE §3): open and migrate the database, recover sessions left open,
 //! load the library and publish it, retry interrupted removals, sweep orphans, rebuild the
-//! registry and start watching open sessions; then, on the job pool, probe the host and scan
-//! the compatibility layers.
+//! registry and start watching open sessions; then, on the job pool, probe the host, scan
+//! the compatibility layers and run the maintenance job (`flows::maintenance`).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;
@@ -147,6 +147,8 @@ pub struct ServiceDeps {
     pub launch_env: LaunchEnv,
     /// Preferences as loaded.
     pub prefs: Preferences,
+    /// Desktop integration (handler, shortcuts, opening folders); `None` disables it.
+    pub desktop: Option<Arc<crate::desktop::DesktopServices>>,
     /// The HTTP client for Steam artwork (used only with `artwork.online = "steam"`).
     pub http: Option<Arc<HttpClient>>,
     /// `steam_appid.txt` reader.
@@ -188,6 +190,8 @@ pub(crate) enum Internal {
     Art(Box<ArtFetched>),
     Adopted(Result<crate::runtime::AdoptReport, Error>),
     RuntimeJob(super::flows::runtime::RuntimeJobDone),
+    Flow(Box<super::flows::FlowDone>),
+    Desktop(Box<super::flows::desktop::DesktopDone>),
 }
 
 /// The handle the UI (and the IPC listener) holds.
@@ -195,6 +199,8 @@ pub struct ServiceHandle {
     tx: Sender<Msg>,
     /// The snapshots.
     pub hub: Arc<SnapshotHub>,
+    /// Policy explanations for the UI thread (`Backend::assess`).
+    pub explainer: Arc<super::explainer::Explainer>,
     waker: Arc<Mutex<Option<Waker>>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -205,9 +211,28 @@ impl ServiceHandle {
         let _ = self.tx.send(Msg::Cmd(cmd));
     }
 
+    /// A cloneable sender of commands (the instance-socket listener).
+    pub fn sender(&self) -> CommandSender {
+        CommandSender {
+            tx: self.tx.clone(),
+        }
+    }
+
     /// Install the repaint waker.
     pub fn set_waker(&self, waker: Waker) {
         *self.waker.lock().unwrap_or_else(PoisonError::into_inner) = Some(waker);
+    }
+
+    /// Explain `policy` as it would run for `game`, or for a draft at `root` running `exe`
+    /// (pure apart from `stat` calls of the policy's paths; safe on the UI thread).
+    pub fn explain_policy(
+        &self,
+        game: Option<GameId>,
+        root: Option<&std::path::Path>,
+        exe: Option<&std::path::Path>,
+        policy: &crate::model::SandboxPolicy,
+    ) -> crate::sandbox::explain::PolicyExplanation {
+        self.explainer.explain(&self.hub, game, root, exe, policy)
     }
 
     /// Send `Shutdown` and wait for the thread (games keep running).
@@ -225,6 +250,25 @@ impl Drop for ServiceHandle {
             let _ = self.tx.send(Msg::Cmd(Command::Shutdown));
             let _ = t.join();
         }
+    }
+}
+
+/// Queues commands from another thread (never blocks).
+#[derive(Clone)]
+pub struct CommandSender {
+    tx: Sender<Msg>,
+}
+
+impl CommandSender {
+    /// Queue a command.
+    pub fn send(&self, cmd: Command) {
+        let _ = self.tx.send(Msg::Cmd(cmd));
+    }
+}
+
+impl std::fmt::Debug for CommandSender {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CommandSender")
     }
 }
 
@@ -272,6 +316,8 @@ pub struct AppService {
     pub(super) setup_queue: VecDeque<(Box<GameDraft>, OpenOrigin)>,
     pub(super) setup_open: bool,
     pub(super) art_tracker: Arc<AttemptTracker>,
+    /// State of the tool, query, maintenance and cancellation flows.
+    pub(super) flow: super::flows::FlowState,
     sessions_rev: u64,
     stopping: bool,
     headless_rx: Option<Receiver<Msg>>,
@@ -300,6 +346,11 @@ impl AppService {
         let waker: Arc<Mutex<Option<Waker>>> = Arc::new(Mutex::new(None));
         let mut svc = Self::open(deps, tx.clone(), ev_tx, Arc::clone(&waker))?;
         let hub = Arc::clone(&svc.hub);
+        let explainer = Arc::new(super::explainer::Explainer {
+            fs: Arc::clone(&svc.deps.fs),
+            paths: svc.deps.paths.clone(),
+            env: svc.deps.launch_env.clone(),
+        });
         let thread = std::thread::Builder::new()
             .name("app-service".into())
             .spawn(move || {
@@ -311,6 +362,7 @@ impl AppService {
             ServiceHandle {
                 tx,
                 hub,
+                explainer,
                 waker,
                 thread: Some(thread),
             },
@@ -385,6 +437,7 @@ impl AppService {
             setup_queue: VecDeque::new(),
             setup_open: false,
             art_tracker: Arc::new(AttemptTracker::new()),
+            flow: super::flows::FlowState::default(),
             sessions_rev: 0,
             stopping: false,
             headless_rx: None,
@@ -413,6 +466,7 @@ impl AppService {
         }
         self.refresh_art_index();
         self.publish_library();
+        self.refresh_accents(None);
         // Sessions open at start: watch them.
         if self.deps.watch_sessions {
             let tx = self.tx.clone();
@@ -436,6 +490,8 @@ impl AppService {
         self.probe_host(false);
         self.scan_runtimes();
         self.audit_runtimes(false);
+        self.start_maintenance();
+        self.refresh_integration();
     }
 
     fn run(&mut self, rx: &Receiver<Msg>) {
@@ -493,6 +549,17 @@ impl AppService {
             Command::UpdateGame { id, edits } => self.update_game(id, edits),
             Command::LoadGame { id, reply_to } => self.load_game(id, reply_to),
             Command::QueryStats { request, reply_to } => self.query_stats(&request, reply_to),
+            Command::ClearStatistics => self.clear_statistics(None),
+            Command::ResetGameStatistics { id } => self.clear_statistics(Some(id)),
+            Command::RemoveSession { id } => self.remove_session(id),
+            Command::AddExecutable { id, path, role } => self.add_program(id, &path, role),
+            Command::LocateExecutable { id, exe, new_path } => {
+                self.locate_program(id, exe, &new_path);
+            }
+            Command::ScanFolder { folder, reply_to } => self.scan_folder(folder, reply_to),
+            Command::MeasurePrefix { id, reply_to } => self.measure_prefix(id, reply_to),
+            Command::CancelLaunch { id } => self.cancel_launch(id),
+            Command::RunTool { id, tool } => self.run_tool(id, tool, None),
             Command::ImportArtwork { id, slot, source } => self.import_artwork(id, slot, source),
             Command::FetchOnlineArtwork { id } => self.fetch_online_artwork(id, true),
             Command::Launch { id, exe, origin } => self.start_launch(id, exe, origin),
@@ -506,6 +573,10 @@ impl AppService {
             Command::VerifyRuntime => self.verify_runtimes(),
             Command::SetPreference(patch) => self.set_preference(&patch),
             Command::RefreshHostFacts => self.probe_host(true),
+            Command::SetDefaultHandler { enable } => self.set_default_handler(enable),
+            Command::SetShortcut { id, enable } => self.set_shortcut(id, enable),
+            Command::OpenFolder(target) => self.open_folder(target),
+            Command::ViewLog { session, game } => self.view_log(session, game),
             Command::Shutdown => self.stopping = true,
         }
     }
@@ -529,6 +600,8 @@ impl AppService {
             Internal::Art(a) => self.on_art_fetched(*a),
             Internal::Adopted(r) => self.on_adopted(r),
             Internal::RuntimeJob(d) => self.on_runtime_job(d),
+            Internal::Flow(f) => self.on_flow_done(*f),
+            Internal::Desktop(d) => self.on_desktop(*d),
         }
     }
 
@@ -588,6 +661,7 @@ impl AppService {
     pub(super) fn publish_library(&self) {
         self.hub.library.store(self.lib.snapshot());
         self.emit(Event::LibraryChanged);
+        self.sync_shortcuts();
     }
 
     fn after_library_edit(&mut self, r: Result<(), Error>) {
@@ -630,13 +704,14 @@ impl AppService {
         }
     }
 
-    /// Add the artwork rows of one game to the index.
+    /// Add the artwork rows of one game to the index (and work out its accent again).
     pub(super) fn index_game_art(&mut self, id: GameId) {
         if let Ok(rows) = self.lib.db_mut().artwork_of(id) {
             for r in &rows {
                 self.deps.art_index.insert(&self.deps.paths, r);
             }
         }
+        self.refresh_accents(Some(&[id]));
     }
 
     pub(super) fn set_activity(&mut self, id: GameId, a: Activity) {
@@ -648,6 +723,7 @@ impl AppService {
     fn update_game(&mut self, id: GameId, edits: Vec<super::command::GameEdit>) {
         use super::command::GameEdit as E;
         let mut patch = crate::storage::GamePatch::default();
+        let mut program_edits = Vec::new();
         for e in edits {
             match e {
                 E::Name(n) => {
@@ -670,6 +746,33 @@ impl AppService {
                     patch.steam_app_id = Some(a);
                     patch.steam_app_id_is_user_set = Some(a.is_some());
                 }
+                E::ResetName => match self.lib.game(id) {
+                    Ok(g) => {
+                        let Some(exe) = g.primary() else { continue };
+                        let n = crate::identity::naming::derive_name(
+                            &exe.pe,
+                            g.root.as_deref(),
+                            &exe.canonical_path,
+                        );
+                        patch.sort_name = Some(crate::identity::naming::sort_name(&n));
+                        patch.name = Some(n);
+                        patch.name_is_user_set = Some(false);
+                    }
+                    Err(e) => return self.fail(e),
+                },
+                E::Kind(k) => {
+                    let flags = match patch.flags {
+                        Some(f) => f,
+                        None => match self.lib.game(id) {
+                            Ok(g) => g.flags,
+                            Err(e) => return self.fail(e),
+                        },
+                    };
+                    patch.flags = Some(crate::library::with_entry_kind(flags, k));
+                }
+                E::ExeRole(..) | E::ExeLabel(..) | E::ExeArgs(..) | E::RemoveExe(_) => {
+                    program_edits.push(e);
+                }
                 E::Preset(b) => {
                     let base = match patch.policy.take() {
                         Some(p) => p,
@@ -687,7 +790,23 @@ impl AppService {
                 }
             }
         }
-        let r = self.lib.update(id, patch).map(|_| ());
+        let mut r = if patch == crate::storage::GamePatch::default() {
+            Ok(())
+        } else {
+            self.lib.update(id, patch).map(|_| ())
+        };
+        for e in program_edits {
+            if r.is_err() {
+                break;
+            }
+            r = match e {
+                E::ExeRole(x, role) => self.lib.set_program_role(id, x, role),
+                E::ExeLabel(x, label) => self.lib.set_program_label(id, x, label),
+                E::ExeArgs(x, args) => self.lib.set_program_args(id, x, args),
+                E::RemoveExe(x) => self.lib.remove_program(id, x),
+                _ => Ok(()),
+            };
+        }
         self.after_library_edit(r);
     }
 
@@ -722,17 +841,47 @@ impl AppService {
             _ => jiff::civil::Weekday::Monday,
         };
         let ctx = crate::stats::QueryContext { today, week_start };
-        let result = match crate::stats::queries::run(self.lib.db_mut(), &ctx, req) {
-            Ok(r) => super::event::QueryResult::Stats(r),
-            Err(e) => {
-                let e: Error = e.into();
-                super::event::QueryResult::Failed(Box::new(self.describe(&e, None)))
-            }
-        };
-        self.emit(Event::QueryResult {
-            id: reply_to,
-            result,
-        });
+        // Off the service thread (PERFORMANCE §2): a read-only connection on the job pool.
+        let db = Arc::clone(&self.flow.stats_db);
+        let file = self.deps.paths.db_file.clone();
+        let req = req.clone();
+        let post = self.poster();
+        let _ = self.deps.jobs.submit(
+            JobPriority::Interactive,
+            JobLabel("stats-query"),
+            move |_| {
+                let mut guard = db.lock().unwrap_or_else(PoisonError::into_inner);
+                if guard.is_none() {
+                    match crate::storage::ReadDb::open(&file) {
+                        Ok(d) => *guard = Some(d),
+                        Err(e) => tracing::warn!(error = %e, "statistics connection failed"),
+                    }
+                }
+                let result = match guard.as_mut() {
+                    Some(d) => crate::stats::queries::run(d, &ctx, &req).map_err(Error::from),
+                    None => Err(Error::new(ErrorCode::DbBusy)),
+                };
+                let result = match result {
+                    Ok(r) => super::event::QueryResult::Stats(r),
+                    Err(e) => {
+                        let redact = |s: &str| s.to_owned();
+                        let u = catalog::describe(
+                            &e,
+                            &DescribeCtx {
+                                game: None,
+                                session: None,
+                                redact: &redact,
+                            },
+                        );
+                        super::event::QueryResult::Failed(Box::new(u))
+                    }
+                };
+                post(Internal::Flow(Box::new(super::flows::FlowDone::Query {
+                    id: reply_to,
+                    result,
+                })));
+            },
+        );
     }
 
     // ---- host and preferences (SVC-009) -----------------------------------------------

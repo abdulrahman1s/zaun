@@ -21,4 +21,4 @@ pub use load::{
     ConfigError, ConfigProblem, ConfigSource, ConfigWarning, EnvRule, LoadOptions,
     LoadedPreferences, save, to_toml_string,
 };
-pub use schema::{PreferencePatch, Preferences, RuntimeDefault, UnknownKeys};
+pub use schema::{ColumnWidth, PreferencePatch, Preferences, RuntimeDefault, UnknownKeys};

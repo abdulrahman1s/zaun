@@ -41,8 +41,11 @@ pub struct Check {
     pub key: String,
     /// English summary.
     pub summary: String,
-    /// What to do, when something is wrong.
+    /// What to do, when something is wrong (a sentence).
     pub fix: Option<String>,
+    /// A shell command that fixes it, shown separately for copying (`sudo sysctl -w …`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix_command: Option<String>,
     /// Related error code.
     pub code: Option<ErrorCode>,
 }
@@ -62,6 +65,7 @@ impl Check {
             key: format!("doctor.{}.{st}", id.to_ascii_lowercase().replace('-', "")),
             summary: summary.into(),
             fix: None,
+            fix_command: None,
             code: None,
         }
     }
@@ -111,6 +115,15 @@ pub struct DoctorContext<'a> {
     pub uid: u32,
     /// Candidate locations of `easyplay-init`.
     pub init_candidates: Vec<PathBuf>,
+}
+
+/// The shell command that applies a hint, if there is one.
+pub fn fix_command(h: &HostHint) -> Option<String> {
+    match h {
+        HostHint::Sysctl { setting } => Some(format!("sudo sysctl -w {setting}")),
+        HostHint::AppArmor { sysctl, .. } => Some(format!("sudo sysctl -w {sysctl}")),
+        HostHint::SetuidBwrap | HostHint::UmuWrapper => None,
+    }
 }
 
 fn hint_text(h: &HostHint) -> String {
@@ -216,6 +229,7 @@ fn problem_check(
         Some(p) => {
             let mut c = Check::new(id, CheckStatus::Fail, fail_summary).code(code);
             c.fix = p.hint.as_ref().map(hint_text);
+            c.fix_command = p.hint.as_ref().and_then(fix_command);
             c.summary = format!("{fail_summary}: {}", p.detail.lines().last().unwrap_or(""));
             c
         }

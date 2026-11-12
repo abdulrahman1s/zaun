@@ -388,16 +388,9 @@ impl AppService {
                 | Continuation::OpenAttach { path, origin, .. },
                 PromptAnswer::SetUpAsNew,
             ) => {
-                // "Set up as new": the path must leave the old game first (rule 2/3); for
+                // "Set up as new": the path leaves the old game first (rule 2/3); for
                 // InsideKnownRoot/CopyOfKnown the path belongs to no game.
-                if let Ok(Some((_, row))) = {
-                    use crate::storage::ExecutableRepo;
-                    self.lib.db_mut().executable_by_canonical_path(&path)
-                } {
-                    tracing::info!(exe = %row.id, "set up as new: detaching is not supported yet");
-                    return self.fail(Error::not_available("LIB-007 detach"));
-                }
-                self.draft_job(path, origin);
+                self.set_up_as_new(path, origin);
             }
             (
                 Continuation::OpenAttach { path, game, origin },

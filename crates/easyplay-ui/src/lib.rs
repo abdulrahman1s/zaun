@@ -23,6 +23,8 @@ pub mod vm;
 pub mod widgets;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Receiver;
 
 use easyplay_core::clock::Clock;
 use easyplay_core::consts::APP_ID;
@@ -65,6 +67,34 @@ pub enum Renderer {
     Glow,
 }
 
+/// Which windowing backend winit uses (chosen by the binary before the event loop exists,
+/// from which client libraries can be loaded; the event loop cannot be created twice).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DisplayBackend {
+    /// winit's choice: Wayland when `WAYLAND_DISPLAY` is set, else X11.
+    #[default]
+    Auto,
+    /// X11 (Xwayland), e.g. when `libwayland-client` cannot be loaded.
+    X11,
+}
+
+/// A request from another EasyPlay process to show this window (single instance,
+/// DESKTOP_INTEGRATION §5.2).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Activation {
+    /// The desktop activation token the other process was started with (informational:
+    /// egui cannot pass it to the compositor; focus falls back to an attention request).
+    pub token: Option<String>,
+    /// Open the add-game picker afterwards (`easyplay --add`).
+    pub add_game: bool,
+}
+
+/// A repaint waker for other threads.
+pub type Waker = Arc<dyn Fn() + Send + Sync>;
+
+/// Receives the [`Waker`] once the window exists.
+pub type WakerSink = Box<dyn FnOnce(Waker) + Send>;
+
 /// Everything the UI needs from the binary.
 pub struct UiDeps {
     /// The application service seam.
@@ -86,10 +116,110 @@ pub struct UiDeps {
     /// A program opened from the file manager: start in the quick-launch layout
     /// (SCREEN_SPECS §7). Empty for a normal start.
     pub open: Vec<std::path::PathBuf>,
+    /// Open the add-game picker once the window is up (`easyplay --add`).
+    pub add_game: bool,
+    /// Raise requests from other processes; the sender wakes the UI with the waker handed
+    /// to [`UiDeps::on_waker`].
+    pub activations: Option<Receiver<Activation>>,
+    /// Kept equal to "the window has keyboard focus" (notifications are sent only when not).
+    pub focus: Option<Arc<AtomicBool>>,
+    /// Receives a repaint waker once the window exists (other threads wake the UI with it).
+    pub on_waker: Option<WakerSink>,
+    /// Windowing backend.
+    pub display: DisplayBackend,
+}
+
+/// Whether `e` happened while creating winit's event loop (no display, client libraries
+/// missing). The event loop exists once per process, so another renderer cannot help.
+pub fn is_event_loop_error(e: &eframe::Error) -> bool {
+    matches!(e, eframe::Error::WinitEventLoop(_))
+}
+
+/// Raises the window for [`Activation`]s and mirrors focus; wraps the application.
+struct Shell {
+    app: EasyPlayApp,
+    activations: Option<Receiver<Activation>>,
+    focus: Option<Arc<AtomicBool>>,
+    /// When to ask for attention if focus did not arrive (seconds of `ctx` time).
+    attention_at: Option<f64>,
+}
+
+/// How long to wait for focus before requesting attention instead.
+const FOCUS_GRACE_S: f64 = 0.5;
+
+impl Shell {
+    fn activate(&mut self, ctx: &egui::Context, a: Activation) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        self.attention_at = Some(ctx.input(|i| i.time) + FOCUS_GRACE_S);
+        if a.add_game {
+            self.app
+                .state
+                .picks
+                .push(input::picker::PickPurpose::AddGame);
+        }
+        ctx.request_repaint();
+    }
+}
+
+impl eframe::App for Shell {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        let got: Vec<Activation> = self
+            .activations
+            .as_ref()
+            .map(|rx| rx.try_iter().collect())
+            .unwrap_or_default();
+        for a in got {
+            self.activate(ctx, a);
+        }
+        let (focused, now) = ctx.input(|i| (i.focused, i.time));
+        if let Some(f) = &self.focus {
+            f.store(focused, Ordering::Relaxed);
+        }
+        if let Some(t) = self.attention_at {
+            if focused {
+                self.attention_at = None;
+            } else if now >= t {
+                // The compositor refused focus without a usable token.
+                ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
+                    egui::UserAttentionType::Informational,
+                ));
+                self.attention_at = None;
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(t - now));
+            }
+        }
+        eframe::App::logic(&mut self.app, ctx, frame);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        eframe::App::ui(&mut self.app, ui, frame);
+    }
+
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        eframe::App::clear_color(&self.app, visuals)
+    }
+
+    fn persist_egui_memory(&self) -> bool {
+        eframe::App::persist_egui_memory(&self.app)
+    }
+
+    fn on_exit(&mut self, gl: Option<&eframe::glow::Context>) {
+        eframe::App::on_exit(&mut self.app, gl);
+    }
 }
 
 /// `NativeOptions` for the main window: saved size, minimum 640 × 480, app id, icon.
 pub fn native_options(window: &WindowGeometry, renderer: Renderer) -> eframe::NativeOptions {
+    native_options_on(window, renderer, DisplayBackend::Auto)
+}
+
+/// [`native_options`] on a chosen windowing backend.
+pub fn native_options_on(
+    window: &WindowGeometry,
+    renderer: Renderer,
+    display: DisplayBackend,
+) -> eframe::NativeOptions {
     let mut viewport = egui::ViewportBuilder::default()
         .with_title(strings::title::window(strings::library::TITLE))
         .with_app_id(APP_ID)
@@ -110,6 +240,13 @@ pub fn native_options(window: &WindowGeometry, renderer: Renderer) -> eframe::Na
         },
         persist_window: false,
         system_font_fallback: true,
+        event_loop_builder: match display {
+            DisplayBackend::Auto => None,
+            DisplayBackend::X11 => Some(Box::new(|b| {
+                use winit::platform::x11::EventLoopBuilderExtX11 as _;
+                b.with_x11();
+            })),
+        },
         ..eframe::NativeOptions::default()
     }
 }
@@ -126,8 +263,13 @@ pub fn run(start: StartMode, deps: UiDeps) -> eframe::Result {
         renderer,
         art,
         open,
+        add_game,
+        activations,
+        focus,
+        on_waker,
+        display,
     } = deps;
-    let mut options = native_options(&window, renderer);
+    let mut options = native_options_on(&window, renderer, display);
     if !open.is_empty() {
         options.viewport = options
             .viewport
@@ -158,8 +300,20 @@ pub fn run(start: StartMode, deps: UiDeps) -> eframe::Result {
             if let Some(path) = open.into_iter().next() {
                 app = app.quick_launch(path);
             }
+            if add_game {
+                app.state.picks.push(input::picker::PickPurpose::AddGame);
+            }
             app.install(&cc.egui_ctx);
-            Ok(Box::new(app))
+            if let Some(f) = on_waker {
+                let c = cc.egui_ctx.clone();
+                f(Arc::new(move || c.request_repaint()));
+            }
+            Ok(Box::new(Shell {
+                app,
+                activations,
+                focus,
+                attention_at: None,
+            }))
         }),
     )
 }

@@ -24,6 +24,8 @@ use crate::widgets::progress;
 
 /// The compact window size.
 pub const SIZE: [f32; 2] = [420.0, 150.0];
+/// "Already running": the window closes this long after saying so.
+pub const ALREADY_CLOSE: Duration = Duration::from_secs(4);
 /// The size while the setup sheet is shown.
 pub const SETUP_SIZE: [f32; 2] = [720.0, 620.0];
 
@@ -77,6 +79,17 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
             ui.ctx().request_repaint_after(due - since);
         }
     }
+    // Already running: say so, then close after 4 s (SCREEN_SPECS §7).
+    if let Some(t) = q.already_at {
+        let since = env.mono.saturating_duration_since(t);
+        if since >= ALREADY_CLOSE {
+            env.ctx.send_viewport_cmd(ViewportCommand::Close);
+        } else {
+            ui.ctx().request_repaint_after(ALREADY_CLOSE - since);
+        }
+    }
+    let already = q.already_at.is_some();
+    let failure = if already { None } else { failure };
     let cancellable = launch
         .as_ref()
         .is_some_and(|l| l.state.kind().cancellable());
@@ -107,6 +120,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                     egui::Label::new(Type::Heading.rich(&name).color(p.text_primary)).truncate(),
                 );
                 let phase = match (&failure, &launch) {
+                    _ if already => strings::launch::already_running(&name),
                     (Some(e), _) => e.title.clone(),
                     (None, Some(l)) => {
                         present(
@@ -126,7 +140,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                     .wrap(),
                 );
                 crate::a11y::labelled(ui.ctx(), ph.id, egui::Role::Status, &phase);
-                if failure.is_none() && q.running_at.is_none() {
+                if failure.is_none() && q.running_at.is_none() && !already {
                     progress::linear(ui, None, strings::launch::PROGRESS);
                 }
             });
@@ -146,6 +160,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                     state.show_dialog(Dialog::Error(e.clone()));
                 }
             } else if cancellable
+                && !already
                 && ui
                     .add(Button::new(strings::launch::CANCEL).size(Size::Sm))
                     .clicked()

@@ -369,11 +369,41 @@ fn hero(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
     let cover_w = if compact { 96.0 } else { 132.0 };
     let h = cover_w * layout::COVER_ASPECT + space::S6 * 2.0;
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
-    // Ambient tint from the cover's colours, fading into the page.
-    let (a, b) = placeholder_colors(&g.name, &theme);
+    // Ambient tint from the cover's dominant colour (snapshot or thumbnail header), else the
+    // placeholder colours; fading into the page.
+    let accent = g
+        .accent
+        .map(|[r, gr, b]| egui::Color32::from_rgb(r, gr, b))
+        .or_else(|| g.cover.and_then(|c| env.textures.dominant(c)));
+    let (a, b) = match accent {
+        Some(c) => (c, mix(c, p.bg_base, 0.4)),
+        None => placeholder_colors(&g.name, &theme),
+    };
     let top = mix(p.bg_base, a, if p.kind.is_dark() { 0.55 } else { 0.35 });
     let bottom = mix(p.bg_base, b, if p.kind.is_dark() { 0.25 } else { 0.15 });
     crate::widgets::cover::paint_vertical_gradient(ui.painter(), rect, top, bottom);
+    // The banner image, cropped to fill, under a scrim that keeps the text readable.
+    if let Some(art) = g.hero
+        && let TexState::Ready(tex) = env.textures.get(
+            TexKey {
+                art,
+                size: ThumbSize::Hero,
+            },
+            true,
+            env.art,
+        )
+    {
+        let [tw, th] = ThumbSize::Hero.pixels();
+        let uv = cover_uv(rect.aspect_ratio(), tw as f32 / th as f32);
+        ui.painter().image(tex, rect, uv, egui::Color32::WHITE);
+        let scrim = fade(p.bg_base, if p.kind.is_dark() { 0.55 } else { 0.65 });
+        crate::widgets::cover::paint_vertical_gradient(
+            ui.painter(),
+            rect,
+            fade(p.bg_base, 0.2),
+            scrim,
+        );
+    }
     ui.painter().rect_filled(
         rect,
         CornerRadius::same(radius::LG),
@@ -426,6 +456,24 @@ fn hero(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
         },
     );
     ui.advance_cursor_after_rect(rect);
+}
+
+/// UV rectangle that crops an image of aspect `image` to fill a rectangle of aspect `rect`
+/// (centred).
+pub fn cover_uv(rect: f32, image: f32) -> egui::Rect {
+    if !(rect > 0.0 && image > 0.0) {
+        return egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+    }
+    if rect > image {
+        // Wider than the image: crop top and bottom.
+        let h = image / rect;
+        let y = (1.0 - h) / 2.0;
+        egui::Rect::from_min_max(egui::pos2(0.0, y), egui::pos2(1.0, y + h))
+    } else {
+        let w = rect / image;
+        let x = (1.0 - w) / 2.0;
+        egui::Rect::from_min_max(egui::pos2(x, 0.0), egui::pos2(x + w, 1.0))
+    }
 }
 
 /// Text colours over the hero: on-art colours over the dark tint, normal roles in light

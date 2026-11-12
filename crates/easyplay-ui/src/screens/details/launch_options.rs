@@ -17,7 +17,7 @@ use crate::strings;
 use crate::strings::details as s;
 use crate::theme::tokens::{icon as icon_size, space};
 use crate::theme::{self, Type, icons};
-use crate::vm::details::LaunchDraft;
+use crate::vm::details::{LaunchDraft, ProgramEdit, ProgramField};
 use crate::vm::toasts::ToastKind;
 use crate::widgets::button::{Button, Size};
 use crate::widgets::context_menu::{danger_item, item};
@@ -65,6 +65,59 @@ fn role_label(r: ExeRole) -> &'static str {
     }
 }
 
+/// The inline editor of a program's label or arguments: `Some(Some(edit))` saved,
+/// `Some(None)` cancelled, `None` still editing.
+fn program_editor(ui: &mut Ui, pe: &mut ProgramEdit) -> Option<Option<GameEdit>> {
+    let (name, help) = match pe.field {
+        ProgramField::Label => (s::LABEL_FIELD, s::LABEL_HELP),
+        ProgramField::Args => (s::PROGRAM_ARGS_FIELD, s::PROGRAM_ARGS_HELP),
+    };
+    let mut out = None;
+    let field = TextField::new(&mut pe.text, "launch.program_edit")
+        .accessible_name(name)
+        .help(help);
+    let field = if pe.field == ProgramField::Args {
+        field.mono()
+    } else {
+        field
+    };
+    let r = field.show(ui).response;
+    let split = easyplay_core::model::split_args(&pe.text);
+    let valid = match pe.field {
+        ProgramField::Label => {
+            pe.text.trim().chars().count() <= easyplay_core::model::EXE_LABEL_MAX_CHARS
+        }
+        ProgramField::Args => split.is_ok(),
+    };
+    if pe.field == ProgramField::Args && split.is_err() {
+        issue_line(ui, s::ARGS_UNBALANCED, true);
+    }
+    let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+    ui.horizontal(|ui| {
+        let save = ui.add_enabled(valid, Button::new(s::SAVE_PROGRAM).size(Size::Sm));
+        if (save.clicked() || (enter && valid)) && out.is_none() {
+            let text = pe.text.trim().to_owned();
+            out = Some(Some(match pe.field {
+                ProgramField::Label => {
+                    GameEdit::ExeLabel(pe.exe, (!text.is_empty()).then_some(text))
+                }
+                ProgramField::Args => GameEdit::ExeArgs(
+                    pe.exe,
+                    (!text.is_empty()).then(|| split.clone().unwrap_or_default()),
+                ),
+            }));
+        }
+        let cancel = ui
+            .add(Button::ghost(s::CANCEL_PROGRAM).size(Size::Sm))
+            .clicked();
+        if (cancel || escape) && out.is_none() {
+            out = Some(None);
+        }
+    });
+    out
+}
+
 /// Show the Launch options tab.
 pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
     let p = theme::theme(ui.ctx()).palette.clone();
@@ -80,6 +133,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
     let mut exes = d.game.executables.clone();
     exes.sort_by_key(|e| (e.role != ExeRole::Primary, e.role.as_str(), e.path.clone()));
     let mut edit = None;
+    let mut open_edit: Option<ProgramEdit> = None;
     card(ui, s::PROGRAMS_TITLE, |ui| {
         for e in &exes {
             ui.horizontal(|ui| {
@@ -115,6 +169,24 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
                                 edit = Some(GameEdit::ExeRole(e.id, r));
                             }
                         }
+                        if item(ui, None, s::RENAME_LABEL, None, false).clicked() {
+                            open_edit = Some(ProgramEdit {
+                                exe: e.id,
+                                field: ProgramField::Label,
+                                text: e.label.clone().unwrap_or_default(),
+                            });
+                        }
+                        if item(ui, None, s::PROGRAM_ARGS, None, false).clicked() {
+                            open_edit = Some(ProgramEdit {
+                                exe: e.id,
+                                field: ProgramField::Args,
+                                text: e
+                                    .args_override
+                                    .as_deref()
+                                    .map(easyplay_core::model::join_args)
+                                    .unwrap_or_default(),
+                            });
+                        }
                         if e.role != ExeRole::Primary
                             && danger_item(ui, Some(icons::TRASH), s::REMOVE_PROGRAM).clicked()
                         {
@@ -132,6 +204,29 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
                     }
                 });
             });
+            if e.args_override.is_some()
+                && state
+                    .details
+                    .program_edit
+                    .as_ref()
+                    .is_none_or(|x| x.exe != e.id)
+            {
+                let args = e
+                    .args_override
+                    .as_deref()
+                    .map(easyplay_core::model::join_args)
+                    .unwrap_or_default();
+                ui.label(Type::Caption.rich(s::own_args(&args)).color(p.text_muted));
+            }
+            if let Some(pe) = state.details.program_edit.as_mut()
+                && pe.exe == e.id
+                && let Some(done) = program_editor(ui, pe)
+            {
+                if let Some(x) = done {
+                    edit = Some(x);
+                }
+                state.details.program_edit = None;
+            }
         }
         ui.horizontal(|ui| {
             if ui
@@ -148,6 +243,9 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
             }
         });
     });
+    if let Some(pe) = open_edit {
+        state.details.program_edit = Some(pe);
+    }
     if let Some(e) = edit {
         env.bridge
             .send(UiCommand::UpdateGame { id, edits: vec![e] });

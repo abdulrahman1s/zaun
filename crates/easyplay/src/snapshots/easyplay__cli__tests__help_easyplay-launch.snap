@@ -1,0 +1,17 @@
+---
+source: crates/easyplay/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Launch a game
+
+Usage: easyplay launch [OPTIONS] <GAME> [-- <EXTRA ARGS>...]
+
+Arguments:
+  <GAME>           The game
+  [EXTRA ARGS]...  Extra arguments for this run only, after `--`
+
+Options:
+      --exe <LABEL|ID>  Which program of the game (label or ID; default the primary one)
+  -v, --verbose...      Increase log verbosity (-v debug, -vv trace)
+      --wait            Wait until the game ends; exit 0 for a normal end, 1 for failure to start, 2 for a crash
+  -h, --help            Print help

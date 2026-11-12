@@ -1,13 +1,21 @@
 //! RemoveGame and ResetPrefix (SVC-007, LOGIC_SPECS §11–12), including stop-then-remove.
+//!
+//! The database steps run on the service thread; deleting and renaming files runs on the job
+//! pool (PERFORMANCE §2): a removal detaches the game at once and purges it when its files are
+//! gone; a reset holds the game's flow lock until its files are replaced.
 
-use super::super::app_service::AppService;
+use std::sync::Arc;
+
+use super::super::app_service::{AppService, Internal};
 use super::super::command::StopMode;
 use super::super::event::{Event, Notice};
 use super::super::prompts::Continuation;
+use super::FlowDone;
 use crate::error::{Error, ErrorCode};
 use crate::ids::GameId;
+use crate::jobs::{JobLabel, JobPriority};
 use crate::library::remove::NoHooks;
-use crate::library::{RemoveOptions, ResetOptions};
+use crate::library::{RemoveFiles, RemoveJob, RemoveOptions, ResetOptions};
 use crate::model::{PromptAnswer, PromptKind};
 
 impl AppService {
@@ -31,20 +39,38 @@ impl AppService {
         if let Err(e) = self.lib.begin_flow(id) {
             return self.fail(e);
         }
-        let r = self.lib.remove(id, options, &NoHooks);
-        self.lib.end_flow(id);
-        match r {
-            Ok(report) => {
-                self.publish_library();
-                self.notice(Notice::GameRemoved {
-                    name: report.name,
-                    saved_data: report.saved_data,
-                });
-            }
+        let job = match self.lib.begin_remove(id, options) {
+            Ok(j) => j,
             Err(e) => {
+                self.lib.end_flow(id);
                 self.publish_library();
-                self.fail(e);
+                return self.fail(e);
             }
+        };
+        self.publish_library();
+        let fs = Arc::clone(&self.deps.fs);
+        let paths = self.deps.paths.clone();
+        let post = self.poster();
+        let _ = self.deps.jobs.submit(
+            JobPriority::Interactive,
+            JobLabel("remove-game"),
+            move |_| {
+                let files = job.run(&*fs, &paths, &NoHooks);
+                post(Internal::Flow(Box::new(FlowDone::Removed { job, files })));
+            },
+        );
+    }
+
+    pub(crate) fn on_removed(&mut self, job: &RemoveJob, files: RemoveFiles) {
+        let r = self.lib.finish_remove(job, files);
+        self.lib.end_flow(job.id);
+        self.publish_library();
+        match r {
+            Ok(report) => self.notice(Notice::GameRemoved {
+                name: report.name,
+                saved_data: report.saved_data,
+            }),
+            Err(e) => self.fail(e),
         }
     }
 
@@ -63,16 +89,47 @@ impl AppService {
     }
 
     pub(crate) fn reset_prefix(&mut self, id: GameId, options: ResetOptions) {
-        if self.running_session(id).is_some() {
+        if self.running_session(id).is_some() || self.launching.contains_key(&id) {
             return self.fail(Error::new(ErrorCode::SesAlreadyRunning).with("game", id));
         }
         if let Err(e) = self.lib.begin_flow(id) {
             return self.fail(e);
         }
-        let r = self.lib.reset_prefix(id, options);
+        let internal = match self.lib.reset_inputs(id) {
+            Ok(i) => i,
+            Err(e) => {
+                self.lib.end_flow(id);
+                return self.fail(e);
+            }
+        };
+        let fs = Arc::clone(&self.deps.fs);
+        let paths = self.deps.paths.clone();
+        let stamp = self.deps.clock.now().as_millis();
+        let post = self.poster();
+        let _ = self.deps.jobs.submit(
+            JobPriority::Interactive,
+            JobLabel("reset-prefix"),
+            move |_| {
+                let result = crate::library::prefix_ops::reset_files(
+                    &*fs, &paths, id, options, internal, stamp,
+                );
+                post(Internal::Flow(Box::new(FlowDone::Reset {
+                    game: id,
+                    result,
+                })));
+            },
+        );
+    }
+
+    pub(crate) fn on_reset(
+        &mut self,
+        id: GameId,
+        result: crate::error::Result<crate::library::prefix_ops::ResetReport>,
+    ) {
+        let r = result.and_then(|_| self.lib.finish_reset(id));
         self.lib.end_flow(id);
         match r {
-            Ok(_) => {
+            Ok(()) => {
                 self.publish_library();
                 self.notice(Notice::PrefixReset { game: id });
             }

@@ -43,6 +43,8 @@ pub enum PickPurpose {
     RunProgram(GameId),
     /// *Locate…* a moved program.
     Locate(GameId),
+    /// *Locate…* a granted folder that is missing (the old canonical path).
+    RelocateFolder(GameId, PathBuf),
     /// Working folder *Other…*.
     WorkingDir(GameId),
     /// An extra compatibility-layer search folder (Settings).
@@ -60,6 +62,7 @@ impl PickPurpose {
             | PickPurpose::Locate(_) => PickKind::Programs,
             PickPurpose::Artwork(..) => PickKind::Image,
             PickPurpose::FolderGrant(_)
+            | PickPurpose::RelocateFolder(..)
             | PickPurpose::SaveFolder(_)
             | PickPurpose::SetupRoot
             | PickPurpose::WorkingDir(_)
