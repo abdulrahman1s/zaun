@@ -356,19 +356,20 @@ fn most_played(
             Type::Body.numeric_font_id(),
             p.text_muted,
         );
-        let name_g =
-            painter.layout_no_wrap(name.clone(), Type::BodyStrong.font_id(), p.text_primary);
-        let name_w = (rect.width() * 0.45).min(name_g.size().x);
-        painter
-            .with_clip_rect(egui::Rect::from_min_size(
-                rect.min + vec2(space::S8, 0.0),
-                vec2(rect.width() * 0.45, rect.height()),
-            ))
-            .galley(
-                rect.left_center() + vec2(space::S8, -name_g.size().y / 2.0),
-                name_g,
-                p.text_primary,
-            );
+        // Long names end in an ellipsis; the full name is the tooltip and the accessible name.
+        let name_g = egui::WidgetText::from(Type::BodyStrong.rich(&name)).into_galley(
+            ui,
+            Some(egui::TextWrapMode::Truncate),
+            rect.width() * 0.45 - space::S2,
+            Type::BodyStrong.font_id(),
+        );
+        let elided = name_g.elided;
+        let painter = ui.painter();
+        painter.galley(
+            rect.left_center() + vec2(space::S8, -name_g.size().y / 2.0),
+            name_g,
+            p.text_primary,
+        );
         let t = strings::fmt::duration(r.ms);
         let bar_x = rect.left() + space::S8 + rect.width() * 0.45 + space::S3;
         painter.text(
@@ -390,7 +391,11 @@ fn most_played(
                 p.accent,
             );
         }
-        let _ = name_w;
+        let resp = if elided {
+            resp.on_hover_text(&name)
+        } else {
+            resp
+        };
         if (resp.clicked() || resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
             && let Some(g) = id
         {

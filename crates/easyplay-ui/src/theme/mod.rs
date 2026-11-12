@@ -112,6 +112,70 @@ impl Default for Appearance {
     }
 }
 
+/// The desktop's colour scheme preference.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SystemScheme {
+    /// Prefers dark.
+    Dark,
+    /// Prefers light.
+    Light,
+}
+
+/// Appearance preferences of the desktop (XDG portal `org.freedesktop.appearance` and the
+/// desktop keys it exposes), read by the binary off the UI thread (task A11Y-004).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SystemPrefs {
+    /// Colour scheme, when the desktop states one.
+    pub scheme: Option<SystemScheme>,
+    /// The desktop asks for high contrast.
+    pub high_contrast: bool,
+    /// The desktop asks for reduced motion (`None`: unknown).
+    pub reduced_motion: Option<bool>,
+    /// Desktop text scale (GNOME `text-scaling-factor`), multiplied into the UI scale.
+    pub text_scale: f32,
+}
+
+impl Default for SystemPrefs {
+    fn default() -> Self {
+        Self {
+            scheme: None,
+            high_contrast: false,
+            reduced_motion: None,
+            text_scale: 1.0,
+        }
+    }
+}
+
+fn system_id() -> Id {
+    Id::unique("easyplay.system_prefs")
+}
+
+/// Remember the desktop's preferences and follow its colour scheme where egui's own
+/// detection (winit) has none.
+pub fn set_system(ctx: &Context, system: SystemPrefs) {
+    ctx.data_mut(|d| d.insert_temp(system_id(), system));
+    if let Some(s) = system.scheme {
+        ctx.options_mut(|o| {
+            o.fallback_theme = match s {
+                SystemScheme::Dark => egui::Theme::Dark,
+                SystemScheme::Light => egui::Theme::Light,
+            };
+        });
+    }
+    ctx.request_repaint();
+}
+
+/// The desktop's preferences last reported (defaults when unknown).
+pub fn system(ctx: &Context) -> SystemPrefs {
+    ctx.data(|d| d.get_temp::<SystemPrefs>(system_id()))
+        .unwrap_or_default()
+}
+
+/// The zoom factor for `appearance`: the UI scale times the desktop text scale.
+pub fn zoom(ctx: &Context, appearance: &Appearance) -> f32 {
+    (appearance.ui_scale * system(ctx).text_scale).clamp(0.5, 3.0)
+}
+
 /// Everything a widget needs to paint itself.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Theme {
@@ -195,6 +259,25 @@ pub fn theme(ctx: &Context) -> Arc<Theme> {
             egui::Theme::Light => s.light,
         })
         .unwrap_or_else(|| Arc::new(Theme::new(ThemeKind::Dark, &Appearance::default())))
+}
+
+fn controller_id() -> Id {
+    Id::unique("easyplay.controller_mode")
+}
+
+/// Enter or leave controller mode (USER_EXPERIENCE §5.3): widgets read it to widen the focus
+/// ring and keep Play visible.
+pub fn set_controller_mode(ctx: &Context, on: bool) {
+    if controller_mode(ctx) != on {
+        ctx.data_mut(|d| d.insert_temp(controller_id(), on));
+        ctx.request_repaint();
+    }
+}
+
+/// Whether controller mode is on.
+pub fn controller_mode(ctx: &Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(controller_id()))
+        .unwrap_or(false)
 }
 
 /// The appearance last applied.

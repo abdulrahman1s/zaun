@@ -22,6 +22,7 @@ pub mod select;
 pub mod sheet;
 pub mod shield;
 pub mod skeleton;
+pub mod slider;
 pub mod stat_tile;
 pub mod tabs;
 pub mod text_field;
@@ -35,7 +36,13 @@ use crate::theme::{Theme, tokens::stroke};
 
 /// Paint the focus ring: `focus` colour, outside `rect` with a gap (ACCESSIBILITY §2).
 pub fn focus_ring(painter: &Painter, rect: Rect, corner: CornerRadius, theme: &Theme) {
-    let w = theme.focus_width();
+    // Controller mode: a larger ring, visible from the couch (USER_EXPERIENCE §5.3).
+    let w = theme.focus_width()
+        + if crate::theme::controller_mode(painter.ctx()) {
+            1.0
+        } else {
+            0.0
+        };
     let grow = stroke::FOCUS_GAP + w / 2.0;
     let corner = CornerRadius {
         nw: corner.nw.saturating_add(grow as u8),

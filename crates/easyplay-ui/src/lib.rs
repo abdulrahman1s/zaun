@@ -127,6 +127,11 @@ pub struct UiDeps {
     pub on_waker: Option<WakerSink>,
     /// Windowing backend.
     pub display: DisplayBackend,
+    /// The desktop's appearance preferences now, and their changes (A11Y-004).
+    pub system: theme::SystemPrefs,
+    /// Changes of [`UiDeps::system`]; the sender wakes the UI with the waker of
+    /// [`UiDeps::on_waker`].
+    pub system_changes: Option<Receiver<theme::SystemPrefs>>,
 }
 
 /// Whether `e` happened while creating winit's event loop (no display, client libraries
@@ -194,6 +199,10 @@ impl eframe::App for Shell {
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         eframe::App::ui(&mut self.app, ui, frame);
+    }
+
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        eframe::App::raw_input_hook(&mut self.app, ctx, raw_input);
     }
 
     fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
@@ -268,6 +277,8 @@ pub fn run(start: StartMode, deps: UiDeps) -> eframe::Result {
         focus,
         on_waker,
         display,
+        system,
+        system_changes,
     } = deps;
     let mut options = native_options_on(&window, renderer, display);
     if !open.is_empty() {
@@ -284,7 +295,8 @@ pub fn run(start: StartMode, deps: UiDeps) -> eframe::Result {
         options,
         Box::new(move |cc| {
             let bridge = UiBridge::new(backend);
-            let mut app = EasyPlayApp::new(bridge, clock, appearance, start.route(), utc_offset_s);
+            let mut app = EasyPlayApp::new(bridge, clock, appearance, start.route(), utc_offset_s)
+                .with_system_prefs(system, system_changes);
             if let Some(f) = art {
                 app = app.with_art(f);
             }
@@ -302,6 +314,13 @@ pub fn run(start: StartMode, deps: UiDeps) -> eframe::Result {
             }
             if add_game {
                 app.state.picks.push(input::picker::PickPurpose::AddGame);
+            }
+            #[cfg(feature = "gamepad")]
+            {
+                let c = cc.egui_ctx.clone();
+                if let Some(rx) = input::gamepad::spawn(Arc::new(move || c.request_repaint())) {
+                    app = app.with_gamepad(rx);
+                }
             }
             app.install(&cc.egui_ctx);
             if let Some(f) = on_waker {

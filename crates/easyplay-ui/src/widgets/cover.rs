@@ -108,11 +108,19 @@ pub fn paint_cover(
         }
         CoverSource::Placeholder => {
             // Vertical a → b; the rounded ends are solid strips of the end colours so the
-            // corners stay round and the seams invisible.
+            // corners stay round and the seams invisible. The strips are 2r tall (a rounded
+            // rectangle clamps its radius to half its height) and the gradient is painted over
+            // their inner halves.
             let r = f32::from(corner.nw.max(corner.sw));
             let inner = rect.shrink2(egui::vec2(0.0, r));
-            let top = Rect::from_min_max(rect.left_top(), pos2(rect.right(), inner.top()));
-            let bottom = Rect::from_min_max(pos2(rect.left(), inner.bottom()), rect.right_bottom());
+            let top = Rect::from_min_max(
+                rect.left_top(),
+                pos2(rect.right(), (rect.top() + 2.0 * r).min(rect.bottom())),
+            );
+            let bottom = Rect::from_min_max(
+                pos2(rect.left(), (rect.bottom() - 2.0 * r).max(rect.top())),
+                rect.right_bottom(),
+            );
             painter.rect_filled(
                 top,
                 CornerRadius {
@@ -123,7 +131,6 @@ pub fn paint_cover(
                 },
                 a,
             );
-            paint_vertical_gradient(painter, inner, a, b);
             painter.rect_filled(
                 bottom,
                 CornerRadius {
@@ -134,6 +141,7 @@ pub fn paint_cover(
                 },
                 b,
             );
+            paint_vertical_gradient(painter, inner, a, b);
             let small = rect.width() < 64.0;
             let size = if small {
                 (rect.width() * 0.42).max(8.0)

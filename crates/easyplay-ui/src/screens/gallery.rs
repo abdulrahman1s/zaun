@@ -476,6 +476,7 @@ fn card_matrix(ui: &mut Ui, env: &mut Env<'_>) {
                 selected: false,
                 multi_selected: i == 3,
                 controller: i == 2,
+                focusable: true,
                 show_playtime: true,
                 density,
             };

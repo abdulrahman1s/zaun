@@ -13,6 +13,7 @@ use egui::{
 use crate::a11y;
 use crate::app::UiState;
 use crate::bridge::{LibraryView, UiCommand};
+use crate::input::focus;
 use crate::screens::Env;
 use crate::screens::actions::GameAction;
 use crate::strings;
@@ -194,23 +195,28 @@ pub fn show(
         && (row_focus || play_focus)
     {
         let id = lib.games[visible[p] as usize].id;
-        let (up, down, left, right, enter, space_key) = ui.input_mut(|i| {
+        let (left, right, enter, space_key) = ui.input_mut(|i| {
             (
-                i.consume_key(Modifiers::NONE, Key::ArrowUp),
-                i.consume_key(Modifiers::NONE, Key::ArrowDown),
                 i.consume_key(Modifiers::NONE, Key::ArrowLeft),
                 i.consume_key(Modifiers::NONE, Key::ArrowRight),
                 row_focus && i.consume_key(Modifiers::NONE, Key::Enter),
                 row_focus && i.consume_key(Modifiers::NONE, Key::Space),
             )
         });
-        let t = if up && p > 0 {
-            Some(p - 1)
-        } else if down && p + 1 < visible.len() {
-            Some(p + 1)
-        } else {
-            None
-        };
+        let page = ((ui.available_height() / layout::ROW_H).floor() as usize).max(1);
+        let mv = ui.input_mut(focus::take_move);
+        let t = mv.and_then(|(mv, shift)| {
+            let rows = focus::list_rows(visible.len());
+            let t = focus::target(&rows, p, focus::list_move(mv), page)?;
+            if shift {
+                let tid = lib.games[visible[t] as usize].id;
+                if state.library.anchor.is_none() {
+                    state.library.anchor = Some(id);
+                }
+                state.library.select_range(lib, visible, tid);
+            }
+            Some(t)
+        });
         if let Some(t) = t {
             let tid = lib.games[visible[t] as usize].id;
             state.library.selected = Some(tid);
@@ -249,12 +255,23 @@ pub fn show(
     let selection_active = !state.library.selection.is_empty();
     area.show_rows(ui, row_h, visible.len(), |ui, range| {
         a11y::labelled(ui.ctx(), ui.scope_id(), Role::Table, strings::library::GRID);
+        let pending_pos = state
+            .pending_focus
+            .and_then(|g| visible.iter().position(|i| lib.games[*i as usize].id == g));
+        let rover = focus::rover(pending_pos.or(pos), range.clone());
         for pos in range {
             let g = &lib.games[visible[pos] as usize];
             let (rect, _) =
                 ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::hover());
             let id = row_id(g.id);
-            let resp = ui.interact(rect, id, Sense::click());
+            // Roving focus: only the cursor's row (or the first laid out) is in the `Tab`
+            // order (ACCESSIBILITY §2.1).
+            let sense = if rover == Some(pos) {
+                Sense::click()
+            } else {
+                Sense::CLICK
+            };
+            let resp = ui.interact(rect, id, sense);
             let state_text = strings::card::state(g.activity, g.availability, env.now);
             let name = strings::card::accessible_name(
                 &g.name,
@@ -272,6 +289,10 @@ pub fn show(
                 &name,
                 state.library.selected == Some(g.id) || multi,
             );
+            if rover != Some(pos) && focus::accesskit_focus_requested(ui.ctx(), id) {
+                state.pending_focus = Some(g.id);
+                ui.ctx().request_repaint();
+            }
             if state.pending_focus == Some(g.id) {
                 resp.request_focus();
                 state.pending_focus = None;

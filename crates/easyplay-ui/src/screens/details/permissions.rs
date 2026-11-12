@@ -199,6 +199,16 @@ fn reassess(state: &mut UiState, env: &Env<'_>) {
     };
     let a = assess_draft(env.bridge, &state.details, &draft);
     if let Some(e) = editor(state) {
+        // Access summary changes while editing are announced (ACCESSIBILITY §4.3).
+        for st in &a.statements {
+            if !e.assessment.statements.iter().any(|o| o.text == st.text) {
+                crate::a11y::Announcer::announce(
+                    &env.ctx,
+                    strings::a11y::access_added(&st.text),
+                    crate::a11y::Politeness::Polite,
+                );
+            }
+        }
         e.assessment = a;
     }
 }
@@ -540,7 +550,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
         );
         ui.add_space(space::S3);
     }
-    ui.set_max_width(840.0);
+    ui.set_max_width(ui.available_width().min(840.0));
     // Preset.
     ui.horizontal(|ui| {
         let h = ui.label(Type::Heading.rich(s::PROTECTION).color(p.text_primary));

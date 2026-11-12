@@ -145,7 +145,7 @@ pub fn rich_dialog(
     remember_invoker(ctx, id);
     let theme = theme::theme(ctx);
     let p = theme.palette.clone();
-    let opacity = ctx.animate_bool_with_time(id.with("in"), true, theme.motion.fade(Dur::Base));
+    let opacity = theme::motion::appear(ctx, id.with("in"), theme.motion.fade(Dur::Base));
     let mut outcome = DialogOutcome::Open;
     // Three actions with long verbs need more room than the standard width.
     let want = if actions.len() >= 3 {
@@ -158,6 +158,7 @@ pub fn rich_dialog(
         .backdrop_color(fade(p.backdrop, opacity))
         .frame(overlay_frame(ctx, max_w))
         .show(ctx, |ui| {
+            ui.multiply_opacity(opacity);
             ui.set_max_width(max_w - layout::SHEET_PAD * 2.0);
             ui.set_min_width((max_w - layout::SHEET_PAD * 2.0).min(360.0));
             ui.spacing_mut().item_spacing.y = space::S3;

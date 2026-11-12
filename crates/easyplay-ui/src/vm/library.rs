@@ -266,6 +266,10 @@ pub struct LibraryVm {
     /// Screen rectangle of the cursor's card or row (menu anchor for `Shift+F10`).
     pub cursor_rect: Option<egui::Rect>,
     cache: Option<(u64, LibraryQuery, Arc<QueryResult>)>,
+    /// Bumped whenever the visible order is recomputed.
+    generation: u64,
+    /// The visible order the cursor last followed, and its generation.
+    order: (u64, Vec<GameId>),
 }
 
 impl Default for LibraryVm {
@@ -294,6 +298,8 @@ impl Default for LibraryVm {
             focused: false,
             cursor_rect: None,
             cache: None,
+            generation: 0,
+            order: (0, Vec::new()),
         }
     }
 }
@@ -323,7 +329,26 @@ impl LibraryVm {
         }
         let r = Arc::new(run_query(lib, &q));
         self.cache = Some((lib.revision, q, r.clone()));
+        self.generation += 1;
         r
+    }
+
+    /// Focus following by game ID (ACCESSIBILITY §2.1, UX-002): after the visible order
+    /// changed (sort, filter, search, removal), keep the cursor on its game or move it to the
+    /// nearest remaining one. Returns the new cursor when it moved to another game.
+    pub fn follow(&mut self, lib: &LibrarySnapshot) -> Option<GameId> {
+        let r = self.result(lib);
+        if self.order.0 == self.generation {
+            return None;
+        }
+        let ids: Vec<GameId> = r.items.iter().map(|i| lib.games[*i as usize].id).collect();
+        let next = crate::input::focus::follow(self.selected, &self.order.1, &ids);
+        self.order = (self.generation, ids);
+        if next != self.selected && self.selected.is_some() {
+            self.selected = next;
+            return next;
+        }
+        None
     }
 
     /// Indices into `lib.games` of the games to show, in display order.

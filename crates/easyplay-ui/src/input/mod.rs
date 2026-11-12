@@ -2,5 +2,7 @@
 //! ACCESSIBILITY.
 
 pub mod dnd;
+pub mod focus;
+pub mod gamepad;
 pub mod picker;
 pub mod shortcuts;

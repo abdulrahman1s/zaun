@@ -131,7 +131,10 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         return;
     }
 
+    theme::set_controller_mode(&ctx, state.controller);
+    restore_card_focus(state);
     handle_global_keys(ui, state, env);
+    handle_pad(&ctx, state, env);
     host_banners(state, env);
     super::debug::banners(state, env);
     super::debug::shortcuts(&ctx, state, env);
@@ -141,6 +144,9 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
 
     let window_w = ctx.content_rect().width();
     let route = state.nav.current();
+    if state.controller {
+        pad_footer(ui, route);
+    }
     if route.has_sidebar() {
         let collapsed = sidebar_collapsed(state, window_w);
         let full_w = if window_w >= layout::WIDE_FROM {
@@ -164,9 +170,16 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
             });
     }
 
+    // Route change: the content cross-fades in (USER_EXPERIENCE §10).
+    let route_in = theme::motion::appear(
+        &ctx,
+        Id::unique(("route", route)),
+        theme.motion.fade(Dur::Base),
+    );
     CentralPanel::default()
         .frame(Frame::NONE.fill(p.bg_base))
         .show(ui, |ui| {
+            ui.multiply_opacity(route_in);
             let margin = if window_w < layout::COMPACT_BELOW {
                 layout::PAGE_MARGIN_COMPACT
             } else {
@@ -207,6 +220,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
 
     show_overlays(&ctx, state, env);
     drop_zone(&ctx, state, env);
+    announce_toasts(&ctx, state);
     crate::a11y::Announcer::show(ui);
     let out = toast::show(&ctx, &mut state.toasts, env.mono, 0.0);
     for (_, key) in out.actions {
@@ -214,6 +228,138 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
             env.bridge.send(cmd);
         }
     }
+}
+
+/// Each toast is announced once, politely, when it appears (ACCESSIBILITY §4.3).
+fn announce_toasts(ctx: &egui::Context, state: &mut UiState) {
+    for t in state.toasts.visible() {
+        if state.announced_toast.is_none_or(|last| t.id > last) {
+            crate::a11y::Announcer::announce(ctx, t.text.clone(), crate::a11y::Politeness::Polite);
+            state.announced_toast = Some(t.id);
+        }
+    }
+}
+
+/// After a game page, focus is on the card that was opened (ACCESSIBILITY §2.1).
+fn restore_card_focus(state: &mut UiState) {
+    let route = state.nav.current();
+    if let (Route::Library, Some(Route::Game(id))) = (route, state.prev_route) {
+        state.library.selected = Some(id);
+        state.pending_focus = Some(id);
+    }
+    state.prev_route = Some(route);
+}
+
+/// Controller intents that are application actions (USER_EXPERIENCE §5.3).
+fn handle_pad(ctx: &egui::Context, state: &mut UiState, env: &mut Env<'_>) {
+    use crate::input::gamepad::NavIntent;
+    let route = state.nav.current();
+    let free = state.nav.overlays().is_empty()
+        && state.library.menu.is_none()
+        && !egui::Popup::is_any_open(ctx);
+    // Entering controller mode: focus on the cursor's card (UF-15 step 2).
+    if std::mem::take(&mut state.pad_entered)
+        && free
+        && route == Route::Library
+        && ctx.memory(|m| m.focused()).is_none()
+    {
+        let lib = env.bridge.library().clone();
+        let v = state.library.visible(&lib);
+        let ids: Vec<_> = v.iter().map(|i| lib.games[*i as usize].id).collect();
+        let target = state
+            .library
+            .selected
+            .filter(|g| ids.contains(g))
+            .or_else(|| ids.first().copied());
+        state.library.selected = target;
+        state.pending_focus = target;
+    }
+    for intent in std::mem::take(&mut state.pad_actions) {
+        if !free {
+            continue;
+        }
+        match intent {
+            NavIntent::Favorite => on_action(state, env, route, Action::Favorite),
+            NavIntent::ContextMenu => on_action(state, env, route, Action::ContextMenu),
+            NavIntent::FocusSearch if route == Route::Library => state.focus_search = true,
+            NavIntent::PrevGroup | NavIntent::NextGroup => {
+                let fwd = intent == NavIntent::NextGroup;
+                if route == Route::Library {
+                    cycle_collection(state, env, fwd);
+                } else {
+                    let a = if fwd {
+                        Action::NextTab
+                    } else {
+                        Action::PrevTab
+                    };
+                    on_action(state, env, route, a);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// LB/RB in the library: the previous/next collection shown in the sidebar.
+fn cycle_collection(state: &mut UiState, env: &mut Env<'_>, fwd: bool) {
+    use crate::vm::library::{CollectionExt, FIXED, count};
+    let lib = env.bridge.library().clone();
+    let mut all: Vec<_> = FIXED
+        .into_iter()
+        .filter(|c| !c.conditional() || count(&lib, *c) > 0)
+        .collect();
+    all.extend(
+        lib.tags
+            .iter()
+            .map(|t| easyplay_core::library::Collection::Tag(t.id)),
+    );
+    let n = all.len();
+    let i = all
+        .iter()
+        .position(|c| *c == state.library.collection)
+        .unwrap_or(0);
+    let j = if fwd { (i + 1) % n } else { (i + n - 1) % n };
+    state.library.set_collection(all[j]);
+    // Focus moves to the first card of the new collection.
+    state.library.selected = None;
+    let v = state.library.visible(&lib);
+    let first = v.first().map(|i| lib.games[*i as usize].id);
+    state.library.selected = first;
+    state.pending_focus = first;
+}
+
+/// Button hints at the bottom of the window in controller mode (UF-15).
+fn pad_footer(ui: &mut Ui, route: Route) {
+    let hints: &[(&str, &str)] = if route == Route::Library {
+        &strings::a11y::PAD_HINTS
+    } else {
+        &strings::a11y::PAD_HINTS_PAGE
+    };
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let resp = Panel::bottom("controller_hints")
+        .exact_size(layout::TOOLBAR_H - space::S3)
+        .show_separator_line(true)
+        .frame(
+            Frame::NONE
+                .fill(p.bg_surface)
+                .inner_margin(egui::Margin::symmetric(layout::PAGE_MARGIN as i8, 0)),
+        )
+        .show(ui, |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = space::S2;
+                for (button, what) in hints.iter().rev() {
+                    ui.label(Type::Body.rich(*what).color(p.text_secondary));
+                    crate::widgets::key_hint::key_hint(ui, button);
+                    ui.add_space(space::S3);
+                }
+            });
+        });
+    crate::a11y::labelled(
+        ui.ctx(),
+        resp.response.id,
+        egui::Role::ContentInfo,
+        &strings::a11y::pad_hints_spoken(hints),
+    );
 }
 
 fn banner_action(state: &mut UiState, key: &str) {
@@ -499,11 +645,17 @@ fn drop_zone(ctx: &egui::Context, state: &mut UiState, env: &mut Env<'_>) {
     let p = theme.palette.clone();
     let rect = ctx.content_rect();
     let refuse = payload == Payload::Unsupported;
+    let shown = theme::motion::appear(
+        ctx,
+        Id::unique("easyplay.dropzone.in"),
+        theme.motion.fade(Dur::Out),
+    );
     egui::Area::new(Id::unique("easyplay.dropzone"))
         .order(egui::Order::Foreground)
         .fixed_pos(rect.min)
         .interactable(false)
         .show(ctx, |ui| {
+            ui.multiply_opacity(shown);
             let painter = ui.painter();
             painter.rect_filled(rect, 0.0, theme::palette::fade(p.backdrop, 0.85));
             let inner = rect.shrink(space::S6);

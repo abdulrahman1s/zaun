@@ -65,6 +65,32 @@ impl Motion {
     }
 }
 
+/// Opacity (0 → 1) of something that appears: a sheet, a dialog, a toast, the drop zone,
+/// a route's content. It starts at 0 whenever `id` was not shown in the previous pass and
+/// reaches 1 after `secs` (`ease.standard`); with `secs` 0 it is 1 at once. egui's own
+/// `animate_bool` starts at its target, so a plain call would never fade in.
+pub fn appear(ctx: &egui::Context, id: egui::Id, secs: f32) -> f32 {
+    let pass = ctx.cumulative_pass_nr();
+    let key = id.with("appear.seen");
+    let (last, generation) = ctx
+        .data(|d| d.get_temp::<(u64, u64)>(key))
+        .unwrap_or((0, 0));
+    let fresh = last == 0 || last + 1 < pass;
+    let generation = generation + u64::from(fresh);
+    ctx.data_mut(|d| d.insert_temp(key, (pass.max(1), generation)));
+    if secs <= 0.0 {
+        return 1.0;
+    }
+    let anim = id.with(("appear", generation));
+    if fresh {
+        // Seed the animation at 0; the next pass animates towards 1.
+        ctx.animate_bool_with_time(anim, false, secs);
+        ctx.request_repaint();
+        return 0.0;
+    }
+    ctx.animate_bool_with_time_and_easing(anim, true, secs, ease_standard)
+}
+
 /// A cubic Bézier easing `cubic-bezier(x1, y1, x2, y2)` evaluated at `t` (0–1).
 pub fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -122,6 +148,38 @@ mod tests {
         let m = Motion::default();
         assert_eq!(m.movement(Dur::Base), 0.160);
         assert_eq!(m.fade(Dur::Page), 0.280);
+    }
+
+    #[test]
+    fn appear_fades_in_from_zero_and_again_after_hiding() {
+        let ctx = egui::Context::default();
+        let id = egui::Id::unique("sheet");
+        let run = |show: bool, dt: f32| {
+            let mut out = None;
+            let input = egui::RawInput {
+                predicted_dt: dt,
+                ..Default::default()
+            };
+            let mut full = ctx.run_ui(input, |ui| {
+                if show {
+                    out = Some(appear(ui.ctx(), id, Dur::Base.secs()));
+                }
+            });
+            full.textures_delta.clear();
+            out
+        };
+        assert_eq!(run(true, 0.05), Some(0.0));
+        let mid = run(true, 0.05).unwrap();
+        assert!(mid > 0.0 && mid < 1.0, "{mid}");
+        for _ in 0..10 {
+            run(true, 0.05);
+        }
+        assert_eq!(run(true, 0.05), Some(1.0));
+        // Hidden for a pass: the next appearance fades in again.
+        run(false, 0.05);
+        assert_eq!(run(true, 0.05), Some(0.0));
+        // Reduced motion with no fade: visible at once.
+        assert_eq!(appear(&ctx, egui::Id::unique("x"), 0.0), 1.0);
     }
 
     #[test]
