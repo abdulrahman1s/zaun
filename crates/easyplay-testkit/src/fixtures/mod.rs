@@ -6,9 +6,9 @@ pub mod games;
 pub mod host_trees;
 pub mod hosts;
 pub mod images;
-pub mod policies;
 pub mod lnk;
 pub mod pe;
+pub mod policies;
 pub mod runtime_trees;
 
 use std::path::Path;
