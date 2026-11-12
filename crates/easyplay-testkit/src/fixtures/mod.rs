@@ -4,6 +4,8 @@
 
 pub mod games;
 pub mod host_trees;
+pub mod lnk;
+pub mod pe;
 pub mod runtime_trees;
 
 use std::path::Path;

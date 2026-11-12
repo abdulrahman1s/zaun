@@ -1,0 +1,40 @@
+# cargo-fuzz targets for the parsers of untrusted input (THREAT_MODEL T-18, IDENT-002,
+# IDENT-006). Not a workspace member and not built in CI:
+#   cargo install cargo-fuzz && cargo +nightly fuzz run pe_inspect
+[package]
+name = "easyplay-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "GPL-3.0-or-later"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+easyplay-core = { path = "../crates/easyplay-core" }
+
+# Keep this crate out of the main workspace.
+[workspace]
+
+[[bin]]
+name = "pe_inspect"
+path = "fuzz_targets/pe_inspect.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lnk_parse"
+path = "fuzz_targets/lnk_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "steam_appid"
+path = "fuzz_targets/steam_appid.rs"
+test = false
+doc = false
+bench = false
