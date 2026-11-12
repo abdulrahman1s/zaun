@@ -50,9 +50,9 @@ fn help_lists_verbs_but_not_supervise() {
 fn verbs_report_not_available_yet() {
     let env = TestEnv::new().unwrap();
     for (args, task) in [
-        (&["list"][..], "CLI-002"),
+        (&["export", "x"][..], "CLI-003"),
         (&["launch", "x", "--exe", "dx12"][..], "CLI-003"),
-        (&["open", "/tmp/x.exe"][..], "DESKTOP-002"),
+        (&["runtimes", "verify"][..], "CLI-002"),
     ] {
         let out = run(&env, args);
         assert_eq!(out.status.code(), Some(1), "{args:?}");
@@ -64,6 +64,21 @@ fn verbs_report_not_available_yet() {
     let log = std::fs::read_to_string(env.state().join("logs/easyplay.log")).unwrap();
     assert!(log.contains(" cli["), "{log}");
     assert!(log.contains("command failed"));
+}
+
+/// Library verbs on an empty library (the service's headless flows).
+#[test]
+fn library_verbs_on_an_empty_library() {
+    let env = TestEnv::new().unwrap();
+    let out = run(&env, &["list"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(String::from_utf8(out.stdout).unwrap().contains("No games"));
+    let out = run(&env, &["list", "--json"]);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["games"].as_array().map(Vec::len), Some(0));
+    let out = run(&env, &["show", "nothing"]);
+    assert_eq!(out.status.code(), Some(1));
 }
 
 /// M6 session verbs on an empty library: recovery runs, nothing is running.

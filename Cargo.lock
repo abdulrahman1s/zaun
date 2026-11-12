@@ -1198,6 +1198,7 @@ dependencies = [
  "easyplay-core",
  "easyplay-testkit",
  "easyplay-ui",
+ "egui_kittest",
  "jiff",
  "rustix 1.1.6",
  "serde",

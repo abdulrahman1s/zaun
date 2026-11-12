@@ -36,6 +36,7 @@ sha2.workspace = true
 
 [dev-dependencies]
 easyplay-testkit.workspace = true
+egui_kittest = { workspace = true, features = ["eframe"] }
 tempfile.workspace = true
 
 [lints]

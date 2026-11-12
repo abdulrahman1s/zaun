@@ -258,7 +258,7 @@ pub fn load_game(
     Ok(game)
 }
 
-fn group_name(fs: &dyn Fs, gid: u32, fallback: &str) -> String {
+pub(crate) fn group_name(fs: &dyn Fs, gid: u32, fallback: &str) -> String {
     let Ok(bytes) = fs.read_follow(Path::new("/etc/group"), 1 << 20) else {
         return fallback.to_owned();
     };
@@ -292,7 +292,7 @@ pub fn locate_init(over: Option<&Path>, exe_dir: Option<&Path>, fs: &dyn Fs) -> 
     })
 }
 
-fn init_binary(over: Option<&Path>, fs: &dyn Fs) -> PathBuf {
+pub(crate) fn init_binary(over: Option<&Path>, fs: &dyn Fs) -> PathBuf {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(PathBuf::from));
