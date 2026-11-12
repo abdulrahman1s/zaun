@@ -1175,6 +1175,8 @@ dependencies = [
  "easyplay-core",
  "easyplay-testkit",
  "easyplay-ui",
+ "serde",
+ "serde_json",
  "signal-hook",
  "tracing",
 ]

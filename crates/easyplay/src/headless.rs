@@ -3,10 +3,18 @@
 
 use easyplay_core::Error;
 
-use crate::cli::Command;
+use crate::cli::{Command, RuntimesCommand};
+use crate::host_verbs;
 
 /// Run a verb headlessly.
 pub fn run(command: &Command) -> Result<(), Error> {
+    match command {
+        Command::Doctor { json } => return host_verbs::doctor(*json),
+        Command::Runtimes {
+            command: RuntimesCommand::List,
+        } => return host_verbs::runtimes_list(),
+        _ => {}
+    }
     let task = match command {
         Command::List { .. }
         | Command::Show { .. }
