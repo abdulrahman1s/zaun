@@ -807,6 +807,16 @@ impl Library {
         self.publish(s);
     }
 
+    /// Dominant-cover-colour overlay (no database write).
+    pub fn set_accents(&mut self, updates: &[(GameId, Option<[u8; 3]>)]) {
+        if updates.is_empty() {
+            return;
+        }
+        self.overlays.set_accents(updates);
+        let s = self.snapshot.with_overlays(&self.overlays, self.now());
+        self.publish(s);
+    }
+
     // ---- orphans (LIB-012) -------------------------------------------------------------
 
     /// `games/<id>/` directories without a row (soft-deleted rows still own theirs).

@@ -83,6 +83,18 @@ pub enum GameEdit {
     /// Switch to a preset, keeping folder grants, game-folder access and save location
     /// (`sandbox::apply_preset` with the current host facts).
     Preset(crate::model::BasePreset),
+    /// Back to the name derived from the primary program.
+    ResetName,
+    /// Entry kind (game, installer, tool).
+    Kind(crate::model::EntryKind),
+    /// A program's role; `Primary` demotes the current primary to `Alternate`.
+    ExeRole(ExecutableId, crate::model::ExeRole),
+    /// A program's label (`None` clears it).
+    ExeLabel(ExecutableId, Option<String>),
+    /// A program's own arguments (`None` = the game's arguments).
+    ExeArgs(ExecutableId, Option<Vec<String>>),
+    /// Remove a program (not the primary).
+    RemoveExe(ExecutableId),
 }
 
 #[derive(Clone, Debug)]
@@ -154,6 +166,51 @@ pub enum Command {
         /// Reply ID.
         reply_to: QueryId,
     },
+    /// Delete all play history (STATISTICS §9).
+    ClearStatistics,
+    /// Delete one game's play history.
+    ResetGameStatistics {
+        /// The game.
+        id: GameId,
+    },
+    /// Delete one ended session from history.
+    RemoveSession {
+        /// The session.
+        id: SessionId,
+    },
+    /// Add a program to a game (`AddExecutable`).
+    AddExecutable {
+        /// The game.
+        id: GameId,
+        /// The file.
+        path: PathBuf,
+        /// Its role.
+        role: crate::model::ExeRole,
+    },
+    /// Point a moved program at its new place (*Locate…*, LOGIC_SPECS §8). `exe` defaults
+    /// to the primary.
+    LocateExecutable {
+        /// The game.
+        id: GameId,
+        /// The program.
+        exe: Option<ExecutableId>,
+        /// The new path.
+        new_path: PathBuf,
+    },
+    /// List the programs in a folder (GAME_LIBRARY §11); answered with `QueryResult::Folder`.
+    ScanFolder {
+        /// The folder.
+        folder: PathBuf,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// Measure the private Windows storage; answered with `QueryResult::PrefixSize`.
+    MeasurePrefix {
+        /// The game.
+        id: GameId,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
     // ---- artwork
     /// Import artwork for one slot. `ArtSource::SteamCdn(0)` means "find the Steam app ID"
     /// (the chain of ADR-0018; only with `artwork.online = "steam"`).
@@ -179,6 +236,19 @@ pub enum Command {
         exe: Option<ExecutableId>,
         /// Where it was requested.
         origin: LaunchOrigin,
+    },
+    /// Cancel a launch before its game starts (LOGIC_SPECS §3 "Cancellation"); from
+    /// `Starting` on it stops the session.
+    CancelLaunch {
+        /// The game.
+        id: GameId,
+    },
+    /// Run a tool in the game's private storage (SVC-005, a `Tool` session).
+    RunTool {
+        /// The game.
+        id: GameId,
+        /// The tool.
+        tool: crate::model::Tool,
     },
     /// Stop a session (always accepted, idempotent; LOGIC_SPECS §6).
     StopSession {
@@ -247,6 +317,15 @@ impl Command {
             Command::UpdateGame { .. } => "update_game",
             Command::LoadGame { .. } => "load_game",
             Command::QueryStats { .. } => "query_stats",
+            Command::ClearStatistics => "clear_statistics",
+            Command::ResetGameStatistics { .. } => "reset_game_statistics",
+            Command::RemoveSession { .. } => "remove_session",
+            Command::AddExecutable { .. } => "add_executable",
+            Command::LocateExecutable { .. } => "locate_executable",
+            Command::ScanFolder { .. } => "scan_folder",
+            Command::MeasurePrefix { .. } => "measure_prefix",
+            Command::CancelLaunch { .. } => "cancel_launch",
+            Command::RunTool { .. } => "run_tool",
             Command::ImportArtwork { .. } => "import_artwork",
             Command::FetchOnlineArtwork { .. } => "fetch_online_artwork",
             Command::Launch { .. } => "launch",

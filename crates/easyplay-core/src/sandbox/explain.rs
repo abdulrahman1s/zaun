@@ -590,6 +590,283 @@ fn reason_of(policy: &SandboxPolicy, field: &PolicyField) -> String {
         .unwrap_or_default()
 }
 
+// ---- Explanation from a policy alone ------------------------------------------------------
+
+/// What [`explain_policy`] needs about the game and the user: the parts of a
+/// [`SandboxContext`](super::SandboxContext) that change the statements. Everything else (session
+/// directories, the resolved runtime, `umu-run`, the init shim) is synthesised.
+#[derive(Clone, Copy)]
+pub struct PolicyContext<'a> {
+    /// The game (a draft uses any stable ID).
+    pub game: crate::ids::GameId,
+    /// Game folder; `None` for a loose program.
+    pub root: Option<&'a Path>,
+    /// The program.
+    pub exe: &'a Path,
+    /// Real home.
+    pub home: &'a Path,
+    /// User ID.
+    pub uid: u32,
+    /// Primary group ID.
+    pub gid: u32,
+    /// User name.
+    pub user_name: &'a str,
+    /// Primary group name.
+    pub group_name: &'a str,
+    /// EasyPlay's locations.
+    pub paths: &'a crate::paths::AppPaths,
+    /// The game's launch configuration (working folder, compatibility options, variables).
+    pub launch: &'a crate::model::LaunchConfig,
+    /// Global user variables.
+    pub global_env: &'a [crate::model::EnvVar],
+    /// The launcher's environment.
+    pub host_env: &'a BTreeMap<String, String>,
+    /// XDG user directories.
+    pub user_dirs: &'a [(UserDir, PathBuf)],
+    /// Other games' folders.
+    pub other_game_roots: &'a [PathBuf],
+    /// Mount table.
+    pub mounts: &'a crate::fsx::MountTable,
+    /// Existence checks (`stat`, `realpath`). Directory listings are never made: the breadth
+    /// scan of a broad grant is not part of an explanation (it runs when the policy is saved).
+    pub fs: &'a dyn crate::fsx::Fs,
+    /// Developer Mode is on.
+    pub developer_mode: bool,
+    /// A seccomp program can be built.
+    pub seccomp_available: bool,
+    /// The runtime isolation the launch would use.
+    pub isolation: crate::model::RuntimeIsolationMode,
+}
+
+/// A policy explained without a launch: statements and validation issues.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PolicyExplanation {
+    /// The statements `explain(plan)` gives for the plan of this policy.
+    pub statements: Vec<AccessStatement>,
+    /// Validation and plan issues (blocking ones included).
+    pub issues: Vec<super::PolicyIssue>,
+}
+
+/// The synthetic runtime directory's name under the store.
+const EXPLAIN_RUNTIME: &str = "explain";
+
+/// Read-only view for planning without a launch: no directory is listed (the synthetic
+/// runtime is empty, a breadth scan sees nothing) and the synthetic runtime exists.
+struct ExplainFs<'a> {
+    inner: &'a dyn crate::fsx::Fs,
+    runtime: PathBuf,
+}
+
+impl ExplainFs<'_> {
+    fn refuse<T>(path: &Path) -> crate::fsx::FsResult<T> {
+        Err(crate::fsx::FsError::new(
+            crate::fsx::FsOp::Write,
+            path,
+            crate::fsx::FsErrorKind::ReadOnly,
+        ))
+    }
+}
+
+impl crate::fsx::Fs for ExplainFs<'_> {
+    fn metadata(&self, path: &Path) -> crate::fsx::FsResult<crate::fsx::Metadata> {
+        self.inner.metadata(path)
+    }
+    fn metadata_follow(&self, path: &Path) -> crate::fsx::FsResult<crate::fsx::Metadata> {
+        self.inner.metadata_follow(path)
+    }
+    fn read_link(&self, path: &Path) -> crate::fsx::FsResult<PathBuf> {
+        self.inner.read_link(path)
+    }
+    fn read(&self, path: &Path, limit: u64) -> crate::fsx::FsResult<Vec<u8>> {
+        self.inner.read(path, limit)
+    }
+    fn read_follow(&self, path: &Path, limit: u64) -> crate::fsx::FsResult<Vec<u8>> {
+        self.inner.read_follow(path, limit)
+    }
+    fn read_range(&self, path: &Path, offset: u64, len: usize) -> crate::fsx::FsResult<Vec<u8>> {
+        self.inner.read_range(path, offset, len)
+    }
+    fn open_read(&self, path: &Path) -> crate::fsx::FsResult<Box<dyn std::io::Read + Send>> {
+        self.inner.open_read(path)
+    }
+    fn read_dir(&self, _path: &Path) -> crate::fsx::FsResult<Vec<crate::fsx::DirEntry>> {
+        Ok(Vec::new())
+    }
+    fn canonicalize(&self, path: &Path) -> crate::fsx::FsResult<PathBuf> {
+        self.inner.canonicalize(path)
+    }
+    fn create_dir(&self, path: &Path, _mode: u32) -> crate::fsx::FsResult<()> {
+        Self::refuse(path)
+    }
+    fn create_dir_all(&self, path: &Path, _mode: u32) -> crate::fsx::FsResult<()> {
+        Self::refuse(path)
+    }
+    fn write_new(&self, path: &Path, _data: &[u8], _mode: u32) -> crate::fsx::FsResult<()> {
+        Self::refuse(path)
+    }
+    fn atomic_write(&self, path: &Path, _data: &[u8], _mode: u32) -> crate::fsx::FsResult<()> {
+        Self::refuse(path)
+    }
+    fn rename(&self, from: &Path, _to: &Path) -> crate::fsx::FsResult<()> {
+        Self::refuse(from)
+    }
+    fn remove_file(&self, path: &Path) -> crate::fsx::FsResult<()> {
+        Self::refuse(path)
+    }
+    fn remove_dir(&self, path: &Path) -> crate::fsx::FsResult<()> {
+        Self::refuse(path)
+    }
+    fn symlink(&self, _target: &Path, link: &Path) -> crate::fsx::FsResult<()> {
+        Self::refuse(link)
+    }
+    fn set_mode(&self, path: &Path, _mode: u32) -> crate::fsx::FsResult<()> {
+        Self::refuse(path)
+    }
+    fn free_space(&self, path: &Path) -> crate::fsx::FsResult<u64> {
+        self.inner.free_space(path)
+    }
+    fn reflink_supported(&self, a: &Path, b: &Path) -> crate::fsx::FsResult<bool> {
+        self.inner.reflink_supported(a, b)
+    }
+    fn exists(&self, path: &Path) -> bool {
+        path.starts_with(&self.runtime) || self.inner.exists(path)
+    }
+}
+
+/// Explain `policy` as it would run for a game, without a launch plan (the setup sheet and the
+/// Protection tab, SCREEN_SPECS §6). The policy is planned for a Game session with a synthetic
+/// runtime, session and `umu-run`, then [`explain`]ed: for the same policy, game and host the
+/// statements equal those of the real launch plan (only their mount indices differ, since the
+/// runtime is not listed). When planning is blocked, the statements are those of the policy
+/// without the folders and exceptions the blocking issues name; `issues` lists everything.
+pub fn explain_policy(
+    policy: &SandboxPolicy,
+    ctx: &PolicyContext<'_>,
+    host: &crate::host::HostFacts,
+) -> PolicyExplanation {
+    use super::context::{GameContext, GamePaths, LaunchInputs, SandboxContext, SessionDirs};
+    use crate::model::{ResolvedRuntime, RuntimeOrigin, SessionKind, SlrVariant};
+
+    let variant = SlrVariant::Steamrt3;
+    let slr_dir = ctx.paths.umu_store_dir.join(EXPLAIN_RUNTIME);
+    let fs = ExplainFs {
+        inner: ctx.fs,
+        runtime: slr_dir.clone(),
+    };
+    let Ok(name) = crate::ids::RuntimeName::new(EXPLAIN_RUNTIME) else {
+        return PolicyExplanation::default();
+    };
+    let runtime = ResolvedRuntime {
+        name,
+        proton_path_host: ctx.paths.compat_tools_dir.join(EXPLAIN_RUNTIME),
+        proton_path_sandbox: ctx
+            .home
+            .join(".local/share/Steam/compatibilitytools.d")
+            .join(EXPLAIN_RUNTIME),
+        origin: RuntimeOrigin::Store,
+        slr_variant: variant,
+        slr_dir: slr_dir.clone(),
+        platform_dir: PathBuf::from("sniper_platform_explain"),
+        isolation: ctx.isolation,
+    };
+    let umu = host.umu.clone().unwrap_or_else(|| crate::host::UmuFacts {
+        path: PathBuf::from("/usr/bin/umu-run"),
+        version: None,
+        closure: Vec::new(),
+        wrapper: None,
+    });
+    let session = SessionDirs::new(
+        ctx.paths,
+        crate::ids::SessionId::from_uuid(uuid::Uuid::nil()),
+    );
+    let game_paths = GamePaths::new(ctx.paths, ctx.game);
+    let umu_args = [ctx.exe.as_os_str().to_owned()];
+    let init = ctx.paths.data_dir.join("easyplay-init");
+    let sandbox_ctx = SandboxContext {
+        kind: SessionKind::Game,
+        uid: ctx.uid,
+        gid: ctx.gid,
+        user_name: ctx.user_name,
+        group_name: ctx.group_name,
+        home: ctx.home,
+        game: Some(GameContext {
+            id: ctx.game,
+            private_home: &game_paths.private_home,
+            prefix: &game_paths.prefix,
+            overlay_upper: &game_paths.overlay_upper,
+            overlay_work: &game_paths.overlay_work,
+            root: ctx.root,
+            exe: ctx.exe,
+            umu_id: None,
+            store: None,
+            prefix_lock: &game_paths.prefix_lock,
+        }),
+        runtime: Some(&runtime),
+        proton_codename: None,
+        session: &session,
+        paths: ctx.paths,
+        init_binary: &init,
+        umu: &umu,
+        network_override: None,
+        launch: LaunchInputs {
+            working_dir: &ctx.launch.working_dir,
+            compat: &ctx.launch.compat,
+            global_env: ctx.global_env,
+            game_env: &ctx.launch.env,
+            umu_args: &umu_args,
+            verbose_log: false,
+        },
+        host_env: ctx.host_env,
+        install_id: "00000000000000000000000000000000",
+        developer_mode: ctx.developer_mode,
+        seccomp_available: ctx.seccomp_available,
+        user_dirs: ctx.user_dirs,
+        other_game_roots: ctx.other_game_roots,
+        mounts: ctx.mounts,
+        fs: &fs,
+    };
+    let synthetic = |i: &super::PolicyIssue| {
+        i.code == IssueCode::RuntimeLayout
+            && i.path.as_ref().is_some_and(|p| p.starts_with(&slr_dir))
+    };
+    match super::planner::plan(policy, &sandbox_ctx, host) {
+        Ok(plan) => PolicyExplanation {
+            statements: explain(&plan, policy),
+            issues: plan.issues.into_iter().filter(|i| !synthetic(i)).collect(),
+        },
+        Err(issues) => {
+            let issues: Vec<_> = issues.into_iter().filter(|i| !synthetic(i)).collect();
+            let named: Vec<&PathBuf> = issues
+                .iter()
+                .filter(|i| i.is_blocking())
+                .filter_map(|i| i.path.as_ref())
+                .collect();
+            let hit = |p: &Path| named.iter().any(|n| n.as_path() == p);
+            let mut reduced = policy.clone();
+            reduced
+                .folders
+                .retain(|g| !hit(&g.canonical) && !hit(&g.path));
+            reduced.exceptions.retain(|e| match e {
+                crate::model::PolicyException::ExtraReadOnlyPath {
+                    canonical, path, ..
+                } => !hit(canonical) && !hit(path),
+                crate::model::PolicyException::ExtraDevice { path, .. } => !hit(path),
+                _ => true,
+            });
+            if let crate::model::SaveDataLocation::External { dir } = &reduced.save_data
+                && hit(dir)
+            {
+                reduced.save_data = crate::model::SaveDataLocation::Internal;
+            }
+            let statements = match super::planner::plan(&reduced, &sandbox_ctx, host) {
+                Ok(plan) if reduced != *policy => explain(&plan, &reduced),
+                _ => Vec::new(),
+            };
+            PolicyExplanation { statements, issues }
+        }
+    }
+}
+
 /// Statements added and removed between two explanations (for the permissions editor).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StatementDiff {

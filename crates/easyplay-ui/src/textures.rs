@@ -29,6 +29,8 @@ pub enum ThumbSize {
     Cover480,
     /// 64 × 64 icon.
     Icon64,
+    /// 1280 × 720 banner (game page hero).
+    Hero,
 }
 
 impl ThumbSize {
@@ -38,6 +40,7 @@ impl ThumbSize {
             ThumbSize::Cover240 => [240, 360],
             ThumbSize::Cover480 => [480, 720],
             ThumbSize::Icon64 => [64, 64],
+            ThumbSize::Hero => [1280, 720],
         }
     }
 
@@ -204,6 +207,11 @@ impl<U: Uploader> TextureCache<U> {
         self.dominant.insert(art, color);
     }
 
+    /// The dominant colour known for `art` (from its thumbnail header or the snapshot).
+    pub fn dominant(&self, art: ArtKey) -> Option<Color32> {
+        self.dominant.get(&art).copied()
+    }
+
     /// Look up `key` for painting this frame; requests it when absent. `pin` keeps it from
     /// eviction for this frame (visible and prefetch rows).
     pub fn get(&mut self, key: TexKey, pin: bool, source: &dyn ArtSource) -> TexState {
@@ -345,6 +353,7 @@ pub mod disk {
             ThumbSize::Cover240 => CoreSize::Cover240,
             ThumbSize::Cover480 => CoreSize::Cover480,
             ThumbSize::Icon64 => CoreSize::Icon64,
+            ThumbSize::Hero => CoreSize::Hero1280,
         }
     }
 
@@ -353,6 +362,7 @@ pub mod disk {
             CoreSize::Cover240 => Some(ThumbSize::Cover240),
             CoreSize::Cover480 => Some(ThumbSize::Cover480),
             CoreSize::Icon64 => Some(ThumbSize::Icon64),
+            CoreSize::Hero1280 => Some(ThumbSize::Hero),
             CoreSize::Icon32 | CoreSize::Icon128 => None,
         }
     }

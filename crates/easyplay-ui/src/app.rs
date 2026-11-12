@@ -338,6 +338,7 @@ impl EasyPlayApp {
             path,
             game: None,
             running_at: None,
+            already_at: None,
             expanded: false,
         });
         self
@@ -437,6 +438,15 @@ impl EasyPlayApp {
                 {
                     q.running_at = Some(mono);
                     ctx.request_repaint_after(Duration::from_millis(600));
+                }
+                if let Some(q) = &mut s.quick
+                    && q.game == Some(game)
+                    && q.already_at.is_none()
+                    && matches!(&state, LaunchState::Failed(u)
+                        if u.code == easyplay_core::error::ErrorCode::SesAlreadyRunning)
+                {
+                    q.already_at = Some(mono);
+                    ctx.request_repaint_after(crate::screens::quick_launch::ALREADY_CLOSE);
                 }
                 if let Some(setup) = &mut s.setup
                     && setup.phase == (SetupPhase::Launching { game: None })
@@ -641,6 +651,9 @@ impl EasyPlayApp {
                 });
             }
             PickPurpose::FolderGrant(game) => s.shares.push((game, first)),
+            PickPurpose::RelocateFolder(game, old) => {
+                crate::screens::details::permissions::relocate_folder(s, game, &old, first);
+            }
             PickPurpose::SaveFolder(game) => {
                 let loc = SaveDataLocation::External { dir: first };
                 match game {
@@ -699,6 +712,7 @@ impl EasyPlayApp {
             }),
             PickPurpose::Locate(game) => self.bridge.send(UiCommand::LocateExecutable {
                 id: game,
+                exe: None,
                 new_path: first,
             }),
             PickPurpose::WorkingDir(game) => {

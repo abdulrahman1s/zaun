@@ -43,16 +43,19 @@ pub enum ThumbSize {
     Icon64,
     /// 128 × 128 icon.
     Icon128,
+    /// 1280 × 720 banner (the game page's hero image).
+    Hero1280,
 }
 
 impl ThumbSize {
     /// Every size.
-    pub const ALL: [ThumbSize; 5] = [
+    pub const ALL: [ThumbSize; 6] = [
         ThumbSize::Cover240,
         ThumbSize::Cover480,
         ThumbSize::Icon32,
         ThumbSize::Icon64,
         ThumbSize::Icon128,
+        ThumbSize::Hero1280,
     ];
 
     /// Box in pixels.
@@ -63,15 +66,16 @@ impl ThumbSize {
             ThumbSize::Icon32 => (32, 32),
             ThumbSize::Icon64 => (64, 64),
             ThumbSize::Icon128 => (128, 128),
+            ThumbSize::Hero1280 => (1280, 720),
         }
     }
 
-    /// The sizes generated for a slot (heroes are shown from the original).
+    /// The sizes generated for a slot.
     pub fn for_slot(slot: ArtSlot) -> &'static [ThumbSize] {
         match slot {
             ArtSlot::Cover => &[ThumbSize::Cover240, ThumbSize::Cover480],
             ArtSlot::Icon => &[ThumbSize::Icon32, ThumbSize::Icon64, ThumbSize::Icon128],
-            ArtSlot::Hero => &[],
+            ArtSlot::Hero => &[ThumbSize::Hero1280],
         }
     }
 
@@ -229,6 +233,23 @@ pub fn generate(
         }
     }
     Ok(out)
+}
+
+/// The dominant colour stored in the header of any existing thumbnail of `art_hash` (no
+/// decoding; `None` when no thumbnail carries one yet).
+pub fn stored_colour(fs: &dyn Fs, thumbs_dir: &Path, art_hash: &Sha256) -> Option<[u8; 3]> {
+    ThumbSize::ALL.iter().find_map(|&size| {
+        let p = thumb_path(
+            thumbs_dir,
+            &ThumbKey {
+                art_hash: *art_hash,
+                size,
+            },
+        );
+        fs.read(&p, THUMB_READ_LIMIT)
+            .ok()
+            .and_then(|b| read_colour_chunk(&b))
+    })
 }
 
 /// Read an existing thumbnail; `Ok(None)` when it is not on disk.

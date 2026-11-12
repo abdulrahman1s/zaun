@@ -589,3 +589,31 @@ pub const RESET_STATS: &str = "Reset statistics for this game…";
 pub fn layer_button(label: &str) -> String {
     format!("{LAYER}: {label}")
 }
+
+/// Folder row state when the folder is gone (SCREEN_SPECS_2 §9).
+pub const FOLDER_NOT_FOUND: &str = "Not found";
+/// Button on a missing folder row.
+pub const LOCATE_FOLDER: &str = "Locate…";
+
+/// Program menu item.
+pub const RENAME_LABEL: &str = "Rename label…";
+/// Program menu item.
+pub const PROGRAM_ARGS: &str = "Arguments for this program…";
+/// Inline editor field.
+pub const LABEL_FIELD: &str = "Label";
+/// Inline editor help.
+pub const LABEL_HELP: &str = "Shown next to the program. Leave empty for no label.";
+/// Inline editor field.
+pub const PROGRAM_ARGS_FIELD: &str = "Arguments for this program";
+/// Inline editor help.
+pub const PROGRAM_ARGS_HELP: &str =
+    "Used instead of the game's arguments when this program starts. Leave empty to use the game's.";
+/// Inline editor button.
+pub const SAVE_PROGRAM: &str = "Save";
+/// Inline editor button.
+pub const CANCEL_PROGRAM: &str = "Cancel";
+
+/// "Own arguments: -dx12".
+pub fn own_args(args: &str) -> String {
+    format!("Own arguments: {args}")
+}

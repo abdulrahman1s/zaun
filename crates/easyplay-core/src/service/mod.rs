@@ -6,6 +6,7 @@
 //! |---|---|
 //! | [`command`] | [`Command`] and its payload types |
 //! | [`event`] | [`Event`], [`Notice`], [`SetupContext`] |
+//! | [`explainer`] | policy explanations for the UI thread |
 //! | [`snapshot`] | [`SnapshotHub`], [`Swap`], [`ActiveSessions`] |
 //! | [`app_service`] | [`AppService`], [`ServiceDeps`], [`ServiceHandle`], the loop |
 //! | [`prompts`] | parked flows |
@@ -15,6 +16,7 @@
 pub mod app_service;
 pub mod command;
 pub mod event;
+pub mod explainer;
 pub mod flows;
 pub mod prompts;
 pub mod session_watch;

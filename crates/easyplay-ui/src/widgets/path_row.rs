@@ -15,8 +15,17 @@ use crate::theme::{self, Icon, Type, icons};
 pub struct PathRowResponse {
     /// The access choice changed.
     pub access_changed: bool,
-    /// Remove was activated.
+    /// Remove was activated (the button, or `Delete` while focus is in the row).
     pub removed: bool,
+    /// *Locate…* was activated (missing folders only).
+    pub locate: bool,
+}
+
+/// How a row is shown beyond name and access.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PathRowState<'a> {
+    /// The folder does not exist: "Not found" and *Locate…* (SCREEN_SPECS_2 §9 "Error").
+    pub missing: Option<(&'a str, &'a str)>,
 }
 
 /// One granted folder. `access` indexes `access_labels` (read-only / read and change).
@@ -34,6 +43,34 @@ pub fn path_row(
     access_labels: [&str; 2],
     remove_label: &str,
 ) -> PathRowResponse {
+    path_row_with(
+        ui,
+        icon,
+        name,
+        location,
+        full_path,
+        group_name,
+        access,
+        access_labels,
+        remove_label,
+        PathRowState::default(),
+    )
+}
+
+/// [`path_row`] with a [`PathRowState`]: `missing = Some((not_found, locate))` labels.
+#[allow(clippy::too_many_arguments)]
+pub fn path_row_with(
+    ui: &mut Ui,
+    icon: Icon,
+    name: &str,
+    location: &str,
+    full_path: &str,
+    group_name: &str,
+    access: &mut usize,
+    access_labels: [&str; 2],
+    remove_label: &str,
+    row: PathRowState<'_>,
+) -> PathRowResponse {
     let theme = theme::theme(ui.ctx());
     let p = theme.palette.clone();
     let mut out = PathRowResponse::default();
@@ -47,7 +84,14 @@ pub fn path_row(
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     ui.label(Type::BodyStrong.rich(name).color(p.text_primary));
-                    ui.label(Type::Caption.rich(location).color(p.text_secondary));
+                    match row.missing {
+                        Some((not_found, _)) => {
+                            ui.label(Type::Caption.rich(not_found).color(p.danger));
+                        }
+                        None => {
+                            ui.label(Type::Caption.rich(location).color(p.text_secondary));
+                        }
+                    }
                 })
                 .response
                 .on_hover_text(full_path);
@@ -57,6 +101,16 @@ pub fn path_row(
                         .clicked()
                     {
                         out.removed = true;
+                    }
+                    if let Some((_, locate)) = row.missing
+                        && ui
+                            .add(
+                                crate::widgets::button::Button::ghost(locate)
+                                    .size(crate::widgets::button::Size::Sm),
+                            )
+                            .clicked()
+                    {
+                        out.locate = true;
                     }
                     let opts = [
                         Segment {
@@ -76,5 +130,14 @@ pub fn path_row(
         )
         .response;
     a11y::labelled(ui.ctx(), resp.id, Role::Group, group_name);
+    // `Delete` removes the row whose control has keyboard focus.
+    let focus_inside = ui
+        .ctx()
+        .memory(|m| m.focused())
+        .and_then(|f| ui.ctx().read_response(f))
+        .is_some_and(|r| resp.rect.contains_rect(r.rect));
+    if focus_inside && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete)) {
+        out.removed = true;
+    }
     out
 }

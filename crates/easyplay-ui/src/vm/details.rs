@@ -279,6 +279,28 @@ pub struct DetailsVm {
     pub cover_menu: bool,
     /// Initial focus went to the Play pill.
     pub play_focused: bool,
+    /// A program's label or own arguments being edited inline (Launch options).
+    pub program_edit: Option<ProgramEdit>,
+}
+
+/// What is edited about one program.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProgramField {
+    /// Its label ("Settings").
+    Label,
+    /// Its own arguments (empty = the game's arguments).
+    Args,
+}
+
+/// An inline program edit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProgramEdit {
+    /// The program.
+    pub exe: easyplay_core::ids::ExecutableId,
+    /// The field.
+    pub field: ProgramField,
+    /// The text.
+    pub text: String,
 }
 
 /// The four ranges of the Activity tab and Statistics screen.

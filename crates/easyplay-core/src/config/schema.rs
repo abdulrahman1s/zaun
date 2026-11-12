@@ -189,6 +189,48 @@ pub struct Appearance {
     pub grid_density: GridDensity,
     /// Playtime on cards.
     pub show_playtime_on_cards: bool,
+    /// Widths of the library list's optional columns (absent = the default width).
+    pub list_column_widths: Vec<ColumnWidth>,
+}
+
+/// One entry of `appearance.list_column_widths`: `{ column = "last_played", width = 120 }`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ColumnWidth {
+    /// One of [`ColumnWidth::COLUMNS`].
+    pub column: String,
+    /// Width in points, [`ColumnWidth::MIN`]`..=`[`ColumnWidth::MAX`].
+    pub width: u32,
+}
+
+impl ColumnWidth {
+    /// The list's optional columns.
+    pub const COLUMNS: [&'static str; 6] = [
+        "protection",
+        "last_played",
+        "playtime",
+        "tags",
+        "layer",
+        "added",
+    ];
+    /// Narrowest width.
+    pub const MIN: u32 = 60;
+    /// Widest width.
+    pub const MAX: u32 = 360;
+
+    /// The preference value of `widths` (for a `PreferencePatch`).
+    pub fn to_value(widths: &[ColumnWidth]) -> toml::Value {
+        toml::Value::Array(
+            widths
+                .iter()
+                .map(|w| {
+                    let mut t = toml::map::Map::new();
+                    t.insert("column".into(), toml::Value::String(w.column.clone()));
+                    t.insert("width".into(), toml::Value::Integer(i64::from(w.width)));
+                    toml::Value::Table(t)
+                })
+                .collect(),
+        )
+    }
 }
 
 /// `[artwork]` (ADR-0018).
@@ -401,6 +443,7 @@ impl Default for Preferences {
                 library_view: LibraryView::Grid,
                 grid_density: GridDensity::Comfortable,
                 show_playtime_on_cards: true,
+                list_column_widths: Vec::new(),
             },
             artwork: ArtworkPrefs {
                 online: ArtworkOnline::Off,

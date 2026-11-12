@@ -178,6 +178,45 @@ fn collect(
     }
 }
 
+/// A detached game whose files are still to be collected (step 2 runs on the job pool).
+#[derive(Clone, Debug)]
+pub struct RemoveJob {
+    /// The game.
+    pub id: GameId,
+    /// Its name.
+    pub name: String,
+    /// The dialog options.
+    pub opts: RemoveOptions,
+    /// Save data lives inside the prefix.
+    pub internal_saves: bool,
+}
+
+/// What step 2 did on disk.
+#[derive(Debug)]
+pub struct RemoveFiles {
+    /// Where the save data went; an error aborts before anything is deleted.
+    pub saved_data: Result<Option<PathBuf>>,
+    /// Deletions that failed.
+    pub errors: Vec<Error>,
+}
+
+impl RemoveJob {
+    /// Removal, step 2 (any thread): keep the save data, then delete the private storage,
+    /// the artwork and the shortcuts.
+    pub fn run(&self, fs: &dyn Fs, paths: &AppPaths, hooks: &dyn RemoveHooks) -> RemoveFiles {
+        let saved_data = if self.opts.keep_save_data && self.internal_saves {
+            keep_save_data(fs, paths, self.id, &self.name)
+        } else {
+            Ok(None)
+        };
+        let mut errors = Vec::new();
+        if saved_data.is_ok() {
+            collect(fs, paths, self.id, &self.opts, hooks, &mut errors);
+        }
+        RemoveFiles { saved_data, errors }
+    }
+}
+
 impl Library {
     /// Remove a game. The caller has stopped it (LOGIC_SPECS §11 precondition) and holds the
     /// flow lock.
@@ -187,35 +226,51 @@ impl Library {
         opts: RemoveOptions,
         hooks: &dyn RemoveHooks,
     ) -> Result<RemoveReport> {
+        let job = self.begin_remove(id, opts)?;
+        let files = job.run(&*self.deps.fs.clone(), &self.deps.paths.clone(), hooks);
+        self.finish_remove(&job, files)
+    }
+
+    /// Removal, step 1 (service thread): detach the game (it leaves the library at once).
+    pub fn begin_remove(&mut self, id: GameId, opts: RemoveOptions) -> Result<RemoveJob> {
         let game: Game = self.game(id)?;
         let now = self.deps.clock.now();
-        // Detach.
         self.db.set_game_deleted(id, Some(now)).map_err(storage)?;
         self.refresh_game(id)?;
-        let fs = self.deps.fs.clone();
-        let paths = self.deps.paths.clone();
+        Ok(RemoveJob {
+            id,
+            name: game.name,
+            opts,
+            internal_saves: game.policy.save_data == SaveDataLocation::Internal,
+        })
+    }
+
+    /// Removal, step 3 (service thread): purge the rows when the files are gone, restore
+    /// the game when its save data could not be kept, or leave the soft-deleted row for the
+    /// start-up retry.
+    pub fn finish_remove(&mut self, job: &RemoveJob, files: RemoveFiles) -> Result<RemoveReport> {
+        let id = job.id;
         let mut report = RemoveReport {
-            name: game.name.clone(),
+            name: job.name.clone(),
             ..RemoveReport::default()
         };
-        // Collect: the save data first; failure aborts before anything is deleted.
-        if opts.keep_save_data && game.policy.save_data == SaveDataLocation::Internal {
-            match keep_save_data(&*fs, &paths, id, &game.name) {
-                Ok(kept) => report.saved_data = kept,
-                Err(e) => {
-                    self.db.set_game_deleted(id, None).map_err(storage)?;
-                    self.refresh_game(id)?;
-                    return Err(e);
-                }
+        match files.saved_data {
+            Ok(kept) => report.saved_data = kept,
+            Err(e) => {
+                self.db.set_game_deleted(id, None).map_err(storage)?;
+                self.refresh_game(id)?;
+                return Err(e);
             }
         }
-        collect(&*fs, &paths, id, &opts, hooks, &mut report.errors);
+        report.errors = files.errors;
         if !report.errors.is_empty() {
             tracing::warn!(game = %id, errors = report.errors.len(), "removal incomplete; retried at next start");
             return Ok(report);
         }
         // Purge.
-        self.db.purge_game(id, opts.keep_history).map_err(storage)?;
+        self.db
+            .purge_game(id, job.opts.keep_history)
+            .map_err(storage)?;
         self.exes.remove_game(id);
         report.complete = true;
         Ok(report)

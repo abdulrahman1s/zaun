@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use super::super::app_service::{AppService, Internal};
-use super::super::command::{LaunchOrigin, StopMode};
+use super::super::command::{LaunchOrigin, OpenOrigin, StopMode};
 use super::super::event::{Event, Notice};
 use super::super::prompts::Continuation;
 use super::super::session_watch::SessionPoll;
@@ -169,6 +169,9 @@ impl AppService {
     }
 
     pub(crate) fn on_launch_state(&mut self, game: GameId, launch: LaunchId, state: LaunchState) {
+        if self.flow.cancelled.contains(&launch) {
+            return;
+        }
         if let Some(tag) = tag_of(&state) {
             self.set_activity(game, Activity::Launching(tag));
             self.publish_library();
@@ -181,6 +184,9 @@ impl AppService {
     }
 
     pub(crate) fn on_launch_done(&mut self, d: LaunchDone) {
+        if self.settle_cancelled(d.game, d.launch, d.result.as_ref().ok()) {
+            return;
+        }
         self.lib.end_flow(d.game);
         self.launching.remove(&d.game);
         match d.result {
@@ -284,8 +290,18 @@ impl AppService {
                     None => self.fail(Error::new(ErrorCode::LibExeNotFound).with("game", game)),
                 }
             }
-            (Continuation::LaunchExeChanged { .. }, PromptAnswer::SetUpAsNew) => {
-                self.fail(Error::not_available("LIB-007 detach"));
+            (Continuation::LaunchExeChanged { game, exe, .. }, PromptAnswer::SetUpAsNew) => {
+                let path = self.lib.game(game).ok().and_then(|g| {
+                    match exe {
+                        Some(id) => g.executables.iter().find(|e| e.id == id),
+                        None => g.primary(),
+                    }
+                    .map(|e| e.canonical_path.clone())
+                });
+                match path {
+                    Some(p) => self.set_up_as_new(p, OpenOrigin::Picker),
+                    None => self.fail(Error::new(ErrorCode::LibExeNotFound).with("game", game)),
+                }
             }
             (Continuation::LaunchRuntime { game, exe, origin }, a) => {
                 let reference = match a {

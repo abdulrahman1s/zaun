@@ -84,6 +84,38 @@ pub enum Notice {
         /// The session.
         session: SessionId,
     },
+    /// Play history was deleted (`None` = all games).
+    StatisticsCleared {
+        /// The game.
+        game: Option<GameId>,
+        /// Sessions deleted.
+        sessions: u64,
+    },
+    /// One session was removed from history.
+    SessionRemoved {
+        /// The session.
+        session: SessionId,
+    },
+    /// A program was added to a game.
+    ProgramAdded {
+        /// The game.
+        game: GameId,
+    },
+    /// A program was found at its new place.
+    ProgramLocated {
+        /// The game.
+        game: GameId,
+    },
+    /// A tool started in the game's private storage.
+    ToolStarted {
+        /// The game.
+        game: GameId,
+    },
+    /// A launch was cancelled before the game started.
+    LaunchCancelled {
+        /// The game.
+        game: GameId,
+    },
 }
 
 /// The answer to a query command.
@@ -93,6 +125,15 @@ pub enum QueryResult {
     Game(Box<Game>),
     /// `Command::QueryStats`.
     Stats(StatsResult),
+    /// `Command::ScanFolder`.
+    Folder(crate::library::FolderScan),
+    /// `Command::MeasurePrefix`: bytes (and whether the walk visited everything).
+    PrefixSize {
+        /// Bytes of regular files.
+        bytes: u64,
+        /// The walk was complete.
+        complete: bool,
+    },
     /// The query failed.
     Failed(Box<UserError>),
 }

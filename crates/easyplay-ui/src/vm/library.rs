@@ -182,6 +182,23 @@ impl Column {
         }
     }
 
+    /// The name in `appearance.list_column_widths`.
+    pub fn pref_name(self) -> &'static str {
+        match self {
+            Column::Protection => "protection",
+            Column::LastPlayed => "last_played",
+            Column::Playtime => "playtime",
+            Column::Tags => "tags",
+            Column::Layer => "layer",
+            Column::Added => "added",
+        }
+    }
+
+    /// The column of a `appearance.list_column_widths` name.
+    pub fn from_pref_name(name: &str) -> Option<Self> {
+        Column::ALL.into_iter().find(|c| c.pref_name() == name)
+    }
+
     /// Default width in points.
     pub fn default_width(self) -> f32 {
         match self {
@@ -238,8 +255,10 @@ pub struct LibraryVm {
     pub anchor: Option<GameId>,
     /// Visible list columns.
     pub columns: Vec<Column>,
-    /// Column widths (persisted through preferences once a key exists).
+    /// Column widths (`appearance.list_column_widths`; read once, written after a drag).
     pub widths: std::collections::HashMap<Column, f32>,
+    /// The widths were read from the preferences.
+    pub widths_loaded: bool,
     /// The game whose context menu is open, and where.
     pub menu: Option<(GameId, egui::Pos2)>,
     /// A card or row had keyboard focus last frame (single-key shortcuts apply to it).
@@ -270,6 +289,7 @@ impl Default for LibraryVm {
                 Column::Tags,
             ],
             widths: Default::default(),
+            widths_loaded: false,
             menu: None,
             focused: false,
             cursor_rect: None,
@@ -435,6 +455,34 @@ impl LibraryVm {
     }
 
     /// Width of a list column.
+    /// Take the widths from the preferences (once).
+    pub fn load_widths(&mut self, prefs: &[easyplay_core::config::ColumnWidth]) {
+        if self.widths_loaded {
+            return;
+        }
+        self.widths_loaded = true;
+        for w in prefs {
+            if let Some(c) = Column::from_pref_name(&w.column) {
+                self.widths.insert(c, w.width as f32);
+            }
+        }
+    }
+
+    /// The widths as a preference value list.
+    pub fn width_prefs(&self) -> Vec<easyplay_core::config::ColumnWidth> {
+        Column::ALL
+            .into_iter()
+            .filter_map(|c| {
+                self.widths
+                    .get(&c)
+                    .map(|w| easyplay_core::config::ColumnWidth {
+                        column: c.pref_name().to_owned(),
+                        width: w.round() as u32,
+                    })
+            })
+            .collect()
+    }
+
     pub fn width(&self, c: Column) -> f32 {
         self.widths
             .get(&c)

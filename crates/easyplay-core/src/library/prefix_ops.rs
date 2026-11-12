@@ -167,9 +167,8 @@ impl Library {
     /// "Reset private Windows storage" (LOGIC_SPECS §12). The caller checked the game is
     /// not running and holds the flow lock.
     pub fn reset_prefix(&mut self, id: GameId, opts: ResetOptions) -> Result<ResetReport> {
-        let game = self.game(id)?;
+        let internal = self.reset_inputs(id)?;
         let now = self.deps.clock.now();
-        let internal = game.policy.save_data == SaveDataLocation::Internal;
         let report = reset_files(
             &*self.deps.fs,
             &self.deps.paths,
@@ -178,6 +177,21 @@ impl Library {
             internal,
             now.as_millis(),
         )?;
+        self.finish_reset(id)?;
+        Ok(report)
+    }
+
+    /// Whether the game's save data lives inside the prefix (input of [`reset_files`], which
+    /// the AppService runs on the job pool).
+    pub fn reset_inputs(&mut self, id: GameId) -> Result<bool> {
+        Ok(self.game(id)?.policy.save_data == SaveDataLocation::Internal)
+    }
+
+    /// The database part of a reset, after [`reset_files`] succeeded: the prefix is new and
+    /// untainted.
+    pub fn finish_reset(&mut self, id: GameId) -> Result<()> {
+        let game = self.game(id)?;
+        let now = self.deps.clock.now();
         let patch = GamePatch {
             prefix_prepared_with: Some(None),
             flags: Some(game.flags.difference(GameFlags::SUSPECTED_TAMPER)),
@@ -188,8 +202,7 @@ impl Library {
             tx.update_game(id, &patch, now).map_err(storage)?;
             Ok(())
         })?;
-        self.refresh_game(id)?;
-        Ok(report)
+        self.refresh_game(id)
     }
 }
 
