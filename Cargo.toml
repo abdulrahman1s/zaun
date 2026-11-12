@@ -125,6 +125,8 @@ disallowed_types = "deny"
 
 [profile.dev]
 opt-level = 1
+# Line tables keep backtraces useful while making test binaries several times smaller.
+debug = "line-tables-only"
 
 [profile.dev.package.image]
 opt-level = 3
