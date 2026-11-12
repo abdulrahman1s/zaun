@@ -10,11 +10,10 @@ use crate::{headless, run_gui, run_supervisor};
 /// Run the parsed command line; returns the exit code of a successful run.
 pub fn run(cli: Cli) -> Result<u8, Error> {
     match cli.command {
-        None => run_gui::run(Vec::new()).map(|()| exit::OK),
+        None => run_gui::run(Vec::new(), cli.preview).map(|()| exit::OK),
         Some(Command::Supervise { plan }) => run_supervisor::run(&plan),
-        Some(Command::Open { files }) if files.is_empty() => {
-            run_gui::run(Vec::new()).map(|()| exit::OK)
-        }
+        // Without instance forwarding (DESKTOP-002) `open` always becomes the GUI.
+        Some(Command::Open { files }) => run_gui::run(files, cli.preview).map(|()| exit::OK),
         Some(command) => headless::run(&command),
     }
 }

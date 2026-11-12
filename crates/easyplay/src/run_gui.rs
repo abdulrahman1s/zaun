@@ -1,23 +1,39 @@
 //! Construct the real implementations of every trait, start the AppService and call
-//! `easyplay_ui::run`. Never reachable from the supervisor path. Task UI-001.
+//! `easyplay_ui::run`. Never reachable from the supervisor path. Tasks UI-001, SVC-002.
 //!
-//! Until the AppService exists (SVC-002) the window runs on the UI crate's preview backend:
-//! a sample library with generated covers. Window geometry is read from `window.json` before
-//! the window opens and written by a background thread (PERSISTENCE §1). The renderer is
-//! `wgpu`, or `glow` when `EASYPLAY_RENDERER=glow` or when `wgpu` fails to start (V-301).
+//! The window runs on the application service (`easyplay_ui::service_backend`) with
+//! thumbnails from `artwork::ThumbService`. `--preview` or `EASYPLAY_PREVIEW=1` shows the UI
+//! crate's sample library with generated covers instead (no library is opened). The GUI
+//! holds `library.lock` shared for its lifetime (PERSISTENCE §6). Window geometry is read
+//! from `window.json` before the window opens and written by a background thread
+//! (PERSISTENCE §1). The renderer is `wgpu`, or `glow` when `EASYPLAY_RENDERER=glow` or when
+//! `wgpu` fails to start (V-301).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Sender, channel};
 
+use easyplay_core::artwork::ThumbService;
+use easyplay_core::artwork::thumbs::ThumbDeps;
 use easyplay_core::clock::{Clock, SystemClock};
 use easyplay_core::consts::ENV_RENDERER;
 use easyplay_core::fsx::{Fs, RealFs};
 use easyplay_core::paths::{AppPaths, PathEnv};
+use easyplay_core::service::{AppService, Command, OpenOrigin};
+use easyplay_core::storage::StorageError;
+use easyplay_core::storage::lock::{LibraryLock, LockMode};
 use easyplay_core::{Error, ErrorCode};
-use easyplay_ui::textures::synthetic;
+use easyplay_ui::app::ArtFactory;
+use easyplay_ui::bridge::Backend;
+use easyplay_ui::service_backend::ServiceBackend;
+use easyplay_ui::textures::{disk, synthetic};
 use easyplay_ui::theme::Appearance;
 use easyplay_ui::{Renderer, StartMode, UiDeps, WindowGeometry, WindowStore, demo};
+
+use crate::wiring::{self, Wiring};
+
+/// `EASYPLAY_PREVIEW=1`: the sample library instead of the real one.
+pub const ENV_PREVIEW: &str = "EASYPLAY_PREVIEW";
 use serde::{Deserialize, Serialize};
 
 /// `window.json` (PERSISTENCE §1).
@@ -107,11 +123,52 @@ fn utc_offset_seconds() -> i32 {
     jiff::Zoned::now().offset().seconds()
 }
 
-fn deps(window: WindowGeometry, store: Option<Box<dyn WindowStore>>, renderer: Renderer) -> UiDeps {
+/// What the window shows: the real service, or the preview.
+enum Source {
+    Service(Box<ServiceBackend>, Box<Wiring>),
+    Preview,
+}
+
+fn art_factory(w: &Wiring) -> ArtFactory {
+    let pool = Arc::clone(&w.jobs);
+    let fs = Arc::clone(&w.fs);
+    let codec = Arc::clone(&w.codec);
+    let thumbs_dir = w.paths.thumbs_dir.clone();
+    let index = Arc::clone(&w.art_index);
+    Box::new(move |ctx| {
+        let ctx = ctx.clone();
+        let service = ThumbService::new(ThumbDeps {
+            pool,
+            fs,
+            codec,
+            thumbs_dir,
+            index,
+            wake: Arc::new(move || ctx.request_repaint()),
+        });
+        Box::new(disk::ThumbSource::new(service))
+    })
+}
+
+fn deps(
+    source: Source,
+    window: WindowGeometry,
+    store: Option<Box<dyn WindowStore>>,
+    renderer: Renderer,
+) -> UiDeps {
     let clock: Arc<dyn Clock> = Arc::new(SystemClock::new());
     let now = clock.now();
+    let (backend, art): (Box<dyn Backend>, ArtFactory) = match source {
+        Source::Service(b, w) => (b, art_factory(&w)),
+        Source::Preview => (
+            Box::new(demo::DemoBackend::new(now)),
+            Box::new(|ctx| {
+                let ctx = ctx.clone();
+                Box::new(synthetic::Threaded::spawn(move || ctx.request_repaint()))
+            }),
+        ),
+    };
     UiDeps {
-        backend: Box::new(demo::DemoBackend::new(now)),
+        backend,
         clock,
         appearance: Appearance {
             ui_scale: window.ui_scale,
@@ -121,21 +178,57 @@ fn deps(window: WindowGeometry, store: Option<Box<dyn WindowStore>>, renderer: R
         window_store: store,
         utc_offset_s: utc_offset_seconds(),
         renderer,
-        art: Some(Box::new(|ctx| {
-            let ctx = ctx.clone();
-            Box::new(synthetic::Threaded::spawn(move || ctx.request_repaint()))
-        })),
+        art: Some(art),
     }
 }
 
-/// Start the GUI (optionally with files to open in the quick-launch layout).
-pub fn run(open: Vec<PathBuf>) -> Result<(), Error> {
-    if !open.is_empty() {
-        // Quick launch needs the AppService (SVC-003).
-        return Err(Error::not_available("SVC-003"));
+/// Start the service (or the preview) for one window.
+fn source(preview: bool, open: &[PathBuf]) -> Result<Source, Error> {
+    if preview {
+        return Ok(Source::Preview);
     }
+    let mut w = wiring::build()?;
+    let deps = w.take_deps()?;
+    let (handle, events) = AppService::start(deps)?;
+    if !open.is_empty() {
+        handle.send(Command::OpenPaths {
+            paths: open.to_vec(),
+            origin: OpenOrigin::FileManager,
+        });
+    }
+    Ok(Source::Service(
+        Box::new(ServiceBackend::new(handle, events)),
+        Box::new(w),
+    ))
+}
+
+fn preview_requested(env: &PathEnv, flag: bool) -> bool {
+    flag || env
+        .get(ENV_PREVIEW)
+        .and_then(|v| v.to_str())
+        .is_some_and(|v| matches!(v, "1" | "true" | "yes"))
+}
+
+/// Start the GUI (optionally with files to open).
+pub fn run(open: Vec<PathBuf>, preview: bool) -> Result<(), Error> {
     let env = PathEnv::from_process();
+    let preview = preview_requested(&env, preview);
     let paths = AppPaths::resolve(&env).ok();
+    // PERSISTENCE §6: shared for the GUI's lifetime; headless writers take it exclusively.
+    let _lock = match (&paths, preview) {
+        (Some(p), false) => {
+            RealFs::new().create_dir_all(&p.data_dir, 0o700)?;
+            Some(
+                LibraryLock::try_acquire(&p.library_lock, LockMode::Shared).map_err(
+                    |e| match e {
+                        StorageError::LockHeld => Error::new(ErrorCode::LibBusy),
+                        other => other.into(),
+                    },
+                )?,
+            )
+        }
+        _ => None,
+    };
     let window_file = paths.as_ref().map(|p| p.window_state_file.clone());
     let window = window_file
         .as_deref()
@@ -156,13 +249,19 @@ pub fn run(open: Vec<PathBuf>) -> Result<(), Error> {
         Renderer::Wgpu
     };
 
-    match easyplay_ui::run(StartMode::Library, deps(window, store(), first)) {
+    match easyplay_ui::run(
+        StartMode::Library,
+        deps(source(preview, &open)?, window, store(), first),
+    ) {
         Ok(()) => Ok(()),
         Err(e) if first == Renderer::Wgpu => {
             // V-301: fall back to GL. eframe keeps its event loop for a second run.
             tracing::warn!("wgpu renderer failed ({e}); retrying with glow");
-            easyplay_ui::run(StartMode::Library, deps(window, store(), Renderer::Glow))
-                .map_err(|e| Error::new(ErrorCode::HostNoDisplay).with("detail", e))
+            easyplay_ui::run(
+                StartMode::Library,
+                deps(source(preview, &open)?, window, store(), Renderer::Glow),
+            )
+            .map_err(|e| Error::new(ErrorCode::HostNoDisplay).with("detail", e))
         }
         Err(e) => Err(Error::new(ErrorCode::HostNoDisplay).with("detail", e)),
     }

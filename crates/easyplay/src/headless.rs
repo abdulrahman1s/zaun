@@ -1,11 +1,13 @@
 //! CLI verbs that work without a GUI. Calls the same `service::flows` as the GUI with a
 //! console prompt handler. Tasks CLI-002 (read-only verbs) and CLI-003 (mutating verbs).
-//! M6 provides `launch` (without `--exe`), `stop` and `status` ([`crate::session_verbs`]).
+//! M6 provides `launch` (without `--exe`), `stop` and `status` ([`crate::session_verbs`]);
+//! the service provides `add`, `remove`, `list` and `show` ([`crate::library_verbs`]) and
+//! `runtimes adopt`.
 
 use easyplay_core::Error;
 
 use crate::cli::{Command, LaunchArgs, RuntimesCommand, SandboxCommand, exit};
-use crate::{host_verbs, sandbox_print, session_verbs};
+use crate::{host_verbs, library_verbs, sandbox_print, session_verbs};
 
 /// Run a verb headlessly; returns the exit code.
 pub fn run(command: &Command) -> Result<u8, Error> {
@@ -26,6 +28,22 @@ pub fn run(command: &Command) -> Result<u8, Error> {
         }) => return session_verbs::launch(game, *wait, extra),
         Command::Stop { game, force } => return session_verbs::stop(game, *force),
         Command::Status { json } => return session_verbs::status(*json),
+        Command::Add {
+            file,
+            name,
+            preset,
+            no_launch,
+        } => return library_verbs::add(file, name.as_deref(), *preset, *no_launch),
+        Command::Remove { game, keep_storage } => {
+            return library_verbs::remove(game, *keep_storage);
+        }
+        Command::List { json, running, tag } => {
+            return library_verbs::list(*json, *running, tag.as_deref());
+        }
+        Command::Show { game, json } => return library_verbs::show(game, *json),
+        Command::Runtimes {
+            command: RuntimesCommand::Adopt { variant },
+        } => return host_verbs::runtimes_adopt(*variant),
         _ => {}
     }
     let task = match command {
@@ -38,6 +56,7 @@ pub fn run(command: &Command) -> Result<u8, Error> {
         Command::Launch(_)
         | Command::Stop { .. }
         | Command::Add { .. }
+        | Command::Remove { .. }
         | Command::Export { .. }
         | Command::Import { .. } => "CLI-003",
         Command::Open { .. } => "DESKTOP-002",

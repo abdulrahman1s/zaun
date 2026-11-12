@@ -9,11 +9,13 @@ mod dispatch;
 mod game_source;
 mod headless;
 mod host_verbs;
+mod library_verbs;
 mod panic;
 mod run_gui;
 mod run_supervisor;
 mod sandbox_print;
 mod session_verbs;
+mod wiring;
 
 use std::io::IsTerminal;
 use std::path::Path;
