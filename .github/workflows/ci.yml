@@ -1,0 +1,204 @@
+name: CI
+
+# Quality gates of TESTING_STRATEGY §11 that are not part of the release pipeline
+# (build-release.yml runs format, clippy, the workspace tests and the release build):
+# architecture rules, supply chain, MSRV, UI snapshots under software rendering, the
+# end-to-end suites under real bubblewrap, fuzz targets, benchmarks and coverage.
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  schedule:
+    # Nightly: coverage and the benchmark run on the default branch.
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # Line tables keep backtraces useful while making test binaries several times smaller.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+
+jobs:
+  architecture:
+    name: Architecture rules (ARCH-006)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Layering, UI imports, unsafe, colours, screen strings
+        run: scripts/ci/check-architecture.sh
+
+  deny:
+    name: cargo-deny (licences, bans, advisories, sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
+  msrv:
+    name: MSRV 1.95 (build and test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libudev-dev libxkbcommon-dev libwayland-dev libgl-dev
+      - name: Install Rust 1.95 (rust-version of the workspace)
+        run: |
+          rustup toolchain install 1.95 --profile minimal
+          rustup override set 1.95
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: msrv
+      - name: Build
+        run: cargo build --locked --workspace --all-targets
+      - name: Test (unit and integration; UI snapshot tests need a GPU adapter)
+        run: cargo test --locked --workspace --lib --bins
+
+  ui-snapshots:
+    name: UI tests and snapshots (software rendering, TEST-030)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install system packages (Mesa lavapipe for wgpu)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libudev-dev libxkbcommon-dev libwayland-dev libgl-dev \
+            mesa-vulkan-drivers libvulkan1
+      - name: Install Rust (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ui
+      - name: UI tests in debug with the UI-thread guard (PERF-002) and idle test (PERF-003)
+        env:
+          WGPU_BACKEND: vulkan
+        run: scripts/update-snapshots.sh --check
+      - name: Upload snapshot differences
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-diffs
+          path: |
+            crates/*/tests/snapshots/*.new.png
+            crates/*/tests/snapshots/*.diff.png
+          if-no-files-found: ignore
+
+  e2e:
+    name: End to end (real bubblewrap, TEST-010)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config bubblewrap libudev-dev libxkbcommon-dev libwayland-dev libgl-dev
+      # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor; bubblewrap
+      # is not setuid there. The runner is a throw-away VM, so the restriction is lifted
+      # for the job (users get an AppArmor profile instead, PKG-006).
+      - name: Allow unprivileged user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+      - name: Probe bwrap --unshare-user
+        run: |
+          bwrap --version
+          bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc --dev /dev -- true
+      - name: Install Rust (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: e2e
+      # The umu experiments (crates/easyplay/tests/e2e_experiments.rs, TEST-020) need a real
+      # umu-run, Proton and the Steam Linux Runtime; they run on a developer host
+      # (TESTING_STRATEGY §10.1) and skip here.
+      - name: e2e_sandbox, init shim, host probe, lifecycle, e2e_cli
+        env:
+          EASYPLAY_E2E: "1"
+        run: |
+          cargo test --locked -p easyplay-init
+          cargo test --locked -p easyplay-core --test e2e_sandbox --test host_e2e \
+            --test session_lifecycle
+          cargo test --locked -p easyplay --test e2e_cli -- --nocapture
+
+  fuzz:
+    name: Fuzz targets compile (SEC-004)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+          shared-key: fuzz
+      - name: Check every target
+        run: cargo check --manifest-path fuzz/Cargo.toml --bins
+
+  bench:
+    name: Benchmarks (PERF-001)
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libudev-dev libxkbcommon-dev libwayland-dev libgl-dev
+      - name: Install Rust (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bench
+      - name: Run the benches and the 25 % regression gate
+        run: scripts/bench.sh bench-results.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-results
+          path: bench-results.jsonl
+          if-no-files-found: ignore
+
+  coverage:
+    name: Coverage report (informational)
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libudev-dev libxkbcommon-dev libwayland-dev libgl-dev \
+            mesa-vulkan-drivers libvulkan1
+      - name: Install Rust (rust-toolchain.toml)
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup component add llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Coverage of the workspace tests
+        run: cargo llvm-cov --locked --workspace --lcov --output-path lcov.info
+      - name: Summary
+        run: cargo llvm-cov report --summary-only
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: lcov.info
