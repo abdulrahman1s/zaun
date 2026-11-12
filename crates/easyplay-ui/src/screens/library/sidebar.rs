@@ -17,7 +17,8 @@ use crate::strings;
 use crate::theme::palette::{fade, mix};
 use crate::theme::tokens::{icon as icon_size, layout, radius, space, stroke};
 use crate::theme::{self, Icon, Type, icons};
-use crate::vm::library::{Collection, LibraryVm};
+use crate::vm::dialogs::AfterDiscard;
+use crate::vm::library::{Collection, CollectionExt, FIXED, count};
 use crate::widgets::focus_ring;
 use crate::widgets::icon_button::IconButton;
 
@@ -237,8 +238,8 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, collapsed: bool
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = space::S0;
                     section_label(ui, strings::nav::LIBRARY, collapsed);
-                    for c in Collection::FIXED {
-                        let n = LibraryVm::count(&lib, c, env.now);
+                    for c in FIXED {
+                        let n = count(&lib, c);
                         if c.conditional() && n == 0 {
                             continue;
                         }
@@ -257,8 +258,8 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, collapsed: bool
                             &strings::nav::item_with_count(c.label(), n),
                         );
                         if r.clicked() {
-                            state.library.collection = c;
-                            state.nav.go_to(Route::Library);
+                            state.library.set_collection(c);
+                            state.navigate(AfterDiscard::Route(Route::Library));
                         }
                     }
 
@@ -266,7 +267,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, collapsed: bool
                         section_label(ui, strings::nav::TAGS, collapsed);
                         for t in lib.tags.iter() {
                             let c = Collection::Tag(t.id);
-                            let n = LibraryVm::count(&lib, c, env.now);
+                            let n = count(&lib, c);
                             let selected = route == Route::Library && state.library.collection == c;
                             let id = base.with(("t", t.id));
                             ids.push(id);
@@ -281,8 +282,8 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, collapsed: bool
                                 &strings::nav::item_with_count(&t.name, n),
                             );
                             if r.clicked() {
-                                state.library.collection = c;
-                                state.nav.go_to(Route::Library);
+                                state.library.set_collection(c);
+                                state.navigate(AfterDiscard::Route(Route::Library));
                             }
                         }
                     }
@@ -307,7 +308,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, collapsed: bool
             )
             .clicked()
             {
-                state.nav.go_to(Route::Statistics);
+                state.navigate(AfterDiscard::Route(Route::Statistics));
             }
             let (r, _) =
                 ui.allocate_exact_size(vec2(ui.available_width(), space::S4), Sense::hover());
@@ -348,7 +349,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, collapsed: bool
             )
             .clicked()
             {
-                state.nav.go_to(Route::Settings(SettingsTab::General));
+                state.navigate(AfterDiscard::Route(Route::Settings(SettingsTab::General)));
             }
         });
 

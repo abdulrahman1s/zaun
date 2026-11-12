@@ -1,24 +1,24 @@
-//! The virtualized cover grid (PERFORMANCE §5, SCREEN_SPECS §2–3). Only rows intersecting
-//! the viewport (plus one row of overscan) are laid out and painted. Arrow keys move the
-//! selection spatially (ACCESSIBILITY §2.1); `Enter` opens, `Space`/`Ctrl+Enter` play, `F`
-//! favourites.
-//!
-//! Foundation version for UI-008; UI-009 adds prefetch, grouping and the allocation bench.
+//! The virtualized cover grid (PERFORMANCE §5, SCREEN_SPECS §2–3). Rows (card rows and group
+//! headers) have precomputed offsets; only rows intersecting the viewport (plus one row of
+//! overscan) are laid out, and covers of the next screenful are requested ahead. Arrow keys
+//! move the cursor spatially (ACCESSIBILITY §2.1); `Enter` opens, `Space` plays; `Shift`
+//! extends the selection; `Ctrl+click` toggles; right-click opens the context menu.
 
 use std::sync::Arc;
 
+use easyplay_core::library::GroupSpan;
 use egui::accesskit::Role;
 use egui::{Key, Modifiers, Rect, ScrollArea, Ui, pos2, vec2};
 
-use super::ItemAction;
 use crate::a11y;
 use crate::app::UiState;
 use crate::bridge::LibraryView;
 use crate::screens::Env;
+use crate::screens::actions::GameAction;
 use crate::strings;
 use crate::textures::{TexKey, TexState, ThumbSize};
 use crate::theme::tokens::{layout, radius, space};
-use crate::theme::{self, Density};
+use crate::theme::{self, Density, Type};
 use crate::widgets::card::{CardCtx, card};
 use crate::widgets::skeleton;
 
@@ -65,6 +65,48 @@ impl GridLayout {
     }
 }
 
+/// Height of a group header row.
+const HEADER_H: f32 = space::S10;
+
+/// One laid-out row.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Row {
+    /// A group header (index into the spans).
+    Header(usize),
+    /// Cards `start..start + len` of the visible list.
+    Cards {
+        /// First position.
+        start: usize,
+        /// Count.
+        len: usize,
+    },
+}
+
+/// Rows with their top offsets, and the total height.
+pub fn layout_rows(g: &GridLayout, n: usize, groups: &[GroupSpan]) -> (Vec<(Row, f32)>, f32) {
+    let mut rows = Vec::new();
+    let mut y = 0.0;
+    let push_cards = |rows: &mut Vec<(Row, f32)>, y: &mut f32, start: usize, len: usize| {
+        let mut s = start;
+        while s < start + len {
+            let l = g.cols.min(start + len - s);
+            rows.push((Row::Cards { start: s, len: l }, *y));
+            *y += g.row_h();
+            s += l;
+        }
+    };
+    if groups.is_empty() {
+        push_cards(&mut rows, &mut y, 0, n);
+    } else {
+        for (gi, span) in groups.iter().enumerate() {
+            rows.push((Row::Header(gi), y));
+            y += HEADER_H;
+            push_cards(&mut rows, &mut y, span.start as usize, span.len as usize);
+        }
+    }
+    (rows, (y - g.gap).max(0.0))
+}
+
 /// Twelve card skeletons, before the first snapshot.
 pub fn skeleton(ui: &mut Ui, density: Density) {
     let compact = ui.ctx().content_rect().width() < layout::COMPACT_BELOW;
@@ -83,6 +125,11 @@ pub fn skeleton(ui: &mut Ui, density: Density) {
     }
 }
 
+/// The stable id of a game's card.
+pub fn card_id(game: easyplay_core::ids::GameId) -> egui::Id {
+    egui::Id::unique(("card", game))
+}
+
 /// Show the grid; returns what the user asked for.
 pub fn show(
     ui: &mut Ui,
@@ -90,153 +137,235 @@ pub fn show(
     env: &mut Env<'_>,
     lib: &Arc<LibraryView>,
     visible: &Arc<[u32]>,
-) -> Option<ItemAction> {
+    groups: &[GroupSpan],
+) -> Option<(easyplay_core::ids::GameId, GameAction)> {
     let theme = theme::theme(ui.ctx());
+    let p = theme.palette.clone();
     let compact = ui.ctx().content_rect().width() < layout::COMPACT_BELOW;
     let avail_w = ui.available_width();
     let g = GridLayout::new(avail_w, theme.density, compact);
-    let rows = g.rows(visible.len());
+    let (rows, total_h) = layout_rows(&g, visible.len(), groups);
+    let card_rows: Vec<(usize, usize)> = rows
+        .iter()
+        .filter_map(|(r, _)| match r {
+            Row::Cards { start, len } => Some((*start, *len)),
+            Row::Header(_) => None,
+        })
+        .collect();
     let mut action = None;
     let ppp = ui.ctx().pixels_per_point();
     let thumb = ThumbSize::cover_for(g.card_w * ppp);
+    let show_playtime = env.bridge.prefs().appearance.show_playtime_on_cards;
+    let game_at = |pos: usize| lib.games[visible[pos] as usize].id;
 
     // Keyboard: arrow navigation over the visible order.
     let sel_pos = state
         .library
         .selected
         .and_then(|id| visible.iter().position(|i| lib.games[*i as usize].id == id));
-    let grid_has_focus = ui
-        .ctx()
-        .memory(|m| m.focused())
-        .is_some_and(|f| sel_pos.is_some_and(|p| f == card_id(lib, visible, p)));
+    let focused = ui.ctx().memory(|m| m.focused());
+    let grid_has_focus = sel_pos.is_some_and(|p| focused == Some(card_id(game_at(p))));
+    state.library.focused = grid_has_focus;
     let mut scroll_to: Option<usize> = None;
     if grid_has_focus && let Some(pos) = sel_pos {
-        let (l, r, u, d, home, end, enter, play, fav) = ui.input_mut(|i| {
+        let (l, r, u, d, home, end, pgup, pgdn, enter, play, shift) = ui.input_mut(|i| {
+            let shift = i.modifiers.shift;
+            let m = if shift {
+                Modifiers::SHIFT
+            } else {
+                Modifiers::NONE
+            };
             (
-                i.consume_key(Modifiers::NONE, Key::ArrowLeft),
-                i.consume_key(Modifiers::NONE, Key::ArrowRight),
-                i.consume_key(Modifiers::NONE, Key::ArrowUp),
-                i.consume_key(Modifiers::NONE, Key::ArrowDown),
-                i.consume_key(Modifiers::NONE, Key::Home),
-                i.consume_key(Modifiers::NONE, Key::End),
+                i.consume_key(m, Key::ArrowLeft),
+                i.consume_key(m, Key::ArrowRight),
+                i.consume_key(m, Key::ArrowUp),
+                i.consume_key(m, Key::ArrowDown),
+                i.consume_key(m, Key::Home),
+                i.consume_key(m, Key::End),
+                i.consume_key(Modifiers::NONE, Key::PageUp),
+                i.consume_key(Modifiers::NONE, Key::PageDown),
                 i.consume_key(Modifiers::NONE, Key::Enter),
-                i.consume_key(Modifiers::COMMAND, Key::Enter)
-                    || i.consume_key(Modifiers::NONE, Key::Space),
-                i.consume_key(Modifiers::NONE, Key::F),
+                i.consume_key(Modifiers::NONE, Key::Space),
+                shift,
             )
         });
-        let col = pos % g.cols;
+        let row = card_rows
+            .iter()
+            .position(|(s, l)| pos >= *s && pos < s + l)
+            .unwrap_or(0);
+        let (start, len) = card_rows[row];
+        let col = pos - start;
+        let in_row = |r: usize| {
+            let (s, l) = card_rows[r];
+            s + col.min(l - 1)
+        };
+        let page = ((ui.clip_rect().height() / g.row_h()).floor() as usize).max(1);
         let target = if l && col > 0 {
             Some(pos - 1)
-        } else if r && col + 1 < g.cols && pos + 1 < visible.len() {
+        } else if r && col + 1 < len {
             Some(pos + 1)
-        } else if u && pos >= g.cols {
-            Some(pos - g.cols)
-        } else if d {
-            (pos + g.cols < visible.len()).then_some(pos + g.cols)
+        } else if u && row > 0 {
+            Some(in_row(row - 1))
+        } else if d && row + 1 < card_rows.len() {
+            Some(in_row(row + 1))
         } else if home {
-            Some(pos - col)
+            Some(start)
         } else if end {
-            Some((pos - col + g.cols - 1).min(visible.len() - 1))
+            Some(start + len - 1)
+        } else if pgup {
+            Some(in_row(row.saturating_sub(page)))
+        } else if pgdn {
+            Some(in_row((row + page).min(card_rows.len() - 1)))
         } else {
             None
         };
-        let id = lib.games[visible[pos] as usize].id;
         if let Some(t) = target {
-            state.library.selected = Some(lib.games[visible[t] as usize].id);
-            state.pending_focus = state.library.selected;
+            let id = game_at(t);
+            if shift {
+                if state.library.anchor.is_none() {
+                    state.library.anchor = Some(game_at(pos));
+                }
+                state.library.select_range(lib, visible, id);
+            }
+            state.library.selected = Some(id);
+            state.pending_focus = Some(id);
             scroll_to = Some(t);
         } else if enter {
-            action = Some(ItemAction::Open(id));
+            action = Some((game_at(pos), GameAction::Open));
         } else if play {
-            action = Some(ItemAction::Play(id));
-        } else if fav {
-            action = Some(ItemAction::Favorite(id));
+            action = Some((game_at(pos), GameAction::Play));
         }
     }
 
-    let total_h = (rows as f32 * g.row_h() - g.gap).max(0.0);
     let grid_name = strings::library::grid_name(visible.len(), g.cols);
-    let scroll = ScrollArea::vertical()
+    let selection_active = !state.library.selection.is_empty();
+    ScrollArea::vertical()
         .id_salt(("library.grid", state.library.collection))
         .auto_shrink([false, false])
         .show_viewport(ui, |ui, viewport| {
             ui.set_height(total_h + space::S6);
             a11y::labelled(ui.ctx(), ui.scope_id(), Role::Grid, &grid_name);
             let origin = ui.min_rect().min;
-            if let Some(t) = scroll_to {
-                let (r, c) = (t / g.cols, t % g.cols);
-                let rect = Rect::from_min_size(
-                    pos2(
-                        origin.x + c as f32 * (g.card_w + g.gap),
-                        origin.y + r as f32 * g.row_h(),
-                    ),
+            let cell = |row_y: f32, col: usize| {
+                Rect::from_min_size(
+                    pos2(origin.x + col as f32 * (g.card_w + g.gap), origin.y + row_y),
                     vec2(g.card_w, g.card_h),
                 )
-                .expand(g.row_h() * 0.25);
-                ui.scroll_to_rect(rect, None);
+            };
+            if let Some(t) = scroll_to
+                && let Some((Row::Cards { start, .. }, y)) = rows.iter().find(|(r, _)| {
+                    matches!(r, Row::Cards { start, len } if t >= *start && t < start + len)
+                })
+            {
+                ui.scroll_to_rect(cell(*y, t - start).expand(g.row_h() * 0.25), None);
             }
-            let first = ((viewport.min.y / g.row_h()).floor() as isize - 1).max(0) as usize;
-            let last = ((viewport.max.y / g.row_h()).ceil() as usize + 1).min(rows);
-            for row in first..last {
-                for col in 0..g.cols {
-                    let pos = row * g.cols + col;
-                    let Some(&gi) = visible.get(pos) else { break };
-                    let game = &lib.games[gi as usize];
-                    let rect = Rect::from_min_size(
-                        pos2(
-                            origin.x + col as f32 * (g.card_w + g.gap),
-                            origin.y + row as f32 * g.row_h(),
-                        ),
-                        vec2(g.card_w, g.card_h),
-                    );
-                    let (texture, placeholder) = match game.cover {
-                        Some(art) => {
-                            match env.textures.get(TexKey { art, size: thumb }, true, env.art) {
-                                TexState::Ready(t) => (Some(t), None),
-                                TexState::Pending(c) => (None, c),
+            // First row whose bottom is below the viewport top, minus one row of overscan.
+            let first = rows
+                .partition_point(|(_, y)| *y + g.row_h() < viewport.min.y)
+                .saturating_sub(1);
+            let prefetch_to = viewport.max.y + viewport.height();
+            for (row, y) in rows.iter().skip(first) {
+                if *y > prefetch_to {
+                    break;
+                }
+                let on_screen = *y <= viewport.max.y + g.row_h();
+                match row {
+                    Row::Header(gi) => {
+                        if !on_screen {
+                            continue;
+                        }
+                        let span = &groups[*gi];
+                        let r = Rect::from_min_size(
+                            pos2(origin.x, origin.y + y),
+                            vec2(avail_w, HEADER_H),
+                        );
+                        ui.painter().text(
+                            pos2(r.left(), r.center().y),
+                            egui::Align2::LEFT_CENTER,
+                            strings::library::group_header(&span.label, span.len as usize),
+                            Type::Heading.font_id(),
+                            p.text_secondary,
+                        );
+                    }
+                    Row::Cards { start, len } => {
+                        for k in 0..*len {
+                            let pos = start + k;
+                            let game = &lib.games[visible[pos] as usize];
+                            if !on_screen {
+                                // Prefetch: ask for the cover without drawing.
+                                if let Some(art) = game.cover {
+                                    let _ = env.textures.get(
+                                        TexKey { art, size: thumb },
+                                        false,
+                                        env.art,
+                                    );
+                                }
+                                continue;
+                            }
+                            let rect = cell(*y, k);
+                            let (texture, placeholder) = match game.cover {
+                                Some(art) => {
+                                    match env.textures.get(
+                                        TexKey { art, size: thumb },
+                                        true,
+                                        env.art,
+                                    ) {
+                                        TexState::Ready(t) => (Some(t), None),
+                                        TexState::Pending(c) => (None, c),
+                                    }
+                                }
+                                None => (None, None),
+                            };
+                            let selected = state.library.selected == Some(game.id);
+                            let ctx = CardCtx {
+                                texture,
+                                placeholder,
+                                now: env.now,
+                                utc_offset_s: env.utc_offset_s,
+                                selected: selected && grid_has_focus,
+                                multi_selected: state.library.is_selected(game.id),
+                                controller: false,
+                                show_playtime,
+                                density: theme.density,
+                            };
+                            let id = card_id(game.id);
+                            let r = card(ui, rect, id, game, &ctx);
+                            state
+                                .dnd
+                                .target(rect, crate::input::dnd::DropTarget::Cover(game.id));
+                            if state.pending_focus == Some(game.id) {
+                                r.response.request_focus();
+                                state.pending_focus = None;
+                            }
+                            if r.response.has_focus() {
+                                state.library.selected = Some(game.id);
+                                state.library.cursor_rect = Some(rect);
+                            }
+                            if r.response.secondary_clicked() {
+                                let at = r.response.interact_pointer_pos().unwrap_or(rect.center());
+                                super::open_menu(state, game.id, at);
+                            } else if r.toggle_favorite {
+                                action = Some((game.id, GameAction::Favorite));
+                            } else if r.play {
+                                action = Some((game.id, GameAction::Play));
+                            } else if r.response.clicked() {
+                                let m = ui.input(|i| i.modifiers);
+                                if m.command {
+                                    state.library.toggle_select(game.id);
+                                } else if m.shift {
+                                    state.library.select_range(lib, visible, game.id);
+                                } else if selection_active {
+                                    state.library.toggle_select(game.id);
+                                } else {
+                                    action = Some((game.id, GameAction::Open));
+                                }
                             }
                         }
-                        None => (None, None),
-                    };
-                    let selected = state.library.selected == Some(game.id);
-                    let ctx = CardCtx {
-                        texture,
-                        placeholder,
-                        now: env.now,
-                        utc_offset_s: env.utc_offset_s,
-                        selected: selected && grid_has_focus,
-                        multi_selected: false,
-                        controller: false,
-                        show_playtime: true,
-                        density: theme.density,
-                    };
-                    let id = card_id(lib, visible, pos);
-                    let r = card(ui, rect, id, game, &ctx);
-                    if state.pending_focus == Some(game.id) {
-                        r.response.request_focus();
-                        state.pending_focus = None;
-                    }
-                    if r.response.has_focus() {
-                        state.library.selected = Some(game.id);
-                    }
-                    if r.toggle_favorite {
-                        action = Some(ItemAction::Favorite(game.id));
-                    } else if r.play {
-                        action = Some(ItemAction::Play(game.id));
-                    } else if r.response.clicked() {
-                        action = Some(ItemAction::Open(game.id));
                     }
                 }
             }
         });
-    let _ = scroll;
     action
-}
-
-/// The stable id of the card at `pos`.
-fn card_id(lib: &LibraryView, visible: &[u32], pos: usize) -> egui::Id {
-    egui::Id::unique(("card", lib.games[visible[pos] as usize].id))
 }
 
 #[cfg(test)]
@@ -253,5 +382,23 @@ mod tests {
         assert_eq!(g.rows(11), 3);
         let narrow = GridLayout::new(100.0, Density::Large, true);
         assert_eq!(narrow.cols, 1);
+    }
+
+    #[test]
+    fn rows_with_group_headers() {
+        let g = GridLayout::new(1000.0, Density::Comfortable, false);
+        let span = |start, len| GroupSpan {
+            key: easyplay_core::library::query::GroupKey::Letter('A'),
+            label: Arc::from("A"),
+            start,
+            len,
+        };
+        let (rows, h) = layout_rows(&g, 7, &[span(0, 6), span(6, 1)]);
+        assert_eq!(rows.len(), 5);
+        assert_eq!(rows[0].0, Row::Header(0));
+        assert_eq!(rows[1].0, Row::Cards { start: 0, len: 5 });
+        assert_eq!(rows[2].0, Row::Cards { start: 5, len: 1 });
+        assert_eq!(rows[3].0, Row::Header(1));
+        assert!(h > 3.0 * g.row_h());
     }
 }

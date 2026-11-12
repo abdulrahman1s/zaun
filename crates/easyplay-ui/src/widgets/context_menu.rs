@@ -16,12 +16,19 @@ pub fn item(
     shortcut: Option<&str>,
     checked: bool,
 ) -> Response {
-    item_impl(ui, icon, label, shortcut, checked, false)
+    item_impl(ui, icon, label, shortcut, checked, false, true)
+}
+
+/// A checklist item that keeps the menu open (filter popover).
+pub fn check_item(ui: &mut Ui, label: &str, checked: bool) -> Response {
+    let r = item_impl(ui, None, label, None, checked, false, false);
+    a11y::option(&r, egui::Role::CheckBox, label, checked);
+    r
 }
 
 /// A destructive menu item (red text).
 pub fn danger_item(ui: &mut Ui, icon: Option<Icon>, label: &str) -> Response {
-    item_impl(ui, icon, label, None, false, true)
+    item_impl(ui, icon, label, None, false, true, true)
 }
 
 fn item_impl(
@@ -31,6 +38,7 @@ fn item_impl(
     shortcut: Option<&str>,
     checked: bool,
     danger: bool,
+    close: bool,
 ) -> Response {
     let theme = theme::theme(ui.ctx());
     let p = &theme.palette;
@@ -105,7 +113,7 @@ fn item_impl(
             focus_ring(painter, rect.shrink(space::S0), corner, &theme);
         }
     }
-    if resp.clicked() {
+    if resp.clicked() && close {
         ui.close();
     }
     resp

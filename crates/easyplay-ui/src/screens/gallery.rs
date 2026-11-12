@@ -7,7 +7,7 @@ use egui::{Rect, ScrollArea, Ui, pos2, vec2};
 
 use super::Env;
 use crate::app::UiState;
-use crate::route::{DialogId, Overlay};
+use crate::route::Overlay;
 use crate::strings;
 use crate::theme::tokens::{icon as icon_size, space};
 use crate::theme::{self, Accent, Appearance, Density, ThemeChoice, Type, icons};
@@ -410,10 +410,12 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                     section(ui, strings::gallery::OVERLAYS);
                     ui.horizontal(|ui| {
                         if ui.add(Button::new(strings::gallery::OPEN_SHEET)).clicked() {
-                            state.nav.open(Overlay::Setup);
+                            state.nav.open(Overlay::Shortcuts);
                         }
                         if ui.add(Button::new(strings::gallery::OPEN_DIALOG)).clicked() {
-                            state.nav.open(Overlay::Dialog(DialogId(1)));
+                            state.show_dialog(crate::vm::dialogs::Dialog::Confirm(
+                                crate::vm::dialogs::Confirm::ClearStatistics,
+                            ));
                         }
                         if ui.add(Button::new(strings::gallery::SHOW_TOAST)).clicked() {
                             state.toasts.push(

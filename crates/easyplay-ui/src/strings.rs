@@ -7,6 +7,21 @@
 use easyplay_core::clock::Timestamp;
 use easyplay_core::model::{Activity, Availability, BasePreset, LaunchStateTag, Preset};
 
+pub mod artwork;
+pub mod details;
+pub mod dialogs;
+pub mod dnd;
+pub mod errors;
+pub mod launch;
+pub mod menu;
+pub mod onboarding;
+pub mod picker;
+pub mod settings;
+pub mod setup;
+pub mod shortcuts;
+pub mod stats;
+pub mod tags;
+
 /// The application name.
 pub const APP_NAME: &str = "EasyPlay";
 
@@ -151,6 +166,160 @@ pub mod library {
     pub const SORT_PLAYTIME: &str = "Playtime";
     /// Sort keys.
     pub const SORT_ADDED: &str = "Date added";
+    /// Sort keys.
+    pub const SORT_LAUNCHES: &str = "Times launched";
+    /// Sort keys.
+    pub const SORT_PROTECTION: &str = "Protection";
+    /// Sort keys.
+    pub const SORT_LAYER: &str = "Compatibility layer";
+    /// Sort direction.
+    pub const ASCENDING: &str = "Ascending order";
+    /// Sort direction.
+    pub const DESCENDING: &str = "Descending order";
+    /// Grouping select.
+    pub const GROUP: &str = "Group";
+    /// Groupings.
+    pub const GROUP_NONE: &str = "None";
+    /// Groupings.
+    pub const GROUP_LETTER: &str = "First letter";
+    /// Groupings.
+    pub const GROUP_TAG: &str = "Tag";
+    /// Groupings.
+    pub const GROUP_PROTECTION: &str = "Protection";
+    /// List columns.
+    pub const COL_NAME: &str = "Name";
+    /// List columns.
+    pub const COL_PROTECTION: &str = "Protection";
+    /// List columns.
+    pub const COL_LAST_PLAYED: &str = "Last played";
+    /// List columns.
+    pub const COL_PLAYTIME: &str = "Playtime";
+    /// List columns.
+    pub const COL_TAGS: &str = "Tags";
+    /// List columns.
+    pub const COL_LAYER: &str = "Compatibility layer";
+    /// List columns.
+    pub const COL_ADDED: &str = "Added";
+    /// Column chooser.
+    pub const COLUMNS: &str = "Choose columns";
+    /// Filter groups.
+    pub const FILTER_TAGS: &str = "Tags";
+    /// Filter groups.
+    pub const FILTER_PROTECTION: &str = "Protection";
+    /// Filter groups.
+    pub const FILTER_INTERNET: &str = "Internet";
+    /// Filter groups.
+    pub const FILTER_AVAILABILITY: &str = "Availability";
+    /// Filter groups.
+    pub const FILTER_LAYER: &str = "Compatibility layer";
+    /// Filter groups.
+    pub const FILTER_TYPE: &str = "Type";
+    /// Chip row.
+    pub const CLEAR_ALL: &str = "Clear all";
+    /// Selection bar.
+    pub const CLEAR_SELECTION: &str = "Clear selection";
+    /// Selection bar.
+    pub const ADD_TAG: &str = "Add tag";
+    /// Selection bar.
+    pub const REMOVE_TAG: &str = "Remove tag";
+    /// Selection bar.
+    pub const CHANGE_PROTECTION: &str = "Change protection";
+    /// Selection bar.
+    pub const REMOVE_SELECTED: &str = "Remove…";
+
+    /// "Filter" or "Filter · 2".
+    pub fn filter_button(active: usize) -> String {
+        if active == 0 {
+            FILTER.to_owned()
+        } else {
+            format!("{FILTER} · {active}")
+        }
+    }
+
+    /// "tag:rpg".
+    pub fn tag_chip(name: &str) -> String {
+        format!("tag:{name}")
+    }
+
+    /// Preset filter labels.
+    pub fn preset_filter(p: easyplay_core::library::PresetFilter) -> &'static str {
+        use easyplay_core::library::PresetFilter as P;
+        match p {
+            P::Offline => "Offline",
+            P::Online => "Online",
+            P::Standard => "Standard",
+            P::Custom => "Custom",
+        }
+    }
+
+    /// Internet filter labels.
+    pub fn network_filter(n: easyplay_core::model::NetworkAccess) -> &'static str {
+        match n {
+            easyplay_core::model::NetworkAccess::None => "No internet",
+            easyplay_core::model::NetworkAccess::Full => "Internet allowed",
+        }
+    }
+
+    /// Availability filter labels.
+    pub fn availability_filter(a: super::Availability) -> &'static str {
+        match a {
+            super::Availability::Present => "Installed",
+            super::Availability::Missing => "Not found",
+            super::Availability::DriveDisconnected => "Drive not connected",
+            super::Availability::Unreadable => "Can’t be read",
+            super::Availability::Unknown => "Not checked yet",
+        }
+    }
+
+    /// Type filter labels.
+    pub fn kind_filter(k: easyplay_core::model::EntryKind) -> &'static str {
+        match k {
+            easyplay_core::model::EntryKind::Game => "Games",
+            easyplay_core::model::EntryKind::Installer => "Installers",
+            easyplay_core::model::EntryKind::Tool => "Tools",
+        }
+    }
+
+    /// "3 selected".
+    pub fn selected_count(n: usize) -> String {
+        format!("{n} selected")
+    }
+
+    /// "R · 4".
+    pub fn group_header(label: &str, n: usize) -> String {
+        format!("{label} · {n}")
+    }
+
+    /// Header text with the sort arrow.
+    pub fn sorted_header(label: &str, descending: bool) -> String {
+        format!("{label} {}", if descending { "↓" } else { "↑" })
+    }
+
+    /// "Sorted by Playtime, descending".
+    pub fn sorted_by(label: &str, descending: bool) -> String {
+        format!(
+            "Sorted by {label}, {}",
+            if descending {
+                "descending"
+            } else {
+                "ascending"
+            }
+        )
+    }
+
+    /// "Changed 3 games".
+    pub fn bulk_changed(n: usize) -> String {
+        format!("Changed {n} {}", super::plural(n as u64, "game", "games"))
+    }
+
+    /// "3 changed, 1 skipped (running)".
+    pub fn bulk_summary(changed: usize, skipped: usize) -> String {
+        if skipped == 0 {
+            bulk_changed(changed)
+        } else {
+            format!("{changed} changed, {skipped} skipped (running)")
+        }
+    }
 
     /// "42 games" or "3 of 42".
     pub fn result_count(shown: usize, total: usize) -> String {
@@ -397,6 +566,56 @@ pub mod feedback {
     pub const PREVIEW_BANNER: &str =
         "Preview mode: this library is sample data. Games cannot be started yet.";
 
+    /// Clipboard.
+    pub const COPIED: &str = "Copied";
+    /// `Ctrl+Z`.
+    pub const UNDONE: &str = "Undone";
+    /// Image dropped on a card.
+    pub const COVER_SET: &str = "Cover changed";
+
+    /// "Removed Hollow Knight".
+    pub fn removed(name: &str) -> String {
+        format!("Removed {name}")
+    }
+    /// "Stopped Hollow Knight".
+    pub fn stopped(name: &str) -> String {
+        format!("Stopped {name}")
+    }
+    /// "Added Hollow Knight to the library".
+    pub fn added(name: &str) -> String {
+        format!("Added {name} to the library")
+    }
+    /// "Reset private Windows storage for Hollow Knight".
+    pub fn prefix_reset(name: &str) -> String {
+        format!("Reset private Windows storage for {name}")
+    }
+    /// "Changed tags of Hollow Knight".
+    pub fn tags_changed(name: &str) -> String {
+        format!("Changed tags of {name}")
+    }
+    /// Menu shortcut toast.
+    pub fn shortcut(name: &str, on: bool) -> String {
+        if on {
+            format!("Added {name} to the applications menu")
+        } else {
+            format!("Removed {name} from the applications menu")
+        }
+    }
+    /// Hide toast.
+    pub fn hidden(name: &str, on: bool) -> String {
+        if on {
+            format!("Hid {name}")
+        } else {
+            format!("{name} is shown again")
+        }
+    }
+    /// "Renamed to Hollow Knight".
+    pub fn renamed(name: &str) -> String {
+        format!("Renamed to {name}")
+    }
+    /// Saved tick.
+    pub const SAVED: &str = "Saved";
+
     /// "Starting Hollow Knight is not available in preview mode."
     pub fn preview_action(action: &str, name: &str) -> String {
         format!("{action} {name} is not available in preview mode.")
@@ -621,6 +840,21 @@ pub mod fmt {
         format!("{}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60)
     }
 
+    /// "32 MB", "2.1 GB", "640 KB".
+    pub fn bytes(n: u64) -> String {
+        const K: f64 = 1000.0;
+        let f = n as f64;
+        if f < K {
+            format!("{n} B")
+        } else if f < K * K {
+            format!("{:.0} KB", f / K)
+        } else if f < K * K * K {
+            format!("{:.0} MB", f / (K * K))
+        } else {
+            format!("{:.1} GB", f / (K * K * K))
+        }
+    }
+
     /// "1,240".
     pub fn thousands(n: u64) -> String {
         let digits = n.to_string();
@@ -735,11 +969,40 @@ mod tests {
     /// SECURITY_MODEL §10 / USER_EXPERIENCE §9: no security theatre in any string.
     #[test]
     fn no_forbidden_claims() {
-        let src = include_str!("strings.rs");
-        let body = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
-        let lower = body.to_lowercase();
-        for word in ["secure", "safe ", "virus", "fatal"] {
-            assert!(!lower.contains(word), "forbidden word {word:?}");
+        let files = [
+            include_str!("strings.rs"),
+            include_str!("strings/artwork.rs"),
+            include_str!("strings/details.rs"),
+            include_str!("strings/dialogs.rs"),
+            include_str!("strings/dnd.rs"),
+            include_str!("strings/errors.rs"),
+            include_str!("strings/launch.rs"),
+            include_str!("strings/menu.rs"),
+            include_str!("strings/onboarding.rs"),
+            include_str!("strings/picker.rs"),
+            include_str!("strings/settings.rs"),
+            include_str!("strings/setup.rs"),
+            include_str!("strings/shortcuts.rs"),
+            include_str!("strings/stats.rs"),
+            include_str!("strings/tags.rs"),
+        ];
+        for src in files {
+            let body = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
+            let lower = body.to_lowercase();
+            let words: Vec<&str> = lower
+                .split(|c: char| !c.is_alphanumeric() && c != '%')
+                .collect();
+            for word in [
+                "secure",
+                "safe",
+                "virus",
+                "fatal",
+                "100%",
+                "guarantee",
+                "guaranteed",
+            ] {
+                assert!(!words.contains(&word), "forbidden word {word:?}");
+            }
         }
     }
 }

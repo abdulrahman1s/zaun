@@ -489,7 +489,8 @@ pub fn play_pill(
 /// Size of the pill for a given placement (for layout before painting).
 pub fn pill_height(size: PillSize) -> f32 {
     match size {
-        PillSize::Card | PillSize::Row => control::LG,
+        PillSize::Card => control::LG,
+        PillSize::Row => control::MD,
         PillSize::Page => control::XL,
     }
 }

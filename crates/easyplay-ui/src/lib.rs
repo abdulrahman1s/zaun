@@ -132,6 +132,12 @@ pub fn run(start: StartMode, deps: UiDeps) -> eframe::Result {
             if let Some(f) = art {
                 app = app.with_art(f);
             }
+            app = app.with_picker_factory(Box::new(|ctx| {
+                let c = ctx.clone();
+                Box::new(input::picker::RfdPicker::new(Arc::new(move || {
+                    c.request_repaint();
+                })))
+            }));
             if let Some(store) = window_store {
                 app = app.with_window_store(store, window);
             }

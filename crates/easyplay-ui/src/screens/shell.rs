@@ -1,20 +1,29 @@
 //! The application shell (SCREEN_SPECS §0): sidebar, content frame, banner slot, toast area,
-//! overlay layers, window title per route.
+//! overlay layers, drop zone, window title per route, global shortcuts.
 //!
 //! `Panel::left("sidebar")` then `CentralPanel` last [F-305]; overlays are `egui::Modal`
-//! [F-306]; toasts an `Area` anchored bottom-centre.
+//! [F-306]; toasts an `Area` anchored bottom-centre; the drop zone a foreground `Area`
+//! covering the window [F-321].
 
-use egui::{CentralPanel, Frame, Id, Key, KeyboardShortcut, Modifiers, Panel, Ui, ViewportCommand};
+use egui::{CentralPanel, Frame, Id, Key, Modifiers, Panel, Ui, ViewportCommand};
 
-use super::{Env, gallery, library, placeholder};
+use super::{
+    Env, actions, add_game, details, dialogs, gallery, library, onboarding, quick_launch, settings,
+    setup, statistics,
+};
 use crate::app::UiState;
-use crate::route::{Overlay, Route};
+use crate::bridge::{HostStatus, OpenOrigin, UiCommand};
+use crate::input::dnd::{self, DropAction, Payload};
+use crate::input::picker::PickPurpose;
+use crate::input::shortcuts::{self, Action, DispatchCtx, Here};
+use crate::route::{Overlay, Route, SettingsTab};
 use crate::strings;
 use crate::theme::tokens::{layout, space};
-use crate::theme::{self, Dur};
+use crate::theme::{self, Dur, Type, icons};
+use crate::vm::dialogs::AfterDiscard;
+use crate::vm::toasts::ToastKind;
 use crate::widgets::banner::{Severity, banner};
-use crate::widgets::modal::{self, Action, DialogOutcome};
-use crate::widgets::{button::Variant, sheet, toast};
+use crate::widgets::toast;
 
 /// A persistent condition shown at the top of the content area (USER_EXPERIENCE §6).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,9 +84,20 @@ pub fn sidebar_collapsed(state: &UiState, window_w: f32) -> bool {
 
 /// The window title for the current route.
 pub fn window_title(state: &UiState, env: &Env<'_>) -> String {
+    if let Some(q) = &state.quick
+        && !q.expanded
+    {
+        let name = q
+            .game
+            .and_then(|g| env.bridge.library().get(g).map(|s| s.name.to_string()));
+        return match name {
+            Some(n) => strings::title::window(&n),
+            None => strings::APP_NAME.to_owned(),
+        };
+    }
     let route = state.nav.current();
     let game_name = match route {
-        Route::Game(id) => env.bridge.library().game(id).map(|g| g.name.to_string()),
+        Route::Game(id) => env.bridge.library().get(id).map(|g| g.name.to_string()),
         _ => None,
     };
     strings::title::window(route.title(game_name.as_deref()))
@@ -88,14 +108,26 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let ctx = ui.ctx().clone();
     let theme = theme::theme(&ctx);
     let p = theme.palette.clone();
-    modal::apply_focus_return(&ctx);
-    handle_global_keys(ui, state);
+    crate::widgets::modal::apply_focus_return(&ctx);
 
     let title = window_title(state, env);
     if state.last_title.as_deref() != Some(title.as_str()) {
         ctx.send_viewport_cmd(ViewportCommand::Title(title.clone()));
         state.last_title = Some(title);
     }
+
+    // Quick-launch layout: the compact window, nothing else.
+    if state.quick.as_ref().is_some_and(|q| !q.expanded) {
+        CentralPanel::default()
+            .frame(Frame::NONE.fill(p.bg_base))
+            .show(ui, |ui| quick_launch::show(ui, state, env));
+        show_overlays(&ctx, state, env);
+        crate::a11y::Announcer::show(ui);
+        return;
+    }
+
+    handle_global_keys(ui, state, env);
+    host_banners(state, env);
 
     let window_w = ctx.content_rect().width();
     let route = state.nav.current();
@@ -130,7 +162,9 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
             } else {
                 layout::PAGE_MARGIN
             };
-            if let Some(b) = state.banners.top().cloned() {
+            if let Some(b) = state.banners.top().cloned()
+                && route != Route::Onboarding
+            {
                 Frame::NONE
                     .inner_margin(egui::Margin {
                         left: margin as i8,
@@ -143,48 +177,102 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                         if r.dismissed {
                             state.banners.dismiss(b.key);
                         }
+                        if r.action {
+                            banner_action(state, b.key);
+                        }
                     });
             }
             match route {
                 Route::Library => library::show(ui, state, env),
                 Route::Gallery => gallery::show(ui, state, env),
-                Route::Game(id) => placeholder::game(ui, state, env, id),
-                Route::Statistics | Route::Settings(_) | Route::Onboarding => {
-                    placeholder::show(ui, state, route)
-                }
+                Route::Game(id) => details::show(ui, state, env, id),
+                Route::Statistics => statistics::show(ui, state, env),
+                Route::Settings(tab) => settings::show(ui, state, env, tab),
+                Route::Onboarding => onboarding::show(ui, state, env),
             }
         });
 
-    show_overlays(&ctx, state);
+    show_overlays(&ctx, state, env);
+    drop_zone(&ctx, state, env);
     crate::a11y::Announcer::show(ui);
     let out = toast::show(&ctx, &mut state.toasts, env.mono, 0.0);
-    let _ = out;
+    for (_, key) in out.actions {
+        if let Some(cmd) = state.undo.remove(&key) {
+            env.bridge.send(cmd);
+        }
+    }
 }
 
-fn handle_global_keys(ui: &mut Ui, state: &mut UiState) {
-    let toggle = KeyboardShortcut::new(Modifiers::COMMAND, Key::B);
-    if ui.input_mut(|i| i.consume_shortcut(&toggle)) {
-        let w = ui.ctx().content_rect().width();
-        let now = sidebar_collapsed(state, w);
-        state.sidebar_pref = Some(!now);
+fn banner_action(state: &mut UiState, key: &str) {
+    if key == "host" {
+        state.onboarding.reduced = true;
+        state.onboarding.step = crate::vm::screens::OnboardingStep::SystemCheck;
+        state.nav.go_to(Route::Onboarding);
     }
-    let back = KeyboardShortcut::new(Modifiers::ALT, Key::ArrowLeft);
-    if ui.input_mut(|i| i.consume_shortcut(&back)) {
-        state.nav.back();
+}
+
+/// Standing host conditions become banners.
+fn host_banners(state: &mut UiState, env: &Env<'_>) {
+    let host = env.bridge.host();
+    if host.status == HostStatus::NeedsAttention && host.has_blocking_failure() {
+        state.banners.set(Banner {
+            key: "host",
+            severity: Severity::Warning,
+            text: strings::onboarding::BANNER.to_owned(),
+            action: Some(strings::onboarding::CHECK_AGAIN.to_owned()),
+            dismissible: true,
+        });
+    } else {
+        state.banners.clear("host");
     }
-    // Esc goes back from a page when no overlay or text field has it.
-    if state.nav.overlays().is_empty()
-        && !matches!(state.nav.current(), Route::Library)
-        && ui.ctx().memory(|m| m.focused()).is_none()
-        && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
+}
+
+fn here(route: Route) -> Here {
+    match route {
+        Route::Library => Here::Library,
+        Route::Game(_) => Here::GamePage,
+        Route::Settings(_) => Here::Settings,
+        _ => Here::Other,
+    }
+}
+
+fn handle_global_keys(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
+    let ctx = ui.ctx().clone();
+    if !state.nav.overlays().is_empty()
+        || state.library.menu.is_some()
+        || egui::Popup::is_any_open(&ctx)
     {
-        state.nav.back();
+        return;
     }
-    if ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra1)) {
-        state.nav.back();
+    let route = state.nav.current();
+    if route == Route::Onboarding {
+        return;
+    }
+    let focused = ctx.memory(|m| m.focused());
+    let text_focus = focused.is_some()
+        && ctx
+            .memory(|m| m.focused())
+            .is_some_and(|id| egui::text_edit::TextEditState::load(&ctx, id).is_some());
+    let d = DispatchCtx {
+        here: here(route),
+        text_focus,
+        single_keys: env.bridge.prefs().integration.single_key_shortcuts,
+    };
+    // `Esc` in the library: search, then filters, then selection.
+    if route == Route::Library
+        && !text_focus
+        && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
+    {
+        state.library.escape();
+    }
+    for action in shortcuts::dispatch(&ctx, d) {
+        on_action(state, env, route, action);
+    }
+    if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra1)) {
+        state.navigate(AfterDiscard::Back);
     }
     #[cfg(debug_assertions)]
-    if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F12)) {
+    if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F12)) {
         if state.nav.current() == Route::Gallery {
             state.nav.back();
         } else {
@@ -193,77 +281,259 @@ fn handle_global_keys(ui: &mut Ui, state: &mut UiState) {
     }
 }
 
+fn on_action(state: &mut UiState, env: &mut Env<'_>, route: Route, action: Action) {
+    let ctx = env.ctx.clone();
+    // The game a per-game shortcut applies to.
+    let game = match route {
+        Route::Game(id) => Some(id),
+        Route::Library if state.library.focused => state.library.selected,
+        _ => None,
+    };
+    if let Some(g) = game
+        && let Some(a) = library::shortcut_action(action)
+        && !(route == Route::Library && action == Action::OpenFolder)
+    {
+        actions::apply(state, env, g, a);
+        return;
+    }
+    match action {
+        Action::FocusSearch => state.focus_search = true,
+        Action::SearchAll => {
+            state.library.search_all = true;
+            state.focus_search = true;
+        }
+        Action::AddGame => state.picks.push(PickPurpose::AddGame),
+        Action::GridView => state.library.view = crate::vm::library::ViewMode::Grid,
+        Action::ListView => state.library.view = crate::vm::library::ViewMode::List,
+        Action::ToggleSidebar => {
+            let w = ctx.content_rect().width();
+            let now = sidebar_collapsed(state, w);
+            state.sidebar_pref = Some(!now);
+        }
+        Action::Settings => {
+            state.navigate(AfterDiscard::Route(Route::Settings(SettingsTab::General)));
+        }
+        Action::Back => state.navigate(AfterDiscard::Back),
+        Action::NextTab | Action::PrevTab => {
+            let fwd = action == Action::NextTab;
+            match route {
+                Route::Game(_) => {
+                    let n = crate::vm::details::DetailsTab::ALL.len();
+                    let i = state.details.tab.index();
+                    let j = if fwd { (i + 1) % n } else { (i + n - 1) % n };
+                    state.details.tab = crate::vm::details::DetailsTab::ALL[j];
+                }
+                Route::Settings(t) => {
+                    let all = settings::TABS;
+                    let i = all.iter().position(|x| *x == t).unwrap_or(0);
+                    let j = if fwd {
+                        (i + 1) % all.len()
+                    } else {
+                        (i + all.len() - 1) % all.len()
+                    };
+                    state.nav.replace(Route::Settings(all[j]));
+                }
+                _ => {}
+            }
+        }
+        Action::SelectAll => {
+            let lib = env.bridge.library().clone();
+            let v = state.library.visible(&lib);
+            state.library.select_all(&lib, &v);
+        }
+        Action::Undo => {
+            if let Some(cmd) = state.last_undo.take().and_then(|k| state.undo.remove(&k)) {
+                env.bridge.send(cmd);
+                state.toast(strings::feedback::UNDONE, ToastKind::Info, None, env.mono);
+            }
+        }
+        Action::ContextMenu => {
+            if let Some(id) = state.library.selected
+                && state.library.focused
+            {
+                let at = state
+                    .library
+                    .cursor_rect
+                    .map_or(egui::Pos2::ZERO, |r| r.center());
+                library::open_menu(state, id, at);
+            }
+        }
+        Action::Refresh => env.bridge.send(UiCommand::RescanMissing),
+        Action::Fullscreen => {
+            let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+            ctx.send_viewport_cmd(ViewportCommand::Fullscreen(!full));
+        }
+        Action::ShortcutSheet => state.nav.open(Overlay::Shortcuts),
+        Action::Quit => ctx.send_viewport_cmd(ViewportCommand::Close),
+        Action::Rename => {
+            if let Route::Game(id) = route {
+                let name = env
+                    .bridge
+                    .library()
+                    .get(id)
+                    .map(|g| g.name.to_string())
+                    .unwrap_or_default();
+                state.details.rename = Some(name);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn overlay_id(o: Overlay) -> Id {
     Id::unique(("overlay", o))
 }
 
-fn show_overlays(ctx: &egui::Context, state: &mut UiState) {
+fn show_overlays(ctx: &egui::Context, state: &mut UiState, env: &mut Env<'_>) {
     let overlays = state.nav.overlays().to_vec();
     for o in overlays {
         let id = overlay_id(o);
         match o {
-            Overlay::Dialog(_) => {
-                let outcome = modal::dialog(
-                    ctx,
-                    id,
-                    Some(theme::icons::TRASH),
-                    strings::gallery::DIALOG_TITLE,
-                    strings::gallery::DIALOG_BODY,
-                    &[
-                        Action {
-                            label: strings::gallery::KEEP,
-                            variant: Variant::Secondary,
-                        },
-                        Action {
-                            label: strings::gallery::DANGER,
-                            variant: Variant::Danger,
-                        },
-                    ],
-                    0,
-                );
-                if outcome != DialogOutcome::Open {
-                    state.nav.close(o);
-                }
-            }
-            _ => {
-                let r = sheet::sheet(
-                    ctx,
-                    id,
-                    strings::gallery::SHEET_TITLE,
-                    false,
-                    |ui| {
-                        ui.label(theme::Type::Body.rich(strings::gallery::SHEET_BODY));
-                        ui.add_space(space::S4);
-                        ui.label(theme::Type::Caption.rich(strings::placeholder::COMING_BODY));
-                    },
-                    |ui| {
-                        let mut close = false;
-                        if ui
-                            .add(crate::widgets::button::Button::primary(strings::play::PLAY))
-                            .clicked()
-                        {
-                            close = true;
-                        }
-                        if ui
-                            .add(crate::widgets::button::Button::new(
-                                strings::feedback::CLOSE,
-                            ))
-                            .clicked()
-                        {
-                            close = true;
-                        }
-                        close
-                    },
-                );
-                if r.close_requested || r.footer {
-                    if r.footer {
-                        modal::closed(ctx, id);
-                    }
-                    state.nav.close(o);
-                }
-            }
+            Overlay::Dialog(d) => dialogs::show(ctx, id, state, env, d),
+            Overlay::Setup => setup::show(ctx, id, state, env),
+            Overlay::AddGame => add_game::show(ctx, id, state, env),
+            Overlay::Shortcuts => dialogs::shortcuts::show(ctx, id, state),
+            Overlay::Artwork(g) => dialogs::artwork::show(ctx, id, state, env, g),
+            Overlay::Tags(g) => dialogs::tags::show(ctx, id, state, env, g),
+            Overlay::FixPicker(g) => details::runtime::fix_picker(ctx, id, state, env, g),
+            Overlay::History => statistics::history_sheet(ctx, id, state, env),
+            Overlay::Inspector => state.nav.close(o),
         }
     }
+}
+
+/// The drop zone (USER_EXPERIENCE §5.4) and drop routing.
+fn drop_zone(ctx: &egui::Context, state: &mut UiState, env: &mut Env<'_>) {
+    let (hovered, dropped, pos) = ctx.input(|i| {
+        (
+            i.raw
+                .hovered_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .collect::<Vec<_>>(),
+            i.raw
+                .dropped_files
+                .iter()
+                .map(|f| f.path().to_path_buf())
+                .collect::<Vec<_>>(),
+            i.pointer.hover_pos(),
+        )
+    });
+    let any_hover = ctx.input(|i| !i.raw.hovered_files.is_empty());
+    if !dropped.is_empty() {
+        let target = state.dnd.target_at(pos);
+        match dnd::route(target, dropped) {
+            DropAction::Open(paths) => env.bridge.send(UiCommand::OpenPaths {
+                paths,
+                origin: OpenOrigin::DragDrop,
+            }),
+            DropAction::ScanFolder(folder) => {
+                let q = env.bridge.query_id();
+                state.add_game = Some(crate::vm::screens::AddGameVm {
+                    folder: folder.clone(),
+                    query: Some(q),
+                    ..Default::default()
+                });
+                state.nav.open(Overlay::AddGame);
+                env.bridge.send(UiCommand::ScanFolder {
+                    folder,
+                    reply_to: q,
+                });
+            }
+            DropAction::SetCover(id, path) => {
+                env.bridge.send(UiCommand::ImportArtwork {
+                    id,
+                    slot: easyplay_core::model::ArtSlot::Cover,
+                    source: crate::bridge::ArtworkSource::File(path),
+                });
+                state.toast(
+                    strings::feedback::COVER_SET,
+                    ToastKind::Success,
+                    Some(UiCommand::ClearArtwork {
+                        id,
+                        slot: easyplay_core::model::ArtSlot::Cover,
+                    }),
+                    env.mono,
+                );
+            }
+            DropAction::ShareFolders(game, paths) => {
+                for path in paths {
+                    details::permissions::share_folder(state, env, game, path);
+                }
+            }
+            DropAction::Refuse => {
+                state.toast(strings::dnd::REFUSED, ToastKind::Warning, None, env.mono);
+            }
+        }
+        state.dnd.hovering = None;
+        return;
+    }
+    if !any_hover {
+        state.dnd.hovering = None;
+        return;
+    }
+    let payload = dnd::classify(&hovered);
+    state.dnd.hovering = Some(payload);
+    let theme = theme::theme(ctx);
+    let p = theme.palette.clone();
+    let rect = ctx.content_rect();
+    let refuse = payload == Payload::Unsupported;
+    egui::Area::new(Id::unique("easyplay.dropzone"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(rect.min)
+        .interactable(false)
+        .show(ctx, |ui| {
+            let painter = ui.painter();
+            painter.rect_filled(rect, 0.0, theme::palette::fade(p.backdrop, 0.85));
+            let inner = rect.shrink(space::S6);
+            let color = if refuse { p.danger } else { p.accent };
+            let pts = [
+                inner.left_top(),
+                inner.right_top(),
+                inner.right_bottom(),
+                inner.left_bottom(),
+                inner.left_top(),
+            ];
+            painter.extend(egui::Shape::dashed_line(
+                &pts,
+                egui::Stroke::new(2.0, color),
+                10.0,
+                6.0,
+            ));
+            let c = inner.center();
+            painter.text(
+                c - egui::vec2(0.0, space::S10),
+                egui::Align2::CENTER_CENTER,
+                if refuse {
+                    icons::ERROR
+                } else {
+                    icons::DOWNLOAD
+                }
+                .text(false),
+                icons::font(theme::tokens::icon::EMPTY),
+                color,
+            );
+            painter.text(
+                c + egui::vec2(0.0, space::S4),
+                egui::Align2::CENTER_CENTER,
+                if refuse {
+                    strings::dnd::REFUSED
+                } else {
+                    strings::dnd::DROP_TO_ADD
+                },
+                Type::Title.font_id(),
+                p.text_primary,
+            );
+            if let Some(what) = strings::dnd::payload(payload) {
+                painter.text(
+                    c + egui::vec2(0.0, space::S10),
+                    egui::Align2::CENTER_CENTER,
+                    what,
+                    Type::Body.font_id(),
+                    p.text_secondary,
+                );
+            }
+        });
 }
 
 #[cfg(test)]

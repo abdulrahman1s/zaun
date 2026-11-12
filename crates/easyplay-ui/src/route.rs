@@ -62,7 +62,7 @@ impl Route {
     }
 }
 
-/// A dialog awaiting a decision. Concrete dialogs arrive with UI-027; the id keys their state.
+/// A dialog awaiting a decision; the id keys the dialog queue (`vm::dialogs`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DialogId(pub u32);
 
@@ -77,6 +77,14 @@ pub enum Overlay {
     Inspector,
     /// Keyboard shortcut sheet.
     Shortcuts,
+    /// Artwork sheet for a game.
+    Artwork(GameId),
+    /// Tag editor for a game.
+    Tags(GameId),
+    /// Game-fix picker for a game.
+    FixPicker(GameId),
+    /// Full play history (statistics).
+    History,
     /// A dialog; may sit above a sheet.
     Dialog(DialogId),
 }
@@ -143,6 +151,13 @@ impl Navigator {
         self.stack.clear();
         self.stack.push(route);
         self.overlays.clear();
+    }
+
+    /// Replace the current route (switching settings tabs).
+    pub fn replace(&mut self, route: Route) {
+        if let Some(top) = self.stack.last_mut() {
+            *top = route;
+        }
     }
 
     /// Back: close the topmost overlay, else pop a route. Returns whether anything changed.
