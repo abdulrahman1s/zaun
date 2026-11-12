@@ -1,0 +1,63 @@
+# Maintainer: Abdulrahman <mail@abdulrahman.dev>
+#
+# EasyPlay from source (PKG-002, RELEASE_STRATEGY §2); AUR package `easyplay`.
+# The binary package from the release tarball is easyplay-bin/PKGBUILD (`easyplay-bin`).
+
+pkgname=easyplay
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Run Windows games through umu-launcher in a per-game bubblewrap sandbox'
+arch=('x86_64')
+url='https://github.com/easyplay/easyplay'
+license=('GPL-3.0-or-later' 'OFL-1.1' 'MIT' 'Apache-2.0')
+# Display, input and graphics libraries are loaded with dlopen (RELEASE_STRATEGY §2.1).
+depends=(
+  'bubblewrap'
+  'umu-launcher'
+  'gcc-libs'
+  'glibc'
+  'hicolor-icon-theme'
+  'libxkbcommon'
+  'systemd-libs'
+  'vulkan-icd-loader'
+  'wayland'
+)
+optdepends=(
+  'mangohud: performance overlay in games'
+  'gamescope: run games in a gamescope session'
+  'xdg-desktop-portal: native file chooser'
+  'xdg-utils: open folders and links from EasyPlay'
+  'libx11: X11 sessions'
+  'libxcursor: X11 sessions'
+  'libxi: X11 sessions'
+  'libxrandr: X11 sessions'
+  'libglvnd: OpenGL when Vulkan is unavailable'
+)
+# rust-musl provides the static musl standard library for the init shim.
+makedepends=('cargo' 'rust-musl' 'git')
+options=('!lto' '!debug')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$CARCH-unknown-linux-gnu"
+  cargo fetch --locked --target "$CARCH-unknown-linux-musl"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  # Arch keeps private executables in /usr/lib/<pkg>.
+  scripts/build-release.sh --build-only --offline --prefix /usr --libexec-dir /usr/lib/easyplay
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  scripts/build-release.sh --stage-only --offline --prefix /usr --libexec-dir /usr/lib/easyplay \
+    --destdir "$pkgdir"
+}

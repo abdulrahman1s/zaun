@@ -38,6 +38,8 @@ pub const HIDE: &str = "Hide";
 pub const UNHIDE: &str = "Unhide";
 /// Item.
 pub const COPY_COMMAND: &str = "Copy launch command";
+/// Developer Mode: the launch inspector for the next launch.
+pub const INSPECT: &str = "Dry-run inspector";
 /// Item.
 pub const REMOVE: &str = "Remove…";
 

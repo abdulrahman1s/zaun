@@ -39,6 +39,7 @@
           ./Cargo.lock
           ./crates
           (lib.fileset.maybeMissing ./assets)
+          (lib.fileset.maybeMissing ./LICENSE)
         ];
       };
 
@@ -49,6 +50,7 @@
           # Single source of truth for the toolchain: rust-toolchain.toml.
           rustToolchain = (rust-overlay.lib.mkRustBin { } pkgs).fromRustupToolchainFile ./rust-toolchain.toml;
           inherit src version commit;
+          cargoLockFile = ./Cargo.lock;
         };
     in
     {

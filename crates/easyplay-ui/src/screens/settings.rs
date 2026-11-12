@@ -21,7 +21,7 @@ use crate::input::picker::PickPurpose;
 use crate::route::{Route, SettingsTab};
 use crate::strings;
 use crate::strings::settings as s;
-use crate::theme::tokens::{icon as icon_size, layout, space};
+use crate::theme::tokens::{control, icon as icon_size, layout, space};
 use crate::theme::{self, Type, icons};
 use crate::vm::dialogs::{Confirm, Dialog};
 use crate::widgets::button::{Button, Size, Variant};
@@ -68,9 +68,9 @@ fn commit(
     next: Preferences,
 ) {
     if next.appearance != env.bridge.prefs().appearance {
-        let a = appearance_of(&next, theme::appearance(&env.ctx));
+        let a = appearance_of(&next, theme::appearance(&env.ctx), &theme::system(&env.ctx));
         theme::apply(&env.ctx, &a);
-        env.ctx.set_zoom_factor(a.ui_scale);
+        env.ctx.set_zoom_factor(theme::zoom(&env.ctx, &a));
     }
     env.bridge.send(UiCommand::SetPreference {
         patch,
@@ -118,10 +118,11 @@ fn saved_tick(ui: &mut Ui, state: &UiState, env: &Env<'_>, key: &str) {
 
 fn heading(ui: &mut Ui, text: &str) {
     let p = theme::theme(ui.ctx()).palette.clone();
-    ui.add_space(space::S5);
+    // Sections read as groups: more room above a heading than below it (UX-004).
+    ui.add_space(space::S6);
     let r = ui.label(Type::Heading.rich(text).color(p.text_primary));
     crate::a11y::labelled(ui.ctx(), r.id, egui::Role::Heading, text);
-    ui.add_space(space::S1);
+    ui.add_space(space::S2);
 }
 
 fn caption(ui: &mut Ui, text: &str) {
@@ -159,6 +160,25 @@ fn bool_row(
     }
 }
 
+/// The label of a settings row. On pages wide enough the labels form a fixed column, so the
+/// controls of consecutive rows line up (UX-004); narrow pages keep the natural width.
+fn row_label(ui: &mut Ui, text: &str) {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let col = 184.0;
+    if ui.available_width() >= 480.0 {
+        ui.allocate_ui_with_layout(
+            vec2(col, control::MD),
+            Layout::left_to_right(Align::Center),
+            |ui| {
+                ui.set_min_width(col);
+                ui.label(Type::Body.rich(text).color(p.text_primary));
+            },
+        );
+    } else {
+        ui.label(Type::Body.rich(text).color(p.text_primary));
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn choice_row(
     ui: &mut Ui,
@@ -172,11 +192,10 @@ fn choice_row(
     set: impl FnOnce(&mut Preferences, usize),
 ) {
     note_key(ui, key);
-    let p = theme::theme(ui.ctx()).palette.clone();
     let mut i = current;
     let changed = ui
         .horizontal_wrapped(|ui| {
-            ui.label(Type::Body.rich(label).color(p.text_primary));
+            row_label(ui, label);
             let segs: Vec<Segment<'_>> = options
                 .iter()
                 .map(|l| Segment {
@@ -219,13 +238,12 @@ fn number_row(
     set: impl FnOnce(&mut Preferences, i64),
 ) {
     note_key(ui, key);
-    let p = theme::theme(ui.ctx()).palette.clone();
     let labels: Vec<String> = values.iter().map(|v| unit(*v)).collect();
     let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
     let mut i = values.iter().position(|v| *v == current).unwrap_or(0);
     let changed = ui
         .horizontal(|ui| {
-            ui.label(Type::Body.rich(label).color(p.text_primary));
+            row_label(ui, label);
             let c = select(ui, label, None, None, &mut i, &refs, false).changed();
             saved_tick(ui, state, env, key);
             c
@@ -444,19 +462,29 @@ fn appearance(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let mut scale = prefs.appearance.ui_scale as f32;
     let changed = ui
         .horizontal(|ui| {
-            ui.label(Type::Body.rich(s::UI_SCALE).color(p.text_primary));
-            let r = ui.add(
-                egui::Slider::new(&mut scale, 0.75..=2.0)
-                    .step_by(0.05)
-                    .custom_formatter(|v, _| s::percent(v)),
+            row_label(ui, s::UI_SCALE);
+            let shown = s::percent(f64::from(scale));
+            let r = crate::widgets::slider::slider(
+                ui,
+                &mut scale,
+                0.75..=2.0,
+                0.05,
+                // Leave room for the value and *Reset* on narrow pages.
+                (ui.available_width() - 136.0).clamp(80.0, 200.0),
+                s::UI_SCALE,
+                &shown,
             );
-            crate::a11y::labelled(ui.ctx(), r.id, egui::Role::Slider, s::UI_SCALE);
+            ui.label(
+                Type::Body
+                    .numeric(s::percent(f64::from(scale)))
+                    .color(p.text_secondary),
+            );
             let reset = ui.add(Button::ghost(s::RESET).size(Size::Sm));
             if reset.clicked() {
                 scale = 1.0;
             }
             saved_tick(ui, state, env, "appearance.ui_scale");
-            r.drag_stopped() || r.lost_focus() || reset.clicked() || (r.changed() && !r.dragged())
+            r.drag_stopped() || reset.clicked() || (r.changed() && !r.dragged())
         })
         .inner;
     if changed && (f64::from(scale) - prefs.appearance.ui_scale).abs() > 1e-3 {
@@ -524,7 +552,7 @@ fn appearance(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     note_key(ui, key);
     let reset = ui
         .horizontal(|ui| {
-            ui.label(Type::Body.rich(s::LIST_COLUMNS).color(p.text_primary));
+            row_label(ui, s::LIST_COLUMNS);
             let custom = !prefs.appearance.list_column_widths.is_empty();
             let r = ui.add_enabled(custom, Button::ghost(s::RESET).size(Size::Sm));
             saved_tick(ui, state, env, key);
@@ -657,8 +685,8 @@ fn layers(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         .position(|o| o.1 == prefs.runtime.default)
         .unwrap_or(0);
     let users: u32 = rt.layers.iter().map(|l| l.used_by).sum();
-    ui.horizontal(|ui| {
-        ui.label(Type::Body.rich(s::DEFAULT_LAYER).color(p.text_primary));
+    ui.horizontal_wrapped(|ui| {
+        row_label(ui, s::DEFAULT_LAYER);
         if select(
             ui,
             s::DEFAULT_LAYER,
@@ -692,41 +720,73 @@ fn layers(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         caption(ui, s::NONE_YET);
     }
     let mut remove = None;
-    egui::Grid::new("settings.layers")
-        .num_columns(5)
-        .spacing(vec2(space::S5, space::S2))
-        .show(ui, |ui| {
-            for l in &rt.layers {
-                ui.label(
-                    Type::BodyStrong
-                        .rich(&l.build.display_name)
-                        .color(p.text_primary),
-                );
-                ui.label(
-                    Type::Body
-                        .rich(&l.build.origin_label)
-                        .color(p.text_secondary),
-                );
-                ui.label(
-                    Type::Body
-                        .numeric(l.size.map_or_else(|| "—".to_owned(), strings::fmt::bytes))
-                        .color(p.text_secondary),
-                );
-                ui.label(
-                    Type::Body
-                        .rich(s::used_by(l.used_by))
-                        .color(p.text_secondary),
-                );
-                if l.build.origin == easyplay_core::model::RuntimeOrigin::Store
-                    && ui.add(Button::ghost(s::REMOVE).size(Size::Sm)).clicked()
-                {
-                    remove = Some(l.clone());
-                } else {
-                    ui.label("");
+    if ui.available_width() < 520.0 {
+        // Narrow: one block per layer, details on a second line.
+        for l in &rt.layers {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(
+                        Type::BodyStrong
+                            .rich(&l.build.display_name)
+                            .color(p.text_primary),
+                    );
+                    ui.label(
+                        Type::Caption
+                            .rich(s::layer_details(
+                                &l.build.origin_label,
+                                &l.size.map_or_else(|| "—".to_owned(), strings::fmt::bytes),
+                                &s::used_by(l.used_by),
+                            ))
+                            .color(p.text_secondary),
+                    );
+                });
+                if l.build.origin == easyplay_core::model::RuntimeOrigin::Store {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.add(Button::ghost(s::REMOVE).size(Size::Sm)).clicked() {
+                            remove = Some(l.clone());
+                        }
+                    });
                 }
-                ui.end_row();
-            }
-        });
+            });
+            ui.add_space(space::S1);
+        }
+    } else {
+        egui::Grid::new("settings.layers")
+            .num_columns(5)
+            .spacing(vec2(space::S5, space::S2))
+            .show(ui, |ui| {
+                for l in &rt.layers {
+                    ui.label(
+                        Type::BodyStrong
+                            .rich(&l.build.display_name)
+                            .color(p.text_primary),
+                    );
+                    ui.label(
+                        Type::Body
+                            .rich(&l.build.origin_label)
+                            .color(p.text_secondary),
+                    );
+                    ui.label(
+                        Type::Body
+                            .numeric(l.size.map_or_else(|| "—".to_owned(), strings::fmt::bytes))
+                            .color(p.text_secondary),
+                    );
+                    ui.label(
+                        Type::Body
+                            .rich(s::used_by(l.used_by))
+                            .color(p.text_secondary),
+                    );
+                    if l.build.origin == easyplay_core::model::RuntimeOrigin::Store
+                        && ui.add(Button::ghost(s::REMOVE).size(Size::Sm)).clicked()
+                    {
+                        remove = Some(l.clone());
+                    } else {
+                        ui.label("");
+                    }
+                    ui.end_row();
+                }
+            });
+    }
     if let Some(l) = remove {
         state.show_dialog(Dialog::Confirm(Confirm::RemoveLayer {
             name: l.build.name.clone(),
@@ -737,7 +797,7 @@ fn layers(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     }
     heading(ui, s::RUNTIME);
     for (name, version, verified) in &rt.slr {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(Type::Body.rich(name).color(p.text_primary));
             ui.label(Type::Body.rich(version).color(p.text_secondary));
             if let Some(t) = verified {
@@ -878,23 +938,24 @@ fn integration(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let host = env.bridge.host().clone();
     heading(ui, s::FILE_TYPES);
     ui.horizontal_wrapped(|ui| {
-        ui.label(Type::Body.rich(s::EXE_FILES).color(p.text_primary));
+        row_label(ui, s::EXE_FILES);
         ui.label(
             Type::Body
                 .rich(s::handler(&host.handler))
                 .color(p.text_secondary),
         );
-        let ours = host.handler == HandlerState::EasyPlay;
-        let label = if ours {
-            s::RESTORE_PREVIOUS
-        } else {
-            s::USE_EASYPLAY
-        };
-        if ui.add(Button::new(label).size(Size::Sm)).clicked() {
-            env.bridge
-                .send(UiCommand::SetDefaultHandler { enable: !ours });
-        }
     });
+    // The action on its own line, so a long handler name never pushes it out of view.
+    let ours = host.handler == HandlerState::EasyPlay;
+    let label = if ours {
+        s::RESTORE_PREVIOUS
+    } else {
+        s::USE_EASYPLAY
+    };
+    if ui.add(Button::new(label).size(Size::Sm)).clicked() {
+        env.bridge
+            .send(UiCommand::SetDefaultHandler { enable: !ours });
+    }
     choice_row(
         ui,
         state,
@@ -968,6 +1029,7 @@ fn integration(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
 fn advanced(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let p = theme::theme(ui.ctx()).palette.clone();
     let prefs = env.bridge.prefs().clone();
+    super::debug::doctor::section(ui, state, env);
     heading(ui, s::DEVELOPER);
     note_key(ui, "advanced.developer_mode");
     let mut dev = prefs.advanced.developer_mode;
@@ -1251,8 +1313,14 @@ fn about(ui: &mut Ui, env: &Env<'_>) {
 pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, tab: SettingsTab) {
     let p = theme::theme(ui.ctx()).palette.clone();
     let mut chosen = None;
+    // Narrow windows keep more room for the content (A11Y-005).
+    let nav_w = if ui.ctx().content_rect().width() < layout::COMPACT_BELOW {
+        168.0
+    } else {
+        200.0
+    };
     Panel::left("settings_tabs")
-        .exact_size(200.0)
+        .exact_size(nav_w)
         .resizable(false)
         .show_separator_line(false)
         .frame(

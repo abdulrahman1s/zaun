@@ -18,6 +18,10 @@ pub enum PathCodecError {
     /// A `b:` value with a malformed escape.
     #[error("malformed escaped path at byte {0}")]
     BadEscape(usize),
+    /// A relative path that is empty or has `.`/`..` components (it would not round-trip and
+    /// could name something outside the game folder).
+    #[error("relative path is empty or not normal")]
+    NotNormal,
 }
 
 const PREFIX: &str = "b:";
@@ -97,6 +101,15 @@ pub fn encode_relative(path: &Path) -> Result<String, PathCodecError> {
     if path.is_absolute() {
         return Err(PathCodecError::NotAbsolute);
     }
+    // `components()` also drops a trailing `/.` and collapses `//`, so the components must
+    // rebuild the exact original bytes, or the stored value would not round-trip.
+    let normal = path
+        .components()
+        .all(|c| matches!(c, std::path::Component::Normal(_)));
+    let exact = path.components().collect::<PathBuf>().as_os_str() == path.as_os_str();
+    if path.as_os_str().is_empty() || !normal || !exact {
+        return Err(PathCodecError::NotNormal);
+    }
     let abs = Path::new("/").join(path);
     let enc = encode(&abs)?;
     Ok(match enc.strip_prefix(PREFIX) {
@@ -167,6 +180,22 @@ mod tests {
             encode_relative(Path::new("/abs")),
             Err(PathCodecError::NotAbsolute)
         );
+        for bad in [
+            "",
+            ".",
+            "..",
+            "bin/../game.exe",
+            "./game.exe",
+            "bin/.",
+            "bin//game.exe",
+            "bin/",
+        ] {
+            assert_eq!(
+                encode_relative(Path::new(bad)),
+                Err(PathCodecError::NotNormal),
+                "{bad:?}"
+            );
+        }
     }
 
     proptest! {
@@ -183,7 +212,7 @@ mod tests {
         #[test]
         fn arbitrary_relative_paths_round_trip(tail in proptest::collection::vec(1u8..=255, 1..32)) {
             let bytes: Vec<u8> = tail.into_iter().filter(|b| *b != b'/').collect();
-            prop_assume!(!bytes.is_empty());
+            prop_assume!(!bytes.is_empty() && bytes != b"." && bytes != b"..");
             let p = PathBuf::from(std::ffi::OsString::from_vec(bytes));
             let back = decode_relative(&encode_relative(&p).unwrap()).unwrap();
             prop_assert_eq!(as_bytes(&back), as_bytes(&p));

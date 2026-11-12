@@ -429,6 +429,12 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
             }
         });
 
+    // The cursor follows its game; if the grid had focus, so does keyboard focus.
+    if let Some(moved) = state.library.follow(&lib)
+        && state.library.focused
+    {
+        state.pending_focus = Some(moved);
+    }
     let result = state.library.result(&lib);
     let visible: std::sync::Arc<[u32]> = result.items.clone().into();
     let total = state.library.base_total(&lib);
@@ -457,7 +463,13 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                     let last: Option<String> = ui.ctx().data(|d| d.get_temp(key));
                     if last.as_deref() != Some(count.as_str()) {
                         if last.is_some() {
-                            Announcer::announce(ui.ctx(), count.clone(), Politeness::Polite);
+                            Announcer::announce_debounced(
+                                ui.ctx(),
+                                "search",
+                                count.clone(),
+                                Politeness::Polite,
+                                crate::a11y::SEARCH_DEBOUNCE_S,
+                            );
                         }
                         ui.ctx().data_mut(|d| d.insert_temp(key, count));
                     }

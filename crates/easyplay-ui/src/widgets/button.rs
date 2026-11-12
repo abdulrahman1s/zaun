@@ -379,7 +379,8 @@ pub fn play_pill(
     let p = &theme.palette;
     let (h, icon_px) = match size {
         PillSize::Card => (control::LG, icon_size::BUTTON),
-        PillSize::Row => (control::LG, icon_size::INLINE),
+        // Rows are 44 px: a 36 px pill leaves air above and below (UX-004).
+        PillSize::Row => (control::MD, icon_size::INLINE),
         PillSize::Page => (control::XL, icon_size::BUTTON),
     };
     let label_font = match size {
@@ -422,7 +423,10 @@ pub fn play_pill(
     let hover = hover_t(&resp, &theme);
     let pressed = resp.is_pointer_button_down_on();
     let corner = CornerRadius::same(radius::PILL);
-    let (fill, fg, border) = if state.accent_filled() {
+    // In list rows the pill is quiet until it is pointed at or focused: one accent fill per
+    // view (UI_DESIGN_SYSTEM §2.5 rule 1), not one per row.
+    let quiet_row = size == PillSize::Row && hover <= 0.0 && !resp.has_focus();
+    let (fill, fg, border) = if state.accent_filled() && !quiet_row {
         let fill = if pressed {
             p.accent_pressed
         } else {
@@ -431,7 +435,9 @@ pub fn play_pill(
         (fill, p.text_on_accent, None)
     } else {
         let fill = mix(p.bg_raised, p.text_primary, 0.06 * hover);
-        let border = if *state == PlayState::Running && hover > 0.0 {
+        let border = if quiet_row && state.accent_filled() {
+            Some(p.border_subtle)
+        } else if *state == PlayState::Running && hover > 0.0 {
             Some(mix(p.border_strong, p.danger, hover))
         } else {
             Some(p.border_strong)
@@ -461,12 +467,17 @@ pub fn play_pill(
         } else {
             0.0
         };
+        let glyph_c = if quiet_row && state.accent_filled() {
+            p.accent
+        } else {
+            fg
+        };
         painter.text(
             pos2(x + lead / 2.0 + nudge, cy),
             Align2::CENTER_CENTER,
             glyph.text(true),
             icons::font(lead),
-            f(fg),
+            f(glyph_c),
         );
     }
     if *state == PlayState::Running {

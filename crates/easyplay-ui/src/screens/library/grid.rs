@@ -1,8 +1,9 @@
 //! The virtualized cover grid (PERFORMANCE §5, SCREEN_SPECS §2–3). Rows (card rows and group
 //! headers) have precomputed offsets; only rows intersecting the viewport (plus one row of
 //! overscan) are laid out, and covers of the next screenful are requested ahead. Arrow keys
-//! move the cursor spatially (ACCESSIBILITY §2.1); `Enter` opens, `Space` plays; `Shift`
-//! extends the selection; `Ctrl+click` toggles; right-click opens the context menu.
+//! move the cursor spatially (ACCESSIBILITY §2.1, `input::focus`); `Enter` opens, `Space`
+//! plays; `Shift` extends the selection; `Ctrl+click` toggles; right-click opens the context
+//! menu. Only one card is in the `Tab` order (roving focus), so `Tab` leaves the grid.
 
 use std::sync::Arc;
 
@@ -13,6 +14,7 @@ use egui::{Key, Modifiers, Rect, ScrollArea, Ui, pos2, vec2};
 use crate::a11y;
 use crate::app::UiState;
 use crate::bridge::LibraryView;
+use crate::input::focus;
 use crate::screens::Env;
 use crate::screens::actions::GameAction;
 use crate::strings;
@@ -168,73 +170,39 @@ pub fn show(
     state.library.focused = grid_has_focus;
     let mut scroll_to: Option<usize> = None;
     if grid_has_focus && let Some(pos) = sel_pos {
-        let (l, r, u, d, home, end, pgup, pgdn, enter, play, shift) = ui.input_mut(|i| {
-            let shift = i.modifiers.shift;
-            let m = if shift {
-                Modifiers::SHIFT
-            } else {
-                Modifiers::NONE
-            };
+        let (mv, enter, play) = ui.input_mut(|i| {
             (
-                i.consume_key(m, Key::ArrowLeft),
-                i.consume_key(m, Key::ArrowRight),
-                i.consume_key(m, Key::ArrowUp),
-                i.consume_key(m, Key::ArrowDown),
-                i.consume_key(m, Key::Home),
-                i.consume_key(m, Key::End),
-                i.consume_key(Modifiers::NONE, Key::PageUp),
-                i.consume_key(Modifiers::NONE, Key::PageDown),
+                focus::take_move(i),
                 i.consume_key(Modifiers::NONE, Key::Enter),
                 i.consume_key(Modifiers::NONE, Key::Space),
-                shift,
             )
         });
-        let row = card_rows
-            .iter()
-            .position(|(s, l)| pos >= *s && pos < s + l)
-            .unwrap_or(0);
-        let (start, len) = card_rows[row];
-        let col = pos - start;
-        let in_row = |r: usize| {
-            let (s, l) = card_rows[r];
-            s + col.min(l - 1)
-        };
         let page = ((ui.clip_rect().height() / g.row_h()).floor() as usize).max(1);
-        let target = if l && col > 0 {
-            Some(pos - 1)
-        } else if r && col + 1 < len {
-            Some(pos + 1)
-        } else if u && row > 0 {
-            Some(in_row(row - 1))
-        } else if d && row + 1 < card_rows.len() {
-            Some(in_row(row + 1))
-        } else if home {
-            Some(start)
-        } else if end {
-            Some(start + len - 1)
-        } else if pgup {
-            Some(in_row(row.saturating_sub(page)))
-        } else if pgdn {
-            Some(in_row((row + page).min(card_rows.len() - 1)))
-        } else {
-            None
-        };
-        if let Some(t) = target {
-            let id = game_at(t);
-            if shift {
-                if state.library.anchor.is_none() {
-                    state.library.anchor = Some(game_at(pos));
+        if let Some((mv, shift)) = mv {
+            if let Some(t) = focus::target(&card_rows, pos, mv, page) {
+                let id = game_at(t);
+                if shift {
+                    if state.library.anchor.is_none() {
+                        state.library.anchor = Some(game_at(pos));
+                    }
+                    state.library.select_range(lib, visible, id);
                 }
-                state.library.select_range(lib, visible, id);
+                state.library.selected = Some(id);
+                state.pending_focus = Some(id);
+                scroll_to = Some(t);
             }
-            state.library.selected = Some(id);
-            state.pending_focus = Some(id);
-            scroll_to = Some(t);
         } else if enter {
             action = Some((game_at(pos), GameAction::Open));
         } else if play {
             action = Some((game_at(pos), GameAction::Play));
         }
+    }
+    // A pending focus outside the viewport scrolls it into view first.
+    if scroll_to.is_none()
+        && let Some(pf) = state.pending_focus
+        && let Some(t) = visible.iter().position(|i| lib.games[*i as usize].id == pf)
+    {
+        scroll_to = Some(t);
     }
 
     let grid_name = strings::library::grid_name(visible.len(), g.cols);
@@ -263,6 +231,22 @@ pub fn show(
             let first = rows
                 .partition_point(|(_, y)| *y + g.row_h() < viewport.min.y)
                 .saturating_sub(1);
+            // The cells laid out this frame, and the one in the `Tab` order.
+            let mut laid_out: Option<(usize, usize)> = None;
+            for (row, y) in rows.iter().skip(first) {
+                if *y > viewport.max.y + g.row_h() {
+                    break;
+                }
+                if let Row::Cards { start, len } = row {
+                    let (a, b) = laid_out.unwrap_or((*start, start + len));
+                    laid_out = Some((a.min(*start), b.max(start + len)));
+                }
+            }
+            let pending_pos = state
+                .pending_focus
+                .and_then(|id| visible.iter().position(|i| lib.games[*i as usize].id == id));
+            let laid_out = laid_out.map_or(0..0, |(a, b)| a..b);
+            let rover = focus::rover(pending_pos.or(sel_pos), laid_out);
             let prefetch_to = viewport.max.y + viewport.height();
             for (row, y) in rows.iter().skip(first) {
                 if *y > prefetch_to {
@@ -324,7 +308,8 @@ pub fn show(
                                 utc_offset_s: env.utc_offset_s,
                                 selected: selected && grid_has_focus,
                                 multi_selected: state.library.is_selected(game.id),
-                                controller: false,
+                                controller: state.controller,
+                                focusable: rover == Some(pos),
                                 show_playtime,
                                 density: theme.density,
                             };
@@ -333,6 +318,11 @@ pub fn show(
                             state
                                 .dnd
                                 .target(rect, crate::input::dnd::DropTarget::Cover(game.id));
+                            if rover != Some(pos) && focus::accesskit_focus_requested(ui.ctx(), id)
+                            {
+                                state.pending_focus = Some(game.id);
+                                ui.ctx().request_repaint();
+                            }
                             if state.pending_focus == Some(game.id) {
                                 r.response.request_focus();
                                 state.pending_focus = None;

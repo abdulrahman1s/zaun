@@ -38,6 +38,7 @@ clap_complete.workspace = true
 wayland-sys.workspace = true
 x11-dl.workspace = true
 xkbcommon-dl.workspace = true
+zbus.workspace = true
 
 [dev-dependencies]
 easyplay-testkit.workspace = true

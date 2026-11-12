@@ -58,24 +58,29 @@ LAYER_EXCEPTIONS = {
     # its types live in `launch` although `launch` also depends on `session`. Moving them to
     # `model` would remove the exception.
     ("session", "launch"): ("LaunchPlan", "plan_file", "PlanSandbox", "PlanFd", "FdKind",
-                            "PrefixLocks"),
+                            "PrefixLocks", "inspect"),
 }
 
 # What easyplay-ui may name in easyplay_core (§3 rule 2 as enforced): vocabulary and the
 # pure planning/query functions, the service façade, and the state types it displays.
 UI_ALLOWED = ("model", "ids", "clock", "consts", "error", "config", "service", "library",
               "sandbox", "umu", "launch", "stats", "artwork", "jobs", "desktop", "host",
-              "ui_thread", "identity")
+              "ui_thread", "identity", "diagnostics", "session")
 # Never, anywhere in the UI (outside tests): storage, filesystem and process mechanisms,
 # planners and renderers, the supervisor, umu's command builder.
 UI_FORBIDDEN = (
-    r"storage", r"fsx", r"procfs", r"session", r"runtime", r"logging", r"paths",
+    # `session` only for the process-list row types Developer Mode shows.
+    r"storage", r"fsx", r"procfs", r"session(?!::(ProcessInfo|ProcessRole)\b)", r"runtime",
+    r"logging", r"paths",
     r"sandbox::(bwrap|planner|plan\b|render|seccomp|fd|sections|context)",
     r"sandbox::(plan|render)\s*\(",
     r"umu::(command|locate)", r"host::(runner|RealRunner|probe|LiveHostProbe|bwrap_probe|exec)",
-    r"jobs::(JobPool|pool)", r"launch::(orchestrator|plan_file|planner|trusted|preflight|shell)",
+    r"jobs::(JobPool|pool)", r"launch::(orchestrator|planner|trusted|preflight)",
+    # The inspector may quote a command and serialise a plan; it never writes or reads one.
+    r"launch::plan_file::(write|read|load)",
     r"library::(service|LibraryService|remove|relink|prefix_ops|export|installer|missing)",
     r"stats::(rebuild|recorder|apply)", r"identity::(pe|fingerprint|PeInspector|lnk)",
+    r"diagnostics::(doctor|run|collect|write)",
     r"artwork::(import|http|steam|store|icon_extract)", r"desktop::(mime|shortcuts|instance|open_uri|notify)",
 )
 

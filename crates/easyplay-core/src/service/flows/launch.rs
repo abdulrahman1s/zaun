@@ -127,13 +127,19 @@ impl AppService {
         let locks = Arc::clone(&self.deps.locks);
         let host = Arc::clone(&self.deps.host);
         let post = self.poster();
+        let developer = crate::sandbox::validate::effective_developer_mode(
+            self.prefs.advanced.developer_mode,
+            &game.policy,
+            &game.launch,
+        );
         let steps = self.trusted_steps();
         let _ = self.deps.jobs.submit(
             JobPriority::Interactive,
             JobLabel("launch"),
             move |cancel| {
                 let facts = host.facts();
-                let henv = env.host_env(&paths, &install_id, &other_roots, &*fs);
+                let mut henv = env.host_env(&paths, &install_id, &other_roots, &*fs);
+                henv.developer_mode = developer;
                 let deps = OrchestratorDeps {
                     host: &facts,
                     env: &henv,
@@ -379,6 +385,71 @@ impl AppService {
         }
     }
 
+    /// UF-9: a launch that failed, or a game that ended within 60 s of starting with a crash
+    /// or an error status, becomes a problem panel whose suggestions come from the evidence
+    /// (`diagnostics::evidence`): the classified error, the session's network mode, the game
+    /// folder access, the program's bitness, sibling files and the tail of `game.log`. Reads
+    /// at most 64 KiB of the log and one directory listing.
+    pub(crate) fn early_failure(
+        &mut self,
+        s: &crate::model::Session,
+        game: GameId,
+    ) -> Option<crate::error::UserError> {
+        use crate::diagnostics::evidence::{self, Evidence, LOG_TAIL_BYTES};
+        let short = s.duration_ms.is_none_or(|d| d < 60_000);
+        let (code, known) = match s.end_reason? {
+            EndReason::FailedToStart { code } => (code, Some(code)),
+            EndReason::Crashed { .. } if short => (ErrorCode::GameCrashed, None),
+            EndReason::Exited { code } if short && code != 0 => (ErrorCode::GameClosedEarly, None),
+            _ => return None,
+        };
+        let g = self.lib.game(game).ok();
+        let log_path = self.deps.paths.session_dir(s.id).join("game.log");
+        let fs = &*self.deps.fs;
+        let log = fs
+            .metadata(&log_path)
+            .ok()
+            .and_then(|m| {
+                let from = m.size.saturating_sub(LOG_TAIL_BYTES as u64);
+                fs.read_range(&log_path, from, LOG_TAIL_BYTES).ok()
+            })
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default();
+        let exe = g.as_ref().and_then(|g| {
+            s.executable_id
+                .and_then(|id| g.executables.iter().find(|e| e.id == id))
+                .or_else(|| g.primary())
+        });
+        let siblings = exe
+            .and_then(|e| e.path.parent())
+            .map(|d| crate::identity::hints::list_names(fs, &*self.deps.clock, d))
+            .unwrap_or_default();
+        let ev = Evidence {
+            known_error: known,
+            online_capable: crate::identity::hints::online_capable(&[], &siblings),
+            game_dir: g.as_ref().map(|g| g.policy.game_dir),
+            preset: s
+                .context
+                .preset
+                .map(|p| p.base())
+                .or(g.as_ref().map(|g| g.policy.preset.base())),
+            is_32bit: exe.is_some_and(|e| e.pe.machine == crate::model::PeMachine::X86),
+            log: evidence::scan_log(&log),
+            ..Evidence::default()
+        }
+        .with_network(s.context.network.or(g.as_ref().map(|g| g.policy.network)));
+        let mut u = self.describe(&Error::new(code).with("session", s.id), Some(game));
+        u.session = Some(s.id);
+        let mut actions = evidence::suggestions(&ev);
+        for a in &u.actions {
+            if !actions.contains(a) {
+                actions.push(*a);
+            }
+        }
+        u.actions = actions;
+        Some(u)
+    }
+
     /// A watcher report: update the registry, activities and statistics.
     pub(crate) fn on_sessions(&mut self, p: SessionPoll) {
         let mut games_changed = Vec::new();
@@ -426,13 +497,14 @@ impl AppService {
             self.set_activity(g, Activity::Idle);
             games_changed.push(g);
             if let Some((game, launch)) = self.launches.remove(&s.id) {
-                let state = match s.end_reason {
-                    Some(EndReason::FailedToStart { code }) => {
+                let state = match (s.end_reason, self.early_failure(s, game)) {
+                    (_, Some(u)) => LaunchState::Failed(Box::new(u)),
+                    (Some(EndReason::FailedToStart { code }), None) => {
                         let u = self.describe(&Error::new(code).with("session", s.id), Some(game));
                         LaunchState::Failed(Box::new(u))
                     }
-                    Some(reason) => LaunchState::Finished { reason },
-                    None => LaunchState::Finished {
+                    (Some(reason), None) => LaunchState::Finished { reason },
+                    (None, None) => LaunchState::Finished {
                         reason: EndReason::Interrupted,
                     },
                 };

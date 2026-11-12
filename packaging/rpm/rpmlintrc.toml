@@ -1,0 +1,6 @@
+# rpmlint configuration for easyplay.spec (PKG-003).
+Filters = [
+    # The in-sandbox init shim is static on purpose (ARCHITECTURE §12): it is bind-mounted
+    # into every sandbox and must not depend on the sandbox's libraries.
+    "statically-linked-binary",
+]

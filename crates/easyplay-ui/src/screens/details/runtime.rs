@@ -129,7 +129,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
     let Some(c) = state.details.compat.as_mut() else {
         return;
     };
-    ui.set_max_width(840.0);
+    ui.set_max_width(ui.available_width().min(840.0));
     section(ui, s::LAYER, None);
     ui.horizontal(|ui| {
         layer_select(ui, env, &mut c.runtime);

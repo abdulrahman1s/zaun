@@ -85,10 +85,10 @@ impl Accent {
     /// (accent, hover, pressed, on-accent text, focus) for a light background.
     fn light(self) -> [u32; 5] {
         match self {
-            Accent::Tide => [0x0A7D6F, 0x0B8F7F, 0x086A5E, 0xFFFFFF, 0x0A7D6F],
-            Accent::Ember => [0xC2410C, 0xD4500F, 0xA8380A, 0xFFFFFF, 0xC2410C],
+            Accent::Tide => [0x0A7D6F, 0x097266, 0x086A5E, 0xFFFFFF, 0x0A7D6F],
+            Accent::Ember => [0xC2410C, 0xB53C0B, 0xA8380A, 0xFFFFFF, 0xC2410C],
             Accent::Iris => [0x4338CA, 0x5046E0, 0x3730A3, 0xFFFFFF, 0x4338CA],
-            Accent::Moss => [0x4D7C0F, 0x5A8F12, 0x3F650C, 0xFFFFFF, 0x4D7C0F],
+            Accent::Moss => [0x4D7C0F, 0x46720E, 0x3F650C, 0xFFFFFF, 0x4D7C0F],
         }
     }
 }
@@ -174,10 +174,10 @@ impl Palette {
             bg_raised: hex(0x1B2030),
             bg_overlay: hex(0x232A3D),
             border_subtle: hex(0x232838),
-            border_strong: hex(0x343C52),
+            border_strong: hex(0x6B7490),
             text_primary: hex(0xEEF0F6),
             text_secondary: hex(0xA9B0C3),
-            text_muted: hex(0x8C95AE),
+            text_muted: hex(0x949DB5),
             text_disabled: hex(0x4B5266),
             accent: hex(a),
             accent_hover: hex(ah),
@@ -217,10 +217,10 @@ impl Palette {
             bg_raised: hex(0xFFFFFF),
             bg_overlay: hex(0xFFFFFF),
             border_subtle: hex(0xE3E6ED),
-            border_strong: hex(0xC5CAD6),
+            border_strong: hex(0x878EA1),
             text_primary: hex(0x151821),
             text_secondary: hex(0x4A5165),
-            text_muted: hex(0x656D82),
+            text_muted: hex(0x5D6579),
             text_disabled: hex(0xA8AEBD),
             accent: hex(a),
             accent_hover: hex(ah),
@@ -368,66 +368,215 @@ pub fn contrast(fg: Color32, bg: Color32) -> f32 {
     (hi + 0.05) / (lo + 0.05)
 }
 
+/// Minimum contrast for text under 18 px regular / 14 px bold (ACCESSIBILITY §3).
+pub const MIN_TEXT: f32 = 4.5;
+/// Minimum contrast for large text, meaningful icons and control boundaries.
+pub const MIN_NON_TEXT: f32 = 3.0;
+
+/// One allowed (foreground role, background role) combination and its threshold.
+#[derive(Clone, Debug)]
+pub struct Pair {
+    /// Foreground role name.
+    pub fg_role: &'static str,
+    /// Background role name.
+    pub bg_role: &'static str,
+    /// Foreground colour (may be translucent; composited over `bg`).
+    pub fg: Color32,
+    /// Opaque background colour.
+    pub bg: Color32,
+    /// Minimum ratio.
+    pub min: f32,
+}
+
+/// The table of allowed combinations (ACCESSIBILITY §3, task A11Y-002): every foreground
+/// role the widgets paint on every background role they paint it on. `text.disabled` is
+/// exempt; decorative borders (`border.subtle`) are not listed.
+pub fn allowed_pairs(p: &Palette) -> Vec<Pair> {
+    let mut v = Vec::new();
+    let mut push = |fg_role, fg, bg_role, bg, min| {
+        v.push(Pair {
+            fg_role,
+            bg_role,
+            fg,
+            bg,
+            min,
+        });
+    };
+    // Planes text and controls sit on. `bg.sunken` only carries text in the log viewer.
+    let planes = [
+        ("bg.base", p.bg_base),
+        ("bg.surface", p.bg_surface),
+        ("bg.raised", p.bg_raised),
+        ("bg.overlay", p.bg_overlay),
+    ];
+    for (bg_role, bg) in planes {
+        push("text.primary", p.text_primary, bg_role, bg, MIN_TEXT);
+        push("text.secondary", p.text_secondary, bg_role, bg, MIN_TEXT);
+        push("text.muted", p.text_muted, bg_role, bg, MIN_TEXT);
+        // Links and selected labels are accent-coloured text.
+        push("accent (text)", p.accent, bg_role, bg, MIN_TEXT);
+        // Semantic colours appear as inline error / warning / status text.
+        push("danger", p.danger, bg_role, bg, MIN_TEXT);
+        push("warning", p.warning, bg_role, bg, MIN_TEXT);
+        push("success", p.success, bg_role, bg, MIN_TEXT);
+        push("info", p.info, bg_role, bg, MIN_TEXT);
+        push("focus", p.focus, bg_role, bg, MIN_NON_TEXT);
+        push("border.strong", p.border_strong, bg_role, bg, MIN_NON_TEXT);
+        for (i, t) in p.tags.iter().enumerate() {
+            push(TAG_ROLES[i], *t, bg_role, bg, MIN_NON_TEXT);
+        }
+    }
+    push(
+        "text.primary",
+        p.text_primary,
+        "bg.sunken",
+        p.bg_sunken,
+        MIN_TEXT,
+    );
+    push(
+        "text.secondary",
+        p.text_secondary,
+        "bg.sunken",
+        p.bg_sunken,
+        MIN_TEXT,
+    );
+    push(
+        "text.muted",
+        p.text_muted,
+        "bg.sunken",
+        p.bg_sunken,
+        MIN_TEXT,
+    );
+    // Selected rows, sidebar items and chips: `accent.subtle` over the surface they fill.
+    for (bg_role, under) in [
+        ("accent.subtle/bg.surface", p.bg_surface),
+        ("accent.subtle/bg.base", p.bg_base),
+        ("accent.subtle/bg.raised", p.bg_raised),
+    ] {
+        let bg = over(p.accent_subtle, under);
+        push("text.primary", p.text_primary, bg_role, bg, MIN_TEXT);
+        push("text.secondary", p.text_secondary, bg_role, bg, MIN_TEXT);
+        push("text.muted", p.text_muted, bg_role, bg, MIN_TEXT);
+        push("accent (icon)", p.accent, bg_role, bg, MIN_NON_TEXT);
+    }
+    // Filled accent buttons in every state.
+    for (bg_role, bg) in [
+        ("accent", p.accent),
+        ("accent.hover", p.accent_hover),
+        ("accent.pressed", p.accent_pressed),
+    ] {
+        push("text.on_accent", p.text_on_accent, bg_role, bg, MIN_TEXT);
+    }
+    // The primary fill must stand out from the page (non-text contrast of the control).
+    push(
+        "accent (fill)",
+        p.accent,
+        "bg.base",
+        p.bg_base,
+        MIN_NON_TEXT,
+    );
+    push(
+        "accent (fill)",
+        p.accent,
+        "bg.overlay",
+        p.bg_overlay,
+        MIN_NON_TEXT,
+    );
+    v
+}
+
+const TAG_ROLES: [&str; 8] = [
+    "tag.0", "tag.1", "tag.2", "tag.3", "tag.4", "tag.5", "tag.6", "tag.7",
+];
+
+/// Every pair of [`allowed_pairs`] below its threshold, for every theme and accent, as
+/// readable lines (empty when the palette passes).
+pub fn contrast_failures() -> Vec<String> {
+    let mut failures = Vec::new();
+    for kind in ThemeKind::ALL {
+        for accent in Accent::ALL {
+            let p = Palette::new(kind, accent);
+            for pair in allowed_pairs(&p) {
+                let r = contrast(pair.fg, pair.bg);
+                if r < pair.min {
+                    failures.push(format!(
+                        "{kind:?}/{accent:?}: {} on {} = {r:.2} < {}",
+                        pair.fg_role, pair.bg_role, pair.min
+                    ));
+                }
+            }
+        }
+    }
+    failures
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// (foreground role, background role, minimum ratio). Thresholds per ACCESSIBILITY §3;
-    /// the full matrix is finalised in A11Y-002.
-    fn pairs(p: &Palette) -> Vec<(&'static str, Color32, Color32, f32)> {
-        let mut v = Vec::new();
-        for (bg_name, bg) in [
-            ("bg.base", p.bg_base),
-            ("bg.surface", p.bg_surface),
-            ("bg.raised", p.bg_raised),
-            ("bg.overlay", p.bg_overlay),
-        ] {
-            v.push((bg_name, p.text_primary, bg, 4.5));
-            v.push((bg_name, p.text_secondary, bg, 4.5));
-            v.push((bg_name, p.text_muted, bg, 4.5));
-            v.push((bg_name, p.danger, bg, 3.0));
-            v.push((bg_name, p.warning, bg, 3.0));
-            v.push((bg_name, p.success, bg, 3.0));
-            v.push((bg_name, p.focus, bg, 3.0));
-        }
-        v.push(("accent", p.text_on_accent, p.accent, 4.5));
-        v.push(("bg.base (accent)", p.accent, p.bg_base, 3.0));
-        v
-    }
 
     #[test]
     fn contrast_of_black_and_white() {
         let r = contrast(Color32::WHITE, Color32::BLACK);
         assert!((r - 21.0).abs() < 0.01, "{r}");
+        assert!((contrast(Color32::BLACK, Color32::BLACK) - 1.0).abs() < 1e-4);
     }
 
+    /// A11Y-002: the whole matrix, every theme, every accent.
     #[test]
     fn every_theme_and_accent_meets_contrast_minimums() {
-        let mut failures = Vec::new();
-        for kind in ThemeKind::ALL {
-            for accent in Accent::ALL {
-                let p = Palette::new(kind, accent);
-                for (bg, fg, bgc, min) in pairs(&p) {
-                    let r = contrast(fg, bgc);
-                    if r < min {
-                        failures.push(format!(
-                            "{kind:?}/{accent:?}: {fg:?} on {bg} = {r:.2} < {min}"
-                        ));
-                    }
-                }
-            }
-        }
+        let failures = contrast_failures();
         assert!(failures.is_empty(), "{failures:#?}");
     }
 
     #[test]
+    fn the_matrix_covers_every_theme_and_accent() {
+        let p = Palette::new(ThemeKind::Dark, Accent::Tide);
+        // 4 planes × (9 + 8 tags) + sunken 3 + subtle 3 × 4 + accent fills 3 + 2.
+        assert_eq!(allowed_pairs(&p).len(), 4 * 18 + 3 + 12 + 3 + 2);
+    }
+
+    #[test]
+    fn a_failing_pair_is_reported() {
+        let mut p = Palette::new(ThemeKind::Light, Accent::Tide);
+        p.text_muted = hex(0xC0C0C0);
+        let low: Vec<_> = allowed_pairs(&p)
+            .into_iter()
+            .filter(|x| contrast(x.fg, x.bg) < x.min)
+            .collect();
+        assert!(low.iter().any(|x| x.fg_role == "text.muted"));
+    }
+
+    /// Card titles over artwork: the darkest part of the gradient keeps white text at
+    /// 4.5:1 over a pure white image, and over a pure black one (ACCESSIBILITY §3).
+    #[test]
     fn card_gradient_keeps_white_titles_legible_over_any_art() {
         use crate::theme::tokens::alpha::CARD_GRADIENT;
-        let p = Palette::new(ThemeKind::Dark, Accent::Tide);
-        let scrim = black(CARD_GRADIENT);
-        // Worst case: pure white artwork under the gradient's darkest part.
-        let bg = over(scrim, Color32::WHITE);
-        assert!(contrast(p.on_art, bg) >= 4.5, "{}", contrast(p.on_art, bg));
+        for kind in ThemeKind::ALL {
+            let p = Palette::new(kind, Accent::Tide);
+            let scrim = black(CARD_GRADIENT);
+            for art in [Color32::WHITE, Color32::BLACK, hex(0xFFE600), hex(0x7DD3FC)] {
+                let bg = over(scrim, art);
+                for (role, fg) in [
+                    ("on_art", p.on_art),
+                    ("on_art_secondary", p.on_art_secondary),
+                ] {
+                    let r = contrast(fg, bg);
+                    assert!(r >= MIN_TEXT, "{kind:?}: {role} over {art:?} = {r:.2}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn high_contrast_has_no_translucency() {
+        let p = Palette::new(ThemeKind::HighContrast, Accent::Ember);
+        for c in [p.bg_base, p.bg_overlay, p.accent_subtle, p.backdrop] {
+            assert_eq!(c.a(), 255);
+        }
+        assert!(!p.allows_translucency());
+        assert_eq!(p.focus, hex(0xFFE600));
+        assert_eq!(p.text_primary, Color32::WHITE);
+        assert_eq!(p.bg_base, Color32::BLACK);
     }
 
     #[test]

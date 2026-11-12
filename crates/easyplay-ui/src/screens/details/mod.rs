@@ -570,7 +570,14 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, id: GameId) {
                     hero(ui, state, env, &g);
                     ui.add_space(space::S4);
                     launch_panel::state_area(ui, state, env, &g);
-                    let names: Vec<&str> = DetailsTab::ALL.iter().map(|t| s::tab(*t)).collect();
+                    let developer = env.bridge.prefs().advanced.developer_mode;
+                    if !developer && state.details.tab == DetailsTab::Logs {
+                        state.details.tab = DetailsTab::Overview;
+                    }
+                    let names: Vec<&str> = DetailsTab::visible(developer)
+                        .iter()
+                        .map(|t| s::tab(*t))
+                        .collect();
                     let mut sel = state.details.tab.index();
                     if tabs(ui, s::TABS, &mut sel, &names).changed() {
                         state.navigate(crate::vm::dialogs::AfterDiscard::Tab(sel));
@@ -590,6 +597,9 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, id: GameId) {
                                     DetailsTab::Compatibility => runtime::show(ui, state, env, &g),
                                     DetailsTab::LaunchOptions => {
                                         launch_options::show(ui, state, env, &g)
+                                    }
+                                    DetailsTab::Logs => {
+                                        crate::screens::debug::logs::tab(ui, state, env, id)
                                     }
                                     _ => activity::show(ui, state, env, &g),
                                 }

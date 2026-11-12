@@ -44,6 +44,9 @@ winit = { version = "0.30", default-features = false, features = ["x11"] }
 # Probing whether the display client libraries can be loaded (`run_gui`), safely.
 wayland-sys = { version = "0.31", features = ["client", "dlopen"] }
 x11-dl = "2.21"
+# Desktop appearance settings through the XDG portal (`run_gui`, A11Y-004); already in the
+# tree through AccessKit.
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
 xkbcommon-dl = "0.4"
 
 # Core
@@ -64,7 +67,7 @@ tracing-appender = "0.2.3"
 sha2 = "0.11"
 uuid = { version = "1.16", features = ["v7", "serde"] }
 jiff = "0.2"
-rustix = { version = "1.0", features = ["fs", "process", "pipe", "event", "system", "thread", "net"] }
+rustix = { version = "1.0", features = ["fs", "process", "pipe", "event", "system", "thread", "net", "param"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "ico", "bmp"] }
 pelite = "0.10"
 # Search normalisation (GAME_LIBRARY §4: NFKD, combining marks removed).
@@ -72,6 +75,8 @@ unicode-normalization = "0.1.24"
 bitflags = "2.9"
 smallvec = { version = "1.15", features = ["serde", "union"] }
 base64 = "0.23"
+# The diagnostics report archive (`diagnostics::report`); already in the tree through `png`.
+flate2 = "1.1"
 crossbeam-channel = "0.5.15"
 parking_lot = "0.13"
 notify-rust = { version = "4.11", default-features = false, features = ["z"] }

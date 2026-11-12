@@ -39,6 +39,17 @@ pub fn show(
     // While a dialog or sheet is open, toasts sit below it: the modal keeps keyboard focus
     // (UI-006, ACCESSIBILITY §2) and the toast's buttons wait until it closes.
     let modal_open = ctx.memory(|m| m.top_modal_layer()).is_some();
+    // The newest toast slides up 12 px and fades in (USER_EXPERIENCE §10); with reduced
+    // motion it only fades.
+    let newest = toasts.last().map(|t| t.id);
+    let t_in = newest.map_or(1.0, |n| {
+        theme::motion::appear(
+            ctx,
+            Id::unique(("easyplay.toast", n.0)),
+            theme.motion.fade(theme::Dur::Base),
+        )
+    });
+    let rise = (1.0 - t_in) * space::S3 * f32::from(u8::from(!theme.motion.reduced));
     Area::new(Id::unique("easyplay.toasts"))
         .order(if modal_open {
             Order::Middle
@@ -47,7 +58,7 @@ pub fn show(
         })
         .anchor(
             Align2::CENTER_BOTTOM,
-            vec2(0.0, -(space::S6 + bottom_inset)),
+            vec2(0.0, -(space::S6 + bottom_inset) + rise),
         )
         .interactable(true)
         .show(ctx, |ui| {
@@ -59,6 +70,7 @@ pub fn show(
             );
             ui.spacing_mut().item_spacing.y = space::S2;
             for t in &toasts {
+                let fading = Some(t.id) == newest && t_in < 1.0;
                 let (icon, color) = match t.kind {
                     ToastKind::Info => (icons::INFO, p.info),
                     ToastKind::Success => (icons::CHECK, p.success),
@@ -70,7 +82,11 @@ pub fn show(
                     .corner_radius(CornerRadius::same(radius::MD))
                     .shadow(ctx.global_style().visuals.popup_shadow)
                     .inner_margin(egui::Margin::symmetric(space::S4 as i8, space::S2 as i8))
+                    .multiply_with_opacity(if fading { t_in } else { 1.0 })
                     .show(ui, |ui| {
+                        if fading {
+                            ui.multiply_opacity(t_in);
+                        }
                         ui.set_max_width(layout::TOAST_MAX_W - space::S8);
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = space::S3;

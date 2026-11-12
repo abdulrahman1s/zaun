@@ -75,6 +75,10 @@ pub enum Overlay {
     AddGame,
     /// Launch inspector, Developer Mode (sheet).
     Inspector,
+    /// The log viewer of *View log* (sheet).
+    Logs,
+    /// The diagnostics report preview (sheet).
+    Report,
     /// Keyboard shortcut sheet.
     Shortcuts,
     /// Artwork sheet for a game.

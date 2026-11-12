@@ -7,7 +7,9 @@
 use easyplay_core::clock::Timestamp;
 use easyplay_core::model::{Activity, Availability, BasePreset, LaunchStateTag, Preset};
 
+pub mod a11y;
 pub mod artwork;
+pub mod debug;
 pub mod details;
 pub mod dialogs;
 pub mod dnd;

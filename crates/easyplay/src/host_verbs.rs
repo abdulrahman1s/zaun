@@ -100,15 +100,21 @@ pub fn doctor(as_json: bool) -> Result<(), Error> {
     {
         init_candidates.push(dir.join(INIT_BIN_NAME));
     }
-    let report = doctor_report(
-        &facts,
-        &DoctorContext {
-            fs: &*c.fs,
-            paths: &c.paths,
-            uid: c.env.uid(),
-            init_candidates,
+    let dctx = DoctorContext {
+        fs: &*c.fs,
+        paths: &c.paths,
+        uid: c.env.uid(),
+        init_candidates,
+    };
+    let mut report = doctor_report(&facts, &dctx, &scan_runtimes(&c, facts.fs.reflink_ok));
+    let runner = RealRunner::new(Arc::clone(&c.clock));
+    easyplay_core::diagnostics::complete(
+        &mut report,
+        &dctx,
+        &easyplay_core::diagnostics::DoctorProbes {
+            runner: Some(&runner),
+            db_file: &c.paths.db_file,
         },
-        &scan_runtimes(&c, facts.fs.reflink_ok),
     );
     if as_json {
         println!("{}", json(&report)?);

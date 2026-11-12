@@ -20,6 +20,7 @@ use egui::{Context, Ui};
 
 use crate::bridge::{OpenOrigin, QueryPayload, ToastLevel, UiBridge, UiCommand, UiEvent};
 use crate::input::dnd::DndState;
+use crate::input::gamepad::{self, NavIntent, PadGate, PadInput, PadNav};
 use crate::input::picker::{NoPicker, PickPurpose, PickResult, Picker};
 use crate::route::{Navigator, Overlay, Route};
 use crate::screens::gallery::GalleryState;
@@ -130,6 +131,22 @@ pub struct UiState {
     pub tag_text: String,
     /// Folders picked for sharing, applied (and checked) by the screen next frame.
     pub shares: Vec<(Option<GameId>, PathBuf)>,
+    /// The newest toast already announced.
+    pub announced_toast: Option<crate::vm::toasts::ToastId>,
+    /// Controller mode (USER_EXPERIENCE §5.3): larger focus ring, Play always visible,
+    /// button hints in the footer.
+    pub controller: bool,
+    /// Controller intents that are application actions (favourite, menu, search, LB/RB),
+    /// handled by the shell this frame.
+    pub pad_actions: Vec<NavIntent>,
+    /// Controller mode was just entered: put focus on the cursor's card if nothing has it.
+    pub pad_entered: bool,
+    /// The route shown last frame (focus returns to the opened card after a game page).
+    pub prev_route: Option<Route>,
+    /// A game reached *Running* since the last frame (the controller pauses).
+    pub game_started: bool,
+    /// Developer Mode views, the report preview, recovery choices.
+    pub debug: crate::vm::debug::DebugVm,
 }
 
 impl UiState {
@@ -163,6 +180,13 @@ impl UiState {
             picks: Vec::new(),
             tag_text: String::new(),
             shares: Vec::new(),
+            announced_toast: None,
+            controller: false,
+            pad_actions: Vec::new(),
+            pad_entered: false,
+            prev_route: None,
+            game_started: false,
+            debug: crate::vm::debug::DebugVm::default(),
         }
     }
 
@@ -226,7 +250,8 @@ impl UiState {
                 other => self.nav.go_to(other),
             },
             AfterDiscard::Tab(i) => {
-                self.details.tab = details::DetailsTab::ALL[i.min(4)];
+                self.details.tab =
+                    details::DetailsTab::ALL[i.min(details::DetailsTab::ALL.len() - 1)];
             }
         }
     }
@@ -255,6 +280,12 @@ pub struct EasyPlayApp {
     geometry: WindowGeometry,
     geometry_dirty_since: Option<f64>,
     installed: bool,
+    pad_rx: Option<std::sync::mpsc::Receiver<PadInput>>,
+    pad_queue: Vec<PadInput>,
+    pad: PadNav,
+    pad_gate: PadGate,
+    system: theme::SystemPrefs,
+    system_rx: Option<std::sync::mpsc::Receiver<theme::SystemPrefs>>,
 }
 
 impl EasyPlayApp {
@@ -297,6 +328,12 @@ impl EasyPlayApp {
             geometry: WindowGeometry::default(),
             geometry_dirty_since: None,
             installed: false,
+            pad_rx: None,
+            pad_queue: Vec::new(),
+            pad: PadNav::default(),
+            pad_gate: PadGate::default(),
+            system: theme::SystemPrefs::default(),
+            system_rx: None,
         }
     }
 
@@ -334,6 +371,102 @@ impl EasyPlayApp {
         self
     }
 
+    /// Follow the desktop's appearance preferences: `initial` now, updates from `rx`.
+    pub fn with_system_prefs(
+        mut self,
+        initial: theme::SystemPrefs,
+        rx: Option<std::sync::mpsc::Receiver<theme::SystemPrefs>>,
+    ) -> Self {
+        self.system = initial;
+        self.system_rx = rx;
+        self
+    }
+
+    /// The desktop's preferences changed (tests call this directly).
+    pub fn set_system_prefs(&mut self, ctx: &Context, system: theme::SystemPrefs) {
+        self.system = system;
+        theme::set_system(ctx, system);
+        self.reapply_appearance(ctx, true);
+    }
+
+    /// Recompute the appearance from the preferences and the desktop; restyle if it changed.
+    fn reapply_appearance(&mut self, ctx: &Context, zoom_too: bool) {
+        let prefs = self.bridge.prefs().clone();
+        let a = appearance_of(&prefs, self.appearance, &self.system);
+        if a != self.appearance || zoom_too {
+            self.appearance = a;
+            theme::apply(ctx, &a);
+            ctx.set_zoom_factor(theme::zoom(ctx, &a));
+        }
+    }
+
+    /// Read controller input from `rx` (the `gilrs` thread of `input::gamepad::spawn`).
+    pub fn with_gamepad(mut self, rx: std::sync::mpsc::Receiver<PadInput>) -> Self {
+        self.pad_rx = Some(rx);
+        self
+    }
+
+    /// Queue one controller event as if it came from the controller thread (tests).
+    pub fn pad_input(&mut self, ev: PadInput) {
+        self.pad_queue.push(ev);
+    }
+
+    /// Turn pending controller input into egui input for the coming frame
+    /// (`raw_input_hook`). Real keyboard or pointer activity leaves controller mode first.
+    pub fn pump_gamepad(&mut self, ctx: &Context, raw: &mut egui::RawInput) {
+        if gamepad::has_desktop_input(raw) {
+            self.state.controller = false;
+        }
+        let mut inputs = std::mem::take(&mut self.pad_queue);
+        if let Some(rx) = &self.pad_rx {
+            inputs.extend(rx.try_iter());
+        }
+        let now = raw.time.unwrap_or_else(|| ctx.input(|i| i.time));
+        let enabled = self.bridge.prefs().integration.gamepad_navigation;
+        let started = std::mem::take(&mut self.state.game_started);
+        if !self.pad_gate.update(enabled, raw.focused, started) {
+            // While a game runs (or the window is in the background) nothing is read.
+            self.pad = PadNav::default();
+            return;
+        }
+        let mut intents = Vec::new();
+        for ev in inputs {
+            intents.extend(self.pad.input(ev, now));
+        }
+        let (repeats, next) = self.pad.tick(now);
+        intents.extend(repeats);
+        if let Some(n) = next {
+            ctx.request_repaint_after(Duration::from_secs_f64(n.max(0.001)));
+        }
+        if intents.is_empty() {
+            return;
+        }
+        if !self.state.controller {
+            // The first press only enters controller mode and shows where focus is (UF-15
+            // step 2); acting on it could move focus from a place the user cannot see yet.
+            self.state.controller = true;
+            self.state.pad_entered = true;
+            ctx.request_repaint();
+            return;
+        }
+        let focused = ctx.memory(|m| m.focused()).is_some();
+        for intent in intents {
+            match gamepad::key_events(intent, focused) {
+                Some(events) => {
+                    if matches!(intent, NavIntent::Scroll(_))
+                        && ctx.input(|i| i.pointer.latest_pos()).is_none()
+                    {
+                        raw.events
+                            .push(egui::Event::PointerMoved(ctx.content_rect().center()));
+                    }
+                    raw.events.extend(events);
+                }
+                None => self.state.pad_actions.push(intent),
+            }
+        }
+        ctx.request_repaint();
+    }
+
     /// Save geometry through `store`, starting from `initial`.
     pub fn with_window_store(
         mut self,
@@ -352,8 +485,13 @@ impl EasyPlayApp {
             return;
         }
         let _ui = easyplay_core::ui_thread::enter();
+        theme::set_system(ctx, self.system);
+        if self.system != theme::SystemPrefs::default() {
+            let prefs = self.bridge.prefs().clone();
+            self.appearance = appearance_of(&prefs, self.appearance, &self.system);
+        }
         theme::install(ctx, &self.appearance);
-        ctx.set_zoom_factor(self.appearance.ui_scale);
+        ctx.set_zoom_factor(theme::zoom(ctx, &self.appearance));
         let waker_ctx = ctx.clone();
         self.bridge
             .set_waker(Arc::new(move || waker_ctx.request_repaint()));
@@ -386,6 +524,12 @@ impl EasyPlayApp {
         let _ui = easyplay_core::ui_thread::enter();
         self.install(ctx);
         let mono = self.clock.mono();
+        let latest = self.system_rx.as_ref().and_then(|rx| rx.try_iter().last());
+        if let Some(sp) = latest
+            && sp != self.system
+        {
+            self.set_system_prefs(ctx, sp);
+        }
         for ev in self.bridge.drain() {
             self.on_event(ctx, ev);
         }
@@ -449,6 +593,22 @@ impl EasyPlayApp {
                 {
                     setup.phase = SetupPhase::Launching { game: Some(game) };
                 }
+                let name = self
+                    .bridge
+                    .library()
+                    .get(game)
+                    .map(|g| g.name.to_string())
+                    .unwrap_or_default();
+                announce_launch(ctx, &name, s.launches.games.get(&game), &state, mono);
+                if matches!(state, LaunchState::Running { .. })
+                    && !s
+                        .launches
+                        .games
+                        .get(&game)
+                        .is_some_and(|p| matches!(p.state, LaunchState::Running { .. }))
+                {
+                    s.game_started = true;
+                }
                 s.launches.update(game, state, mono);
             }
             UiEvent::SetupRequested { draft, context } => {
@@ -496,15 +656,9 @@ impl EasyPlayApp {
                 s.library.selection.retain(|g| lib.get(*g).is_some());
             }
             UiEvent::PreferencesChanged => {
-                let prefs = self.bridge.prefs().clone();
-                let a = appearance_of(&prefs, self.appearance);
-                if a != self.appearance {
-                    self.appearance = a;
-                    theme::apply(ctx, &a);
-                    ctx.set_zoom_factor(a.ui_scale);
-                }
+                self.reapply_appearance(ctx, false);
             }
-            UiEvent::HostChanged | UiEvent::RuntimesChanged => {}
+            UiEvent::HostChanged | UiEvent::RuntimesChanged | UiEvent::DiagnosticsChanged => {}
             UiEvent::ShowGame(g) => {
                 if let Some(q) = &mut s.quick {
                     q.game = Some(g);
@@ -517,6 +671,9 @@ impl EasyPlayApp {
     }
 
     fn on_query(&mut self, id: QueryId, payload: QueryPayload) {
+        let Some(payload) = crate::screens::debug::on_query(&mut self.state, id, payload) else {
+            return;
+        };
         let s = &mut self.state;
         let d = &mut s.details;
         if d.detail_q == Some(id) {
@@ -631,6 +788,9 @@ impl EasyPlayApp {
             return;
         };
         match r.purpose {
+            PickPurpose::SaveReport => {
+                crate::screens::debug::report::save_to(s, &self.bridge, first);
+            }
             PickPurpose::AddGame | PickPurpose::AddGameFile => {
                 s.add_game = None;
                 if s.nav.top_overlay() == Some(Overlay::AddGame) {
@@ -788,7 +948,7 @@ impl EasyPlayApp {
         }
         g.position = outer.map(|r| [r.min.x, r.min.y]);
         g.maximized = maximized;
-        g.ui_scale = ctx.zoom_factor();
+        g.ui_scale = ctx.zoom_factor() / theme::system(ctx).text_scale.max(0.1);
         let now = ctx.input(|i| i.time);
         if g != self.geometry {
             self.geometry = g;
@@ -826,16 +986,28 @@ pub fn assess_draft(
 }
 
 /// The theme appearance of `prefs` (UI scale and density included).
-pub fn appearance_of(prefs: &Preferences, current: Appearance) -> Appearance {
+///
+/// "Follow the system" resolves against the desktop (`system`): high contrast when the desktop
+/// asks for it, reduced motion when it does (A11Y-004).
+pub fn appearance_of(
+    prefs: &Preferences,
+    current: Appearance,
+    system: &theme::SystemPrefs,
+) -> Appearance {
     use easyplay_core::config::schema::{GridDensity, ReduceMotion};
     let a = &prefs.appearance;
+    let choice = theme::ThemeChoice::parse(a.theme.as_str()).unwrap_or(current.theme);
     Appearance {
-        theme: theme::ThemeChoice::parse(a.theme.as_str()).unwrap_or(current.theme),
+        theme: if choice == theme::ThemeChoice::System && system.high_contrast {
+            theme::ThemeChoice::HighContrast
+        } else {
+            choice
+        },
         accent: theme::Accent::parse(a.accent.as_str()).unwrap_or(current.accent),
         reduce_motion: match a.reduce_motion {
             ReduceMotion::On => true,
             ReduceMotion::Off => false,
-            ReduceMotion::System => current.reduce_motion,
+            ReduceMotion::System => system.reduced_motion.unwrap_or(current.reduce_motion),
         },
         ui_scale: a.ui_scale as f32,
         density: match a.grid_density {
@@ -843,6 +1015,57 @@ pub fn appearance_of(prefs: &Preferences, current: Appearance) -> Appearance {
             GridDensity::Comfortable => theme::Density::Comfortable,
             GridDensity::Large => theme::Density::Large,
         },
+    }
+}
+
+/// Launch announcements (ACCESSIBILITY §4.3): phase changes and start/end politely,
+/// failures assertively, download progress at most every 15 s.
+fn announce_launch(
+    ctx: &Context,
+    name: &str,
+    prev: Option<&crate::vm::launch::GameLaunch>,
+    state: &LaunchState,
+    now: easyplay_core::clock::MonoInstant,
+) {
+    use crate::a11y::{Announcer, DOWNLOAD_EVERY_S, Politeness};
+    use crate::strings::a11y as say;
+    use easyplay_core::launch::StateKind;
+    let prev_kind = prev.map(|p| p.state.kind());
+    let prev_phase = prev.map(|p| crate::vm::launch::present(&p.state, 0.0).phase);
+    match state {
+        LaunchState::Running { .. } => {
+            if prev_kind != Some(StateKind::Running) {
+                Announcer::announce(ctx, say::running(name), Politeness::Polite);
+            }
+        }
+        LaunchState::Failed(e) => {
+            Announcer::announce(ctx, e.title.clone(), Politeness::Assertive);
+        }
+        LaunchState::Finished { .. } => {
+            let text = match prev {
+                Some(p) if p.state.kind() == StateKind::Running => {
+                    let ms = now.saturating_duration_since(p.since).as_millis();
+                    say::ended_after(name, u64::try_from(ms).unwrap_or(u64::MAX))
+                }
+                _ => say::ended(name),
+            };
+            Announcer::announce(ctx, text, Politeness::Polite);
+        }
+        LaunchState::Cancelled => {}
+        other => {
+            let phase = crate::vm::launch::present(other, 0.0).phase;
+            if prev_phase.as_deref() != Some(phase.as_str()) {
+                Announcer::announce(ctx, say::launch_phase(name, &phase), Politeness::Polite);
+            } else if let LaunchState::Provisioning { bytes, .. } = other {
+                Announcer::announce_throttled(
+                    ctx,
+                    "download",
+                    say::downloading(*bytes),
+                    Politeness::Polite,
+                    DOWNLOAD_EVERY_S,
+                );
+            }
+        }
     }
 }
 
@@ -857,6 +1080,10 @@ impl ArtSource for NoArt {
 }
 
 impl eframe::App for EasyPlayApp {
+    fn raw_input_hook(&mut self, ctx: &Context, raw_input: &mut egui::RawInput) {
+        self.pump_gamepad(ctx, raw_input);
+    }
+
     fn logic(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         EasyPlayApp::logic(self, ctx);
     }

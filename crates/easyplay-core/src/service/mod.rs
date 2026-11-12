@@ -19,6 +19,7 @@ pub mod event;
 pub mod explainer;
 pub mod flows;
 pub mod prompts;
+pub mod recovery;
 pub mod session_watch;
 pub mod snapshot;
 
@@ -26,7 +27,8 @@ pub use app_service::{
     AppService, CommandSender, LaunchEnv, ServiceDeps, ServiceHandle, Waker, open_db,
 };
 pub use command::{
-    AfterCreate, Command, FolderRequest, GameEdit, LaunchOrigin, OpenOrigin, StopMode,
+    AfterCreate, Command, DatabaseChoice, FolderRequest, GameEdit, InspectTarget, LaunchOrigin,
+    LogFile, OpenOrigin, StopMode,
 };
-pub use event::{Event, Notice, QueryResult, SetupContext};
-pub use snapshot::{ActiveSessions, SnapshotHub, Swap};
+pub use event::{Event, LogChunk, Notice, QueryResult, RecoveredHow, SetupContext};
+pub use snapshot::{ActiveSessions, Diagnostics, RecoveryReason, RecoveryState, SnapshotHub, Swap};
