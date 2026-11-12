@@ -18,7 +18,7 @@ pub struct GameStats {
     pub failed_launches: u32,
     /// First counted session start.
     pub first_played_at: Option<Timestamp>,
-    /// Last counted session start.
+    /// Last counted session end (STATISTICS §2).
     pub last_played_at: Option<Timestamp>,
     /// Longest counted session.
     pub longest_ms: u64,
