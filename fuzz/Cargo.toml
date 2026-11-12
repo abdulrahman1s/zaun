@@ -1,0 +1,25 @@
+# cargo-fuzz targets (TESTING_STRATEGY §5, THREAT_MODEL T-18). Not a workspace member:
+# run with `cargo +nightly fuzz run image_codec` from this directory.
+[package]
+name = "easyplay-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "GPL-3.0-or-later"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+easyplay-core = { path = "../crates/easyplay-core" }
+
+# Keep this crate out of the main workspace.
+[workspace]
+
+[[bin]]
+name = "image_codec"
+path = "fuzz_targets/image_codec.rs"
+test = false
+doc = false
+bench = false

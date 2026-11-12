@@ -151,3 +151,17 @@ pub const JOB_WORKERS_MIN: usize = 2;
 pub const JOB_WORKERS_MAX: usize = 6;
 /// Default bound of queued jobs per label (replace-oldest beyond it).
 pub const JOB_LABEL_QUEUE_DEFAULT: usize = 256;
+
+// ---- Online artwork host allow-list (ADR-0018 §4–5, PRIVACY §3) -------------------------
+
+/// Steam CDN host artwork is requested from.
+pub const STEAM_CDN_HOST: &str = "cdn.cloudflare.steamstatic.com";
+/// Steam store host (app search, `/api/storesearch`).
+pub const STEAM_STORE_HOST: &str = "store.steampowered.com";
+/// Hosts `artwork::http` may send a first request to.
+pub const ARTWORK_REQUEST_HOSTS: [&str; 2] = [STEAM_CDN_HOST, STEAM_STORE_HOST];
+/// Hosts reachable only as redirect targets of an allowed request.
+pub const ARTWORK_REDIRECT_HOSTS: [&str; 2] = [
+    "shared.steamstatic.com",
+    "shared.cloudflare.steamstatic.com",
+];

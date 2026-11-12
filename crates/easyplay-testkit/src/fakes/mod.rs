@@ -4,10 +4,12 @@
 
 mod clock;
 mod fs;
+mod http_server;
 mod proc;
 mod runner;
 
 pub use clock::FakeClock;
 pub use fs::{MemFs, ROOT_DEVICE};
+pub use http_server::{FakeHttpServer, Reply};
 pub use proc::{FakeProc, proc_entry};
 pub use runner::{CannedOutput, ScriptedRunner, UnexpectedCommand};
