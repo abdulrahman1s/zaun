@@ -258,7 +258,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config musl-tools bubblewrap zstd \
+            pkg-config musl-tools bubblewrap zstd binutils desktop-file-utils appstream \
             libudev-dev libxkbcommon-dev libwayland-dev libgl-dev
 
       - name: Install Rust (rust-toolchain.toml)
@@ -286,45 +286,153 @@ jobs:
       - name: Test
         run: cargo test --locked --workspace
 
-      - name: Build release binaries
+      - name: Release build, checks and tarball
+        # scripts/build-release.sh (PKG-001): --locked, no dev-inspection, size budgets of
+        # PERFORMANCE §1, static shim, desktop/AppStream validation, staged tarball (PKG-007).
+        id: tarball
         env:
-          EASYPLAY_LIBEXEC_DIR: /usr/libexec/easyplay
-        run: |
-          cargo build --locked --release -p easyplay --target ${{ matrix.target }}
-          cargo build --locked --release -p easyplay-init --target ${{ matrix.init_target }}
-
-      - name: Package release tarball
-        if: ${{ startsWith(github.ref, 'refs/tags/v') || needs.prepare-release.outputs.released == 'true' }}
-        env:
-          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag || github.ref_name }}
+          EASYPLAY_COMMIT: ${{ needs.prepare-release.outputs.sha || github.sha }}
         run: |
           set -euo pipefail
-          root="dist/${BIN_NAME}-${RELEASE_TAG}"
-          mkdir -p "${root}/bin" "${root}/libexec/easyplay" "${root}/share"
-          cp "target/${{ matrix.target }}/release/${BIN_NAME}" "${root}/bin/"
-          cp "target/${{ matrix.init_target }}/release/${INIT_NAME}" "${root}/libexec/easyplay/"
-          if [[ -d assets/share ]]; then cp -r assets/share/. "${root}/share/"; fi
-          # Man pages and completions from the clap definitions (CLI-004).
-          gen="$(mktemp -d)"
-          "target/${{ matrix.target }}/release/${BIN_NAME}" generate-assets --out "${gen}"
-          install -Dm644 -t "${root}/share/man/man1" "${gen}"/man/man1/*.1
-          install -Dm644 "${gen}/completions/easyplay.bash" "${root}/share/bash-completion/completions/easyplay"
-          install -Dm644 "${gen}/completions/_easyplay" "${root}/share/zsh/site-functions/_easyplay"
-          install -Dm644 "${gen}/completions/easyplay.fish" "${root}/share/fish/vendor_completions.d/easyplay.fish"
-          if [[ -d packaging/tarball ]]; then cp packaging/tarball/*.sh "${root}/" 2>/dev/null || true; fi
-          cp README.md "${root}/"
-          archive="${BIN_NAME}-${RELEASE_TAG}-${{ matrix.target }}.tar.zst"
-          tar -C dist -c "${BIN_NAME}-${RELEASE_TAG}" | zstd -19 -T0 -o "${archive}"
-          sha256sum "${archive}" > "${archive}.sha256"
+          EASYPLAY_COMMIT="${EASYPLAY_COMMIT:0:12}" scripts/build-release.sh --tarball
+          version="$(cat dist/easyplay-*-x86_64-linux/VERSION)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Vendored crates for offline source builds (RPM/COPR)
+        if: ${{ startsWith(github.ref, 'refs/tags/v') || needs.prepare-release.outputs.released == 'true' }}
+        env:
+          VERSION: ${{ steps.tarball.outputs.version }}
+          COMMIT: ${{ needs.prepare-release.outputs.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          cargo vendor --locked vendor > /dev/null
+          echo "${COMMIT:0:12}" > vendor/COMMIT
+          tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf - vendor \
+            | zstd -q -19 -T0 -o "dist/easyplay-${VERSION}-vendor.tar.zst"
+          rm -rf vendor
 
       - name: Upload release artifact
         if: ${{ startsWith(github.ref, 'refs/tags/v') || needs.prepare-release.outputs.released == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BIN_NAME }}-${{ needs.prepare-release.outputs.tag || github.ref_name }}-${{ matrix.target }}
+          name: release-tarball
           path: |
-            ${{ env.BIN_NAME }}-${{ needs.prepare-release.outputs.tag || github.ref_name }}-${{ matrix.target }}.tar.zst
-            ${{ env.BIN_NAME }}-${{ needs.prepare-release.outputs.tag || github.ref_name }}-${{ matrix.target }}.tar.zst.sha256
+            dist/easyplay-${{ steps.tarball.outputs.version }}-x86_64-linux.tar.zst
+            dist/easyplay-${{ steps.tarball.outputs.version }}-vendor.tar.zst
+          if-no-files-found: error
+
+  packages:
+    # Distribution packages from the release tarball, so every format ships the binaries that
+    # build-release.sh checked (PKG-002/003/004, RELEASE_STRATEGY §2).
+    name: Package (${{ matrix.format }})
+    needs:
+      - prepare-release
+      - build
+    if: ${{ always() && needs.build.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || needs.prepare-release.outputs.released == 'true') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - format: deb
+            container: ""
+          - format: rpm
+            container: fedora:latest
+          - format: arch
+            container: archlinux:base-devel
+    container: ${{ matrix.container || null }}
+
+    steps:
+      - name: Install packaging tools (Fedora)
+        if: ${{ matrix.format == 'rpm' }}
+        run: dnf -y install git rpm-build rpmlint binutils zstd tar desktop-file-utils libappstream-glib
+
+      - name: Install packaging tools (Arch)
+        if: ${{ matrix.format == 'arch' }}
+        run: pacman -Syu --noconfirm --needed git namcap zstd
+
+      - name: Install packaging tools (Debian)
+        if: ${{ matrix.format == 'deb' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends lintian zstd binutils
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare-release.outputs.sha || github.sha }}
+
+      - name: Download release tarball
+        uses: actions/download-artifact@v5
+        with:
+          name: release-tarball
+          path: dist
+
+      - name: Unpack
+        id: unpack
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(ls dist/easyplay-*-x86_64-linux.tar.zst)"
+          tar --zstd -xf "${archive}" -C dist
+          version="$(cat dist/easyplay-*-x86_64-linux/VERSION)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tree=$(ls -d "${PWD}"/dist/easyplay-*-x86_64-linux)" >> "${GITHUB_OUTPUT}"
+          mkdir -p out
+
+      - name: Build .deb
+        if: ${{ matrix.format == 'deb' }}
+        run: |
+          set -euo pipefail
+          packaging/deb/build-deb.sh --from-tarball "${{ steps.unpack.outputs.tree }}" --out out
+          dpkg-deb --info out/*.deb
+          lintian --fail-on error --display-info out/*.deb
+
+      - name: Build .rpm
+        if: ${{ matrix.format == 'rpm' }}
+        shell: bash
+        env:
+          VERSION: ${{ steps.unpack.outputs.version }}
+        run: |
+          set -euo pipefail
+          sed -i "s/^%global upstream_version .*/%global upstream_version ${VERSION}/" packaging/rpm/easyplay.spec
+          rpmbuild -bb --with prebuilt \
+            --define "_sourcedir ${PWD}/dist" --define "_rpmdir ${PWD}/out" \
+            --define "_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm" \
+            packaging/rpm/easyplay.spec
+          rpmlint -r packaging/rpm/rpmlintrc.toml packaging/rpm/easyplay.spec out/*.rpm
+
+      - name: Build Arch package (easyplay-bin)
+        if: ${{ matrix.format == 'arch' }}
+        shell: bash
+        env:
+          VERSION: ${{ steps.unpack.outputs.version }}
+        run: |
+          set -euo pipefail
+          # makepkg refuses to run as root.
+          useradd -m builder
+          work=/home/builder/easyplay-bin
+          mkdir -p "${work}"
+          cp packaging/arch/easyplay-bin/PKGBUILD "${work}/"
+          cp dist/easyplay-*-x86_64-linux.tar.zst "${work}/"
+          sum="$(sha256sum dist/easyplay-*-x86_64-linux.tar.zst | cut -d' ' -f1)"
+          # pacman versions cannot contain "-": 1.0.0-rc.1 -> 1.0.0rc.1.
+          sed -i -e "s/^pkgver=.*/pkgver=${VERSION//-/}/" \
+                 -e "s/^_upstreamver=.*/_upstreamver=${VERSION}/" \
+                 -e "s/^sha256sums=.*/sha256sums=('${sum}')/" "${work}/PKGBUILD"
+          chown -R builder: "${work}"
+          su builder -c "cd ${work} && makepkg --nodeps --noconfirm --cleanbuild && makepkg --printsrcinfo > .SRCINFO"
+          namcap "${work}/PKGBUILD"
+          namcap "${work}"/*.pkg.tar.zst
+          cp "${work}"/*.pkg.tar.zst out/
+          cp "${work}/PKGBUILD" out/PKGBUILD-easyplay-bin
+          cp "${work}/.SRCINFO" out/SRCINFO-easyplay-bin
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.format }}
+          path: out/*
           if-no-files-found: error
 
   nix:
@@ -354,6 +462,7 @@ jobs:
     needs:
       - prepare-release
       - build
+      - packages
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -367,9 +476,17 @@ jobs:
       - name: Download release artifacts
         uses: actions/download-artifact@v5
         with:
-          pattern: ${{ env.BIN_NAME }}-${{ needs.prepare-release.outputs.tag || github.ref_name }}-*
+          # The tarball always; each distribution package when its job succeeded.
+          pattern: release-*
           path: dist
           merge-multiple: true
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
 
       - name: Publish GitHub release
         env:
