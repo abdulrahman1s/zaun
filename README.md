@@ -97,6 +97,64 @@ Read in this order the first time. Every later document assumes the ones above i
   processes, so launchers, patchers and helper processes can never inflate play counts
   ([STATISTICS](docs/STATISTICS.md), [PROCESS_LIFECYCLE](docs/PROCESS_LIFECYCLE.md)).
 
+## NixOS
+
+The flake provides the package, a NixOS module, a home-manager module and an overlay
+([RELEASE_STRATEGY §2.4](docs/RELEASE_STRATEGY.md)). The package already puts `bubblewrap`
+and `umu-launcher` on EasyPlay's `PATH`; nothing else needs installing.
+
+```nix
+# flake.nix
+{
+  inputs.easyplay.url = "github:easyplay/easyplay";
+  # Optional: build against your own nixpkgs (the Rust toolchain still comes from
+  # rust-toolchain.toml through rust-overlay).
+  # inputs.easyplay.inputs.nixpkgs.follows = "nixpkgs";
+
+  outputs = { nixpkgs, easyplay, ... }: {
+    nixosConfigurations.my-host = nixpkgs.lib.nixosSystem {
+      modules = [ ./configuration.nix easyplay.nixosModules.default ];
+    };
+  };
+}
+```
+
+```nix
+# configuration.nix
+{
+  programs.easyplay.enable = true;
+}
+```
+
+| Option | Default | Effect |
+|---|---|---|
+| `programs.easyplay.enable` | `false` | Installs EasyPlay system-wide. |
+| `programs.easyplay.package` | this flake's package | The package to install (`pkgs.easyplay` with `easyplay.overlays.default`). |
+| `programs.easyplay.enable32BitGraphics` | `true` | `hardware.graphics.enable` and `enable32Bit` (as `mkDefault`); most games need 32-bit drivers. |
+| `programs.easyplay.associateWindowsExecutables` | `true` | Adds EasyPlay to "Open With" for `.exe`/`.msi` (`xdg.mime.addedAssociations`). Never sets it as the default. |
+| `programs.easyplay.allowUnprivilegedUsernsClone` | `false` | Sets `kernel.unprivileged_userns_clone = 1`. Only for hardened kernels that disable unprivileged user namespaces; stock kernels do not need it. |
+
+Evaluation fails if `security.allowUserNamespaces = false` or `user.max_user_namespaces` is 0:
+bubblewrap cannot work without user namespaces.
+
+home-manager (any distribution with Nix; on NixOS prefer the system module, which also
+enables 32-bit graphics):
+
+```nix
+{
+  imports = [ easyplay.homeManagerModules.default ];
+  programs.easyplay = {
+    enable = true;
+    # Optional, rendered to ~/.config/easyplay/config.toml (docs/CONFIGURATION.md §2).
+    # Leave unset to let EasyPlay manage the file itself.
+    settings.appearance.theme = "dark";
+  };
+}
+```
+
+Without modules: `nix run github:easyplay/easyplay`, or `nix profile install
+github:easyplay/easyplay`.
+
 ## Status of claims in these documents
 
 Every technical claim about a third-party project is tagged:
@@ -120,7 +178,7 @@ These need a human decision. None blocks implementation; each has a default.
 | OQ-1 | Final product name and reverse-DNS application ID. | `EasyPlay`, `io.github.easyplay.EasyPlay`. Both live in one constants module. |
 | OQ-2 | Project licence. `umu-launcher` is GPL-3.0; EasyPlay only executes it. | `GPL-3.0-or-later`. |
 | OQ-3 | Should release builds bundle `umu-launcher` or require the distribution package? | Require it; detect and explain when missing. |
-| OQ-4 | Online artwork lookup (e.g. SteamGridDB) needs an API key and sends game names to a third party. | Not in 1.0. Local files and embedded icons only. |
+| OQ-4 | Online artwork lookup. | **Decided** (ADR-0018): opt-in Steam CDN by app ID in 1.0; other providers later (R-10). |
 | OQ-5 | Ship an AppArmor profile for distributions that restrict unprivileged user namespaces? | Yes, in the `.deb`; validated by task `PKG-006`. |
 
 ## Repository layout (target, once implementation starts)

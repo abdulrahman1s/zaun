@@ -30,9 +30,11 @@ signal-hook.workspace = true
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+jiff.workspace = true
 
 [dev-dependencies]
 easyplay-testkit.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

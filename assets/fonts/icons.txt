@@ -1,0 +1,67 @@
+# EasyPlay icon subset: semantic name -> Phosphor 2.x glyph (UI_DESIGN_SYSTEM §6).
+#
+# Read by assets/tools/build_fonts.py, which writes assets/fonts/easyplay-icons.ttf and
+# crates/easyplay-ui/src/theme/icons_gen.rs. Every icon gets a regular and a fill variant.
+#
+# Columns: semantic name, Phosphor source, and an optional third column:
+#   `doc`   the name is listed in UI_DESIGN_SYSTEM §6 (a test keeps the two in sync)
+#   `extra` a supporting glyph used by widgets (close, carets, sidebar toggle)
+# A source of `@band` or `@dot` is a shield drawn by the script: the regular Phosphor shield
+# with a horizontal band (Online) or a centred dot (Custom). `shield!fill` takes the fill
+# glyph for both variants (Offline is the filled shield).
+
+play            play                    doc
+stop            stop                    doc
+shield.offline  shield!fill             doc
+shield.online   @band                   doc
+shield.standard shield                  doc
+shield.custom   @dot                    doc
+shield.alert    shield-warning          doc
+wifi.off        wifi-slash              doc
+globe           globe                   doc
+folder          folder                  doc
+folder.lock     folder-lock             doc
+folder.plus     folder-plus             doc
+file.exe        app-window              doc
+gamepad         game-controller         doc
+speaker         speaker-high            doc
+mic             microphone              doc
+monitor         monitor                 doc
+camera          camera                  doc
+usb             usb                     doc
+floppy          floppy-disk             doc
+star            star                    doc
+star.fill       star!fill               doc
+tag             tag                     doc
+clock           clock                   doc
+calendar        calendar-blank          doc
+chart           chart-bar               doc
+gear            gear-six                doc
+search          magnifying-glass        doc
+grid            squares-four            doc
+list            rows                    doc
+sort            arrows-down-up          doc
+filter          funnel-simple           doc
+plus            plus                    doc
+dots            dots-three              doc
+back            arrow-left              doc
+warning         warning                 doc
+error           x-circle                doc
+info            info                    doc
+check           check                   doc
+download        download-simple         doc
+layers          stack                   doc
+wrench          wrench                  doc
+terminal        terminal-window         doc
+copy            copy                    doc
+open            arrow-square-out        doc
+trash           trash                   doc
+refresh         arrow-clockwise         doc
+eye.off         eye-slash               doc
+link.break      link-break              doc
+close           x                       extra
+caret.down      caret-down              extra
+caret.right     caret-right             extra
+sidebar         sidebar-simple          extra
+library         books                   extra
+recent          clock-counter-clockwise extra

@@ -54,7 +54,6 @@ fn verbs_report_not_available_yet() {
         (&["launch", "x"][..], "CLI-003"),
         (&["open", "/tmp/x.exe"][..], "DESKTOP-002"),
         (&["supervise", "--plan", "/tmp/p.json"][..], "PROC-003"),
-        (&[][..], "UI-001"),
     ] {
         let out = run(&env, args);
         assert_eq!(out.status.code(), Some(1), "{args:?}");
@@ -66,6 +65,17 @@ fn verbs_report_not_available_yet() {
     let log = std::fs::read_to_string(env.state().join("logs/easyplay.log")).unwrap();
     assert!(log.contains(" cli["), "{log}");
     assert!(log.contains("command failed"));
+}
+
+/// With no arguments the GUI starts (UI-001); without a display it fails cleanly with the
+/// host exit code instead of hanging.
+#[test]
+fn gui_without_a_display_exits_with_host_error() {
+    let env = TestEnv::new().unwrap();
+    let out = run(&env, &[]);
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert_eq!(out.status.code(), Some(4), "{err}");
+    assert!(err.contains("EP-HOST-020"), "{err}");
 }
 
 #[test]

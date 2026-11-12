@@ -9,6 +9,7 @@
 //! `error::ErrorCode` (for [`EndReason::FailedToStart`]).
 
 mod artwork;
+mod doc;
 mod executable;
 mod game;
 mod launch_config;
@@ -20,6 +21,7 @@ mod stats;
 mod tag;
 
 pub use artwork::{ArtOrigin, ArtSlot, ArtworkRef};
+pub use doc::{DocError, UpgradeStep, parse_launch_config, parse_policy};
 pub use executable::{
     EXE_LABEL_MAX_CHARS, ExeRole, Executable, Fingerprint, PeInfo, PeMachine, PeSubsystem, Sha256,
     from_hex32, to_hex,

@@ -1,0 +1,67 @@
+# VM test for nixosModules.default: the module evaluates on a minimal system, the wrapped
+# binary runs, the static shim is where the binary looks for it, bubblewrap works for a
+# normal user, and the MIME integration only adds associations.
+{ self, pkgs }:
+
+let
+  easyplay = self.packages.${pkgs.stdenv.hostPlatform.system}.easyplay;
+  bwrap = "${pkgs.bubblewrap}/bin/bwrap";
+in
+pkgs.testers.runNixOSTest {
+  name = "easyplay-nixos-module";
+
+  nodes.machine = {
+    imports = [ self.nixosModules.default ];
+
+    programs.easyplay.enable = true;
+
+    users.users.alice = {
+      isNormalUser = true;
+      uid = 1000;
+    };
+
+    environment.systemPackages = [ pkgs.file ];
+    virtualisation.memorySize = 1024;
+  };
+
+  testScript = ''
+    import re
+
+    machine.wait_for_unit("multi-user.target")
+
+    def user(cmd):
+        return machine.succeed(f"su - alice -c '{cmd}'")
+
+    with subtest("easyplay --version runs as a normal user"):
+        out = user("easyplay --version")
+        assert "${easyplay.version}" in out, out
+
+    with subtest("the init shim is installed in libexec and statically linked"):
+        shim = "${easyplay}/libexec/easyplay/easyplay-init"
+        machine.succeed(f"test -x {shim}")
+        info = machine.succeed(f"file -L {shim}")
+        assert "statically linked" in info or "static-pie linked" in info, info
+
+    with subtest("bubblewrap creates user namespaces as a normal user, also nested"):
+        user("${bwrap} --unshare-user --ro-bind / / true")
+        # The outer sandbox needs its own /proc so the inner bwrap can write its uid_map
+        # (pressure-vessel nests the same way inside EasyPlay's sandbox, TECHNICAL_RESEARCH F-401).
+        user("${bwrap} --unshare-user --unshare-pid --ro-bind / / --dev /dev --proc /proc ${bwrap} --unshare-user --ro-bind / / true")
+
+    with subtest("umu-run and bwrap are on the wrapped PATH"):
+        wrapper = machine.succeed("cat $(readlink -f $(su - alice -c 'command -v easyplay'))")
+        dirs = re.findall(r"/nix/store/[^:'\"\s]+/bin", wrapper)
+        machine.succeed(" || ".join(f"test -x {d}/umu-run" for d in dirs))
+        machine.succeed(" || ".join(f"test -x {d}/bwrap" for d in dirs))
+
+    with subtest("desktop entry installed; MIME associations added, defaults untouched"):
+        machine.succeed("test -f /run/current-system/sw/share/applications/io.github.easyplay.EasyPlay.desktop")
+        mimeapps = machine.succeed("cat /etc/xdg/mimeapps.list")
+        assert "[Added Associations]" in mimeapps, mimeapps
+        assert "application/x-ms-dos-executable=io.github.easyplay.EasyPlay.desktop" in mimeapps, mimeapps
+        assert "[Default Applications]" not in mimeapps, mimeapps
+
+    with subtest("32-bit graphics drivers are enabled"):
+        machine.succeed("test -e /run/opengl-driver-32")
+  '';
+}
