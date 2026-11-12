@@ -16,7 +16,7 @@ use crate::jobs::{JobLabel, JobPriority};
 pub const MEASURE_BUDGET: Duration = Duration::from_secs(10);
 
 impl AppService {
-    fn answer_on_pool(
+    pub(crate) fn answer_on_pool(
         &self,
         label: &'static str,
         id: QueryId,
@@ -64,8 +64,9 @@ impl AppService {
         &self,
         game: Option<GameId>,
     ) -> impl Fn(&Error) -> crate::error::UserError + Send + 'static {
+        let r = self.redactor();
         move |e| {
-            let redact = |s: &str| s.to_owned();
+            let redact = |s: &str| r.redact_str(s);
             crate::error::catalog::describe(
                 e,
                 &crate::error::catalog::DescribeCtx {

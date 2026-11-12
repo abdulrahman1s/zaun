@@ -31,17 +31,29 @@ pub enum DetailsTab {
     LaunchOptions,
     /// Activity.
     Activity,
+    /// Logs (Developer Mode, SCREEN_SPECS_2 §15).
+    Logs,
 }
 
 impl DetailsTab {
     /// In display order.
-    pub const ALL: [DetailsTab; 5] = [
+    pub const ALL: [DetailsTab; 6] = [
         DetailsTab::Overview,
         DetailsTab::Protection,
         DetailsTab::Compatibility,
         DetailsTab::LaunchOptions,
         DetailsTab::Activity,
+        DetailsTab::Logs,
     ];
+
+    /// The tabs shown: Logs only in Developer Mode.
+    pub fn visible(developer: bool) -> &'static [DetailsTab] {
+        if developer {
+            &Self::ALL
+        } else {
+            &Self::ALL[..5]
+        }
+    }
 
     /// Index in [`Self::ALL`].
     pub fn index(self) -> usize {

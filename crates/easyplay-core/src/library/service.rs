@@ -59,6 +59,11 @@ pub const TEMP_MIN_AGE: Duration = Duration::from_secs(3600);
 pub trait PolicyCheck: Send + Sync {
     /// Issues of `game`'s policy; `other_roots` are the folders of the other games.
     fn issues(&self, game: &Game, other_roots: &[PathBuf]) -> Vec<PolicyIssue>;
+    /// The same check as Developer Mode would make it: used for a game whose developer-only
+    /// options were all saved before (they keep working when the mode is off, DEV-006).
+    fn issues_as_developer(&self, game: &Game, other_roots: &[PathBuf]) -> Vec<PolicyIssue> {
+        self.issues(game, other_roots)
+    }
 }
 
 /// Reports no issues.
@@ -72,6 +77,7 @@ impl PolicyCheck for NoPolicyCheck {
 }
 
 /// [`PolicyCheck`] over `sandbox::validate_policy` for `Game` sessions.
+#[derive(Clone)]
 pub struct HostPolicyCheck {
     /// Filesystem.
     pub fs: Arc<dyn Fs>,
@@ -96,6 +102,15 @@ pub struct HostPolicyCheck {
 }
 
 impl PolicyCheck for HostPolicyCheck {
+    fn issues_as_developer(&self, game: &Game, other_roots: &[PathBuf]) -> Vec<PolicyIssue> {
+        if self.developer_mode {
+            return self.issues(game, other_roots);
+        }
+        let mut c = self.clone();
+        c.developer_mode = true;
+        c.issues(game, other_roots)
+    }
+
     fn issues(&self, game: &Game, other_roots: &[PathBuf]) -> Vec<PolicyIssue> {
         let exe = game.primary().map(|e| e.canonical_path.clone());
         let home = self.paths.home_dir(game.id);
@@ -410,10 +425,20 @@ impl Library {
         {
             warnings.push(PatchWarning::RuntimeDowngrade);
         }
-        let issues = self
-            .deps
-            .check
-            .issues(game, &self.other_roots(Some(game.id)));
+        // Developer-only options already saved stay valid with Developer Mode off; a new one
+        // is refused (DEVELOPER_MODE §1.4, §7).
+        let grandfathered = previous.is_some_and(|p| {
+            use crate::sandbox::validate::advanced_options;
+            let old = advanced_options(&p.policy, &p.launch);
+            let new = advanced_options(&game.policy, &game.launch);
+            !new.is_empty() && new.iter().all(|o| old.contains(o))
+        });
+        let roots = self.other_roots(Some(game.id));
+        let issues = if grandfathered {
+            self.deps.check.issues_as_developer(game, &roots)
+        } else {
+            self.deps.check.issues(game, &roots)
+        };
         let blocking: Vec<PolicyIssue> = issues
             .iter()
             .filter(|i| i.is_blocking())

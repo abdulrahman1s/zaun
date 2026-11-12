@@ -3,6 +3,7 @@
 
 pub mod actions;
 pub mod add_game;
+pub mod debug;
 pub mod details;
 pub mod dialogs;
 pub mod gallery;

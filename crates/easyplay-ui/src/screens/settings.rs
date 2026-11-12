@@ -968,6 +968,7 @@ fn integration(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
 fn advanced(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let p = theme::theme(ui.ctx()).palette.clone();
     let prefs = env.bridge.prefs().clone();
+    super::debug::doctor::section(ui, state, env);
     heading(ui, s::DEVELOPER);
     note_key(ui, "advanced.developer_mode");
     let mut dev = prefs.advanced.developer_mode;

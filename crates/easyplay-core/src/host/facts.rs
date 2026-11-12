@@ -428,6 +428,20 @@ pub struct UmuWrapper {
     pub sandboxed: bool,
     /// The chain ends in umu's Python entry point.
     pub reaches_python: bool,
+    /// The wrapper is nixpkgs' `buildFHSEnv` environment (`umu-launcher` on NixOS). It uses
+    /// bwrap too, but works nested inside EasyPlay's sandbox: it re-binds the outer view and
+    /// provides the FHS tree pressure-vessel needs (TECHNICAL_RESEARCH F-228), so it is not
+    /// reported as a problem.
+    #[serde(default)]
+    pub fhs_env: bool,
+}
+
+impl UmuWrapper {
+    /// A sandbox wrapper that usually fails inside EasyPlay's sandbox (nixpkgs' FHS
+    /// environment is the known exception).
+    pub fn breaks_nesting(&self) -> bool {
+        self.sandboxed && !self.fhs_env
+    }
 }
 
 impl UmuFacts {

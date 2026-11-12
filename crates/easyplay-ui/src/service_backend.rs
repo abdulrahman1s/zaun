@@ -129,6 +129,7 @@ impl ServiceBackend {
             Event::HostFactsChanged => UiEvent::HostChanged,
             Event::RuntimesChanged => UiEvent::RuntimesChanged,
             Event::PreferencesChanged => UiEvent::PreferencesChanged,
+            Event::DiagnosticsChanged => UiEvent::DiagnosticsChanged,
             Event::SessionsChanged => return None,
             Event::ShowGame(g) => UiEvent::ShowGame(g),
             Event::QuitRequested => UiEvent::QuitRequested,
@@ -153,6 +154,10 @@ impl ServiceBackend {
                     Notice::StopRequested { .. } | Notice::AlreadyInLibrary { .. } => {
                         ToastLevel::Info
                     }
+                    Notice::LibraryRecovered {
+                        how: easyplay_core::service::RecoveredHow::StartedEmpty,
+                        ..
+                    } => ToastLevel::Warning,
                     _ => ToastLevel::Success,
                 },
                 undo: None,
@@ -170,6 +175,11 @@ impl ServiceBackend {
                     QueryResult::Stats(s) => QueryPayload::Stats(s),
                     QueryResult::Folder(f) => QueryPayload::Folder(folder_scan(f)),
                     QueryResult::PrefixSize { bytes, .. } => QueryPayload::PrefixSize(bytes),
+                    QueryResult::Inspector(d) => QueryPayload::Inspector(d),
+                    QueryResult::Sessions(v) => QueryPayload::Sessions(v),
+                    QueryResult::LogChunk(c) => QueryPayload::LogChunk(c),
+                    QueryResult::Processes(p) => QueryPayload::Processes(p),
+                    QueryResult::Report(f) => QueryPayload::Report(f),
                     QueryResult::Failed(e) => QueryPayload::Failed(*e),
                 },
             },
@@ -253,6 +263,16 @@ fn notice_text(n: &Notice, lib: &LibrarySnapshot) -> String {
         Notice::ProgramLocated { game } => text::program_located(&name(game)),
         Notice::ToolStarted { game } => text::tool_started(&name(game)),
         Notice::LaunchCancelled { game } => text::launch_cancelled(&name(game)),
+        Notice::ReportSaved { path } => text::report_saved(
+            &path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+        ),
+        Notice::LibraryRecovered {
+            how,
+            history_rows_lost,
+        } => text::library_recovered(*how, *history_rows_lost),
     }
 }
 
@@ -294,6 +314,7 @@ fn folder_request(t: FolderTarget) -> FolderRequest {
         FolderTarget::Prefix(g) => FolderRequest::Prefix(g),
         FolderTarget::Session(s) => FolderRequest::Session(s),
         FolderTarget::DataFolder => FolderRequest::DataFolder,
+        FolderTarget::Backups => FolderRequest::Backups,
         FolderTarget::Path(p) => FolderRequest::Granted(p),
     }
 }
@@ -307,6 +328,26 @@ pub fn host_status(facts: Option<&HostFacts>) -> HostStatus {
         }
         Some(_) => HostStatus::Ready,
     }
+}
+
+/// The Doctor screen's rows: every check of the full report (ERROR_HANDLING §6), in order.
+pub fn doctor_checks(r: &easyplay_core::host::DoctorReport) -> Vec<HostCheck> {
+    use easyplay_core::host::CheckStatus;
+    r.checks
+        .iter()
+        .map(|c| HostCheck {
+            id: c.id.clone(),
+            state: match c.status {
+                CheckStatus::Pass | CheckStatus::Skipped => CheckState::Pass,
+                CheckStatus::Warn => CheckState::Warn,
+                CheckStatus::Fail => CheckState::Fail,
+            },
+            name: text::doctor_check_name(&c.id).to_owned(),
+            result: c.summary.clone(),
+            detail: c.fix.clone(),
+            fix_command: c.fix_command.clone(),
+        })
+        .collect()
 }
 
 /// The system-check rows from the facts.
@@ -506,6 +547,39 @@ impl Backend for ServiceBackend {
             UiCommand::SetShortcut { id, enable } => h.send(Command::SetShortcut { id, enable }),
             UiCommand::OpenFolder(t) => h.send(Command::OpenFolder(folder_request(t))),
             UiCommand::ViewLog { session, game } => h.send(Command::ViewLog { session, game }),
+            UiCommand::Inspect { target, reply_to } => {
+                h.send(Command::Inspect { target, reply_to })
+            }
+            UiCommand::ListSessions { game, reply_to } => {
+                h.send(Command::ListSessions { game, reply_to });
+            }
+            UiCommand::ReadLog {
+                session,
+                file,
+                offset,
+                reply_to,
+            } => h.send(Command::ReadLog {
+                session,
+                file,
+                offset,
+                reply_to,
+            }),
+            UiCommand::ListProcesses { session, reply_to } => {
+                h.send(Command::ListProcesses { session, reply_to });
+            }
+            UiCommand::RunDoctor => h.send(Command::RunDoctor),
+            UiCommand::BuildReport {
+                game,
+                session,
+                reply_to,
+            } => h.send(Command::BuildReport {
+                game,
+                session,
+                reply_to,
+            }),
+            UiCommand::SaveReport { files, dest } => h.send(Command::SaveReport { files, dest }),
+            UiCommand::DismissCrash => h.send(Command::DismissCrash),
+            UiCommand::ResolveDatabase(c) => h.send(Command::ResolveDatabase(c)),
         }
     }
 
@@ -532,12 +606,18 @@ impl Backend for ServiceBackend {
         self.handle.hub.prefs.load()
     }
 
+    fn diagnostics(&self) -> Arc<easyplay_core::service::Diagnostics> {
+        self.handle.hub.diagnostics.load()
+    }
+
     fn host(&self) -> Arc<HostView> {
         let facts = self.handle.hub.host.load();
         let integration = self.handle.hub.integration.load();
-        // Either snapshot changing rebuilds the view.
-        let key =
-            (Arc::as_ptr(&facts) as usize) ^ (Arc::as_ptr(&integration) as usize).rotate_left(17);
+        let diag = self.handle.hub.diagnostics.load();
+        // Any snapshot changing rebuilds the view.
+        let key = (Arc::as_ptr(&facts) as usize)
+            ^ (Arc::as_ptr(&integration) as usize).rotate_left(17)
+            ^ (Arc::as_ptr(&diag) as usize).rotate_left(31);
         let mut s = self.lock();
         if let Some((k, v)) = &s.host
             && *k == key
@@ -547,7 +627,10 @@ impl Backend for ServiceBackend {
         let f = facts.as_ref().as_ref();
         let v = Arc::new(HostView {
             status: host_status(f),
-            checks: host_checks(f),
+            checks: diag
+                .doctor
+                .as_ref()
+                .map_or_else(|| host_checks(f), doctor_checks),
             handler: handler_state(&integration),
             distro: f.and_then(|f| f.os.pretty_name.clone()).unwrap_or_default(),
             jobs: Vec::new(),

@@ -228,6 +228,8 @@ pub struct ProcessInfo {
     pub role: ProcessRole,
     /// Command line (Developer Mode only), at most 512 bytes. Untrusted.
     pub cmdline: Option<String>,
+    /// CPU time and resident memory, when readable.
+    pub usage: Option<crate::procfs::ProcUsage>,
 }
 
 /// The processes of an active session, read now (call at most once per second, only while
@@ -269,6 +271,7 @@ pub fn process_list(
                 guess_role(&e.comm, target)
             };
             ProcessInfo {
+                usage: proc.usage(e.pid).ok().flatten(),
                 pid: e.pid,
                 ppid: e.ppid,
                 comm: e.comm,

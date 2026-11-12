@@ -191,6 +191,7 @@ impl AppService {
         let game = |svc: &mut Self, id: GameId| svc.lib.game(id);
         Ok(match target {
             FolderRequest::DataFolder => paths.data_dir.clone(),
+            FolderRequest::Backups => paths.backups_dir.clone(),
             FolderRequest::Session(s) => paths.session_dir(*s),
             FolderRequest::Prefix(id) => paths.prefix_dir(*id),
             FolderRequest::GameFolder(id) => {

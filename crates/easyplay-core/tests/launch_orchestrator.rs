@@ -767,3 +767,72 @@ fn dry_run_has_no_side_effects() {
     assert!(l.plans().is_empty() && steps.runs().is_empty());
     assert!(steps.prepared().is_empty() && steps.launched().is_empty());
 }
+
+/// DEVELOPER_MODE §9 "inspector equals execution" (DEV-001): for the same session, the
+/// dry run's argument vector, descriptors and command (what the inspector's *Raw* tab shows)
+/// equal what the spawner hand-off receives.
+#[test]
+fn inspector_equals_execution() {
+    let w = world();
+    make_prefix(&w);
+    let g = game_of(&w);
+    let l = FakeLauncher::new();
+    let clock = FakeClock::baseline();
+    let runtimes = Scripted {
+        resolution: Arc::new(Mutex::new(Resolution::Ready(w.runtime.clone()))),
+        pool: JobPool::new(JobPoolConfig::default(), Arc::new(FakeClock::baseline())).unwrap(),
+    };
+    let env = env_of(&w);
+    let deps = OrchestratorDeps {
+        host: &w.host,
+        env: &env,
+        runtimes: &runtimes,
+        launcher: &l,
+        locks: &NoLocks,
+        fs: Arc::new(WorldFs(Arc::clone(&w))),
+        clock: &clock,
+        steps: None,
+        cancel: None,
+    };
+    let req = LaunchRequest {
+        game: &g,
+        exe: None,
+        extra_args: &[],
+        session_id: SessionId::generate(&clock as &dyn Clock),
+        network_consent: false,
+    };
+    let dry = launch::dry_run(&req, &deps).unwrap();
+    assert_eq!(dry.step, DryStep::Game);
+    launch::launch(&req, &deps, &mut |_: &LaunchState| {}).unwrap();
+    let executed = l.plans().pop().expect("handed off");
+    assert_eq!(dry.planned.plan.sandbox, executed.sandbox);
+    assert_eq!(dry.planned.plan.bwrap, executed.bwrap);
+    assert_eq!(dry.planned.plan.host_actions, executed.host_actions);
+    let data = launch::InspectorData {
+        source: launch::InspectorSource::DryRun,
+        plan: dry.planned.plan.clone(),
+        sandbox: Some(dry.planned.sandbox.clone()),
+        explain: Vec::new(),
+        timeline: Vec::new(),
+        session: None,
+        notes: Vec::new(),
+    };
+    let raw: Vec<String> = launch::inspect::raw_args(&data.plan)
+        .into_iter()
+        .map(|(_, a)| a)
+        .collect();
+    let spawned: Vec<String> = executed
+        .sandbox
+        .args
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(raw, spawned);
+    // Every rendered mount appears in the table with its section and reason.
+    let rows = launch::inspect::mount_rows(&data);
+    assert_eq!(rows.len(), dry.planned.sandbox.mounts.len());
+    assert!(
+        rows.iter()
+            .all(|r| r.section.is_some() && r.reason.is_some())
+    );
+}

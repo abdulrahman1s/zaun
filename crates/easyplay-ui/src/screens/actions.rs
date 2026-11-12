@@ -53,6 +53,8 @@ pub enum GameAction {
     Remove,
     /// Copy the launch command (Developer Mode).
     CopyCommand,
+    /// Open the launch inspector for the next launch (Developer Mode).
+    Inspect,
 }
 
 /// Whether switching `g` to `preset` widens its access (network is the preset's main
@@ -176,6 +178,7 @@ pub fn apply(state: &mut UiState, env: &mut Env<'_>, id: GameId, action: GameAct
                 options: RemoveOptions::default(),
             }));
         }
+        GameAction::Inspect => super::debug::inspect_next(state, env, id),
         GameAction::CopyCommand => {
             let cmd = strings::menu::launch_command(&g.id.to_string());
             env.ctx.copy_text(cmd);
@@ -387,10 +390,14 @@ pub fn recover(
             };
             state.nav.go_to(Route::Settings(tab));
         }
-        R::ViewLog => env.bridge.send(UiCommand::ViewLog {
-            session: err.session,
-            game,
-        }),
+        R::ViewLog => match game {
+            // The in-app viewer (LOGGING §3.3), also without Developer Mode.
+            Some(g) => super::debug::open_logs(state, env, g, err.session),
+            None => env.bridge.send(UiCommand::ViewLog {
+                session: err.session,
+                game,
+            }),
+        },
         R::OpenSessionFolder => {
             if let Some(s) = err.session {
                 env.bridge
@@ -406,10 +413,22 @@ pub fn recover(
                 env.mono,
             );
         }
-        R::RestoreBackup | R::OpenBackupsFolder | R::FreeSpaceInfo | R::CreateReport => {
-            env.bridge
-                .send(UiCommand::OpenFolder(FolderTarget::DataFolder));
+        R::CreateReport => super::debug::open_report(state, env, game, err.session),
+        R::OpenBackupsFolder => env
+            .bridge
+            .send(UiCommand::OpenFolder(FolderTarget::Backups)),
+        // The recovery state offers the backups; otherwise Settings → Advanced lists them.
+        R::RestoreBackup => {
+            if env.bridge.diagnostics().recovery.is_none() {
+                state
+                    .nav
+                    .go_to(Route::Settings(crate::route::SettingsTab::Advanced));
+            }
         }
+        // Settings → Advanced lists what EasyPlay stores, with sizes (ERROR_HANDLING §4.14).
+        R::FreeSpaceInfo => state
+            .nav
+            .go_to(Route::Settings(crate::route::SettingsTab::Advanced)),
         R::ShowRunningGame => {
             if let Some(g) = game {
                 state.nav.push(Route::Game(g));

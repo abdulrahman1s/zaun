@@ -70,6 +70,48 @@ impl ActiveSessions {
 /// Host facts once probed (`None` until the first probe finished).
 pub type HostSnapshot = Option<HostFacts>;
 
+/// Why the library is read-only (ERROR_HANDLING §5).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RecoveryReason {
+    /// The library file is damaged and salvage did not recover every game: the user
+    /// chooses (PERSISTENCE §8). Until then an empty library is shown.
+    Damaged {
+        /// Backups that passed validation: (path, taken at, games), newest first.
+        backups: Vec<(std::path::PathBuf, crate::clock::Timestamp, u64)>,
+        /// Games salvage recovered (`None`: salvage failed).
+        repaired_games: Option<u64>,
+        /// Names of games salvage could not recover, where readable.
+        missing_games: Vec<String>,
+    },
+    /// A schema update failed; the previous version was restored (`EP-DB-013`).
+    MigrationFailed {
+        /// The migration step.
+        step: u32,
+    },
+    /// The library was written by a newer EasyPlay (`EP-DB-010`).
+    NewerVersion,
+}
+
+/// Recovery mode: the library is shown read-only, launching is disabled with the reason.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoveryState {
+    /// Why.
+    pub reason: RecoveryReason,
+    /// The user-facing error (title, message, actions).
+    pub error: crate::error::UserError,
+}
+
+/// Diagnostics shown by the shell and the Doctor screen.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Diagnostics {
+    /// The last full Doctor report (`Command::RunDoctor`, and once after start).
+    pub doctor: Option<crate::host::DoctorReport>,
+    /// A crash record not yet acknowledged (the next-start banner).
+    pub crash: Option<crate::diagnostics::crash::CrashRecord>,
+    /// Recovery mode.
+    pub recovery: Option<RecoveryState>,
+}
+
 /// The one instance shared by the UI and the AppService.
 pub struct SnapshotHub {
     /// All games, tags and per-game summary statistics.
@@ -84,6 +126,8 @@ pub struct SnapshotHub {
     pub host: Swap<HostSnapshot>,
     /// Desktop integration: `.exe` handler and shortcuts.
     pub integration: Swap<crate::desktop::IntegrationState>,
+    /// Doctor report, crash banner, recovery mode.
+    pub diagnostics: Swap<Diagnostics>,
 }
 
 impl SnapshotHub {
@@ -96,6 +140,7 @@ impl SnapshotHub {
             prefs: Swap::new(prefs),
             host: Swap::new(None),
             integration: Swap::default(),
+            diagnostics: Swap::default(),
         }
     }
 }

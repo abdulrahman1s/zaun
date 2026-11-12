@@ -140,6 +140,8 @@ pub struct UiState {
     pub tag_text: String,
     /// Folders picked for sharing, applied (and checked) by the screen next frame.
     pub shares: Vec<(Option<GameId>, PathBuf)>,
+    /// Developer Mode views, the report preview, recovery choices.
+    pub debug: crate::vm::debug::DebugVm,
 }
 
 impl UiState {
@@ -173,6 +175,7 @@ impl UiState {
             picks: Vec::new(),
             tag_text: String::new(),
             shares: Vec::new(),
+            debug: crate::vm::debug::DebugVm::default(),
         }
     }
 
@@ -236,7 +239,8 @@ impl UiState {
                 other => self.nav.go_to(other),
             },
             AfterDiscard::Tab(i) => {
-                self.details.tab = details::DetailsTab::ALL[i.min(4)];
+                self.details.tab =
+                    details::DetailsTab::ALL[i.min(details::DetailsTab::ALL.len() - 1)];
             }
         }
     }
@@ -513,7 +517,7 @@ impl EasyPlayApp {
                     ctx.set_zoom_factor(a.ui_scale);
                 }
             }
-            UiEvent::HostChanged | UiEvent::RuntimesChanged => {}
+            UiEvent::HostChanged | UiEvent::RuntimesChanged | UiEvent::DiagnosticsChanged => {}
             UiEvent::ShowGame(g) => {
                 if let Some(q) = &mut s.quick {
                     q.game = Some(g);
@@ -526,6 +530,9 @@ impl EasyPlayApp {
     }
 
     fn on_query(&mut self, id: QueryId, payload: QueryPayload) {
+        let Some(payload) = crate::screens::debug::on_query(&mut self.state, id, payload) else {
+            return;
+        };
         let s = &mut self.state;
         let d = &mut s.details;
         if d.detail_q == Some(id) {
@@ -640,6 +647,9 @@ impl EasyPlayApp {
             return;
         };
         match r.purpose {
+            PickPurpose::SaveReport => {
+                crate::screens::debug::report::save_to(s, &self.bridge, first);
+            }
             PickPurpose::AddGame | PickPurpose::AddGameFile => {
                 s.add_game = None;
                 if s.nav.top_overlay() == Some(Overlay::AddGame) {

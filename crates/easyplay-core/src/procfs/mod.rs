@@ -7,7 +7,9 @@
 mod real;
 mod tree;
 
-pub use real::{RealProc, StatFields, StatusFields, parse_ns_link, parse_stat, parse_status};
+pub use real::{
+    RealProc, StatFields, StatusFields, parse_ns_link, parse_stat, parse_stat_usage, parse_status,
+};
 pub use tree::ProcTree;
 
 use std::ffi::OsString;
@@ -121,6 +123,15 @@ impl From<ProcError> for Error {
     }
 }
 
+/// Resource use of one process (the Developer Mode process tree, PROC-014).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ProcUsage {
+    /// User plus system CPU time, in milliseconds.
+    pub cpu_ms: u64,
+    /// Resident memory, in bytes.
+    pub rss_bytes: u64,
+}
+
 /// Source of process information. Implemented by [`RealProc`] and
 /// `easyplay_testkit::FakeProc`.
 pub trait ProcSource: Send + Sync {
@@ -132,6 +143,12 @@ pub trait ProcSource: Send + Sync {
     fn cmdline(&self, pid: u32) -> Result<Option<Vec<OsString>>, ProcError>;
     /// The boot ID (`/proc/sys/kernel/random/boot_id`).
     fn boot_id(&self) -> Result<String, ProcError>;
+    /// CPU time and resident memory; `Ok(None)` when the process is gone or the source
+    /// does not know (the default).
+    fn usage(&self, pid: u32) -> Result<Option<ProcUsage>, ProcError> {
+        let _ = pid;
+        Ok(None)
+    }
 
     /// All processes that could be read (processes that exit while listing are skipped).
     fn snapshot(&self) -> Result<Vec<ProcEntry>, ProcError> {
