@@ -90,6 +90,8 @@ pub const LIBRARY_VIEW: &str = "Library view";
 pub const DENSITY: &str = "Cover size";
 /// Toggle.
 pub const PLAYTIME_ON_CARDS: &str = "Show playtime on cards";
+/// Row with a reset button for widths set by dragging list headers.
+pub const LIST_COLUMNS: &str = "List column widths";
 /// Option.
 pub const SYSTEM: &str = "System";
 /// Option.

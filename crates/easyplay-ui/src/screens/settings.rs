@@ -519,6 +519,31 @@ fn appearance(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         |p| p.appearance.show_playtime_on_cards,
         |p, v| p.appearance.show_playtime_on_cards = v,
     );
+    // Widths are set by dragging list headers; here they can only be reset.
+    let key = "appearance.list_column_widths";
+    note_key(ui, key);
+    let reset = ui
+        .horizontal(|ui| {
+            ui.label(Type::Body.rich(s::LIST_COLUMNS).color(p.text_primary));
+            let custom = !prefs.appearance.list_column_widths.is_empty();
+            let r = ui.add_enabled(custom, Button::ghost(s::RESET).size(Size::Sm));
+            saved_tick(ui, state, env, key);
+            r.clicked()
+        })
+        .inner;
+    if reset {
+        state.library.widths.clear();
+        state.library.widths_loaded = false;
+        let mut next = (*prefs).clone();
+        next.appearance.list_column_widths.clear();
+        commit(
+            state,
+            env,
+            key,
+            PreferencePatch::new().set(key, easyplay_core::config::ColumnWidth::to_value(&[])),
+            next,
+        );
+    }
 }
 
 fn protection(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {

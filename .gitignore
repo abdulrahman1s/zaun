@@ -2,3 +2,6 @@
 /result
 .direnv/
 /.real-run
+crates/*/tests/snapshots/*.diff.png
+crates/*/tests/snapshots/*.old.png
+crates/*/tests/snapshots/*.new.png
