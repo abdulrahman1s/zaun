@@ -1,9 +1,9 @@
 //! The runtime catalogue snapshot and its synchronisation with the `runtimes` and
 //! `slr_installs` tables (RT-004, RUNTIME_MANAGEMENT §10).
 //!
-//! The SQLite repository (`storage::RuntimeRepo`, STORE-012) is not available in this
-//! milestone, so synchronisation is written against the small [`CatalogStore`] trait; the
-//! repository implements it when it lands. [`MemCatalogStore`] is the in-memory version.
+//! Synchronisation is written against the small [`CatalogStore`] trait.
+//! [`SqliteCatalogStore`] implements it on the `runtimes` table through
+//! `storage::RuntimeRepo` (STORE-012); [`MemCatalogStore`] is the in-memory version.
 
 use std::path::Path;
 
@@ -163,6 +163,44 @@ pub fn sync(
         }
     }
     (catalog, d)
+}
+
+/// [`CatalogStore`] on the library database (`runtimes` table). The trait is infallible:
+/// storage errors are logged, a failed load reads as an empty catalogue and a failed apply
+/// leaves the table unchanged (the next scan retries).
+#[derive(Debug)]
+pub struct SqliteCatalogStore {
+    db: Mutex<crate::storage::Db>,
+}
+
+impl SqliteCatalogStore {
+    /// Wrap a read-write handle.
+    pub fn new(db: crate::storage::Db) -> Self {
+        Self { db: Mutex::new(db) }
+    }
+
+    /// Give the handle back.
+    pub fn into_inner(self) -> crate::storage::Db {
+        self.db.into_inner()
+    }
+}
+
+impl CatalogStore for SqliteCatalogStore {
+    fn load_builds(&self) -> Vec<RuntimeBuild> {
+        use crate::storage::RuntimeRepo;
+        self.db.lock().runtimes().unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "cannot read the runtime catalogue");
+            Vec::new()
+        })
+    }
+
+    fn apply(&self, diff: &CatalogDiff) {
+        use crate::storage::RuntimeRepo;
+        let upsert: Vec<RuntimeBuild> = diff.added.iter().chain(&diff.updated).cloned().collect();
+        if let Err(e) = self.db.lock().apply_runtime_changes(&upsert, &diff.removed) {
+            tracing::warn!(error = %e, "cannot store the runtime catalogue");
+        }
+    }
 }
 
 /// In-memory [`CatalogStore`].
