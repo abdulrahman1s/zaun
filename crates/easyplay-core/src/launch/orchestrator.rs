@@ -190,6 +190,9 @@ fn advance(
 /// resolver must not loop).
 const MAX_TRUSTED_STEPS: usize = 4;
 
+/// Polls (100 ms apart) for the prefix lock of a finished Prepare session.
+const PREFIX_LOCK_POLLS: u32 = 100;
+
 /// The pieces shared by [`launch`] and [`dry_run`].
 struct Flow<'r, 'd> {
     req: &'r LaunchRequest<'r>,
@@ -353,6 +356,18 @@ impl Flow<'_, '_> {
         };
         let req = self.plan_req(sid, LaunchTarget::Prepare, rt, codename, Some(network));
         Ok(plan_launch(&req)?)
+    }
+
+    /// The Prepare supervisor closes its row before it exits and releases the prefix lock;
+    /// give it a moment so the game's preflight does not see "already running".
+    fn wait_for_prefix_lock(&self) {
+        let lock = self.deps.env.paths.prefix_lock(self.req.game.id);
+        for _ in 0..PREFIX_LOCK_POLLS {
+            if !self.deps.locks.is_held(&lock) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
     }
 
     fn check_space(&self) -> Result<(), Error> {
@@ -638,6 +653,7 @@ pub fn launch(
                     return Err(LaunchError::Failed(e));
                 }
                 prepared = true;
+                flow.wait_for_prefix_lock();
                 flow.refresh();
             }
             NextStep::Game | NextStep::Unavailable(_) => {}
