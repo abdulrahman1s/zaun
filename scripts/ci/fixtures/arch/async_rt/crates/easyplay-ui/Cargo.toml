@@ -1,0 +1,5 @@
+[package]
+name = "easyplay-ui"
+
+[dependencies]
+tokio = "1"

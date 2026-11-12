@@ -79,6 +79,7 @@ impl Conn {
     }
 
     fn open(location: Location, read_only: bool, cfg: &OpenConfig) -> StorageResult<Conn> {
+        crate::ui_thread::assert_not_ui_thread("Store::open");
         let rt = Self::runtime()?;
         let options = match &location {
             Location::File(path) => SqliteConnectOptions::new()
@@ -163,6 +164,7 @@ impl Conn {
         &mut self,
         f: impl AsyncFnOnce(&mut SqlConn) -> StorageResult<R>,
     ) -> StorageResult<R> {
+        crate::ui_thread::assert_not_ui_thread("Store (SQL)");
         let conn = self.conn.as_mut().ok_or(StorageError::Closed)?;
         block_on(&self.rt, f(conn))
     }

@@ -11,11 +11,13 @@
 // Test support code: panicking on broken fixtures is the desired behaviour.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+pub mod bench;
 pub mod bins;
 mod env;
 pub mod fakes;
 pub mod fixtures;
 pub mod golden;
+pub mod inject;
 
 pub use env::TestEnv;
 pub use fakes::{

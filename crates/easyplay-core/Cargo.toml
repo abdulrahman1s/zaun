@@ -51,5 +51,18 @@ tempfile.workspace = true
 insta.workspace = true
 proptest.workspace = true
 
+# PERFORMANCE §1 budgets (PERF-001): `cargo bench -p easyplay-core`.
+[[bench]]
+name = "library"
+harness = false
+
+[[bench]]
+name = "stats"
+harness = false
+
+[[bench]]
+name = "planning"
+harness = false
+
 [lints]
 workspace = true

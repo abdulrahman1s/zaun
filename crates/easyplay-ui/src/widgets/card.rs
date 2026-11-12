@@ -77,6 +77,16 @@ fn unavailable(g: &GameSummary) -> bool {
     )
 }
 
+/// A visible "Running · m:ss" label changes every second: ask for the next frame at the
+/// next whole second of the session (PERFORMANCE §8, 1 Hz while a game runs, nothing
+/// otherwise). Call wherever [`strings::card::state`] text is shown.
+pub fn tick_elapsed(ctx: &egui::Context, activity: Activity, now: Timestamp) {
+    if let Activity::Running { since } = activity {
+        let ms = now.since(since).map_or(0, |d| d.as_millis() as u64);
+        ctx.request_repaint_after(std::time::Duration::from_millis(1_000 - ms % 1_000));
+    }
+}
+
 /// Paint and interact with one card in `rect`. `id` must be stable per game.
 pub fn card(ui: &mut Ui, rect: Rect, id: Id, g: &GameSummary, ctx: &CardCtx) -> CardResponse {
     let theme = theme::theme(ui.ctx());
@@ -89,6 +99,7 @@ pub fn card(ui: &mut Ui, rect: Rect, id: Id, g: &GameSummary, ctx: &CardCtx) -> 
     let resp = ui.interact(rect, id, sense);
     super::own_arrow_keys(&resp);
     let state_text = strings::card::state(g.activity, g.availability, ctx.now);
+    tick_elapsed(ui.ctx(), g.activity, ctx.now);
     let state_text = state_text
         .or_else(|| (g.kind == EntryKind::Installer).then(|| strings::card::INSTALLER.to_owned()));
     let attention = g.flags.needs_attention || g.flags.suspected_tamper;

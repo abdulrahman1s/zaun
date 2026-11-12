@@ -1,0 +1,4 @@
+# UI snapshots are binary images, reviewed visually (TEST-030, TESTING_STRATEGY §9).
+# Git LFS is not used yet: the set is small (about 7 MB); move it with
+# `git lfs migrate import --include='crates/*/tests/snapshots/*.png'` once it grows.
+*.png binary

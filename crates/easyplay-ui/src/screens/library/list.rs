@@ -273,6 +273,7 @@ pub fn show(
             };
             let resp = ui.interact(rect, id, sense);
             let state_text = strings::card::state(g.activity, g.availability, env.now);
+            crate::widgets::card::tick_elapsed(ui.ctx(), g.activity, env.now);
             let name = strings::card::accessible_name(
                 &g.name,
                 g.preset,

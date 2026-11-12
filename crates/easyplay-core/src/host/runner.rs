@@ -229,6 +229,7 @@ impl RealRunner {
 impl CommandRunner for RealRunner {
     #[allow(clippy::disallowed_methods)] // host::runner is one of the two places that spawn.
     fn run(&self, cmd: &CommandSpec) -> Result<CommandOutput, RunError> {
+        crate::ui_thread::assert_not_ui_thread("CommandRunner::run");
         let mut command = std::process::Command::new(&cmd.program);
         command
             .args(&cmd.args)

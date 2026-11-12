@@ -442,6 +442,7 @@ fn hero(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
                 if pill.clicked() {
                     actions::play(state, env, g);
                 }
+                crate::widgets::card::tick_elapsed(ui.ctx(), g.activity, env.now);
                 let status = strings::card::state(g.activity, g.availability, env.now)
                     .unwrap_or_else(|| {
                         s::played_line(

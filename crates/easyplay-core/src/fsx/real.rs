@@ -8,6 +8,8 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
+use crate::ui_thread;
+
 use super::{
     DirEntry, FileType, Fs, FsError, FsErrorKind, FsOp, FsResult, Metadata, atomic_write_real,
     reflink_probe,
@@ -115,6 +117,9 @@ fn read_limited(mut file: File, path: &Path, limit: u64) -> FsResult<Vec<u8>> {
     Ok(buf)
 }
 
+// Every blocking operation asserts it is not on the UI thread (PERF-002); `metadata`,
+// `metadata_follow`, `read_link` and `canonicalize` are exempt: the policy editor's
+// validation runs them on the UI thread (crate::ui_thread).
 impl Fs for RealFs {
     fn metadata(&self, path: &Path) -> FsResult<Metadata> {
         fs::symlink_metadata(path)
@@ -133,16 +138,19 @@ impl Fs for RealFs {
     }
 
     fn read(&self, path: &Path, limit: u64) -> FsResult<Vec<u8>> {
+        ui_thread::assert_not_ui_thread("Fs::read");
         let file = open_nofollow(path)?;
         read_limited(file, path, limit)
     }
 
     fn read_follow(&self, path: &Path, limit: u64) -> FsResult<Vec<u8>> {
+        ui_thread::assert_not_ui_thread("Fs::read_follow");
         let file = File::open(path).map_err(|e| FsError::from_io(FsOp::Read, path, e))?;
         read_limited(file, path, limit)
     }
 
     fn read_range(&self, path: &Path, offset: u64, len: usize) -> FsResult<Vec<u8>> {
+        ui_thread::assert_not_ui_thread("Fs::read_range");
         let mut file = open_nofollow(path)?;
         file.seek(SeekFrom::Start(offset))
             .map_err(|e| FsError::from_io(FsOp::Read, path, e))?;
@@ -154,10 +162,12 @@ impl Fs for RealFs {
     }
 
     fn open_read(&self, path: &Path) -> FsResult<Box<dyn Read + Send>> {
+        ui_thread::assert_not_ui_thread("Fs::open_read");
         Ok(Box::new(open_nofollow(path)?))
     }
 
     fn read_dir(&self, path: &Path) -> FsResult<Vec<DirEntry>> {
+        ui_thread::assert_not_ui_thread("Fs::read_dir");
         let iter = fs::read_dir(path).map_err(|e| FsError::from_io(FsOp::ReadDir, path, e))?;
         let mut out = Vec::new();
         for entry in iter {
@@ -180,6 +190,7 @@ impl Fs for RealFs {
     }
 
     fn create_dir(&self, path: &Path, mode: u32) -> FsResult<()> {
+        ui_thread::assert_not_ui_thread("Fs::create_dir");
         fs::DirBuilder::new()
             .mode(mode)
             .create(path)
@@ -187,6 +198,7 @@ impl Fs for RealFs {
     }
 
     fn create_dir_all(&self, path: &Path, mode: u32) -> FsResult<()> {
+        ui_thread::assert_not_ui_thread("Fs::create_dir_all");
         fs::DirBuilder::new()
             .recursive(true)
             .mode(mode)
@@ -195,6 +207,7 @@ impl Fs for RealFs {
     }
 
     fn write_new(&self, path: &Path, data: &[u8], mode: u32) -> FsResult<()> {
+        ui_thread::assert_not_ui_thread("Fs::write_new");
         use std::io::Write;
         let mut file = OpenOptions::new()
             .write(true)
@@ -209,27 +222,33 @@ impl Fs for RealFs {
     }
 
     fn atomic_write(&self, path: &Path, data: &[u8], mode: u32) -> FsResult<()> {
+        ui_thread::assert_not_ui_thread("Fs::atomic_write");
         atomic_write_real(path, data, mode)
     }
 
     fn rename(&self, from: &Path, to: &Path) -> FsResult<()> {
+        ui_thread::assert_not_ui_thread("Fs::rename");
         fs::rename(from, to).map_err(|e| FsError::from_io(FsOp::Rename, from, e))
     }
 
     fn remove_file(&self, path: &Path) -> FsResult<()> {
+        ui_thread::assert_not_ui_thread("Fs::remove_file");
         fs::remove_file(path).map_err(|e| FsError::from_io(FsOp::RemoveFile, path, e))
     }
 
     fn remove_dir(&self, path: &Path) -> FsResult<()> {
+        ui_thread::assert_not_ui_thread("Fs::remove_dir");
         fs::remove_dir(path).map_err(|e| FsError::from_io(FsOp::RemoveDir, path, e))
     }
 
     fn symlink(&self, target: &Path, link: &Path) -> FsResult<()> {
+        ui_thread::assert_not_ui_thread("Fs::symlink");
         std::os::unix::fs::symlink(target, link)
             .map_err(|e| FsError::from_io(FsOp::Symlink, link, e))
     }
 
     fn set_mode(&self, path: &Path, mode: u32) -> FsResult<()> {
+        ui_thread::assert_not_ui_thread("Fs::set_mode");
         let md = self.metadata(path)?;
         if md.is_symlink() {
             return Err(FsError::new(FsOp::SetMode, path, FsErrorKind::Symlink));
@@ -239,16 +258,19 @@ impl Fs for RealFs {
     }
 
     fn free_space(&self, path: &Path) -> FsResult<u64> {
+        ui_thread::assert_not_ui_thread("Fs::free_space");
         let st = rustix::fs::statvfs(path)
             .map_err(|e| FsError::from_io(FsOp::FreeSpace, path, io::Error::from(e)))?;
         Ok(st.f_bavail.saturating_mul(st.f_frsize))
     }
 
     fn reflink_supported(&self, dir_a: &Path, dir_b: &Path) -> FsResult<bool> {
+        ui_thread::assert_not_ui_thread("Fs::reflink_supported");
         reflink_probe(dir_a, dir_b).map_err(|e| FsError::from_io(FsOp::Reflink, dir_a, e))
     }
 
     fn copy_file(&self, from: &Path, to: &Path, mode: u32) -> FsResult<bool> {
+        ui_thread::assert_not_ui_thread("Fs::copy_file");
         let mut src = OpenOptions::new()
             .read(true)
             .custom_flags(o_nofollow())

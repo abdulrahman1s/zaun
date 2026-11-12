@@ -185,8 +185,11 @@ impl<S: Store + ?Sized> StatsRepo for S {
     fn daily_totals(&mut self, from: u32, to: u32) -> StorageResult<Vec<DailyPlaytime>> {
         conn(self).run(async move |c| {
             let rows: Vec<(i64, i64, i64)> = ormlite::query_as(
-                "SELECT day, sum(ms), sum(sessions) FROM playtime_daily WHERE day BETWEEN ? AND ? \
-                 GROUP BY day ORDER BY day",
+                if wide_range(from, to) {
+                    "SELECT day, sum(ms), sum(sessions) FROM playtime_daily NOT INDEXED WHERE day BETWEEN ? AND ? GROUP BY day ORDER BY day"
+                } else {
+                    "SELECT day, sum(ms), sum(sessions) FROM playtime_daily WHERE day BETWEEN ? AND ? GROUP BY day ORDER BY day"
+                },
             )
             .bind(i64::from(from))
             .bind(i64::from(to))
@@ -236,8 +239,11 @@ impl<S: Store + ?Sized> StatsRepo for S {
     fn playtime_by_key(&mut self, from: u32, to: u32) -> StorageResult<Vec<(GameKey, u64)>> {
         conn(self).run(async move |c| {
             let rows: Vec<(String, i64)> = ormlite::query_as(
-                "SELECT game_key, sum(ms) AS t FROM playtime_daily WHERE day BETWEEN ? AND ? \
-                 GROUP BY game_key HAVING t > 0 ORDER BY game_key",
+                if wide_range(from, to) {
+                    "SELECT game_key, sum(ms) AS t FROM playtime_daily NOT INDEXED WHERE day BETWEEN ? AND ? GROUP BY game_key HAVING t > 0 ORDER BY game_key"
+                } else {
+                    "SELECT game_key, sum(ms) AS t FROM playtime_daily WHERE day BETWEEN ? AND ? GROUP BY game_key HAVING t > 0 ORDER BY game_key"
+                },
             )
             .bind(i64::from(from))
             .bind(i64::from(to))
@@ -258,8 +264,11 @@ impl<S: Store + ?Sized> StatsRepo for S {
     fn played_days(&mut self, from: u32, to: u32) -> StorageResult<Vec<u32>> {
         conn(self).run(async move |c| {
             let rows: Vec<(i64,)> = ormlite::query_as(
-                "SELECT day FROM playtime_daily WHERE day BETWEEN ? AND ? \
-                 GROUP BY day HAVING sum(ms) > 0 ORDER BY day",
+                if wide_range(from, to) {
+                    "SELECT day FROM playtime_daily NOT INDEXED WHERE day BETWEEN ? AND ? GROUP BY day HAVING sum(ms) > 0 ORDER BY day"
+                } else {
+                    "SELECT day FROM playtime_daily WHERE day BETWEEN ? AND ? GROUP BY day HAVING sum(ms) > 0 ORDER BY day"
+                },
             )
             .bind(i64::from(from))
             .bind(i64::from(to))
@@ -277,4 +286,14 @@ impl<S: Store + ?Sized> StatsRepo for S {
             Ok(())
         })
     }
+}
+
+/// Whether a day range of `playtime_daily` should be scanned rather than looked up through
+/// the `day` index. Without table statistics SQLite walks the index for any range and looks
+/// every row up in the table (it is `WITHOUT ROWID`); beyond about two months a plain scan
+/// is several times faster (PERF-001, the statistics overview budget).
+fn wide_range(from: u32, to: u32) -> bool {
+    // Days, approximately, from `YYYYMMDD` keys (monotonic; gaps do not matter here).
+    let days = |k: u32| (k / 10_000) * 372 + (k / 100 % 100) * 31 + k % 100;
+    days(to).saturating_sub(days(from)) > 62
 }
