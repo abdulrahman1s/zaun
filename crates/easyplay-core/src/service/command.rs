@@ -85,6 +85,24 @@ pub enum GameEdit {
     Preset(crate::model::BasePreset),
 }
 
+/// A folder to show in the file manager (`Command::OpenFolder`). The service resolves it to
+/// a location it knows; nothing else can be opened (DESKTOP_INTEGRATION §8).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FolderRequest {
+    /// The game folder (the program's folder for a single file).
+    GameFolder(GameId),
+    /// The save data (external folder, or the profile inside the prefix).
+    SaveData(GameId),
+    /// The private Windows storage.
+    Prefix(GameId),
+    /// A session's log folder.
+    Session(SessionId),
+    /// EasyPlay's data folder.
+    DataFolder,
+    /// A folder granted to some game (refused otherwise).
+    Granted(PathBuf),
+}
+
 #[derive(Clone, Debug)]
 pub enum Command {
     // ---- entry points
@@ -228,6 +246,28 @@ pub enum Command {
     SetPreference(PreferencePatch),
     /// Probe the host again.
     RefreshHostFacts,
+    // ---- desktop integration (DESKTOP_INTEGRATION §4, §6, §8)
+    /// Become (or stop being) the `.exe` default handler; only on the user's request.
+    SetDefaultHandler {
+        /// `true`: take over (previous defaults recorded); `false`: restore them.
+        enable: bool,
+    },
+    /// Add or remove a game's applications-menu shortcut.
+    SetShortcut {
+        /// The game.
+        id: GameId,
+        /// Create (`false`: remove).
+        enable: bool,
+    },
+    /// Open a known folder in the file manager.
+    OpenFolder(FolderRequest),
+    /// Open a session log (the game's latest when `session` is `None`).
+    ViewLog {
+        /// The session.
+        session: Option<SessionId>,
+        /// The game.
+        game: Option<GameId>,
+    },
     // ---- lifecycle
     /// Stop the service: parked flows are cancelled, running games are left alone.
     Shutdown,
@@ -260,6 +300,10 @@ impl Command {
             Command::VerifyRuntime => "verify_runtime",
             Command::SetPreference(_) => "set_preference",
             Command::RefreshHostFacts => "refresh_host_facts",
+            Command::SetDefaultHandler { .. } => "set_default_handler",
+            Command::SetShortcut { .. } => "set_shortcut",
+            Command::OpenFolder(_) => "open_folder",
+            Command::ViewLog { .. } => "view_log",
             Command::Shutdown => "shutdown",
         }
     }

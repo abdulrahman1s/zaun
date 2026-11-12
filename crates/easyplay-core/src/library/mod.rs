@@ -14,6 +14,7 @@
 //! | [`prefix_ops`] | prefix reset, drive-letter links, health heuristics, sizes (§12) |
 //! | [`installer`] | programs installed by an installer session (§13) |
 //! | [`export`] | exported game settings as TOML (CONFIGURATION §4) |
+//! | [`resolve`] | `<GAME>` resolution of the command line (CONFIGURATION §6) |
 //!
 //! Seams left for later layers: the launch pipeline and the AppService call into
 //! [`Library`]; the library itself never launches anything. Host-dependent policy
@@ -31,6 +32,7 @@ pub mod prefix_ops;
 pub mod query;
 pub mod relink;
 pub mod remove;
+pub mod resolve;
 pub mod service;
 
 pub use draft::{DraftEnv, GameDraft, build_draft};

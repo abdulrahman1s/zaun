@@ -96,6 +96,7 @@ fn deps(env: &TestEnv, launcher: Arc<FakeLauncher>) -> ServiceDeps {
             global_env: Vec::new(),
         },
         prefs: Preferences::default(),
+        desktop: None,
         http: None,
         app_id_file: Arc::new(FsAppIdFile::new(Arc::clone(&fs))),
         art_index: Arc::new(ArtIndex::new()),

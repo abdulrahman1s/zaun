@@ -3,6 +3,7 @@
 //! [`super::prompts`].
 
 pub mod artwork;
+pub mod desktop;
 pub mod launch;
 pub mod open;
 pub mod remove;

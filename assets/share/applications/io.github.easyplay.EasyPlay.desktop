@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=EasyPlay
+GenericName=Windows Game Launcher
+Comment=Play Windows games with per-game protection
+Exec=easyplay open %F
+TryExec=easyplay
+Icon=io.github.easyplay.EasyPlay
+Terminal=false
+Categories=Game;
+Keywords=windows;exe;wine;proton;games;launcher;sandbox;
+MimeType=application/vnd.microsoft.portable-executable;application/x-ms-dos-executable;application/x-msdos-program;application/x-msdownload;application/x-dosexec;application/x-msi;
+StartupNotify=true
+StartupWMClass=io.github.easyplay.EasyPlay
+Actions=add-game;
+
+[Desktop Action add-game]
+Name=Add Game…
+Exec=easyplay --add
