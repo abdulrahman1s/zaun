@@ -415,11 +415,13 @@ pub fn emit(ctx: &SandboxContext<'_>, host: &HostFacts, eff: &Effective, b: &mut
             (SessionKind::Provision, _) | (_, None) => ctx.install_id.to_owned(),
             (_, Some(g)) => stand_in_machine_id(host.machine_id.as_deref(), g.id),
         };
+        // `--file`, not `--ro-bind-data`: pressure-vessel re-binds /etc/machine-id into its
+        // container, and its inner bwrap cannot bind from a data mount (F-227).
         b.file_data(
             "/etc/machine-id".into(),
             format!("{id}\n").into_bytes(),
             0o444,
-            FileDataOp::RoBindData,
+            FileDataOp::File,
             "stand-in machine ID",
             Some(PolicyField::MaskMachineId),
         );

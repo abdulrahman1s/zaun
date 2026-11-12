@@ -34,7 +34,7 @@ expression: run_cell(c)
 --perms 0444 --ro-bind-data 8 /etc/passwd
 --perms 0444 --ro-bind-data 9 /etc/group
 --perms 0444 --ro-bind-data 10 /etc/nsswitch.conf
---perms 0444 --ro-bind-data 11 /etc/machine-id
+--perms 0444 --file 11 /etc/machine-id
 --ro-bind /nix/store/x1-etc/etc/hosts /etc/hosts
 --ro-bind /etc/resolv.conf /etc/resolv.conf
 --ro-bind-try /nix/store/x1-etc/etc/ssl /etc/ssl
