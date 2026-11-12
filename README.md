@@ -13,7 +13,8 @@ folder, and sees only its own files unless you allow more.
   of yours), or *Standard*. Everything else has a safe default and sits behind "More options".
 - **A library, not a launcher maze.** Search, sort, tags, artwork, and play time per game.
 - **Compatibility layers kept up to date** for you, with game fixes from the umu database.
-- **Nothing leaves your computer.** No telemetry, no accounts, no update checks of its own.
+- **No telemetry, no accounts.** Your library stays on your computer; the only network use is
+  downloading Proton and runtimes, and Steam artwork if you turn it on.
 
 Sandboxing Windows software reduces risk; it is not a guarantee. Only run games you would
 run anyway; EasyPlay makes it harder for one of them to reach the rest of your files.
