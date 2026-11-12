@@ -65,6 +65,23 @@ pub enum Continuation {
         /// Dialog options.
         options: crate::library::RemoveOptions,
     },
+    /// LOGIC_SPECS §8: a located program differs from the stored one; "It's an update"
+    /// confirms the re-link, "Set up as a new game" drafts the file instead.
+    Locate {
+        /// The game.
+        game: GameId,
+        /// The program.
+        exe: ExecutableId,
+        /// The chosen file.
+        path: PathBuf,
+    },
+    /// LOGIC_SPECS §4 `ToolNeedsNetwork`: run the tool with the network for this run.
+    ToolNetwork {
+        /// The game.
+        game: GameId,
+        /// The tool.
+        tool: crate::model::Tool,
+    },
     /// No follow-up besides the answer itself (informational prompts).
     Nothing,
 }

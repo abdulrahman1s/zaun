@@ -28,7 +28,7 @@ use crate::theme::{self, Type, icons};
 use crate::vm::details::PolicyEditor;
 use crate::widgets::button::{Button, Size, Variant};
 use crate::widgets::chip::{ChipKind, chip};
-use crate::widgets::path_row::path_row;
+use crate::widgets::path_row::{PathRowState, path_row_with};
 use crate::widgets::segmented::{Segment, segmented};
 use crate::widgets::toggle::toggle;
 
@@ -258,6 +258,23 @@ fn reject_denied(state: &mut UiState, env: &Env<'_>, path: &std::path::Path) {
     }
 }
 
+/// *Locate…* for a missing folder: the grant moves to `new`, keeping its access; the new
+/// place is validated like a newly shared folder.
+pub fn relocate_folder(state: &mut UiState, game: GameId, old: &std::path::Path, new: PathBuf) {
+    if state.details.game != Some(game) {
+        return;
+    }
+    if let Some(e) = editor(state)
+        && let Some(g) = e.draft.folders.iter_mut().find(|g| g.canonical == old)
+    {
+        g.path = new.clone();
+        g.canonical = new.clone();
+        g.origin = GrantOrigin::UserChosen;
+        e.reclassify();
+    }
+    state.shares.push((Some(game), new));
+}
+
 /// Save every dirty draft of the page.
 pub fn save(state: &mut UiState, env: &mut Env<'_>) {
     let Some(id) = state.details.game else { return };
@@ -369,6 +386,7 @@ fn folders_section(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &Game
         issue_line(ui, &s::rejected(err), true);
     }
     // Explicit list.
+    let mut state_picks: Vec<PickPurpose> = Vec::new();
     let issues = e.assessment.issues.clone();
     let network = e.draft.network;
     let mut remove = None;
@@ -391,7 +409,12 @@ fn folders_section(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &Game
         let mut a = usize::from(access == FolderAccess::ReadWrite);
         let before = a;
         let group = s::folder_row_name(&name, &loc, a == 1);
-        let r = path_row(
+        let missing = issues.iter().any(|x| {
+            x.code == easyplay_core::sandbox::IssueCode::PathMissing
+                && (x.path.as_deref() == Some(canonical.as_path())
+                    || x.path.as_deref() == Some(path.as_path()))
+        });
+        let r = path_row_with(
             ui,
             icons::FOLDER,
             &name,
@@ -401,9 +424,15 @@ fn folders_section(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &Game
             &mut a,
             [s::CAN_READ, s::CAN_CHANGE],
             &s::remove_folder(&name),
+            PathRowState {
+                missing: missing.then_some((s::FOLDER_NOT_FOUND, s::LOCATE_FOLDER)),
+            },
         );
         if r.removed {
             remove = Some(i);
+        }
+        if r.locate {
+            state_picks.push(PickPurpose::RelocateFolder(id, canonical.clone()));
         }
         if a != before
             && let Some(f) = e.draft.folders.get_mut(i)
@@ -433,6 +462,7 @@ fn folders_section(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &Game
         e.draft.folders.remove(i);
         changed = true;
     }
+    state.picks.extend(state_picks);
     ui.horizontal(|ui| {
         if ui
             .add(

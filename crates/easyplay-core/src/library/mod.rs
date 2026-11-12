@@ -12,8 +12,10 @@
 //! | [`relink`] | moving a game to a new location (§8) |
 //! | [`remove`] | detach / collect / purge (§11) |
 //! | [`prefix_ops`] | prefix reset, drive-letter links, health heuristics, sizes (§12) |
+//! | [`programs`] | a game's programs: role, label, arguments, removal, detaching |
 //! | [`installer`] | programs installed by an installer session (§13) |
 //! | [`export`] | exported game settings as TOML (CONFIGURATION §4) |
+//! | [`folder_scan`] | programs in a dropped folder (GAME_LIBRARY §11) |
 //!
 //! Seams left for later layers: the launch pipeline and the AppService call into
 //! [`Library`]; the library itself never launches anything. Host-dependent policy
@@ -24,16 +26,19 @@
 
 pub mod draft;
 pub mod export;
+pub mod folder_scan;
 pub mod index;
 pub mod installer;
 pub mod missing;
 pub mod prefix_ops;
+pub mod programs;
 pub mod query;
 pub mod relink;
 pub mod remove;
 pub mod service;
 
 pub use draft::{DraftEnv, GameDraft, build_draft};
+pub use folder_scan::{FolderScan, FoundProgram};
 pub use index::{
     DefaultRuntimeInfo, ExeIndex, LibrarySnapshot, LibraryTotals, Overlays, RuntimeInfo,
     SearchEntry, SearchIndex, TagInfo, normalize,
@@ -45,7 +50,7 @@ pub use query::{
     run_query,
 };
 pub use relink::{RelinkOutcome, Verdict};
-pub use remove::{RemoveOptions, RemoveReport};
+pub use remove::{RemoveFiles, RemoveJob, RemoveOptions, RemoveReport};
 pub use service::{Library, LibraryDeps, LibraryService, PolicyCheck};
 
 pub use prefix_ops::ResetOptions;

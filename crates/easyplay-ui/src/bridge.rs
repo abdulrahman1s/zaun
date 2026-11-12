@@ -20,9 +20,10 @@
 //! for every edit in the setup sheet and the Protection tab, SCREEN_SPECS §6):
 //!
 //! - [`Backend::assess`]: `sandbox::explain` statements and `sandbox::validate` issues for a
-//!   policy as it would run for a game ([`PolicyAssessment`]). Existence checks may come from
-//!   a cache; the breadth scan is not part of it (a broad grant raises
-//!   `PromptKind::ConfirmBroadGrant` when saved).
+//!   policy as it would run for a game ([`PolicyAssessment`]); the service backend calls
+//!   `sandbox::explain::explain_policy` (the real planner with a synthetic runtime and
+//!   session; `stat` calls of the policy's paths only). The breadth scan is not part of it
+//!   (a broad grant raises `PromptKind::ConfirmBroadGrant` when saved).
 //! - [`Backend::preset_policy`]: `sandbox::apply_preset` with the current host facts.
 //!
 //! **Commands** ([`UiCommand`]) are queued and never answered synchronously. Their results
@@ -47,8 +48,8 @@
 //! | `RefreshHostFacts`, `SetDefaultHandler`, `CompleteOnboarding` | host and integration | `HostChanged`, `PreferencesChanged` |
 //! | `QueryStats` | `Command::QueryStats` | `QueryResult(Stats)` |
 //! | `LoadGame` | the full `Game` row plus storage facts | `QueryResult(Game)` |
-//! | `MeasurePrefix`, `SearchFixes` | storage size, umu-database search | `QueryResult(PrefixSize / Fixes)` |
-//! | `ClearStatistics`, `ResetGameStatistics`, `RemoveSession` | statistics edits | `Toast` |
+//! | `MeasurePrefix`, `SearchFixes` | storage size (job pool), umu-database search (not yet) | `QueryResult(PrefixSize / Fixes)` |
+//! | `ClearStatistics`, `ResetGameStatistics`, `RemoveSession` | statistics edits | `LibraryChanged`, `Toast` |
 //! | `OpenFolder`, `ViewLog`, `CreateShortcut` | desktop actions done by the service | none / `Failure` |
 //! | `Quit` | `Command::Shutdown` | window closes |
 //!
@@ -59,11 +60,8 @@
 //! `ShowGame`, `QuitRequested`.
 //!
 //! Three implementations ship with the crate: [`crate::service_backend::ServiceBackend`]
-//! (the real `AppService`), [`crate::demo::DemoBackend`] and [`FakeBackend`].
-//!
-//! Two implementations ship with the crate: [`crate::demo::DemoBackend`] (sample library,
-//! simulated launches; used when no service is connected) and [`FakeBackend`] (records
-//! commands; tests publish snapshots and events).
+//! (the real `AppService`), [`crate::demo::DemoBackend`] (sample library, simulated
+//! launches) and [`FakeBackend`] (records commands; tests publish snapshots and events).
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -336,6 +334,8 @@ pub enum GameEdit {
     ExeRole(ExecutableId, ExeRole),
     /// Program label.
     ExeLabel(ExecutableId, Option<String>),
+    /// A program's own arguments (`None` = the game's arguments).
+    ExeArgs(ExecutableId, Option<Vec<String>>),
     /// Remove a program from the game.
     RemoveExe(ExecutableId),
 }
@@ -550,6 +550,8 @@ pub enum UiCommand {
     LocateExecutable {
         /// Game.
         id: GameId,
+        /// The program (`None` = the primary).
+        exe: Option<ExecutableId>,
         /// New path.
         new_path: PathBuf,
     },

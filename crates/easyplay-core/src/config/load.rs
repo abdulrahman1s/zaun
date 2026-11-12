@@ -15,7 +15,7 @@ use toml::Value;
 
 use super::migrate;
 use super::schema::{
-    Accent, AdvancedPrefs, Appearance, ArtworkOnline, ArtworkPrefs, CloseBehavior,
+    Accent, AdvancedPrefs, Appearance, ArtworkOnline, ArtworkPrefs, CloseBehavior, ColumnWidth,
     ControllerDefault, General, GridDensity, HandleExe, IntegrationPrefs, LaunchPrefs, LibraryView,
     LogLevel, LoggingPrefs, OnboardingPrefs, PathPrefs, PreferencePatch, Preferences, Protection,
     ReduceMotion, RendererPref, RuntimeDefault, RuntimePrefs, StatisticsPrefs, Theme, UnknownKeys,
@@ -548,7 +548,33 @@ pub fn from_table(
             "show_playtime_on_cards",
             d.appearance.show_playtime_on_cards,
         ),
+        list_column_widths: Vec::new(),
     };
+    let mut appearance = appearance;
+    for (i, v) in r.list(&mut s, "list_column_widths").into_iter().enumerate() {
+        let key = "list_column_widths";
+        let w: ColumnWidth = match v.try_into() {
+            Ok(w) => w,
+            Err(_) => {
+                r.dropped(&s, key, i, "expected { column = \"…\", width = … }");
+                continue;
+            }
+        };
+        if !ColumnWidth::COLUMNS.contains(&w.column.as_str()) {
+            r.dropped(&s, key, i, format!("unknown column {:?}", w.column));
+        } else if appearance
+            .list_column_widths
+            .iter()
+            .any(|x| x.column == w.column)
+        {
+            r.dropped(&s, key, i, "listed twice");
+        } else {
+            appearance.list_column_widths.push(ColumnWidth {
+                width: w.width.clamp(ColumnWidth::MIN, ColumnWidth::MAX),
+                column: w.column,
+            });
+        }
+    }
     r.finish(s);
 
     let mut s = r.section(&mut root, "artwork");

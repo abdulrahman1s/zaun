@@ -36,8 +36,15 @@ pub fn show(
     }
     let mut dismiss = Vec::new();
     let mut holds = Vec::new();
+    // While a dialog or sheet is open, toasts sit below it: the modal keeps keyboard focus
+    // (UI-006, ACCESSIBILITY §2) and the toast's buttons wait until it closes.
+    let modal_open = ctx.memory(|m| m.top_modal_layer()).is_some();
     Area::new(Id::unique("easyplay.toasts"))
-        .order(Order::Foreground)
+        .order(if modal_open {
+            Order::Middle
+        } else {
+            Order::Foreground
+        })
         .anchor(
             Align2::CENTER_BOTTOM,
             vec2(0.0, -(space::S6 + bottom_inset)),

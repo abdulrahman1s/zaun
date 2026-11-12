@@ -244,6 +244,8 @@ pub struct Overlays {
     pub availability: HashMap<GameId, Availability>,
     /// Current activity per game (absent = `Idle`).
     pub activity: HashMap<GameId, Activity>,
+    /// Dominant cover colour per game, from the thumbnail headers (absent = unknown).
+    pub accent: HashMap<GameId, [u8; 3]>,
 }
 
 impl Overlays {
@@ -261,6 +263,25 @@ impl Overlays {
     pub fn set_availability(&mut self, updates: &[(GameId, Availability)]) {
         for (id, a) in updates {
             self.availability.insert(*id, *a);
+        }
+    }
+
+    /// Dominant cover colour of a game.
+    pub fn accent_of(&self, id: GameId) -> Option<[u8; 3]> {
+        self.accent.get(&id).copied()
+    }
+
+    /// Record dominant cover colours (`None` forgets one).
+    pub fn set_accents(&mut self, updates: &[(GameId, Option<[u8; 3]>)]) {
+        for (id, c) in updates {
+            match c {
+                Some(c) => {
+                    self.accent.insert(*id, *c);
+                }
+                None => {
+                    self.accent.remove(id);
+                }
+            }
         }
     }
 
@@ -386,6 +407,8 @@ pub fn summarize(
         sort_name: share(&r.sort_name, previous.map(|p| &p.sort_name)),
         cover: art_key(rows.artwork, ArtSlot::Cover),
         icon: art_key(rows.artwork, ArtSlot::Icon),
+        hero: art_key(rows.artwork, ArtSlot::Hero),
+        accent: overlays.accent_of(r.id),
         favorite: r.favorite,
         hidden: r.hidden,
         tags,
@@ -634,6 +657,7 @@ impl LibrarySnapshot {
             .map(|g| GameSummary {
                 availability: overlays.availability_of(g.id),
                 activity: overlays.activity_of(g.id),
+                accent: overlays.accent_of(g.id),
                 ..g.clone()
             })
             .collect();

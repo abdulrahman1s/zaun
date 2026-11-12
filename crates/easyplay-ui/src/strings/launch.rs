@@ -66,3 +66,8 @@ pub fn bytes_rate(bytes: u64, rate: Option<u64>) -> String {
         None => super::fmt::bytes(bytes),
     }
 }
+
+/// Quick launch when the game is already running.
+pub fn already_running(name: &str) -> String {
+    format!("{name} is already running")
+}

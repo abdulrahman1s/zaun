@@ -12,7 +12,7 @@ use egui::{
 
 use crate::a11y;
 use crate::app::UiState;
-use crate::bridge::LibraryView;
+use crate::bridge::{LibraryView, UiCommand};
 use crate::screens::Env;
 use crate::screens::actions::GameAction;
 use crate::strings;
@@ -51,7 +51,7 @@ fn head(ui: &mut Ui, label: &str, w: f32, active: bool, desc: bool) -> egui::Res
     resp
 }
 
-fn header(ui: &mut Ui, state: &mut UiState, name_w: f32, cols: &[Column]) {
+fn header(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, name_w: f32, cols: &[Column]) {
     let p = theme::theme(ui.ctx()).palette.clone();
     let sort = state.library.sort;
     let desc = state.library.descending;
@@ -92,6 +92,18 @@ fn header(ui: &mut Ui, state: &mut UiState, name_w: f32, cols: &[Column]) {
             if e.dragged() {
                 let nw = (w + e.drag_delta().x).clamp(60.0, 360.0);
                 state.library.widths.insert(*c, nw);
+            }
+            if e.drag_stopped() {
+                let value =
+                    easyplay_core::config::ColumnWidth::to_value(&state.library.width_prefs());
+                let patch = easyplay_core::config::PreferencePatch::new()
+                    .set("appearance.list_column_widths", value);
+                let mut preview = (**env.bridge.prefs()).clone();
+                preview.appearance.list_column_widths = state.library.width_prefs();
+                env.bridge.send(UiCommand::SetPreference {
+                    patch,
+                    preview: Box::new(preview),
+                });
             }
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -140,6 +152,10 @@ pub fn show(
     let p = theme.palette.clone();
     let mut action = None;
     let wide = ui.available_width() > 720.0;
+    let prefs = Arc::clone(env.bridge.prefs());
+    state
+        .library
+        .load_widths(&prefs.appearance.list_column_widths);
     let cols: Vec<Column> = if wide {
         state.library.columns.clone()
     } else {
@@ -156,7 +172,7 @@ pub fn show(
         .map(|c| state.library.width(*c) + space::S3)
         .sum();
     let name_w = (ui.available_width() - fixed - 200.0).max(140.0);
-    header(ui, state, name_w, &cols);
+    header(ui, state, env, name_w, &cols);
 
     // Keyboard.
     let focused = ui.ctx().memory(|m| m.focused());

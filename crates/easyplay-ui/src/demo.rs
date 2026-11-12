@@ -233,6 +233,8 @@ fn summary(i: usize, s: Spec, now: Timestamp) -> GameSummary {
         sort_name: Arc::from(sort_name_of(s.name)),
         cover: s.art.then(|| art_key(i as u64 + 1)),
         icon: None,
+        hero: None,
+        accent: None,
         favorite: s.favorite,
         hidden: false,
         tags: s.tags.iter().map(|t| TagId::new(*t)).collect(),
@@ -474,8 +476,8 @@ pub fn assess(name: &str, root: Option<&Path>, policy: &SandboxPolicy) -> Policy
     assess_in(Path::new(HOME), name, root, policy)
 }
 
-/// [`assess`] for a given home folder (the service backend's stand-in until a policy-only
-/// `sandbox::explain` exists in core).
+/// [`assess`] for a given home folder (sample data only; the service backend uses core's
+/// `sandbox::explain::explain_policy`).
 pub fn assess_in(
     home: &Path,
     name: &str,
@@ -1410,6 +1412,12 @@ impl DemoBackend {
                                 if let Some(e) = d.game.executables.iter_mut().find(|e| e.id == *x)
                                 {
                                     e.label.clone_from(l);
+                                }
+                            }
+                            GameEdit::ExeArgs(x, a) => {
+                                if let Some(e) = d.game.executables.iter_mut().find(|e| e.id == *x)
+                                {
+                                    e.args_override.clone_from(a);
                                 }
                             }
                             GameEdit::RemoveExe(x) => d.game.executables.retain(|e| e.id != *x),
