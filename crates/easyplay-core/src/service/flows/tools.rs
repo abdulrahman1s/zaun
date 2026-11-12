@@ -66,13 +66,19 @@ impl AppService {
         let locks = Arc::clone(&self.deps.locks);
         let host = Arc::clone(&self.deps.host);
         let post = self.poster();
+        let developer = crate::sandbox::validate::effective_developer_mode(
+            self.prefs.advanced.developer_mode,
+            &game.policy,
+            &game.launch,
+        );
         let _ = self
             .deps
             .jobs
             .submit(JobPriority::Interactive, JobLabel("run-tool"), move |_| {
                 let result = (|| -> crate::error::Result<SessionId> {
                     let facts = host.facts();
-                    let henv = env.host_env(&paths, &install_id, &other_roots, &*fs);
+                    let mut henv = env.host_env(&paths, &install_id, &other_roots, &*fs);
+                    henv.developer_mode = developer;
                     let runtime = match runtimes.resolve(&game.runtime, Some(&game)) {
                         Resolution::Ready(rt) => rt,
                         Resolution::NeedsProvision(need) => {

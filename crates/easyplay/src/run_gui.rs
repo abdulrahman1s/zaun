@@ -18,6 +18,7 @@ use easyplay_core::artwork::ThumbService;
 use easyplay_core::artwork::thumbs::ThumbDeps;
 use easyplay_core::clock::{Clock, SystemClock};
 use easyplay_core::consts::ENV_RENDERER;
+use easyplay_core::diagnostics::crash::{self, CrashPhase};
 use easyplay_core::fsx::{Fs, RealFs};
 use easyplay_core::paths::{AppPaths, PathEnv};
 use easyplay_core::service::AppService;
@@ -321,9 +322,31 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
         }
         _ => None,
     };
+    // ERROR_HANDLING §4.11: after crashes, start with defaults and/or the GL renderer.
+    let advice = paths
+        .as_ref()
+        .filter(|_| !preview)
+        .map(|p| {
+            let fs = RealFs::new();
+            crash::prune(&fs, &p.crash_dir, SystemClock::new().now());
+            let recent: Vec<_> = crash::unacknowledged(&fs, &p.crash_dir)
+                .into_iter()
+                .map(|(_, r)| r)
+                .collect();
+            crash::start_advice(&recent)
+        })
+        .unwrap_or_default();
+    if advice != crash::StartAdvice::default() {
+        tracing::warn!(
+            reset_geometry = advice.reset_geometry,
+            prefer_glow = advice.prefer_glow,
+            "starting with safe defaults after a crash"
+        );
+    }
     let window_file = paths.as_ref().map(|p| p.window_state_file.clone());
     let window = window_file
         .as_deref()
+        .filter(|_| !advice.reset_geometry)
         .map(load_geometry)
         .unwrap_or_default();
     let store = || -> Option<Box<dyn WindowStore>> {
@@ -335,7 +358,7 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
         .get(ENV_RENDERER)
         .and_then(|v| v.to_str())
         .is_some_and(|v| v.eq_ignore_ascii_case("glow"));
-    let first = if forced_glow {
+    let first = if forced_glow || advice.prefer_glow {
         Renderer::Glow
     } else {
         Renderer::Wgpu
@@ -370,6 +393,8 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
         d.focus = Some(Arc::clone(&focus));
         let w = Arc::clone(&waker);
         d.on_waker = Some(Box::new(move |f| {
+            // Called once the renderer is up: a later panic is not a graphics failure.
+            crate::panic::set_phase(CrashPhase::Running);
             *w.lock().unwrap_or_else(PoisonError::into_inner) = Some(f);
         }));
         d.display = display;
@@ -390,6 +415,7 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
     };
 
     let (d, watch) = make(first)?;
+    crate::panic::set_phase(CrashPhase::Graphics);
     let result = easyplay_ui::run(StartMode::Library, d);
     drop(watch);
     match result {
@@ -398,6 +424,7 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
             // V-301: fall back to GL on the same event loop (eframe keeps it per thread).
             tracing::warn!("wgpu renderer failed ({e}); retrying with glow");
             let (d, watch) = make(Renderer::Glow)?;
+            crate::panic::set_phase(CrashPhase::Graphics);
             let r = easyplay_ui::run(StartMode::Library, d);
             drop(watch);
             r.map(|()| exit::OK)

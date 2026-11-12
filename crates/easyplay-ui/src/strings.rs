@@ -9,6 +9,7 @@ use easyplay_core::model::{Activity, Availability, BasePreset, LaunchStateTag, P
 
 pub mod a11y;
 pub mod artwork;
+pub mod debug;
 pub mod details;
 pub mod dialogs;
 pub mod dnd;

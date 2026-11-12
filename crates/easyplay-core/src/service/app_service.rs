@@ -192,6 +192,8 @@ pub(crate) enum Internal {
     RuntimeJob(super::flows::runtime::RuntimeJobDone),
     Flow(Box<super::flows::FlowDone>),
     Desktop(Box<super::flows::desktop::DesktopDone>),
+    Doctor(Box<crate::host::DoctorReport>),
+    ReportSaved(Result<PathBuf, Error>),
 }
 
 /// The handle the UI (and the IPC listener) holds.
@@ -288,6 +290,17 @@ impl PolicyCheck for HostCheckCell {
             .map(|c| c.issues(game, other_roots))
             .unwrap_or_default()
     }
+
+    fn issues_as_developer(&self, game: &Game, other_roots: &[PathBuf]) -> Vec<PolicyIssue> {
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        inner
+            .map(|c| c.issues_as_developer(game, other_roots))
+            .unwrap_or_default()
+    }
 }
 
 /// The service state on its thread.
@@ -321,6 +334,24 @@ pub struct AppService {
     sessions_rev: u64,
     stopping: bool,
     headless_rx: Option<Receiver<Msg>>,
+    /// The salvaged library waiting for "Use the repaired library" (recovery mode).
+    pub(super) repaired_db: Option<PathBuf>,
+}
+
+/// The library's dependencies from the service's.
+fn lib_deps(deps: &ServiceDeps, check: &Arc<HostCheckCell>) -> LibraryDeps {
+    LibraryDeps {
+        fs: Arc::clone(&deps.fs),
+        clock: Arc::clone(&deps.clock),
+        paths: deps.paths.clone(),
+        runtime: Arc::new(DefaultRuntimeInfo),
+        check: Arc::clone(check) as Arc<dyn PolicyCheck>,
+        pe: Arc::clone(&deps.pe),
+        codec: deps.codec.clone(),
+        mounts: deps.launch_env.mounts.clone(),
+        shared: deps.shared.clone(),
+        overlay_supported: false,
+    }
 }
 
 /// Open (create, migrate) the read-write library.
@@ -376,16 +407,24 @@ impl AppService {
         events: Sender<Event>,
         waker: Arc<Mutex<Option<Waker>>>,
     ) -> Result<Self, Error> {
-        let mut db = open_db(&*deps.fs, &deps.paths, &*deps.clock)?;
+        // A damaged or not updatable library starts recovery mode (ERR-004).
+        let opened = super::recovery::open_library(&*deps.fs, &deps.paths, &*deps.clock)?;
+        let recovery = opened.recovery;
+        let mut db = opened.db;
         // Recovery before anything reads sessions (PROCESS_LIFECYCLE §9).
-        match session::recover(
-            &mut db,
-            &*deps.proc,
-            &*deps.fs,
-            &deps.paths,
-            &*deps.clock,
-            &RecoveryOptions::default(),
-        ) {
+        let recovered = if recovery.is_some() {
+            Ok(Vec::new())
+        } else {
+            session::recover(
+                &mut db,
+                &*deps.proc,
+                &*deps.fs,
+                &deps.paths,
+                &*deps.clock,
+                &RecoveryOptions::default(),
+            )
+        };
+        match recovered {
             Ok(r) => {
                 for s in r {
                     tracing::info!(session = %s.id, reason = s.reason.as_str(), "recovered");
@@ -402,21 +441,22 @@ impl AppService {
         let check = Arc::new(HostCheckCell {
             inner: Mutex::new(deps.policy_check.clone()),
         });
-        let lib_deps = LibraryDeps {
-            fs: Arc::clone(&deps.fs),
-            clock: Arc::clone(&deps.clock),
-            paths: deps.paths.clone(),
-            runtime: Arc::new(DefaultRuntimeInfo),
-            check: Arc::clone(&check) as Arc<dyn PolicyCheck>,
-            pe: Arc::clone(&deps.pe),
-            codec: deps.codec.clone(),
-            mounts: deps.launch_env.mounts.clone(),
-            shared: deps.shared.clone(),
-            overlay_supported: false,
-        };
-        let lib = Library::open(db, lib_deps)?;
+        let lib = Library::open(db, lib_deps(&deps, &check))?;
         let prefs = deps.prefs.clone();
         let hub = Arc::new(SnapshotHub::new((*lib.snapshot()).clone(), prefs.clone()));
+        if recovery.is_some() {
+            hub.diagnostics
+                .store(Arc::new(super::snapshot::Diagnostics {
+                    recovery,
+                    ..Default::default()
+                }));
+        }
+        if let Some((how, history_rows_lost)) = opened.repaired_notice {
+            let _ = events.send(Event::Notice(Notice::LibraryRecovered {
+                how,
+                history_rows_lost,
+            }));
+        }
         Ok(Self {
             deps,
             lib,
@@ -441,6 +481,7 @@ impl AppService {
             sessions_rev: 0,
             stopping: false,
             headless_rx: None,
+            repaired_db: opened.repaired,
         })
     }
 
@@ -490,8 +531,11 @@ impl AppService {
         self.probe_host(false);
         self.scan_runtimes();
         self.audit_runtimes(false);
-        self.start_maintenance();
+        if self.hub.diagnostics.load().recovery.is_none() {
+            self.start_maintenance();
+        }
         self.refresh_integration();
+        self.load_crash();
     }
 
     fn run(&mut self, rx: &Receiver<Msg>) {
@@ -529,6 +573,9 @@ impl AppService {
     /// Handle one command (also used by tests and the headless CLI through
     /// [`AppService::open_headless`]).
     pub fn handle(&mut self, cmd: Command) {
+        if self.refuse_in_recovery(&cmd) {
+            return;
+        }
         match cmd {
             Command::OpenPaths { paths, origin } => self.open_paths(paths, origin),
             Command::CreateGame { draft, then } => self.create_game(*draft, then),
@@ -577,6 +624,26 @@ impl AppService {
             Command::SetShortcut { id, enable } => self.set_shortcut(id, enable),
             Command::OpenFolder(target) => self.open_folder(target),
             Command::ViewLog { session, game } => self.view_log(session, game),
+            Command::Inspect { target, reply_to } => self.inspect(target, reply_to),
+            Command::ListSessions { game, reply_to } => self.list_sessions(game, reply_to),
+            Command::ReadLog {
+                session,
+                file,
+                offset,
+                reply_to,
+            } => self.read_log(session, file, offset, reply_to),
+            Command::ListProcesses { session, reply_to } => {
+                self.list_processes(session, reply_to);
+            }
+            Command::RunDoctor => self.run_doctor(),
+            Command::BuildReport {
+                game,
+                session,
+                reply_to,
+            } => self.build_report(game, session, reply_to),
+            Command::SaveReport { files, dest } => self.save_report(files, dest),
+            Command::DismissCrash => self.dismiss_crash(),
+            Command::ResolveDatabase(choice) => self.resolve_database(&choice),
             Command::Shutdown => self.stopping = true,
         }
     }
@@ -602,6 +669,8 @@ impl AppService {
             Internal::RuntimeJob(d) => self.on_runtime_job(d),
             Internal::Flow(f) => self.on_flow_done(*f),
             Internal::Desktop(d) => self.on_desktop(*d),
+            Internal::Doctor(r) => self.on_doctor(*r),
+            Internal::ReportSaved(r) => self.on_report_saved(r),
         }
     }
 
@@ -637,13 +706,24 @@ impl AppService {
 
     /// Describe an error for the user.
     pub(super) fn describe(&self, err: &Error, game: Option<GameId>) -> UserError {
-        let redact = |s: &str| s.to_owned();
+        let r = self.redactor();
+        let redact = |s: &str| r.redact_str(s);
         let ctx = DescribeCtx {
             game,
             session: None,
             redact: &redact,
         };
         catalog::describe(err, &ctx)
+    }
+
+    /// Home, user name and host name as `~`, `<user>`, `<host>` (LOGGING §2.5).
+    pub(super) fn redactor(&self) -> crate::logging::Redactor {
+        let e = &self.deps.launch_env;
+        crate::logging::Redactor::new(
+            Some(&e.home),
+            Some(&e.user_name),
+            e.host_env.get("HOSTNAME").map(String::as_str),
+        )
     }
 
     /// `Event::Failure`.
@@ -900,6 +980,18 @@ impl AppService {
     }
 
     fn on_host_facts(&mut self, f: Arc<HostFacts>) {
+        self.host = Some(Arc::clone(&f));
+        self.install_policy_check();
+        self.hub.host.store(Arc::new(Some((*f).clone())));
+        self.emit(Event::HostFactsChanged);
+        // The full Doctor report follows the first probe and every re-probe.
+        self.run_doctor();
+    }
+
+    /// The host-dependent policy check, with the current Developer Mode preference (called
+    /// when the host facts or the preference change).
+    pub(super) fn install_policy_check(&mut self) {
+        let Some(f) = self.host.clone() else { return };
         if self.deps.policy_check.is_none() {
             let e = &self.deps.launch_env;
             let c = HostPolicyCheck {
@@ -911,8 +1003,8 @@ impl AppService {
                 uid: e.uid,
                 user_name: e.user_name.clone(),
                 user_dirs: e.user_dirs.clone(),
-                developer_mode: false,
-                global_env: e.global_env.clone(),
+                developer_mode: self.prefs.advanced.developer_mode,
+                global_env: self.prefs.launch.global_env.clone(),
             };
             *self
                 .check
@@ -920,9 +1012,6 @@ impl AppService {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(c));
         }
-        self.hub.host.store(Arc::new(Some((*f).clone())));
-        self.host = Some(f);
-        self.emit(Event::HostFactsChanged);
     }
 
     fn set_preference(&mut self, patch: &crate::config::PreferencePatch) {
@@ -936,8 +1025,13 @@ impl AppService {
         if let Err(e) = crate::config::save(&*self.deps.fs, &self.deps.paths.config_file, &next) {
             return self.fail(e.into());
         }
+        let recheck = self.prefs.advanced.developer_mode != next.advanced.developer_mode
+            || self.prefs.launch.global_env != next.launch.global_env;
         self.prefs = next.clone();
         self.hub.prefs.store(Arc::new(next));
+        if recheck {
+            self.install_policy_check();
+        }
         self.emit(Event::PreferencesChanged);
     }
 
@@ -993,5 +1087,106 @@ impl AppService {
     /// The library (headless read access).
     pub fn library(&mut self) -> &mut Library {
         &mut self.lib
+    }
+}
+
+// ---- recovery mode (ERR-004) -------------------------------------------------------------
+
+impl AppService {
+    /// In recovery mode, refuse what would write the library or start a session, with the
+    /// recovery error (ERROR_HANDLING §5). Returns whether `cmd` was refused.
+    fn refuse_in_recovery(&mut self, cmd: &Command) -> bool {
+        let Some(r) = self.hub.diagnostics.load().recovery.clone() else {
+            return false;
+        };
+        let allowed = matches!(
+            cmd,
+            Command::LoadGame { .. }
+                | Command::QueryStats { .. }
+                | Command::ScanFolder { .. }
+                | Command::MeasurePrefix { .. }
+                | Command::StopSession { .. }
+                | Command::AnswerPrompt { .. }
+                | Command::RefreshRuntimes
+                | Command::SetPreference(_)
+                | Command::RefreshHostFacts
+                | Command::OpenFolder(_)
+                | Command::ViewLog { .. }
+                | Command::Inspect { .. }
+                | Command::ListSessions { .. }
+                | Command::ReadLog { .. }
+                | Command::ListProcesses { .. }
+                | Command::RunDoctor
+                | Command::BuildReport { .. }
+                | Command::SaveReport { .. }
+                | Command::DismissCrash
+                | Command::ResolveDatabase(_)
+                | Command::Shutdown
+        );
+        if allowed {
+            return false;
+        }
+        tracing::info!(command = cmd.name(), "refused in recovery mode");
+        let u = r.error.clone();
+        if let Command::Launch { id, .. } = cmd {
+            let launch = LaunchId::generate(&*self.deps.clock);
+            let mut u = u;
+            u.game = Some(*id);
+            self.emit(Event::LaunchProgress {
+                game: *id,
+                launch,
+                state: crate::launch::LaunchState::Failed(Box::new(u)),
+            });
+        } else {
+            self.emit(Event::Failure(Box::new(u)));
+        }
+        true
+    }
+
+    /// `ResolveDatabase`: carry out the choice, reopen the library, leave recovery mode.
+    fn resolve_database(&mut self, choice: &super::command::DatabaseChoice) {
+        let damaged = matches!(
+            self.hub
+                .diagnostics
+                .load()
+                .recovery
+                .as_ref()
+                .map(|r| &r.reason),
+            Some(super::snapshot::RecoveryReason::Damaged { .. })
+        );
+        if !damaged {
+            return;
+        }
+        let r = super::recovery::resolve(
+            &*self.deps.fs,
+            &self.deps.paths,
+            &*self.deps.clock,
+            choice,
+            self.repaired_db.as_deref(),
+        );
+        let (db, how) = match r {
+            Ok(v) => v,
+            Err(e) => return self.fail(e),
+        };
+        self.repaired_db = None;
+        *self
+            .flow
+            .stats_db
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        match Library::open(db, lib_deps(&self.deps, &self.check)) {
+            Ok(lib) => self.lib = lib,
+            Err(e) => return self.fail(e),
+        }
+        self.update_diagnostics(|d| d.recovery = None);
+        if let Err(e) = self.lib.sweep_orphans() {
+            tracing::warn!(error = %e, "orphan sweep after recovery failed");
+        }
+        self.refresh_art_index();
+        self.publish_library();
+        self.notice(Notice::LibraryRecovered {
+            how,
+            history_rows_lost: None,
+        });
     }
 }

@@ -112,6 +112,7 @@ fn screens() -> Vec<(&'static str, Route, Setup)> {
                 |s| s.h.state_mut().state.details.tab = DetailsTab::LaunchOptions
             }
             DetailsTab::Activity => |s| s.h.state_mut().state.details.tab = DetailsTab::Activity,
+            DetailsTab::Logs => |s| s.h.state_mut().state.details.tab = DetailsTab::Logs,
         }
     };
     let mut v: Vec<(&'static str, Route, Setup)> = vec![

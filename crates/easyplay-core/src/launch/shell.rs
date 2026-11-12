@@ -6,13 +6,22 @@
 //! temporary file; the status and sync descriptors are dropped (and `--status-fd` from the
 //! init shim's command line); host actions that create directories or drive links become
 //! `mkdir`/`ln` lines, the others are comments.
+//!
+//! The system-call filter is reproduced, never dropped: the plan records only its descriptor,
+//! so the script embeds the same cached program the spawner would load
+//! ([`seccomp::program`] for the profile the options imply) as a binary payload. A build
+//! that cannot produce the program writes a script that refuses to run instead of one that
+//! would quietly start the game with less protection than EasyPlay gives it.
 
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::os::unix::ffi::OsStrExt;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as B64;
+
 use super::plan_file::{FdKind, LaunchPlan, group_args};
-use crate::sandbox::HostAction;
+use crate::sandbox::{HostAction, seccomp};
 
 /// Quote one argument for a POSIX shell.
 pub fn quote(a: &OsStr) -> String {
@@ -69,26 +78,34 @@ pub fn render_shell(plan: &LaunchPlan, generated_at: &str) -> String {
         }
     }
 
-    let mut dropped_fds: Vec<i32> = Vec::new();
     for fd in &plan.sandbox.fds {
-        let content = fd.content().unwrap_or_default();
+        let mut content = fd.content().unwrap_or_default();
+        let mut b64: String = fd.content_b64.clone();
         if fd.kind == FdKind::Seccomp && content.is_empty() {
-            dropped_fds.push(fd.fd);
-            let _ = writeln!(
-                out,
-                "# descriptor {}: the system-call filter is not reproduced",
-                fd.fd
-            );
-            continue;
+            match seccomp::program(seccomp::Profile::for_args(&plan.sandbox.args)) {
+                Ok(p) => {
+                    content = p.to_vec();
+                    b64 = B64.encode(p);
+                }
+                Err(_) => {
+                    let _ = writeln!(
+                        out,
+                        "echo 'This EasyPlay build cannot reproduce the system-call filter; not starting without it.' >&2"
+                    );
+                    let _ = writeln!(out, "exit 1");
+                    continue;
+                }
+            }
         }
-        let target = fd
-            .target
-            .as_ref()
-            .map(|t| t.display().to_string())
-            .unwrap_or_default();
+        let target = match (fd.kind, &fd.target) {
+            (FdKind::Seccomp, _) => "system-call filter (seccomp program)".to_owned(),
+            (_, Some(t)) => t.display().to_string(),
+            (_, None) => String::new(),
+        };
         let delim = format!("EOF_EASYPLAY_{}", fd.fd);
         let text = std::str::from_utf8(&content)
             .ok()
+            .filter(|_| fd.kind == FdKind::Data)
             .filter(|t| t.ends_with('\n') && !t.lines().any(|l| l == delim) && !t.contains('\0'));
         match text {
             Some(t) => {
@@ -98,11 +115,7 @@ pub fn render_shell(plan: &LaunchPlan, generated_at: &str) -> String {
             None => {
                 let _ = writeln!(out, "# {target} (binary or without final newline)");
                 let _ = writeln!(out, "_ep_tmp=$(mktemp)");
-                let _ = writeln!(
-                    out,
-                    "printf '%s' {} | base64 -d > \"$_ep_tmp\"",
-                    q(&fd.content_b64)
-                );
+                let _ = writeln!(out, "printf '%s' {} | base64 -d > \"$_ep_tmp\"", q(&b64));
                 let _ = writeln!(out, "exec {}<\"$_ep_tmp\"", fd.fd);
                 let _ = writeln!(out, "rm -f \"$_ep_tmp\"");
             }
@@ -112,13 +125,7 @@ pub fn render_shell(plan: &LaunchPlan, generated_at: &str) -> String {
     let _ = writeln!(out, "exec {} \\", q(&plan.bwrap));
     for g in group_args(&plan.sandbox.args) {
         let opt = g.first().and_then(|o| o.to_str()).unwrap_or("");
-        let drop = matches!(opt, "--json-status-fd" | "--sync-fd")
-            || (opt == "--seccomp"
-                && g.get(1)
-                    .and_then(|v| v.to_str())
-                    .and_then(|v| v.parse::<i32>().ok())
-                    .is_some_and(|fd| dropped_fds.contains(&fd)));
-        if drop {
+        if matches!(opt, "--json-status-fd" | "--sync-fd") {
             continue;
         }
         let line: Vec<String> = g.iter().map(|a| quote(a)).collect();

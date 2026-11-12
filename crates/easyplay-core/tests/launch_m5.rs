@@ -450,7 +450,7 @@ fn shell_rendering_round_trip() {
     let mut expected: Vec<Vec<u8>> = Vec::new();
     for gr in plan_file::group_args(&p.sandbox.args) {
         let o = gr[0].to_str().unwrap();
-        if o == "--json-status-fd" || o == "--sync-fd" || o == "--seccomp" {
+        if o == "--json-status-fd" || o == "--sync-fd" {
             continue;
         }
         expected.extend(gr.iter().map(|a| a.as_encoded_bytes().to_vec()));
@@ -462,6 +462,54 @@ fn shell_rendering_round_trip() {
     let got: Vec<Vec<u8>> = got[..got.len() - 1].iter().map(|s| s.to_vec()).collect();
     assert_eq!(got, expected);
     assert!(expected.contains(&hostile.as_os_str().as_encoded_bytes().to_vec()));
+    assert_seccomp_reproduced(&p, &script);
+}
+
+/// The script recreates the system-call filter (the same program the spawner loads) instead
+/// of dropping it: the reproduction is never weaker than the launch.
+#[allow(clippy::disallowed_methods)]
+fn assert_seccomp_reproduced(p: &LaunchPlan, script: &str) {
+    use easyplay_core::sandbox::seccomp;
+    let Some(fd) = p
+        .sandbox
+        .fds
+        .iter()
+        .find(|f| f.kind == plan_file::FdKind::Seccomp)
+    else {
+        panic!("the worked example plans the system-call filter");
+    };
+    assert!(
+        script.contains(&format!("'--seccomp' '{}'", fd.fd)),
+        "{script}"
+    );
+    if !seccomp::AVAILABLE {
+        assert!(script.contains("exit 1"), "{script}");
+        return;
+    }
+    // Run the payload part of the script and read the descriptor back.
+    let start = script.find("# system-call filter").unwrap();
+    let end = start + script[start..].find("rm -f").unwrap();
+    let body = format!("{}cat <&{} | base64\n", &script[start..end], fd.fd);
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(body)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let b64: String = String::from_utf8(out.stdout)
+        .unwrap()
+        .split_whitespace()
+        .collect();
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .unwrap();
+    let expected = seccomp::program(seccomp::Profile::for_args(&p.sandbox.args)).unwrap();
+    assert_eq!(bytes, expected);
 }
 
 /// Table C as planned equals `umu::env::compat_vars`, and table B is one list.

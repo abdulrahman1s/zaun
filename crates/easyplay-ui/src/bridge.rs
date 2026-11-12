@@ -15,6 +15,7 @@
 //! | [`Backend::preferences`] | `Arc<`[`Preferences`]`>` (core) | [`UiEvent::PreferencesChanged`] |
 //! | [`Backend::host`] | `Arc<`[`HostView`]`>` | [`UiEvent::HostChanged`] |
 //! | [`Backend::runtimes`] | `Arc<`[`RuntimesView`]`>` | [`UiEvent::RuntimesChanged`] |
+//! | [`Backend::diagnostics`] | `Arc<`[`Diagnostics`]`>` (core) | [`UiEvent::DiagnosticsChanged`] |
 //!
 //! **Pure helpers** (synchronous, sub-millisecond, no blocking I/O: they run on the UI thread
 //! for every edit in the setup sheet and the Protection tab, SCREEN_SPECS §6):
@@ -51,6 +52,8 @@
 //! | `MeasurePrefix`, `SearchFixes` | storage size (job pool), umu-database search (not yet) | `QueryResult(PrefixSize / Fixes)` |
 //! | `ClearStatistics`, `ResetGameStatistics`, `RemoveSession` | statistics edits | `LibraryChanged`, `Toast` |
 //! | `OpenFolder`, `ViewLog`, `CreateShortcut` | desktop actions done by the service | none / `Failure` |
+//! | `Inspect`, `ListSessions`, `ReadLog`, `ListProcesses` | Developer Mode queries (DEVELOPER_MODE §3) | `QueryResult(Inspector / Sessions / LogChunk / Processes)` |
+//! | `RunDoctor`, `BuildReport`, `SaveReport`, `DismissCrash`, `ResolveDatabase` | diagnostics (ERROR_HANDLING §5–7) | `DiagnosticsChanged`, `QueryResult(Report)`, `Toast` |
 //! | `Quit` | `Command::Shutdown` | window closes |
 //!
 //! **Events** ([`UiEvent`]): `LibraryChanged`, `PreferencesChanged`, `HostChanged`,
@@ -82,7 +85,14 @@ use easyplay_core::model::{
 use easyplay_core::sandbox::{AccessStatement, PolicyIssue};
 use easyplay_core::stats::{StatsRequest, StatsResult};
 
+pub use easyplay_core::diagnostics::report::ReportFile;
+pub use easyplay_core::launch::InspectorData;
 pub use easyplay_core::library::TagInfo;
+pub use easyplay_core::model::Session;
+pub use easyplay_core::service::{
+    DatabaseChoice, Diagnostics, InspectTarget, LogChunk, LogFile, RecoveryReason, RecoveryState,
+};
+pub use easyplay_core::session::ProcessInfo;
 
 /// The library snapshot the UI reads (GAME_LIBRARY §1.1): the core type itself.
 pub type LibraryView = LibrarySnapshot;
@@ -362,6 +372,8 @@ pub enum FolderTarget {
     Session(SessionId),
     /// EasyPlay's data folder.
     DataFolder,
+    /// The library backups folder.
+    Backups,
     /// Any path the user can already see (a granted folder).
     Path(PathBuf),
 }
@@ -441,6 +453,16 @@ pub enum QueryPayload {
     PrefixSize(u64),
     /// Game-fix search results.
     Fixes(Vec<FixEntry>),
+    /// The launch inspector's data.
+    Inspector(Box<InspectorData>),
+    /// A game's recent sessions, newest first.
+    Sessions(Vec<Session>),
+    /// A chunk of a session log.
+    LogChunk(LogChunk),
+    /// A session's processes now.
+    Processes(Vec<ProcessInfo>),
+    /// The diagnostics report's files, for the preview.
+    Report(Vec<ReportFile>),
     /// The query failed.
     Failed(UserError),
 }
@@ -709,6 +731,60 @@ pub enum UiCommand {
         /// Create.
         enable: bool,
     },
+    /// Launch inspector data (dry run or session).
+    Inspect {
+        /// What.
+        target: InspectTarget,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// A game's recent sessions.
+    ListSessions {
+        /// Game.
+        game: GameId,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// Read a chunk of a session log file.
+    ReadLog {
+        /// Session.
+        session: SessionId,
+        /// File.
+        file: LogFile,
+        /// Offset.
+        offset: u64,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// A session's processes (the process tree, refreshed while visible).
+    ListProcesses {
+        /// Session.
+        session: SessionId,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// Run every Doctor check.
+    RunDoctor,
+    /// Collect the diagnostics report for the preview.
+    BuildReport {
+        /// The game to include.
+        game: Option<GameId>,
+        /// The session to include (default: the game's latest).
+        session: Option<SessionId>,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// Save the previewed report.
+    SaveReport {
+        /// The files.
+        files: Vec<ReportFile>,
+        /// Where.
+        dest: PathBuf,
+    },
+    /// Dismiss the crash banner.
+    DismissCrash,
+    /// Answer the damaged-library choice.
+    ResolveDatabase(DatabaseChoice),
     /// Quit EasyPlay (games keep running).
     Quit,
 }
@@ -724,6 +800,8 @@ pub enum UiEvent {
     HostChanged,
     /// The runtime catalogue changed.
     RuntimesChanged,
+    /// The diagnostics snapshot changed (Doctor, crash banner, recovery mode).
+    DiagnosticsChanged,
     /// A launch moved to a new state.
     LaunchProgress {
         /// Game.
@@ -798,6 +876,10 @@ pub trait Backend: Send {
     fn is_preview(&self) -> bool {
         false
     }
+    /// Doctor report, crash record, recovery mode.
+    fn diagnostics(&self) -> Arc<Diagnostics> {
+        Arc::new(Diagnostics::default())
+    }
 }
 
 /// Maximum events drained per frame (ARCHITECTURE §5.1).
@@ -810,6 +892,7 @@ pub struct UiBridge {
     prefs: Arc<Preferences>,
     host: Arc<HostView>,
     runtimes: Arc<RuntimesView>,
+    diagnostics: Arc<Diagnostics>,
     next_query: std::cell::Cell<u128>,
 }
 
@@ -821,6 +904,7 @@ impl UiBridge {
             prefs: backend.preferences(),
             host: backend.host(),
             runtimes: backend.runtimes(),
+            diagnostics: backend.diagnostics(),
             backend,
             next_query: std::cell::Cell::new(1),
         }
@@ -853,6 +937,7 @@ impl UiBridge {
                 UiEvent::HostChanged => self.host = self.backend.host(),
                 UiEvent::PreferencesChanged => self.prefs = self.backend.preferences(),
                 UiEvent::RuntimesChanged => self.runtimes = self.backend.runtimes(),
+                UiEvent::DiagnosticsChanged => self.diagnostics = self.backend.diagnostics(),
                 _ => {}
             }
             out.push(ev);
@@ -890,6 +975,11 @@ impl UiBridge {
         &self.runtimes
     }
 
+    /// Diagnostics of this frame.
+    pub fn diagnostics(&self) -> &Arc<Diagnostics> {
+        &self.diagnostics
+    }
+
     /// See [`Backend::assess`].
     pub fn assess(
         &self,
@@ -924,6 +1014,7 @@ struct FakeState {
     prefs: Arc<Preferences>,
     host: Arc<HostView>,
     runtimes: Arc<RuntimesView>,
+    diagnostics: Arc<Diagnostics>,
     assess: Option<PolicyAssessment>,
 }
 
@@ -951,6 +1042,7 @@ impl FakeBackend {
                 prefs: Arc::new(crate::demo::preferences()),
                 host: Arc::new(crate::demo::host_view()),
                 runtimes: Arc::new(crate::demo::runtimes_view()),
+                diagnostics: Arc::new(Diagnostics::default()),
                 assess: None,
             })),
         }
@@ -1004,6 +1096,13 @@ impl FakeBackend {
         self.publish_host(h);
     }
 
+    /// Publish diagnostics and announce them.
+    pub fn publish_diagnostics(&self, d: Diagnostics) {
+        let mut s = self.lock();
+        s.diagnostics = Arc::new(d);
+        s.events.push_back(UiEvent::DiagnosticsChanged);
+    }
+
     /// Use a fixed assessment instead of the demo explainer.
     pub fn set_assessment(&self, a: PolicyAssessment) {
         self.lock().assess = Some(a);
@@ -1050,6 +1149,9 @@ impl Backend for FakeBackend {
         crate::demo::preset_policy(preset, policy)
     }
     fn set_waker(&self, _waker: Arc<dyn Fn() + Send + Sync>) {}
+    fn diagnostics(&self) -> Arc<Diagnostics> {
+        self.lock().diagnostics.clone()
+    }
 }
 
 #[cfg(test)]

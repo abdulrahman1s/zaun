@@ -64,6 +64,11 @@ impl BannerQueue {
         self.dismissed.push(key);
     }
 
+    /// Whether the banner `key` was dismissed.
+    pub fn is_dismissed(&self, key: &str) -> bool {
+        self.dismissed.contains(&key)
+    }
+
     /// The banner that owns the slot: highest severity, then most recent.
     pub fn top(&self) -> Option<&Banner> {
         // `max_by_key` keeps the last maximum: the most recent of equal severity.
@@ -131,6 +136,8 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     handle_global_keys(ui, state, env);
     handle_pad(&ctx, state, env);
     host_banners(state, env);
+    super::debug::banners(state, env);
+    super::debug::shortcuts(&ctx, state, env);
     for (game, path) in std::mem::take(&mut state.shares) {
         details::permissions::share_folder(state, env, game, path);
     }
@@ -197,6 +204,9 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                             banner_action(state, b.key);
                         }
                     });
+            }
+            if super::debug::recovery::full_area(ui, state, env) {
+                return;
             }
             match route {
                 Route::Library => library::show(ui, state, env),
@@ -353,6 +363,9 @@ fn pad_footer(ui: &mut Ui, route: Route) {
 }
 
 fn banner_action(state: &mut UiState, key: &str) {
+    if super::debug::banner_action(state, key) {
+        return;
+    }
     if key == "host" {
         state.onboarding.reduced = true;
         state.onboarding.step = crate::vm::screens::OnboardingStep::SystemCheck;
@@ -467,10 +480,13 @@ fn on_action(state: &mut UiState, env: &mut Env<'_>, route: Route, action: Actio
             let fwd = action == Action::NextTab;
             match route {
                 Route::Game(_) => {
-                    let n = crate::vm::details::DetailsTab::ALL.len();
-                    let i = state.details.tab.index();
+                    let tabs = crate::vm::details::DetailsTab::visible(
+                        env.bridge.prefs().advanced.developer_mode,
+                    );
+                    let n = tabs.len();
+                    let i = state.details.tab.index().min(n - 1);
                     let j = if fwd { (i + 1) % n } else { (i + n - 1) % n };
-                    state.details.tab = crate::vm::details::DetailsTab::ALL[j];
+                    state.details.tab = tabs[j];
                 }
                 Route::Settings(t) => {
                     let all = settings::TABS;
@@ -546,7 +562,9 @@ fn show_overlays(ctx: &egui::Context, state: &mut UiState, env: &mut Env<'_>) {
             Overlay::Tags(g) => dialogs::tags::show(ctx, id, state, env, g),
             Overlay::FixPicker(g) => details::runtime::fix_picker(ctx, id, state, env, g),
             Overlay::History => statistics::history_sheet(ctx, id, state, env),
-            Overlay::Inspector => state.nav.close(o),
+            Overlay::Inspector => super::debug::inspector::show(ctx, id, state, env),
+            Overlay::Logs => super::debug::logs::sheet_view(ctx, id, state, env),
+            Overlay::Report => super::debug::report::show(ctx, id, state, env),
         }
     }
 }

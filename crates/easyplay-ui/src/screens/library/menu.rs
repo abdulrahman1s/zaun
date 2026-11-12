@@ -227,6 +227,10 @@ fn items(
             item(ui, Some(icons::COPY), m::COPY_COMMAND, None, false),
             GameAction::CopyCommand,
         );
+        pick(
+            item(ui, Some(icons::SEARCH), m::INSPECT, Some("Ctrl+L"), false),
+            GameAction::Inspect,
+        );
     }
     separator(ui);
     pick(

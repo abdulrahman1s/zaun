@@ -4,6 +4,7 @@
 
 pub mod accent;
 pub mod artwork;
+pub mod debug;
 pub mod desktop;
 pub mod launch;
 pub mod maintenance;

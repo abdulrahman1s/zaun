@@ -111,8 +111,57 @@ pub enum FolderRequest {
     Session(SessionId),
     /// EasyPlay's data folder.
     DataFolder,
+    /// The library backups folder.
+    Backups,
     /// A folder granted to some game (refused otherwise).
     Granted(PathBuf),
+}
+
+/// Which launch the inspector shows (DEVELOPER_MODE §3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InspectTarget {
+    /// A dry run of the game's next launch (`Command::DryRunPlan` of the spec).
+    NextLaunch {
+        /// The game.
+        game: GameId,
+        /// The program (default: primary).
+        exe: Option<ExecutableId>,
+    },
+    /// An open or ended session (from its retained plan file).
+    Session(SessionId),
+}
+
+/// A file of a session's log folder the viewer can read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum LogFile {
+    /// `game.log`.
+    Game,
+    /// `events.jsonl`.
+    Events,
+    /// `supervisor.log`.
+    Supervisor,
+}
+
+impl LogFile {
+    /// The file name.
+    pub const fn file_name(self) -> &'static str {
+        match self {
+            LogFile::Game => "game.log",
+            LogFile::Events => "events.jsonl",
+            LogFile::Supervisor => "supervisor.log",
+        }
+    }
+}
+
+/// What to do with a damaged library (PERSISTENCE §8, the `EP-DB-001` choices).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DatabaseChoice {
+    /// Restore this backup (`backups/…`).
+    RestoreBackup(PathBuf),
+    /// Use what salvage recovered.
+    UseRepaired,
+    /// Start with an empty library (prefix directories are kept).
+    StartEmpty,
 }
 
 #[derive(Clone, Debug)]
@@ -338,6 +387,62 @@ pub enum Command {
         /// The game.
         game: Option<GameId>,
     },
+    // ---- Developer Mode and diagnostics (DEVELOPER_MODE, ERROR_HANDLING §6–7)
+    /// Inspector data; answered with `QueryResult::Inspector`.
+    Inspect {
+        /// What.
+        target: InspectTarget,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// A game's recent sessions (newest first, all kinds); `QueryResult::Sessions`.
+    ListSessions {
+        /// The game.
+        game: GameId,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// Read a chunk of a session log file from `offset`; `QueryResult::LogChunk`.
+    ReadLog {
+        /// The session.
+        session: SessionId,
+        /// Which file.
+        file: LogFile,
+        /// Byte offset.
+        offset: u64,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// The processes of an open session now; `QueryResult::Processes`.
+    ListProcesses {
+        /// The session.
+        session: SessionId,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// Run every Doctor check (D-01…D-17) on a job; the report arrives in the diagnostics
+    /// snapshot.
+    RunDoctor,
+    /// Collect the diagnostics report's files for the preview; `QueryResult::Report`.
+    BuildReport {
+        /// The game whose settings and session are included.
+        game: Option<GameId>,
+        /// The session whose logs are included (default: the game's latest).
+        session: Option<SessionId>,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// Write the previewed files as a `.tar.gz` to `dest` (chosen in the save dialog).
+    SaveReport {
+        /// The files, as previewed.
+        files: Vec<crate::diagnostics::report::ReportFile>,
+        /// Destination.
+        dest: PathBuf,
+    },
+    /// The crash banner was dismissed.
+    DismissCrash,
+    /// Answer the damaged-library choice (recovery mode).
+    ResolveDatabase(DatabaseChoice),
     // ---- lifecycle
     /// Stop the service: parked flows are cancelled, running games are left alone.
     Shutdown,
@@ -383,6 +488,15 @@ impl Command {
             Command::SetShortcut { .. } => "set_shortcut",
             Command::OpenFolder(_) => "open_folder",
             Command::ViewLog { .. } => "view_log",
+            Command::Inspect { .. } => "inspect",
+            Command::ListSessions { .. } => "list_sessions",
+            Command::ReadLog { .. } => "read_log",
+            Command::ListProcesses { .. } => "list_processes",
+            Command::RunDoctor => "run_doctor",
+            Command::BuildReport { .. } => "build_report",
+            Command::SaveReport { .. } => "save_report",
+            Command::DismissCrash => "dismiss_crash",
+            Command::ResolveDatabase(_) => "resolve_database",
             Command::Shutdown => "shutdown",
         }
     }

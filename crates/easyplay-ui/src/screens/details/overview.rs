@@ -278,6 +278,7 @@ fn notes_card(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSumma
 
 /// Show the Overview tab.
 pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
+    crate::screens::debug::advanced_note(ui, state, env);
     let wide = ui.available_width() >= layout::COMPACT_BELOW;
     if wide {
         ui.columns(2, |cols| {

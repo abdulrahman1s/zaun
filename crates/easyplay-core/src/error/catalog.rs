@@ -2,8 +2,13 @@
 //!
 //! [`describe`] is an exhaustive `match` on [`ErrorCode`]: adding a code without an entry here
 //! does not compile. Titles and messages never contain paths or secrets; technical detail goes
-//! to [`UserError::details`] through the caller-supplied redaction function. The wording is the
-//! first draft; final copy is task ERR-001.
+//! to [`UserError::details`] through the caller-supplied redaction function.
+//!
+//! Content rules (SCREEN_SPECS_2 §16, USER_EXPERIENCE §9), enforced by the tests below: the
+//! title says what happened in the user's terms, without an "Error" prefix or an exclamation
+//! mark; the message has at most two sentences; neither contains a path. Where the context
+//! names a file or folder, the message names it by its display name only (the last path
+//! component, [`display_name`]), e.g. "“Mods”, which this game may use, no longer exists."
 
 use super::{Error, ErrorCode, RecoveryAction, SettingsTab, UserError};
 use crate::ids::{GameId, SessionId};
@@ -127,7 +132,7 @@ pub const fn entry(code: ErrorCode) -> Entry {
         ),
         C::HostMuslUnsupported => e(
             "This system is not supported",
-            "The compatibility launcher does not support musl-based systems. Nothing can be done from within EasyPlay.",
+            "The compatibility launcher does not support musl-based systems, so nothing can be done from within EasyPlay.",
             &[],
         ),
 
@@ -231,10 +236,9 @@ pub const fn entry(code: ErrorCode) -> Entry {
         ),
         C::RtNotInstalled => e(
             "The compatibility layer is not installed",
-            "This version of EasyPlay cannot download it yet. Install a Proton build with Steam \
-             or another launcher, and let EasyPlay copy the Steam Linux Runtime that is already \
-             on this computer (Settings, Compatibility layers; or the command \
-             \"easyplay runtimes adopt\").",
+            "EasyPlay cannot download it here. Install a Proton build with Steam or another \
+             launcher, then copy the Steam Linux Runtime already on this computer from \
+             Settings, Compatibility layers.",
             &[A::OpenSettings(SettingsTab::Runtimes), A::ChangeRuntime],
         ),
         C::RtSharedTampered => e(
@@ -304,16 +308,16 @@ pub const fn entry(code: ErrorCode) -> Entry {
         C::SesForcedStop => e(
             "The game did not stop cleanly",
             "It did not close in time and was stopped forcefully. Unsaved progress may be lost.",
-            &[],
+            &[A::ViewLog],
         ),
         C::SesSignalDenied => e(
             "The game could not be stopped",
-            "EasyPlay was not permitted to stop the game's processes.",
+            "EasyPlay was not permitted to stop the game's processes. This should not happen; a report helps fix it.",
             &[A::CreateReport],
         ),
         C::SesInterrupted => e(
             "A previous session was interrupted",
-            "EasyPlay closed it using the last time it was known to be running.",
+            "EasyPlay closed it using the last time it was known to be running; nothing else needs to be done.",
             &[],
         ),
 
@@ -356,13 +360,13 @@ pub const fn entry(code: ErrorCode) -> Entry {
             &[A::Dismiss],
         ),
         C::LibBusy => e(
-            "Please wait",
-            "Another action for this game is still in progress.",
+            "Another action is still running",
+            "Wait for it to finish; this game is busy until then.",
             &[],
         ),
         C::LibInvalidField => e(
-            "Not a valid value",
-            "Please check the highlighted field.",
+            "This value cannot be used",
+            "Check the highlighted field; it says what is allowed.",
             &[],
         ),
         C::IdNotWindowsProgram => e(
@@ -372,7 +376,7 @@ pub const fn entry(code: ErrorCode) -> Entry {
         ),
         C::IdPeUnreadable => e(
             "Program information could not be read",
-            "EasyPlay used the file name instead.",
+            "EasyPlay used the file name as the game's name instead; you can rename it.",
             &[],
         ),
 
@@ -394,7 +398,7 @@ pub const fn entry(code: ErrorCode) -> Entry {
         ),
         C::FsDeleteIncomplete => e(
             "Some files could not be deleted",
-            "EasyPlay will try again the next time it starts.",
+            "EasyPlay will try again the next time it starts; nothing else needs to be done.",
             &[],
         ),
         C::FsReadDenied => e(
@@ -411,8 +415,8 @@ pub const fn entry(code: ErrorCode) -> Entry {
         // ---- Database and configuration ----
         C::DbCorrupt => e(
             "The library file is damaged",
-            "EasyPlay can restore a backup or continue with what could be recovered.",
-            &[A::RestoreBackup, A::Quit],
+            "EasyPlay can restore a backup or continue with what could be recovered. Your games' files and saves are not affected.",
+            &[A::RestoreBackup, A::OpenBackupsFolder, A::Quit],
         ),
         C::DbBusy => e(
             "The library is busy",
@@ -439,7 +443,11 @@ pub const fn entry(code: ErrorCode) -> Entry {
             "Nothing was lost: the previous version was restored. The library is read-only until this is resolved.",
             &[A::CreateReport, A::Quit],
         ),
-        C::CfgInvalidValue => e("A setting was not valid", "It was not changed.", &[]),
+        C::CfgInvalidValue => e(
+            "A setting was not valid",
+            "It was not changed; the previous value is still in use.",
+            &[],
+        ),
         C::CfgUnreadable => e(
             "Settings could not be read",
             "Default settings are in use.",
@@ -447,7 +455,7 @@ pub const fn entry(code: ErrorCode) -> Entry {
         ),
         C::CfgNewerVersion => e(
             "Settings are from a newer EasyPlay",
-            "Default settings are in use; the settings file was not changed.",
+            "Default settings are in use; the settings file was not changed, so the newer version keeps working.",
             &[],
         ),
 
@@ -459,12 +467,12 @@ pub const fn entry(code: ErrorCode) -> Entry {
         ),
         C::ArtTooLarge => e(
             "The image is too large",
-            "Choose a smaller image.",
+            "Images up to 32 MiB and 16 384 pixels on each side can be used. Choose a smaller one.",
             &[A::Dismiss],
         ),
         C::ArtUnreadable => e(
             "The image could not be read",
-            "The file may be damaged.",
+            "The file may be damaged. Choose another image.",
             &[A::Dismiss],
         ),
 
@@ -485,8 +493,8 @@ pub const fn entry(code: ErrorCode) -> Entry {
             &[A::Retry],
         ),
         C::IntTaskFailed => e(
-            "Something went wrong",
-            "An internal task failed unexpectedly.",
+            "A background task failed",
+            "An internal task stopped unexpectedly. Trying again usually works; a report helps fix it.",
             &[A::Retry, A::CreateReport],
         ),
         C::IntFatal => e(
@@ -509,6 +517,66 @@ fn adjust_actions(code: ErrorCode, base: &[RecoveryAction], err: &Error) -> Vec<
         actions.push(RecoveryAction::SwitchPreset(BasePreset::Online));
     }
     actions
+}
+
+/// The name a user knows a file or folder by: its last path component, without control
+/// characters, at most 60 characters. `None` for an empty or root path.
+pub fn display_name(path: &str) -> Option<String> {
+    let last = path.trim_end_matches('/').rsplit('/').next()?;
+    let clean: String = last
+        .chars()
+        .map(|c| if c.is_control() { '·' } else { c })
+        .take(60)
+        .collect();
+    (!clean.trim().is_empty() && clean != "~").then_some(clean)
+}
+
+/// A message naming the file or folder of the context, for codes about one place.
+fn interpolated(code: ErrorCode, err: &Error) -> Option<String> {
+    use ErrorCode as C;
+    let name = || {
+        ["path", "folder", "file"]
+            .iter()
+            .find_map(|k| err.context_value(k))
+            .and_then(display_name)
+    };
+    Some(match code {
+        C::SbxGrantMissing => format!(
+            "\u{201c}{}\u{201d}, which this game may use, no longer exists. It may have been moved or its drive is not connected.",
+            name()?
+        ),
+        C::SbxDenied => format!(
+            "Sharing \u{201c}{}\u{201d} would expose private or system data, so EasyPlay will not grant it.",
+            name()?
+        ),
+        C::LibExeNotFound => format!(
+            "\u{201c}{}\u{201d} is no longer where it was. It may have been moved or deleted.",
+            name()?
+        ),
+        C::LibExeUnreadable => format!(
+            "Your account is not allowed to read \u{201c}{}\u{201d}.",
+            name()?
+        ),
+        C::LibDriveDisconnected => format!(
+            "The drive \u{201c}{}\u{201d} this game is on is not connected.",
+            err.context_value("drive")
+                .and_then(display_name)
+                .or_else(name)?
+        ),
+        C::FsWriteDenied => format!(
+            "Permission to change \u{201c}{}\u{201d} was denied.",
+            name()?
+        ),
+        C::FsReadDenied => format!(
+            "Your account is not allowed to read \u{201c}{}\u{201d}.",
+            name()?
+        ),
+        C::FsDiskFull => format!(
+            "There is not enough free space on the disk that holds \u{201c}{}\u{201d}.",
+            name()?
+        ),
+        _ => return None,
+    })
 }
 
 /// Build the technical detail text: code, context and source chain, all redacted.
@@ -535,7 +603,7 @@ pub fn describe(err: &Error, ctx: &DescribeCtx<'_>) -> UserError {
         code: err.code,
         severity: err.code.severity(),
         title: entry.title.to_owned(),
-        message: entry.message.to_owned(),
+        message: interpolated(err.code, err).unwrap_or_else(|| entry.message.to_owned()),
         actions: adjust_actions(err.code, entry.actions, err),
         details: Some(details(err, ctx)),
         game: ctx.game,
@@ -595,6 +663,102 @@ mod tests {
         assert!(d.contains("path: ~/Games/save.dat"), "{d}");
         assert!(d.contains("cause: denied at ~/Games"), "{d}");
         assert!(!d.contains("/home/sam"));
+    }
+
+    fn sentences(text: &str) -> usize {
+        text.split_terminator(['.', '?'])
+            .filter(|s| !s.trim().is_empty())
+            .count()
+    }
+
+    #[test]
+    fn copy_follows_the_content_rules() {
+        for code in ErrorCode::ALL {
+            let e = entry(*code);
+            let t = e.title.to_lowercase();
+            assert!(
+                !t.starts_with("error") && !t.starts_with("failed") && !t.contains("error:"),
+                "{code}: title starts with an error word: {}",
+                e.title
+            );
+            for text in [e.title, e.message] {
+                assert!(!text.contains('!'), "{code}: exclamation mark in {text}");
+                assert!(!text.contains("EP-"), "{code}: code in user text");
+            }
+            assert!(!e.title.ends_with('.'), "{code}: title is a heading");
+            assert!(e.title.len() <= 60, "{code}: title too long");
+            assert!(
+                sentences(e.message) <= 2,
+                "{code}: more than two sentences: {}",
+                e.message
+            );
+        }
+    }
+
+    /// Codes that offer no action say why nothing is needed or possible (ERROR_HANDLING §1.1).
+    #[test]
+    fn every_entry_has_a_way_forward() {
+        use ErrorCode as C;
+        let explained = [
+            C::HostMuslUnsupported,
+            C::LibBusy,
+            C::LibInvalidField,
+            C::IdPeUnreadable,
+            C::FsDeleteIncomplete,
+            C::SesInterrupted,
+            C::CfgInvalidValue,
+            C::CfgNewerVersion,
+        ];
+        for code in ErrorCode::ALL {
+            let e = entry(*code);
+            assert_eq!(
+                e.actions.is_empty(),
+                explained.contains(code),
+                "{code}: actions {:?}",
+                e.actions
+            );
+        }
+        for code in explained {
+            let m = entry(code).message.to_lowercase();
+            assert!(
+                [
+                    "nothing",
+                    "wait",
+                    "check",
+                    "rename",
+                    "previous value",
+                    "keeps working"
+                ]
+                .iter()
+                .any(|w| m.contains(w)),
+                "{code}: {m}"
+            );
+        }
+    }
+
+    #[test]
+    fn places_are_named_by_display_name_only() {
+        let err = Error::new(ErrorCode::SbxGrantMissing).with("path", "/home/sam/Games/Mods");
+        let u = describe(&err, &DescribeCtx::plain());
+        assert!(u.message.contains("\u{201c}Mods\u{201d}"), "{}", u.message);
+        assert!(!u.message.contains('/'));
+        let err = Error::new(ErrorCode::LibExeNotFound).with("path", "/mnt/g/a\nb.exe");
+        let u = describe(&err, &DescribeCtx::plain());
+        assert!(u.message.contains("a·b.exe"), "{}", u.message);
+        // Without a path the catalogue text is used.
+        let u = describe(&Error::new(ErrorCode::FsWriteDenied), &DescribeCtx::plain());
+        assert_eq!(u.message, entry(ErrorCode::FsWriteDenied).message);
+        assert_eq!(display_name("/"), None);
+        assert_eq!(display_name("~"), None);
+        assert_eq!(display_name("/a/b/"), Some("b".into()));
+        for code in ErrorCode::ALL {
+            let err = Error::new(*code)
+                .with("path", "/home/sam/x/y")
+                .with("drive", "/run/media/sam/Games");
+            let u = describe(&err, &DescribeCtx::plain());
+            assert!(!u.message.contains('/'), "{code}: {}", u.message);
+            assert!(sentences(&u.message) <= 2, "{code}: {}", u.message);
+        }
     }
 
     #[test]

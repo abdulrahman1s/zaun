@@ -101,7 +101,18 @@ fn main() -> ExitCode {
     };
     panic::install();
     let env = PathEnv::from_process();
-    let (_log, redact) = init_logging(&cli, &env);
+    let (log_guard, redact) = init_logging(&cli, &env);
+    // Crash records for the GUI and the CLI; a supervisor's panic goes to its own log.
+    if role_of(&cli) != ProcessRole::Supervisor
+        && let Ok(p) = AppPaths::resolve(&env)
+    {
+        panic::configure(
+            p.crash_dir.clone(),
+            redact.clone(),
+            role_of(&cli),
+            log_guard.as_ref().map(LogGuard::recent),
+        );
+    }
     tracing::info!(
         version = cli::VERSION,
         role = role_of(&cli).as_str(),

@@ -5,7 +5,7 @@ use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::{ProcEntry, ProcError, ProcSource, ProcState};
+use super::{ProcEntry, ProcError, ProcSource, ProcState, ProcUsage};
 use crate::fsx::{FileType, Fs, FsErrorKind};
 
 /// Fields of `/proc/<pid>/stat` EasyPlay uses.
@@ -45,6 +45,31 @@ pub fn parse_stat(text: &str) -> Option<StatFields> {
         ppid,
         start_time_ticks,
     })
+}
+
+/// Fields 14, 15 (`utime`, `stime`, clock ticks) and 24 (`rss`, pages) of
+/// `/proc/<pid>/stat`.
+pub fn parse_stat_usage(text: &str) -> Option<(u64, u64, u64)> {
+    let close = text.rfind(')')?;
+    let rest: Vec<&str> = text[close + 1..].split_whitespace().collect();
+    let utime = rest.get(11)?.parse().ok()?;
+    let stime = rest.get(12)?.parse().ok()?;
+    let rss: i64 = rest.get(21)?.parse().ok()?;
+    Some((utime, stime, u64::try_from(rss).unwrap_or(0)))
+}
+
+/// Ticks and pages to milliseconds and bytes.
+pub fn usage_from(
+    utime: u64,
+    stime: u64,
+    rss_pages: u64,
+    ticks_per_s: u64,
+    page: u64,
+) -> ProcUsage {
+    ProcUsage {
+        cpu_ms: (utime + stime).saturating_mul(1000) / ticks_per_s.max(1),
+        rss_bytes: rss_pages.saturating_mul(page),
+    }
 }
 
 /// Fields of `/proc/<pid>/status` EasyPlay uses.
@@ -184,6 +209,17 @@ impl ProcSource for RealProc {
         Ok(Some(args))
     }
 
+    fn usage(&self, pid: u32) -> Result<Option<ProcUsage>, ProcError> {
+        let Some(stat) = self.read_opt(&self.pid_path(pid, "stat"), SMALL_FILE)? else {
+            return Ok(None);
+        };
+        let (u, s, rss) = parse_stat_usage(&String::from_utf8_lossy(&stat))
+            .ok_or(ProcError::Parse { file: "stat" })?;
+        let ticks = rustix::param::clock_ticks_per_second();
+        let page = rustix::param::page_size() as u64;
+        Ok(Some(usage_from(u, s, rss, ticks, page)))
+    }
+
     fn boot_id(&self) -> Result<String, ProcError> {
         let raw = self
             .fs
@@ -220,6 +256,16 @@ mod tests {
         assert_eq!(t.start_time_ticks, 999);
         assert!(parse_stat("garbage").is_none());
         assert!(parse_stat("1 (x) S 1").is_none());
+    }
+
+    #[test]
+    fn usage_parsing() {
+        // utime 52, stime 11, rss 12345 pages.
+        assert_eq!(parse_stat_usage(STAT_PLAIN), Some((52, 11, 12_345)));
+        let u = usage_from(52, 11, 12_345, 100, 4096);
+        assert_eq!(u.cpu_ms, 630);
+        assert_eq!(u.rss_bytes, 12_345 * 4096);
+        assert_eq!(parse_stat_usage("1 (x) S 1"), None);
     }
 
     #[test]

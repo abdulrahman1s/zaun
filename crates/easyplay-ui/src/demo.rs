@@ -1702,7 +1702,30 @@ impl DemoBackend {
             | UiCommand::RemoveSession { .. }
             | UiCommand::OpenFolder(_)
             | UiCommand::ViewLog { .. }
+            | UiCommand::RunDoctor
+            | UiCommand::SaveReport { .. }
+            | UiCommand::DismissCrash
+            | UiCommand::ResolveDatabase(_)
             | UiCommand::Quit => {}
+            UiCommand::ListSessions { reply_to, .. } => {
+                s.events.push_back(UiEvent::QueryResult {
+                    id: reply_to,
+                    payload: QueryPayload::Sessions(Vec::new()),
+                });
+            }
+            UiCommand::Inspect { reply_to, .. }
+            | UiCommand::ReadLog { reply_to, .. }
+            | UiCommand::ListProcesses { reply_to, .. }
+            | UiCommand::BuildReport { reply_to, .. } => {
+                let e = easyplay_core::error::catalog::describe(
+                    &easyplay_core::error::Error::new(ErrorCode::IntNotAvailable),
+                    &easyplay_core::error::catalog::DescribeCtx::plain(),
+                );
+                s.events.push_back(UiEvent::QueryResult {
+                    id: reply_to,
+                    payload: QueryPayload::Failed(e),
+                });
+            }
         }
     }
 }
