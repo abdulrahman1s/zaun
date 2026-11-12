@@ -114,7 +114,16 @@ fn keyboard_plays_and_favourites_the_focused_card() {
             }
         ]
     );
-    r.h.get_by_role_and_label(Role::Status, "Removed Lantern Keep from favourites");
+    // The toast, and the live-region announcement of it (ACCESSIBILITY §4.3).
+    assert_eq!(
+        r.h.query_all_by_role_and_label(Role::Status, "Removed Lantern Keep from favourites")
+            .count(),
+        2
+    );
+    assert_eq!(
+        easyplay_ui::a11y::Announcer::current(&r.h.ctx).as_deref(),
+        Some("Removed Lantern Keep from favourites")
+    );
 }
 
 #[test]

@@ -68,9 +68,9 @@ fn commit(
     next: Preferences,
 ) {
     if next.appearance != env.bridge.prefs().appearance {
-        let a = appearance_of(&next, theme::appearance(&env.ctx));
+        let a = appearance_of(&next, theme::appearance(&env.ctx), &theme::system(&env.ctx));
         theme::apply(&env.ctx, &a);
-        env.ctx.set_zoom_factor(a.ui_scale);
+        env.ctx.set_zoom_factor(theme::zoom(&env.ctx, &a));
     }
     env.bridge.send(UiCommand::SetPreference {
         patch,

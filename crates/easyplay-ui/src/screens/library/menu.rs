@@ -33,6 +33,11 @@ pub fn show(
 ) -> Option<GameAction> {
     let mut out = None;
     let popup_id = Id::unique(("game_menu", id));
+    // Opening the menu moves keyboard focus to its first item (ACCESSIBILITY §2); closing
+    // it hands focus back to the card (the library sets `pending_focus`).
+    let seen = popup_id.with("seen");
+    let focus_first = ctx.data(|d| d.get_temp::<bool>(seen)).is_none();
+    ctx.data_mut(|d| d.insert_temp(seen, true));
     Popup::new(
         popup_id,
         ctx.clone(),
@@ -45,22 +50,35 @@ pub fn show(
     .accessible_name(strings::menu::NAME)
     .width(240.0)
     .open_bool(open)
-    .show(|ui| out = items(ui, lib, id, facts));
+    .show(|ui| out = items(ui, lib, id, facts, focus_first));
     if out.is_some() {
         *open = false;
     }
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
         *open = false;
     }
+    if !*open {
+        ctx.data_mut(|d| d.remove_temp::<bool>(seen));
+    }
     out
 }
 
-fn items(ui: &mut Ui, lib: &LibraryView, id: GameId, facts: MenuFacts) -> Option<GameAction> {
+fn items(
+    ui: &mut Ui,
+    lib: &LibraryView,
+    id: GameId,
+    facts: MenuFacts,
+    focus_first: bool,
+) -> Option<GameAction> {
     let g = lib.get(id)?;
+    let mut first = focus_first;
     ui.spacing_mut().item_spacing.y = 0.0;
     ui.spacing_mut().button_padding.x = crate::theme::tokens::space::S2;
     let mut out = None;
     let mut pick = |r: egui::Response, a: GameAction| {
+        if std::mem::take(&mut first) {
+            r.request_focus();
+        }
         if r.clicked() {
             out = Some(a);
         }

@@ -34,7 +34,7 @@ pub fn sheet<R>(
     remember_invoker(ctx, id);
     let theme = theme::theme(ctx);
     let p = theme.palette.clone();
-    let opacity = ctx.animate_bool_with_time(id.with("in"), true, theme.motion.fade(Dur::Base));
+    let opacity = theme::motion::appear(ctx, id.with("in"), theme.motion.fade(Dur::Base));
     let rise = (1.0 - opacity) * space::S2 * f32::from(u8::from(!theme.motion.reduced));
     let mut close = false;
     let max_w = layout::SHEET_MAX_W.min(ctx.content_rect().width() - space::S8);
@@ -45,6 +45,7 @@ pub fn sheet<R>(
         .backdrop_color(fade(p.backdrop, opacity))
         .frame(overlay_frame(ctx, max_w))
         .show(ctx, |ui| {
+            ui.multiply_opacity(opacity);
             let inner_w = max_w - layout::SHEET_PAD * 2.0;
             ui.set_width(inner_w);
             ui.set_max_height(max_h);

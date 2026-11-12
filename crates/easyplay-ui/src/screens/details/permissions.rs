@@ -199,6 +199,16 @@ fn reassess(state: &mut UiState, env: &Env<'_>) {
     };
     let a = assess_draft(env.bridge, &state.details, &draft);
     if let Some(e) = editor(state) {
+        // Access summary changes while editing are announced (ACCESSIBILITY §4.3).
+        for st in &a.statements {
+            if !e.assessment.statements.iter().any(|o| o.text == st.text) {
+                crate::a11y::Announcer::announce(
+                    &env.ctx,
+                    strings::a11y::access_added(&st.text),
+                    crate::a11y::Politeness::Polite,
+                );
+            }
+        }
         e.assessment = a;
     }
 }

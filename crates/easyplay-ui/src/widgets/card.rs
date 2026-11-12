@@ -35,6 +35,8 @@ pub struct CardCtx {
     pub multi_selected: bool,
     /// Controller mode: the pill is always visible.
     pub controller: bool,
+    /// In the `Tab` order (the grid's roving cell, ACCESSIBILITY §2.1).
+    pub focusable: bool,
     /// Show playtime and last played (`appearance.show_playtime_on_cards`).
     pub show_playtime: bool,
     /// Grid density.
@@ -79,7 +81,12 @@ fn unavailable(g: &GameSummary) -> bool {
 pub fn card(ui: &mut Ui, rect: Rect, id: Id, g: &GameSummary, ctx: &CardCtx) -> CardResponse {
     let theme = theme::theme(ui.ctx());
     let p = theme.palette.clone();
-    let resp = ui.interact(rect, id, Sense::click());
+    let sense = if ctx.focusable {
+        Sense::click()
+    } else {
+        Sense::CLICK
+    };
+    let resp = ui.interact(rect, id, sense);
     super::own_arrow_keys(&resp);
     let state_text = strings::card::state(g.activity, g.availability, ctx.now);
     let state_text = state_text

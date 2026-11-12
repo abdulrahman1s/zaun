@@ -44,6 +44,9 @@ winit = { version = "0.30", default-features = false, features = ["x11"] }
 # Probing whether the display client libraries can be loaded (`run_gui`), safely.
 wayland-sys = { version = "0.31", features = ["client", "dlopen"] }
 x11-dl = "2.21"
+# Desktop appearance settings through the XDG portal (`run_gui`, A11Y-004); already in the
+# tree through AccessKit.
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
 xkbcommon-dl = "0.4"
 
 # Core

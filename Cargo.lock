@@ -1232,6 +1232,7 @@ dependencies = [
  "wayland-sys",
  "x11-dl",
  "xkbcommon-dl",
+ "zbus 5.19.0",
 ]
 
 [[package]]

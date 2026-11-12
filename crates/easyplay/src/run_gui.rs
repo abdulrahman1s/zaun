@@ -198,6 +198,8 @@ fn deps(
         focus: None,
         on_waker: None,
         display: easyplay_ui::DisplayBackend::Auto,
+        system: easyplay_ui::theme::SystemPrefs::default(),
+        system_changes: None,
     }
 }
 
@@ -371,6 +373,19 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
             *w.lock().unwrap_or_else(PoisonError::into_inner) = Some(f);
         }));
         d.display = display;
+        // The desktop's appearance (A11Y-004): wait briefly for the first reading so the
+        // window opens in the right theme; later changes wake the UI.
+        let w = Arc::clone(&waker);
+        let rx = desktop_settings::follow(Arc::new(move || {
+            if let Some(f) = w.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+                f();
+            }
+        }));
+        if let Ok(first) = rx.recv_timeout(std::time::Duration::from_millis(150)) {
+            d.appearance.reduce_motion = first.reduced_motion.unwrap_or(false);
+            d.system = first;
+        }
+        d.system_changes = Some(rx);
         Ok((d, watch))
     };
 
@@ -389,6 +404,251 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
                 .map_err(|e| Error::new(ErrorCode::HostNoDisplay).with("detail", e))
         }
         Err(e) => Err(Error::new(ErrorCode::HostNoDisplay).with("detail", e)),
+    }
+}
+
+mod desktop_settings {
+    //! Desktop appearance preferences (task A11Y-004): colour scheme, high contrast, reduced
+    //! motion and text scale, read from the XDG desktop portal's Settings interface on a
+    //! background thread and followed live through its `SettingChanged` signal. Desktops whose
+    //! portal lacks a key fall back to the GNOME / KDE keys the portal also exposes. Without a
+    //! portal (or a session bus) nothing is sent and the preferences decide alone.
+
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::sync::mpsc::{Receiver, Sender, channel};
+
+    use easyplay_ui::theme::{SystemPrefs, SystemScheme};
+    use zbus::zvariant::{OwnedValue, Value};
+
+    const DEST: &str = "org.freedesktop.portal.Desktop";
+    const PATH: &str = "/org/freedesktop/portal/desktop";
+    const IFACE: &str = "org.freedesktop.portal.Settings";
+
+    /// The (namespace, key) pairs read.
+    const KEYS: [(&str, &str); 7] = [
+        ("org.freedesktop.appearance", "color-scheme"),
+        ("org.freedesktop.appearance", "contrast"),
+        ("org.freedesktop.appearance", "reduced-motion"),
+        ("org.gnome.desktop.a11y.interface", "high-contrast"),
+        ("org.gnome.desktop.interface", "enable-animations"),
+        ("org.gnome.desktop.interface", "text-scaling-factor"),
+        ("org.kde.kdeglobals.KDE", "AnimationDurationFactor"),
+    ];
+
+    /// Raw values by "namespace key".
+    type Raw = HashMap<String, OwnedValue>;
+
+    fn unwrap_variant(v: &Value<'_>) -> Value<'static> {
+        match v {
+            Value::Value(inner) => unwrap_variant(inner),
+            other => other
+                .try_to_owned()
+                .map(Value::from)
+                .unwrap_or(Value::Bool(false)),
+        }
+    }
+
+    fn as_u32(v: &Value<'_>) -> Option<u32> {
+        match unwrap_variant(v) {
+            Value::U32(n) => Some(n),
+            Value::I32(n) => u32::try_from(n).ok(),
+            Value::U8(n) => Some(u32::from(n)),
+            _ => None,
+        }
+    }
+
+    fn as_bool(v: &Value<'_>) -> Option<bool> {
+        match unwrap_variant(v) {
+            Value::Bool(b) => Some(b),
+            Value::Str(s) => match s.as_str() {
+                "true" => Some(true),
+                "false" => Some(false),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn as_f64(v: &Value<'_>) -> Option<f64> {
+        match unwrap_variant(v) {
+            Value::F64(f) => Some(f),
+            Value::Str(s) => s.as_str().parse().ok(),
+            Value::U32(n) => Some(f64::from(n)),
+            Value::I32(n) => Some(f64::from(n)),
+            _ => None,
+        }
+    }
+
+    /// Interpret the raw portal values (portal keys first, desktop keys as fallback).
+    fn interpret(raw: &Raw) -> SystemPrefs {
+        let get = |ns: &str, key: &str| {
+            raw.get(&format!("{ns} {key}"))
+                .map(|v| Value::from(v.clone()))
+        };
+        let scheme = get("org.freedesktop.appearance", "color-scheme")
+            .as_ref()
+            .and_then(as_u32)
+            .and_then(|n| match n {
+                1 => Some(SystemScheme::Dark),
+                2 => Some(SystemScheme::Light),
+                _ => None,
+            });
+        let high_contrast = get("org.freedesktop.appearance", "contrast")
+            .as_ref()
+            .and_then(as_u32)
+            .map(|n| n == 1)
+            .or_else(|| {
+                get("org.gnome.desktop.a11y.interface", "high-contrast")
+                    .as_ref()
+                    .and_then(as_bool)
+            })
+            .unwrap_or(false);
+        let reduced_motion = get("org.freedesktop.appearance", "reduced-motion")
+            .as_ref()
+            .and_then(as_u32)
+            .map(|n| n == 1)
+            .or_else(|| {
+                get("org.gnome.desktop.interface", "enable-animations")
+                    .as_ref()
+                    .and_then(as_bool)
+                    .map(|on| !on)
+            })
+            .or_else(|| {
+                get("org.kde.kdeglobals.KDE", "AnimationDurationFactor")
+                    .as_ref()
+                    .and_then(as_f64)
+                    .map(|f| f <= 0.0)
+            });
+        let text_scale = get("org.gnome.desktop.interface", "text-scaling-factor")
+            .as_ref()
+            .and_then(as_f64)
+            .filter(|f| f.is_finite())
+            .map_or(1.0, |f| f.clamp(0.75, 2.0) as f32);
+        SystemPrefs {
+            scheme,
+            high_contrast,
+            reduced_motion,
+            text_scale,
+        }
+    }
+
+    fn read_all(proxy: &zbus::blocking::Proxy<'_>) -> Raw {
+        let mut raw = Raw::new();
+        for (ns, key) in KEYS {
+            let v: zbus::Result<OwnedValue> = proxy.call("ReadOne", &(ns, key));
+            let v = match v {
+                Ok(v) => Ok(v),
+                // Portals before 1.15 only have the deprecated `Read`.
+                Err(_) => proxy.call("Read", &(ns, key)),
+            };
+            if let Ok(v) = v {
+                raw.insert(format!("{ns} {key}"), v);
+            }
+        }
+        raw
+    }
+
+    fn watch(tx: &Sender<SystemPrefs>, wake: &(dyn Fn() + Send + Sync)) -> zbus::Result<()> {
+        let conn = zbus::blocking::Connection::session()?;
+        let proxy = zbus::blocking::Proxy::new(&conn, DEST, PATH, IFACE)?;
+        let mut raw = read_all(&proxy);
+        let mut last = interpret(&raw);
+        tracing::debug!(?last, "desktop appearance preferences");
+        if tx.send(last).is_err() {
+            return Ok(());
+        }
+        wake();
+        let signals = proxy.receive_signal("SettingChanged")?;
+        for msg in signals {
+            let Ok((ns, key, value)) = msg.body().deserialize::<(String, String, OwnedValue)>()
+            else {
+                continue;
+            };
+            if !KEYS.iter().any(|(n, k)| *n == ns && *k == key) {
+                continue;
+            }
+            raw.insert(format!("{ns} {key}"), value);
+            let now = interpret(&raw);
+            if now != last {
+                last = now;
+                if tx.send(now).is_err() {
+                    return Ok(());
+                }
+                wake();
+            }
+        }
+        Ok(())
+    }
+
+    /// Start following the desktop's appearance preferences; `wake` is called after each
+    /// change.
+    pub fn follow(wake: Arc<dyn Fn() + Send + Sync>) -> Receiver<SystemPrefs> {
+        let (tx, rx) = channel();
+        let _ = std::thread::Builder::new()
+            .name("desktop-settings".into())
+            .spawn(move || {
+                if let Err(e) = watch(&tx, &*wake) {
+                    tracing::debug!("desktop appearance settings unavailable: {e}");
+                }
+            });
+        rx
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn raw(pairs: &[(&str, Value<'static>)]) -> Raw {
+            pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), OwnedValue::try_from(v.clone()).unwrap()))
+                .collect()
+        }
+
+        #[test]
+        fn portal_keys_win_and_desktop_keys_fill_in() {
+            let none = interpret(&Raw::new());
+            assert_eq!(none, SystemPrefs::default());
+            let p = interpret(&raw(&[
+                ("org.freedesktop.appearance color-scheme", Value::U32(1)),
+                ("org.freedesktop.appearance contrast", Value::U32(1)),
+                (
+                    "org.gnome.desktop.interface enable-animations",
+                    Value::Bool(false),
+                ),
+                (
+                    "org.gnome.desktop.interface text-scaling-factor",
+                    Value::F64(1.25),
+                ),
+            ]));
+            assert_eq!(p.scheme, Some(SystemScheme::Dark));
+            assert!(p.high_contrast);
+            assert_eq!(p.reduced_motion, Some(true));
+            assert!((p.text_scale - 1.25).abs() < 1e-6);
+            let kde = interpret(&raw(&[
+                ("org.freedesktop.appearance color-scheme", Value::U32(2)),
+                (
+                    "org.gnome.desktop.a11y.interface high-contrast",
+                    Value::Bool(true),
+                ),
+                (
+                    "org.kde.kdeglobals.KDE AnimationDurationFactor",
+                    Value::F64(0.0),
+                ),
+                // The portal's own key wins over the desktop's.
+                ("org.freedesktop.appearance reduced-motion", Value::U32(0)),
+            ]));
+            assert_eq!(kde.scheme, Some(SystemScheme::Light));
+            assert!(kde.high_contrast);
+            assert_eq!(kde.reduced_motion, Some(false));
+            // Wrapped in a variant (the deprecated `Read`) still works.
+            let wrapped = interpret(&raw(&[(
+                "org.freedesktop.appearance color-scheme",
+                Value::Value(Box::new(Value::U32(1))),
+            )]));
+            assert_eq!(wrapped.scheme, Some(SystemScheme::Dark));
+        }
     }
 }
 
