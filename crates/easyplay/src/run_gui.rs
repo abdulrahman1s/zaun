@@ -19,7 +19,7 @@ use easyplay_core::clock::{Clock, SystemClock};
 use easyplay_core::consts::ENV_RENDERER;
 use easyplay_core::fsx::{Fs, RealFs};
 use easyplay_core::paths::{AppPaths, PathEnv};
-use easyplay_core::service::{AppService, Command, OpenOrigin};
+use easyplay_core::service::AppService;
 use easyplay_core::storage::StorageError;
 use easyplay_core::storage::lock::{LibraryLock, LockMode};
 use easyplay_core::{Error, ErrorCode};
@@ -151,6 +151,7 @@ fn art_factory(w: &Wiring) -> ArtFactory {
 
 fn deps(
     source: Source,
+    open: Vec<PathBuf>,
     window: WindowGeometry,
     store: Option<Box<dyn WindowStore>>,
     renderer: Renderer,
@@ -179,6 +180,7 @@ fn deps(
         utc_offset_s: utc_offset_seconds(),
         renderer,
         art: Some(art),
+        open,
     }
 }
 
@@ -189,15 +191,13 @@ fn source(preview: bool, open: &[PathBuf]) -> Result<Source, Error> {
     }
     let mut w = wiring::build()?;
     let deps = w.take_deps()?;
+    // Opened programs are sent by the UI's quick-launch layout (`UiDeps::open`).
+    let _ = open;
+    let home = deps.launch_env.home.clone();
+    let user_dirs = deps.launch_env.user_dirs.clone();
     let (handle, events) = AppService::start(deps)?;
-    if !open.is_empty() {
-        handle.send(Command::OpenPaths {
-            paths: open.to_vec(),
-            origin: OpenOrigin::FileManager,
-        });
-    }
     Ok(Source::Service(
-        Box::new(ServiceBackend::new(handle, events)),
+        Box::new(ServiceBackend::new(handle, events).with_user_dirs(home, user_dirs)),
         Box::new(w),
     ))
 }
@@ -251,7 +251,13 @@ pub fn run(open: Vec<PathBuf>, preview: bool) -> Result<(), Error> {
 
     match easyplay_ui::run(
         StartMode::Library,
-        deps(source(preview, &open)?, window, store(), first),
+        deps(
+            source(preview, &open)?,
+            open.clone(),
+            window,
+            store(),
+            first,
+        ),
     ) {
         Ok(()) => Ok(()),
         Err(e) if first == Renderer::Wgpu => {
@@ -259,7 +265,13 @@ pub fn run(open: Vec<PathBuf>, preview: bool) -> Result<(), Error> {
             tracing::warn!("wgpu renderer failed ({e}); retrying with glow");
             easyplay_ui::run(
                 StartMode::Library,
-                deps(source(preview, &open)?, window, store(), Renderer::Glow),
+                deps(
+                    source(preview, &open)?,
+                    open.clone(),
+                    window,
+                    store(),
+                    Renderer::Glow,
+                ),
             )
             .map_err(|e| Error::new(ErrorCode::HostNoDisplay).with("detail", e))
         }
@@ -332,6 +344,8 @@ mod tests {
         let mut h = Harness::builder()
             .with_size([1280.0, 800.0])
             .build_eframe(move |_cc| app);
+        // A fresh library opens on onboarding; this check starts from the library.
+        h.state_mut().state.nav.go_to(Route::Library);
         let pump = |h: &mut Harness<'_, EasyPlayApp>, secs: u64, done: &dyn Fn() -> bool| {
             let clock = SystemClock::new();
             let t = clock.mono();
@@ -384,5 +398,47 @@ mod tests {
             g.session_count, g.launch_count, g.total_playtime_ms
         );
         assert!(g.launch_count >= 1);
+    }
+
+    /// Real-host look (not run by default): the window over the real AppService in
+    /// throw-away directories (`EASYPLAY_*_DIR`), rendered by `egui_kittest` to the PNG named
+    /// by `EASYPLAY_E2E_SHOT` after the service settles. Needs `EASYPLAY_E2E_GUI=1`.
+    #[test]
+    #[ignore = "real host: renders the real service"]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    fn e2e_gui_snapshot_of_the_real_service() {
+        use easyplay_ui::app::EasyPlayApp;
+        use easyplay_ui::route::Route;
+        use egui_kittest::Harness;
+        use std::time::Duration;
+
+        let (Some(_), Some(shot)) = (
+            std::env::var_os("EASYPLAY_E2E_GUI"),
+            std::env::var_os("EASYPLAY_E2E_SHOT"),
+        ) else {
+            return;
+        };
+        let mut w = wiring::build_with(None).unwrap();
+        let (handle, events) = AppService::start(w.take_deps().unwrap()).unwrap();
+        let backend = ServiceBackend::new(handle, events);
+        let app = EasyPlayApp::new(
+            easyplay_ui::bridge::UiBridge::new(Box::new(backend)),
+            Arc::new(SystemClock::new()),
+            Appearance {
+                theme: easyplay_ui::theme::ThemeChoice::Dark,
+                ..Appearance::default()
+            },
+            Route::Library,
+            0,
+        );
+        let mut h = Harness::builder()
+            .with_size([1280.0, 800.0])
+            .build_eframe(move |_cc| app);
+        for _ in 0..30 {
+            h.step();
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let image = h.render().unwrap();
+        image.save(PathBuf::from(shot)).unwrap();
     }
 }

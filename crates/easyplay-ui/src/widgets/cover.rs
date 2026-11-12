@@ -134,9 +134,19 @@ pub fn paint_cover(
                 },
                 b,
             );
-            let size = (rect.width() * 0.30).clamp(18.0, Type::Display.size() * 1.6);
+            let small = rect.width() < 64.0;
+            let size = if small {
+                (rect.width() * 0.42).max(8.0)
+            } else {
+                (rect.width() * 0.30).clamp(18.0, Type::Display.size() * 1.6)
+            };
+            let y = if small {
+                rect.center().y
+            } else {
+                rect.top() + rect.height() * 0.36
+            };
             painter.text(
-                pos2(rect.center().x, rect.top() + rect.height() * 0.36),
+                pos2(rect.center().x, y),
                 Align2::CENTER_CENTER,
                 initials(name),
                 egui::FontId::new(size, Type::Display.font_id().family),

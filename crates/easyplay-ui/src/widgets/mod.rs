@@ -5,6 +5,7 @@
 //! literal colour, size or duration.
 
 pub mod banner;
+pub mod bar_chart;
 pub mod button;
 pub mod card;
 pub mod chip;

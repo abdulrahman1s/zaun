@@ -124,36 +124,67 @@ pub fn dialog(
     actions: &[Action<'_>],
     default: usize,
 ) -> DialogOutcome {
+    let p = theme::theme(ctx).palette.clone();
+    rich_dialog(ctx, id, icon, title, actions, default, |ui| {
+        ui.label(Type::Body.rich(body).color(p.text_secondary));
+    })
+}
+
+/// A dialog with a custom body (checkbox lists, details disclosure). The dialog's accessible
+/// description is its first body line; `Enter` chooses `default` unless a control inside has
+/// focus; `Esc` and the backdrop cancel.
+pub fn rich_dialog(
+    ctx: &Context,
+    id: Id,
+    icon: Option<Icon>,
+    title: &str,
+    actions: &[Action<'_>],
+    default: usize,
+    body: impl FnOnce(&mut Ui),
+) -> DialogOutcome {
     remember_invoker(ctx, id);
     let theme = theme::theme(ctx);
     let p = theme.palette.clone();
     let opacity = ctx.animate_bool_with_time(id.with("in"), true, theme.motion.fade(Dur::Base));
     let mut outcome = DialogOutcome::Open;
+    // Three actions with long verbs need more room than the standard width.
+    let want = if actions.len() >= 3 {
+        layout::DIALOG_MAX_W + space::S16 + space::S6
+    } else {
+        layout::DIALOG_MAX_W
+    };
+    let max_w = want.min(ctx.content_rect().width() - space::S8);
     let resp = Modal::new(id)
         .backdrop_color(fade(p.backdrop, opacity))
-        .frame(overlay_frame(ctx, layout::DIALOG_MAX_W))
+        .frame(overlay_frame(ctx, max_w))
         .show(ctx, |ui| {
-            ui.set_max_width(layout::DIALOG_MAX_W - layout::SHEET_PAD * 2.0);
+            ui.set_max_width(max_w - layout::SHEET_PAD * 2.0);
+            ui.set_min_width((max_w - layout::SHEET_PAD * 2.0).min(360.0));
             ui.spacing_mut().item_spacing.y = space::S3;
             if let Some(icon) = icon {
                 ui.label(icons::icon(icon, icon_size::NAV + 4.0).color(p.text_secondary));
             }
-            let t = ui.label(Type::Title.rich(title).color(p.text_primary));
+            ui.label(Type::Title.rich(title).color(p.text_primary));
             a11y::labelled(ctx, ui.scope_id(), egui::Role::Dialog, title);
-            ui.label(Type::Body.rich(body).color(p.text_secondary));
+            egui::ScrollArea::vertical()
+                .max_height((ctx.content_rect().height() - 220.0).max(120.0))
+                .auto_shrink([false, true])
+                .show(ui, body);
             ui.add_space(space::S2);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                for (i, a) in actions.iter().enumerate().rev() {
-                    let r = ui.add(Button::new(a.label).variant(a.variant));
-                    if i == default && ui.memory(|m| m.focused().is_none()) {
-                        r.request_focus();
+            ui.with_layout(
+                Layout::right_to_left(Align::Center).with_main_wrap(true),
+                |ui| {
+                    for (i, a) in actions.iter().enumerate().rev() {
+                        let r = ui.add(Button::new(a.label).variant(a.variant));
+                        if i == default && ui.memory(|m| m.focused().is_none()) {
+                            r.request_focus();
+                        }
+                        if r.clicked() {
+                            outcome = DialogOutcome::Chose(i);
+                        }
                     }
-                    if r.clicked() {
-                        outcome = DialogOutcome::Chose(i);
-                    }
-                }
-            });
-            let _ = t;
+                },
+            );
         });
     if outcome == DialogOutcome::Open
         && resp.is_top_modal

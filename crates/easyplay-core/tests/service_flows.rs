@@ -378,3 +378,62 @@ fn watcher_reports_open_and_ended_rows() {
     assert_eq!(p.ended.len(), 1);
     drop(w);
 }
+
+#[test]
+fn update_load_and_query_stats_answer_the_game_page() {
+    use easyplay_core::ids::QueryId;
+    use easyplay_core::service::{GameEdit, QueryResult};
+    let mut w = World::new();
+    let id = w.add("Qux");
+    let mut policy = w.svc.library().game(id).unwrap().policy;
+    policy.network = easyplay_core::model::NetworkAccess::Full;
+    w.send(Command::UpdateGame {
+        id,
+        edits: vec![
+            GameEdit::Name("Qux Deluxe".into()),
+            GameEdit::Notes("note".into()),
+            GameEdit::Policy(Box::new(policy)),
+        ],
+    });
+    let q = QueryId::from_uuid(uuid::Uuid::from_u128(9));
+    let evs = w.send(Command::LoadGame { id, reply_to: q });
+    let game = evs
+        .into_iter()
+        .find_map(|e| match e {
+            Event::QueryResult {
+                id,
+                result: QueryResult::Game(g),
+            } if id == q => Some(g),
+            _ => None,
+        })
+        .expect("game loaded");
+    assert_eq!(game.name, "Qux Deluxe");
+    assert_eq!(game.notes, "note");
+    assert_eq!(
+        game.policy.network,
+        easyplay_core::model::NetworkAccess::Full
+    );
+    assert!(game.policy.preset.base() != easyplay_core::model::BasePreset::Offline);
+    w.send(Command::UpdateGame {
+        id,
+        edits: vec![GameEdit::Preset(easyplay_core::model::BasePreset::Offline)],
+    });
+    assert_eq!(
+        w.svc.library().game(id).unwrap().policy.preset,
+        easyplay_core::model::Preset::Offline
+    );
+    let today = jiff::civil::date(2026, 11, 12);
+    let evs = w.send(Command::QueryStats {
+        request: easyplay_core::stats::StatsRequest::LibraryOverview {
+            range: easyplay_core::stats::DateRange::last_days(today, 7),
+        },
+        reply_to: q,
+    });
+    assert!(evs.iter().any(|e| matches!(
+        e,
+        Event::QueryResult {
+            result: QueryResult::Stats(easyplay_core::stats::StatsResult::Library(_)),
+            ..
+        }
+    )));
+}

@@ -8,9 +8,10 @@ use std::path::PathBuf;
 
 use crate::artwork::ArtSource;
 use crate::config::PreferencePatch;
-use crate::ids::{ExecutableId, GameId, PromptId, RuntimeName, SessionId, TagName};
+use crate::ids::{ExecutableId, GameId, PromptId, QueryId, RuntimeName, SessionId, TagName};
 use crate::library::{GameDraft, RemoveOptions, ResetOptions};
-use crate::model::{ArtSlot, PromptAnswer, RuntimeRef, SlrVariant};
+use crate::model::{ArtSlot, LaunchConfig, PromptAnswer, RuntimeRef, SandboxPolicy, SlrVariant};
+use crate::stats::StatsRequest;
 
 pub use crate::session::StopMode;
 
@@ -56,6 +57,34 @@ pub enum LaunchOrigin {
 }
 
 /// A command for the AppService.
+/// One change to a game, as plain data (the UI's game page). Mapped onto
+/// `storage::GamePatch` by the service; several edits apply together.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GameEdit {
+    /// Rename (1–80 characters, user-set).
+    Name(String),
+    /// Notes text.
+    Notes(String),
+    /// The whole sandbox policy.
+    Policy(Box<SandboxPolicy>),
+    /// The whole launch configuration.
+    Launch(Box<LaunchConfig>),
+    /// Compatibility layer and whether to follow its channel.
+    Runtime {
+        /// Reference.
+        reference: RuntimeRef,
+        /// Follow updates.
+        follow: bool,
+    },
+    /// Game-fix entry (`None` = no fix).
+    UmuId(Option<String>),
+    /// User-set Steam app ID for artwork (`None` clears it).
+    SteamAppId(Option<u32>),
+    /// Switch to a preset, keeping folder grants, game-folder access and save location
+    /// (`sandbox::apply_preset` with the current host facts).
+    Preset(crate::model::BasePreset),
+}
+
 #[derive(Clone, Debug)]
 pub enum Command {
     // ---- entry points
@@ -103,6 +132,27 @@ pub enum Command {
         id: GameId,
         /// New value.
         hidden: bool,
+    },
+    /// Change a game (validated as a whole; `Event::Failure` on a refused change).
+    UpdateGame {
+        /// Game.
+        id: GameId,
+        /// Changes.
+        edits: Vec<GameEdit>,
+    },
+    /// Load a game's full record; answered with `Event::QueryResult`.
+    LoadGame {
+        /// Game.
+        id: GameId,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// A statistics query; answered with `Event::QueryResult`.
+    QueryStats {
+        /// Request.
+        request: StatsRequest,
+        /// Reply ID.
+        reply_to: QueryId,
     },
     // ---- artwork
     /// Import artwork for one slot. `ArtSource::SteamCdn(0)` means "find the Steam app ID"
@@ -194,6 +244,9 @@ impl Command {
             Command::SetFavorite { .. } => "set_favorite",
             Command::SetTags { .. } => "set_tags",
             Command::SetHidden { .. } => "set_hidden",
+            Command::UpdateGame { .. } => "update_game",
+            Command::LoadGame { .. } => "load_game",
+            Command::QueryStats { .. } => "query_stats",
             Command::ImportArtwork { .. } => "import_artwork",
             Command::FetchOnlineArtwork { .. } => "fetch_online_artwork",
             Command::Launch { .. } => "launch",

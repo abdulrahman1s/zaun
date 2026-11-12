@@ -1,7 +1,12 @@
 //! View-models: screen state that is not domain state (selection, text being typed, expanded
 //! sections, pending queries, validation messages). Never references `egui::Ui`. See MODULES §8.
 
+pub mod details;
+pub mod dialogs;
+pub mod launch;
 pub mod library;
+pub mod screens;
+pub mod setup;
 pub mod toasts;
 
 use easyplay_core::clock::MonoInstant;
@@ -25,6 +30,11 @@ pub enum AsyncValue<T, E = String> {
 }
 
 impl<T, E> AsyncValue<T, E> {
+    /// Whether a request is outstanding.
+    pub fn is_loading(&self) -> bool {
+        matches!(self, AsyncValue::Loading { .. })
+    }
+
     /// The value, if ready.
     pub fn ready(&self) -> Option<&T> {
         match self {

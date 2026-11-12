@@ -21,6 +21,6 @@ pub mod session_watch;
 pub mod snapshot;
 
 pub use app_service::{AppService, LaunchEnv, ServiceDeps, ServiceHandle, Waker, open_db};
-pub use command::{AfterCreate, Command, LaunchOrigin, OpenOrigin, StopMode};
-pub use event::{Event, Notice, SetupContext};
+pub use command::{AfterCreate, Command, GameEdit, LaunchOrigin, OpenOrigin, StopMode};
+pub use event::{Event, Notice, QueryResult, SetupContext};
 pub use snapshot::{ActiveSessions, SnapshotHub, Swap};

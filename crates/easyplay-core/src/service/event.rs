@@ -8,10 +8,11 @@ use std::path::PathBuf;
 
 use super::command::OpenOrigin;
 use crate::error::UserError;
-use crate::ids::{GameId, LaunchId, SessionId};
+use crate::ids::{GameId, LaunchId, QueryId, SessionId};
 use crate::launch::LaunchState;
 use crate::library::GameDraft;
-use crate::model::{PromptRequest, SlrVariant};
+use crate::model::{Game, PromptRequest, SlrVariant};
+use crate::stats::StatsResult;
 
 /// The context of a setup dialog.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,6 +86,17 @@ pub enum Notice {
     },
 }
 
+/// The answer to a query command.
+#[derive(Clone, Debug, PartialEq)]
+pub enum QueryResult {
+    /// `Command::LoadGame`.
+    Game(Box<Game>),
+    /// `Command::QueryStats`.
+    Stats(StatsResult),
+    /// The query failed.
+    Failed(Box<UserError>),
+}
+
 /// An announcement from the AppService.
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -118,6 +130,13 @@ pub enum Event {
     Prompt(PromptRequest),
     /// The UI should show this game's page (a known program was dropped or picked).
     ShowGame(GameId),
+    /// A query answered (`LoadGame`, `QueryStats`).
+    QueryResult {
+        /// The request's ID.
+        id: QueryId,
+        /// Result.
+        result: QueryResult,
+    },
     /// A short notice.
     Notice(Notice),
     /// An error not attached to a launch.

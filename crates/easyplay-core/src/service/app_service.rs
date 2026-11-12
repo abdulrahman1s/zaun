@@ -488,6 +488,9 @@ impl AppService {
                 let r = self.lib.set_tags(id, &tags).map(|_| ());
                 self.after_library_edit(r);
             }
+            Command::UpdateGame { id, edits } => self.update_game(id, edits),
+            Command::LoadGame { id, reply_to } => self.load_game(id, reply_to),
+            Command::QueryStats { request, reply_to } => self.query_stats(&request, reply_to),
             Command::ImportArtwork { id, slot, source } => self.import_artwork(id, slot, source),
             Command::FetchOnlineArtwork { id } => self.fetch_online_artwork(id, true),
             Command::Launch { id, exe, origin } => self.start_launch(id, exe, origin),
@@ -635,6 +638,98 @@ impl AppService {
 
     pub(super) fn set_activity(&mut self, id: GameId, a: Activity) {
         self.lib.set_activity(id, a);
+    }
+
+    // ---- game page (UI seam) ------------------------------------------------------------
+
+    fn update_game(&mut self, id: GameId, edits: Vec<super::command::GameEdit>) {
+        use super::command::GameEdit as E;
+        let mut patch = crate::storage::GamePatch::default();
+        for e in edits {
+            match e {
+                E::Name(n) => {
+                    patch.name = Some(n);
+                    patch.name_is_user_set = Some(true);
+                }
+                E::Notes(n) => patch.notes = Some(n),
+                E::Policy(p) => {
+                    let mut p = *p;
+                    p.preset = crate::sandbox::classify(&p);
+                    patch.policy = Some(p);
+                }
+                E::Launch(l) => patch.launch = Some(*l),
+                E::Runtime { reference, follow } => {
+                    patch.runtime = Some(reference);
+                    patch.runtime_follow_updates = Some(follow);
+                }
+                E::UmuId(u) => patch.umu_id = Some(u),
+                E::SteamAppId(a) => {
+                    patch.steam_app_id = Some(a);
+                    patch.steam_app_id_is_user_set = Some(a.is_some());
+                }
+                E::Preset(b) => {
+                    let base = match patch.policy.take() {
+                        Some(p) => p,
+                        None => match self.lib.game(id) {
+                            Ok(g) => g.policy,
+                            Err(e) => return self.fail(e),
+                        },
+                    };
+                    let host = self
+                        .host
+                        .as_deref()
+                        .cloned()
+                        .unwrap_or_else(|| HostFacts::empty(self.deps.clock.now()));
+                    patch.policy = Some(crate::sandbox::apply_preset(&base, b, &host));
+                }
+            }
+        }
+        let r = self.lib.update(id, patch).map(|_| ());
+        self.after_library_edit(r);
+    }
+
+    fn load_game(&mut self, id: GameId, reply_to: crate::ids::QueryId) {
+        let result = match self.lib.game(id) {
+            Ok(g) => super::event::QueryResult::Game(Box::new(g)),
+            Err(e) => super::event::QueryResult::Failed(Box::new(self.describe(&e, Some(id)))),
+        };
+        self.emit(Event::QueryResult {
+            id: reply_to,
+            result,
+        });
+    }
+
+    fn query_stats(&mut self, req: &crate::stats::StatsRequest, reply_to: crate::ids::QueryId) {
+        use crate::stats::StatsRequest as R;
+        let now = self.deps.clock.now();
+        // The UI computes ranges in local time; their end date is "today" for streaks.
+        let today = match req {
+            R::LibraryOverview { range }
+            | R::GameOverview { range, .. }
+            | R::TopGames { range, .. }
+            | R::WeekdayDistribution { range } => Some(range.to),
+            R::SessionHistory { .. } => None,
+        }
+        .or_else(|| crate::stats::rollup::key_date(crate::stats::rollup::local_day(now, 0)));
+        let Some(today) = today else {
+            return;
+        };
+        let week_start = match self.prefs.statistics.week_starts_on {
+            crate::config::schema::WeekStart::Sunday => jiff::civil::Weekday::Sunday,
+            _ => jiff::civil::Weekday::Monday,
+        };
+        let ctx = crate::stats::QueryContext { today, week_start };
+        let result = match crate::stats::queries::run(self.lib.db_mut(), &ctx, req) {
+            Ok(r) => super::event::QueryResult::Stats(r),
+            Err(e) => {
+                let e: Error = e.into();
+                super::event::QueryResult::Failed(Box::new(self.describe(&e, None)))
+            }
+        };
+        self.emit(Event::QueryResult {
+            id: reply_to,
+            result,
+        });
     }
 
     // ---- host and preferences (SVC-009) -----------------------------------------------
