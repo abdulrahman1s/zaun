@@ -109,6 +109,9 @@ error_codes! {
     RtNoLongerInstalled = "EP-RT-015", Error;
     /// Download interrupted.
     RtDownloadInterrupted = "EP-RT-016", Error;
+    /// A compatibility layer or runtime must be installed and this build cannot install it
+    /// (provisioning arrives in M7).
+    RtNotInstalled = "EP-RT-017", Error;
     /// Shared runtime was modified and has been removed.
     RtSharedTampered = "EP-RT-020", Warning;
     /// Runtime files damaged (no game suspected).
