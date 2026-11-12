@@ -196,6 +196,7 @@ impl TrustedSteps for ScriptedSteps {
             fast_path_stopped: fast_path && s.launching,
             cancelled: cancel.is_cancelled(),
             network_failure: s.network_failure,
+            download_interrupted: false,
         })
     }
 

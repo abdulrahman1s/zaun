@@ -35,7 +35,8 @@ use crate::runtime::discovery::detect_slr;
 use crate::runtime::integrity::{AuditAction, AuditDue, IntegrityRecords, audit_due, handle_audit};
 use crate::runtime::manifest;
 use crate::runtime::provision::{
-    CACHE_POLL, CacheMeter, PREPARE_TIMEOUT, TrustedEnd, log_shows_offline, sweep_partial,
+    CACHE_POLL, CacheMeter, PREPARE_TIMEOUT, TrustedEnd, log_shows_interrupted, log_shows_offline,
+    sweep_partial,
 };
 use crate::runtime::{RuntimeStore, gc};
 use crate::session::{SessionLauncher, StopMode};
@@ -361,10 +362,16 @@ impl TrustedSteps for LocalTrustedSteps {
         let reason = row
             .end_reason
             .unwrap_or(crate::model::EndReason::Interrupted);
-        let network_failure = plan.context.network == Some(NetworkAccess::Full)
+        let failed_download = plan.context.network == Some(NetworkAccess::Full)
             && !matches!(reason, crate::model::EndReason::Exited { code: 0 })
-            && !launching_seen
-            && log_shows_offline(&self.log_tail(&plan.paths.log_dir));
+            && !launching_seen;
+        let tail = if failed_download {
+            self.log_tail(&plan.paths.log_dir)
+        } else {
+            String::new()
+        };
+        let network_failure = failed_download && log_shows_offline(&tail);
+        let download_interrupted = failed_download && log_shows_interrupted(&tail);
         Ok(TrustedEnd {
             kind,
             reason,
@@ -372,6 +379,7 @@ impl TrustedSteps for LocalTrustedSteps {
             fast_path_stopped,
             cancelled,
             network_failure,
+            download_interrupted,
         })
     }
 

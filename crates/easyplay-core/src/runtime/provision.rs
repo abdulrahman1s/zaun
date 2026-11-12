@@ -141,6 +141,8 @@ pub struct TrustedEnd {
     pub cancelled: bool,
     /// The log shows a failed connection.
     pub network_failure: bool,
+    /// The log shows a download cut short (timeout, reset, HTTP error); umu resumes it.
+    pub download_interrupted: bool,
 }
 
 /// Success, or the error to show (§9 failure table, LOGIC_SPECS §3).
@@ -159,6 +161,7 @@ pub fn interpret(end: &TrustedEnd) -> Result<(), Error> {
             },
         ) => Err(offline()),
         _ if end.network_failure => Err(offline()),
+        _ if end.download_interrupted => Err(Error::new(ErrorCode::RtDownloadInterrupted)),
         (_, EndReason::FailedToStart { code }) => Err(Error::new(code)),
         (SessionKind::Provision, EndReason::Exited { code }) => {
             Err(Error::new(ErrorCode::RtDownloadInterrupted).with("exit_status", code))
@@ -179,6 +182,23 @@ pub fn log_shows_offline(text: &str) -> bool {
         crate::umu::log_parse::is_network_failure(l)
             || l.contains("An internet connection is required")
             || l.contains("Temporary failure in name resolution")
+    })
+}
+
+/// Whether the log tail shows a download that was cut short (§9 "Download interrupted").
+pub fn log_shows_interrupted(text: &str) -> bool {
+    text.lines().any(|l| {
+        [
+            "Read timed out",
+            "ReadTimeoutError",
+            "TimeoutError",
+            "IncompleteRead",
+            "Connection reset",
+            "ProtocolError",
+            "HTTPError",
+        ]
+        .iter()
+        .any(|p| l.contains(p))
     })
 }
 
@@ -254,7 +274,8 @@ pub fn sweep_partial(fs: &dyn Fs, store: &RuntimeStore) -> Vec<PathBuf> {
 }
 
 /// Download progress from umu's cache (RT-012): the total size of `*.parts` files and of
-/// hidden temporary directories, and the transfer rate since the previous poll.
+/// temporary directories (hidden ones, and umu 1.4's `tmpXXXXXXXX`), and the transfer rate
+/// since the previous poll.
 #[derive(Debug)]
 pub struct CacheMeter {
     dir: PathBuf,
@@ -309,7 +330,8 @@ impl CacheMeter {
                 FileType::File if name.ends_with(".parts") => {
                     total += fs.metadata(&e.path).map_or(0, |m| m.size);
                 }
-                FileType::Dir if name.starts_with('.') => {
+                // umu downloads into `tempfile` directories (`tmpXXXXXXXX`) of its cache.
+                FileType::Dir if name.starts_with('.') || name.starts_with("tmp") => {
                     total += Self::tree_size(fs, &e.path, &mut budget, 0);
                 }
                 _ => {}
@@ -390,6 +412,7 @@ mod tests {
             fast_path_stopped: false,
             cancelled: false,
             network_failure: false,
+            download_interrupted: false,
         };
         let mut e = end(SessionKind::Provision, EndReason::StoppedByUser);
         e.launching_seen = true;
@@ -415,6 +438,19 @@ mod tests {
             ErrorCode::RtNotInstalledOffline
         );
         assert!(interpret(&end(SessionKind::Prepare, EndReason::Exited { code: 0 })).is_ok());
+        let mut e = end(
+            SessionKind::Provision,
+            EndReason::FailedToStart {
+                code: ErrorCode::RtUnresolvable,
+            },
+        );
+        e.download_interrupted = log_shows_interrupted(
+            "urllib3.exceptions.ReadTimeoutError: HTTPSConnectionPool(host='x', port=443): Read timed out.",
+        );
+        assert_eq!(
+            interpret(&e).unwrap_err().code,
+            ErrorCode::RtDownloadInterrupted
+        );
         assert!(log_shows_offline(
             "urllib.error.URLError: <urlopen error [Errno -3] Temporary failure in name resolution>"
         ));

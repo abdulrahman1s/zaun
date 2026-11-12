@@ -298,6 +298,12 @@ fn download_progress_is_measured_from_the_cache() {
         RowScript::new(Vec::new(), EndReason::Exited { code: 0 })
             .with_hook(move |_| {
                 std::fs::create_dir_all(cache.join(".tmp-x")).unwrap();
+                std::fs::create_dir_all(cache.join("tmpab12cd34")).unwrap();
+                std::fs::write(
+                    cache.join("tmpab12cd34/SteamLinuxRuntime_sniper.tar.xz.parts"),
+                    b"12",
+                )
+                .unwrap();
                 for i in 1..=4u64 {
                     std::fs::write(
                         cache.join("UMU-Proton.tar.gz.parts"),
@@ -325,7 +331,7 @@ fn download_progress_is_measured_from_the_cache() {
         .unwrap();
     assert!(seen.len() >= 3, "{seen:?}");
     assert!(seen.windows(2).all(|w| w[0] <= w[1]));
-    assert_eq!(*seen.last().unwrap(), (4 << 20) + 1024);
+    assert_eq!(*seen.last().unwrap(), (4 << 20) + 1024 + 2);
 }
 
 #[test]
