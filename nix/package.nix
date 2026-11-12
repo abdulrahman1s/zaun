@@ -184,10 +184,10 @@ rustPlatform.buildRustPackage {
     # Man pages and shell completions from the clap definitions (CLI-004).
     $out/bin/easyplay generate-assets --out generated
     installManPage generated/man/man1/*.1
-    installShellCompletion --cmd easyplay \
-      --bash generated/completions/easyplay.bash \
-      --zsh generated/completions/_easyplay \
-      --fish generated/completions/easyplay.fish
+    # bash-completion looks the file up by command name.
+    installShellCompletion --bash --name easyplay generated/completions/easyplay.bash
+    installShellCompletion --zsh generated/completions/_easyplay
+    installShellCompletion --fish generated/completions/easyplay.fish
 
     wrapProgram $out/bin/easyplay \
       --prefix PATH : ${lib.makeBinPath hostTools} \
