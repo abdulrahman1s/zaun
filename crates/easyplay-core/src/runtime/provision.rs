@@ -143,6 +143,8 @@ pub struct TrustedEnd {
     pub network_failure: bool,
     /// The log shows a download cut short (timeout, reset, HTTP error); umu resumes it.
     pub download_interrupted: bool,
+    /// After a Prepare: the prefix has `drive_c` and `system.reg`.
+    pub prefix_ready: bool,
 }
 
 /// Success, or the error to show (§9 failure table, LOGIC_SPECS §3).
@@ -153,6 +155,9 @@ pub fn interpret(end: &TrustedEnd) -> Result<(), Error> {
     let offline = || Error::new(ErrorCode::RtNotInstalledOffline);
     match (end.kind, end.reason) {
         (SessionKind::Provision, _) if end.launching_seen => Ok(()),
+        // `umu-run ""` creates the prefix and then fails to start the empty program
+        // ("ShellExecuteEx failed: File not found", exit 1): the prefix is what counts.
+        (SessionKind::Prepare, _) if end.launching_seen && end.prefix_ready => Ok(()),
         (_, EndReason::Exited { code: 0 }) => Ok(()),
         (
             _,
@@ -446,6 +451,7 @@ mod tests {
             cancelled: false,
             network_failure: false,
             download_interrupted: false,
+            prefix_ready: false,
         };
         let mut e = end(SessionKind::Provision, EndReason::StoppedByUser);
         e.launching_seen = true;
@@ -471,6 +477,16 @@ mod tests {
             ErrorCode::RtNotInstalledOffline
         );
         assert!(interpret(&end(SessionKind::Prepare, EndReason::Exited { code: 0 })).is_ok());
+        let mut e = end(
+            SessionKind::Prepare,
+            EndReason::FailedToStart {
+                code: ErrorCode::UmuInternalError,
+            },
+        );
+        e.launching_seen = true;
+        assert!(interpret(&e).is_err());
+        e.prefix_ready = true;
+        assert!(interpret(&e).is_ok());
         let mut e = end(
             SessionKind::Provision,
             EndReason::FailedToStart {

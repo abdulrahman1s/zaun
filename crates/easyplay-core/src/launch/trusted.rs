@@ -387,7 +387,19 @@ impl TrustedSteps for LocalTrustedSteps {
         };
         let network_failure = failed_download && log_shows_offline(&tail);
         let download_interrupted = failed_download && log_shows_interrupted(&tail);
+        let prefix_ready = kind == SessionKind::Prepare
+            && plan.session.game_id.is_some_and(|g| {
+                let prefix = self.paths.prefix_dir(g);
+                self.fs
+                    .metadata(&prefix.join("drive_c"))
+                    .is_ok_and(|m| m.is_dir())
+                    && self
+                        .fs
+                        .metadata(&prefix.join("system.reg"))
+                        .is_ok_and(|m| m.is_file())
+            });
         Ok(TrustedEnd {
+            prefix_ready,
             kind,
             reason,
             launching_seen,
@@ -484,6 +496,22 @@ impl TrustedSteps for LocalTrustedSteps {
 
     fn audit(&self, variant: SlrVariant, cancel: &CancelToken) -> Result<AuditAction> {
         let mut db = self.db()?;
+        // An install whose recording was interrupted (no row, no manifest: neither is ever
+        // reachable from a sandbox) is recorded now instead of being called tampered.
+        let recorded = db.slr_installs()?.iter().any(|i| i.variant == variant);
+        if !recorded
+            && !self.fs.exists(&self.store.manifest_file(variant))
+            && detect_slr(&*self.fs, &self.store.slr_dir(variant), variant)
+                .is_some_and(|s| s.is_complete())
+        {
+            tracing::warn!(
+                variant = variant.as_str(),
+                "unrecorded runtime install; recording it"
+            );
+            drop(db);
+            self.after_install()?;
+            return Ok(AuditAction::Clean);
+        }
         let stored = db
             .slr_installs()?
             .into_iter()

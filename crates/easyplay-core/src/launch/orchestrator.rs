@@ -565,8 +565,8 @@ pub fn launch(
                     session: sid,
                     network: NetworkAccess::Full,
                 });
-                interpret(&end)?;
                 steps.after_install()?;
+                interpret(&end)?;
                 flow.refresh();
                 // Post-condition (§4.1): the need is satisfied now; never download in a loop.
                 resolution = flow.resolve();
@@ -630,13 +630,14 @@ pub fn launch(
                     session: sid,
                     network,
                 });
+                // What a trusted session installed is recorded even if the Prepare failed.
+                if network == NetworkAccess::Full {
+                    steps.after_install()?;
+                }
                 if let Err(e) = interpret(&end) {
                     return Err(LaunchError::Failed(e));
                 }
                 prepared = true;
-                if network == NetworkAccess::Full {
-                    steps.after_install()?;
-                }
                 flow.refresh();
             }
             NextStep::Game | NextStep::Unavailable(_) => {}

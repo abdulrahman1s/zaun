@@ -475,3 +475,29 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn an_unrecorded_install_is_recorded_not_quarantined() {
+    // A trusted session installed the runtime but the launch stopped before recording it:
+    // no row, no manifest. The audit gate records it instead of calling it tampered.
+    let w = world();
+    install_files(&w.store);
+    let a = w
+        .steps
+        .audit(SlrVariant::Steamrt3, &CancelToken::new())
+        .unwrap();
+    assert_eq!(a, easyplay_core::runtime::AuditAction::Clean);
+    assert!(w.store.manifest_file(SlrVariant::Steamrt3).exists());
+    assert!(w.store.slr_dir(SlrVariant::Steamrt3).exists());
+    let mut db = Db::open_rw(&w.paths.db_file).unwrap();
+    assert_eq!(db.slr_installs().unwrap().len(), 1);
+    // With a row but no manifest (a deleted manifest) it is tampering.
+    drop(db);
+    std::fs::remove_file(w.store.manifest_file(SlrVariant::Steamrt3)).unwrap();
+    assert!(matches!(
+        w.steps
+            .audit(SlrVariant::Steamrt3, &CancelToken::new())
+            .unwrap(),
+        easyplay_core::runtime::AuditAction::Quarantined { .. }
+    ));
+}

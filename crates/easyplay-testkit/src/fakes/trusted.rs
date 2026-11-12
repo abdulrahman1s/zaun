@@ -197,6 +197,7 @@ impl TrustedSteps for ScriptedSteps {
             cancelled: cancel.is_cancelled(),
             network_failure: s.network_failure,
             download_interrupted: false,
+            prefix_ready: s.launching,
         })
     }
 
