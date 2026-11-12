@@ -295,4 +295,94 @@ mod tests {
             .unwrap();
         assert_eq!(load_geometry(&p), WindowGeometry::default());
     }
+
+    /// Real-host check (not run by default): the GUI with the real AppService, driven by
+    /// `egui_kittest`. Needs `EASYPLAY_E2E_GUI=1`, throw-away `EASYPLAY_*_DIR`s holding a
+    /// library with a game named by `EASYPLAY_E2E_GAME` and an installed runtime, a working
+    /// `umu-run` (`EASYPLAY_UMU_RUN`) and `easyplay-init` next to the test binary or in
+    /// `EASYPLAY_INIT`, and the `easyplay` binary in `EASYPLAY_E2E_BIN`. Clicks the game, Play, waits for `Running`, Stop, waits for the end
+    /// and checks the recorded session.
+    #[test]
+    #[ignore = "real host: starts a game"]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    fn e2e_gui_play_and_stop_with_the_real_service() {
+        use easyplay_core::model::SessionState;
+        use easyplay_ui::app::EasyPlayApp;
+        use easyplay_ui::route::Route;
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        use std::time::Duration;
+
+        if std::env::var_os("EASYPLAY_E2E_GUI").is_none() {
+            return;
+        }
+        let name = std::env::var("EASYPLAY_E2E_GAME").unwrap_or_else(|_| "Cmd Test".into());
+        let bin = std::env::var_os("EASYPLAY_E2E_BIN").map(PathBuf::from);
+        let mut w = wiring::build_with(bin).unwrap();
+        let (handle, events) = AppService::start(w.take_deps().unwrap()).unwrap();
+        let hub = Arc::clone(&handle.hub);
+        let backend = ServiceBackend::new(handle, events);
+        let app = EasyPlayApp::new(
+            easyplay_ui::bridge::UiBridge::new(Box::new(backend)),
+            Arc::new(SystemClock::new()),
+            Appearance::default(),
+            Route::Library,
+            0,
+        );
+        let mut h = Harness::builder()
+            .with_size([1280.0, 800.0])
+            .build_eframe(move |_cc| app);
+        let pump = |h: &mut Harness<'_, EasyPlayApp>, secs: u64, done: &dyn Fn() -> bool| {
+            let clock = SystemClock::new();
+            let t = clock.mono();
+            while !done() {
+                assert!(
+                    clock.mono().saturating_duration_since(t) < Duration::from_secs(secs),
+                    "timed out"
+                );
+                h.step();
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            h.step();
+        };
+        pump(&mut h, 10, &|| {
+            hub.library.load().games.iter().any(|g| *g.name == *name)
+        });
+        h.get_by_label_contains(&format!("{name}. ")).click();
+        h.step();
+        h.step();
+        h.get_by_label(&format!("Play {name}")).click();
+        h.step();
+        let running = || {
+            hub.sessions
+                .load()
+                .sessions
+                .iter()
+                .any(|s| s.game_name == name && s.state == SessionState::Running)
+        };
+        pump(&mut h, 120, &running);
+        eprintln!(
+            "running: {:?}",
+            hub.sessions.load().sessions.first().map(|s| s.id)
+        );
+        std::thread::sleep(Duration::from_secs(5));
+        h.step();
+        h.step();
+        h.get_by_label(&format!("Stop {name}")).click();
+        h.step();
+        pump(&mut h, 60, &|| hub.sessions.load().sessions.is_empty());
+        let g = hub
+            .library
+            .load()
+            .games
+            .iter()
+            .find(|g| *g.name == *name)
+            .cloned()
+            .unwrap();
+        eprintln!(
+            "after stop: sessions={} launches={} playtime_ms={}",
+            g.session_count, g.launch_count, g.total_playtime_ms
+        );
+        assert!(g.launch_count >= 1);
+    }
 }

@@ -118,6 +118,12 @@ fn load_prefs(fs: &dyn Fs, paths: &AppPaths, clock: &dyn Clock) -> Preferences {
 
 /// Assemble the real dependencies.
 pub fn build() -> Result<Wiring, Error> {
+    build_with(None)
+}
+
+/// [`build`] with another `easyplay` binary as the supervisor (tests run from a test
+/// binary, which cannot `supervise`).
+pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
     let env = PathEnv::from_process();
     let (over, warnings) = EnvOverrides::from_env(&env);
     for w in warnings {
@@ -157,8 +163,11 @@ pub fn build() -> Result<Wiring, Error> {
         bwrap: over.bwrap.clone(),
     });
     let proc: Arc<dyn ProcSource> = Arc::new(RealProc::new(Arc::clone(&fs)));
-    let exe = std::env::current_exe()
-        .map_err(|e| Error::new(ErrorCode::SesSupervisorNotStarted).with_source(e))?;
+    let exe = match supervisor {
+        Some(p) => p,
+        None => std::env::current_exe()
+            .map_err(|e| Error::new(ErrorCode::SesSupervisorNotStarted).with_source(e))?,
+    };
     let launcher = Arc::new(RealLauncher::new(
         exe,
         paths.clone(),
