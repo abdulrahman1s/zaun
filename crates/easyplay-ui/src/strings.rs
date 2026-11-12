@@ -445,7 +445,7 @@ pub mod card {
             Some(t) if total_ms > 0 => s.push_str(&format!(
                 " Played {}, last {}.",
                 fmt::duration_spoken(total_ms),
-                fmt::relative_date(t, now, offset_s).to_lowercase()
+                fmt::relative_inline(t, now, offset_s)
             )),
             _ => s.push_str(&format!(" {NOT_PLAYED}.")),
         }
@@ -898,6 +898,16 @@ pub mod fmt {
         let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
         let y = yoe + era * 400 + i64::from(m <= 2);
         (y, m, d)
+    }
+
+    /// [`relative_date`] inside a sentence: "today", "yesterday", "Tuesday", "3 Nov".
+    pub fn relative_inline(t: Timestamp, now: Timestamp, offset_s: i32) -> String {
+        let s = relative_date(t, now, offset_s);
+        if s == "Today" || s == "Yesterday" {
+            s.to_lowercase()
+        } else {
+            s
+        }
     }
 
     /// "Today", "Yesterday", a weekday within six days, then "3 Nov" (or "3 Nov 2025" in

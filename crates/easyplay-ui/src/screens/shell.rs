@@ -128,6 +128,9 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
 
     handle_global_keys(ui, state, env);
     host_banners(state, env);
+    for (game, path) in std::mem::take(&mut state.shares) {
+        details::permissions::share_folder(state, env, game, path);
+    }
 
     let window_w = ctx.content_rect().width();
     let route = state.nav.current();

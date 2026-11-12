@@ -204,6 +204,10 @@ pub struct HostView {
     pub x11: bool,
     /// EasyPlay version.
     pub version: String,
+    /// The home folder (locations are shown relative to it, "in Home").
+    pub home: PathBuf,
+    /// The well-known folders' real paths (XDG user directories).
+    pub user_dirs: Vec<(easyplay_core::model::UserDir, PathBuf)>,
 }
 
 impl HostView {
@@ -948,6 +952,11 @@ impl FakeBackend {
     /// Commands sent so far.
     pub fn sent(&self) -> Vec<UiCommand> {
         self.lock().sent.clone()
+    }
+
+    /// Record a command as if the UI had sent it (test helpers that filter commands).
+    pub fn record(&self, cmd: UiCommand) {
+        self.lock().sent.push(cmd);
     }
 
     /// Forget recorded commands.

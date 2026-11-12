@@ -277,6 +277,8 @@ pub struct DetailsVm {
     pub launch_advanced: bool,
     /// The cover menu is open.
     pub cover_menu: bool,
+    /// Initial focus went to the Play pill.
+    pub play_focused: bool,
 }
 
 /// The four ranges of the Activity tab and Statistics screen.

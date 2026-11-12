@@ -104,3 +104,52 @@ pub fn rig(start: Route) -> Rig {
         ThemeChoice::Dark,
     )
 }
+
+/// Answer every query the UI has sent and not yet seen answered, with demo data.
+pub fn serve(r: &mut Rig) {
+    use easyplay_ui::bridge::{QueryPayload, UiCommand, UiEvent};
+    let lib = r.h.state().bridge().library().clone();
+    let sent = r.fake.sent();
+    r.fake.clear_sent();
+    for c in &sent {
+        let (id, payload) = match c {
+            UiCommand::LoadGame { id, reply_to } => (
+                *reply_to,
+                QueryPayload::Game(Box::new(demo::game_detail(lib.get(*id).unwrap(), now()))),
+            ),
+            UiCommand::QueryStats { request, reply_to } => (
+                *reply_to,
+                QueryPayload::Stats(demo::stats(request, &lib, now())),
+            ),
+            UiCommand::MeasurePrefix { reply_to, .. } => {
+                (*reply_to, QueryPayload::PrefixSize(2_254_857_830))
+            }
+            UiCommand::ScanFolder { folder, reply_to } => {
+                (*reply_to, QueryPayload::Folder(demo::folder_scan(folder)))
+            }
+            _ => continue,
+        };
+        r.fake.push_event(UiEvent::QueryResult { id, payload });
+    }
+    // Keep the non-query commands for the test to inspect.
+    for c in sent {
+        if !matches!(
+            c,
+            UiCommand::LoadGame { .. }
+                | UiCommand::QueryStats { .. }
+                | UiCommand::MeasurePrefix { .. }
+                | UiCommand::ScanFolder { .. }
+        ) {
+            r.fake.record(c);
+        }
+    }
+}
+
+/// Run, answer queries, run again (twice, for queries sent in response).
+pub fn settle(r: &mut Rig) {
+    for _ in 0..3 {
+        r.h.run_steps(2);
+        serve(r);
+    }
+    r.h.run();
+}

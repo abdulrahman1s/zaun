@@ -319,6 +319,18 @@ pub fn host_view() -> HostView {
         mangohud: false,
         x11: false,
         version: "0.1.0".into(),
+        home: PathBuf::from(HOME),
+        user_dirs: [
+            UserDir::Desktop,
+            UserDir::Documents,
+            UserDir::Downloads,
+            UserDir::Music,
+            UserDir::Pictures,
+            UserDir::Videos,
+        ]
+        .into_iter()
+        .map(|d| (d, PathBuf::from(HOME).join(user_dir_name(d))))
+        .collect(),
     }
 }
 

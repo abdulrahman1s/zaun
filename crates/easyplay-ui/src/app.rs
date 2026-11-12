@@ -138,6 +138,8 @@ pub struct UiState {
     pub picks: Vec<PickPurpose>,
     /// Tag editor text.
     pub tag_text: String,
+    /// Folders picked for sharing, applied (and checked) by the screen next frame.
+    pub shares: Vec<(Option<GameId>, PathBuf)>,
 }
 
 impl UiState {
@@ -170,6 +172,7 @@ impl UiState {
             dnd: DndState::default(),
             picks: Vec::new(),
             tag_text: String::new(),
+            shares: Vec::new(),
         }
     }
 
@@ -609,7 +612,6 @@ impl EasyPlayApp {
     }
 
     fn on_pick(&mut self, r: PickResult) {
-        let now = self.clock.now();
         let s = &mut self.state;
         let Some(first) = r.paths.first().cloned() else {
             return;
@@ -625,34 +627,7 @@ impl EasyPlayApp {
                     origin: OpenOrigin::Picker,
                 });
             }
-            PickPurpose::FolderGrant(Some(game)) => {
-                if s.details.game == Some(game)
-                    && let Some(p) = &mut s.details.protection
-                {
-                    p.add_folder(first, now);
-                    let draft = p.draft.clone();
-                    let a = assess_draft(&self.bridge, &s.details, &draft);
-                    if let Some(p) = &mut s.details.protection {
-                        p.assessment = a;
-                    }
-                }
-            }
-            PickPurpose::FolderGrant(None) => {
-                if let Some(setup) = &mut s.setup {
-                    let mut e = details::PolicyEditor::new(
-                        setup.draft.policy.clone(),
-                        setup.assessment.clone(),
-                    );
-                    e.add_folder(first, now);
-                    setup.draft.policy = e.draft;
-                    setup.assessment = self.bridge.assess(
-                        None,
-                        &setup.name,
-                        setup.draft.root.as_deref(),
-                        &setup.draft.policy,
-                    );
-                }
-            }
+            PickPurpose::FolderGrant(game) => s.shares.push((game, first)),
             PickPurpose::SaveFolder(game) => {
                 let loc = SaveDataLocation::External { dir: first };
                 match game {

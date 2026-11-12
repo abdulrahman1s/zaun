@@ -44,6 +44,8 @@ pub struct SetupVm {
     pub name: String,
     /// The arguments field (More options → Launch).
     pub args: String,
+    /// The last rejected folder, explained.
+    pub folder_error: Option<String>,
 }
 
 impl SetupVm {
@@ -59,6 +61,7 @@ impl SetupVm {
             more: false,
             acknowledged: false,
             phase: SetupPhase::Editing,
+            folder_error: None,
         }
     }
 
