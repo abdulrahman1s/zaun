@@ -7,6 +7,7 @@
 
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde::Deserialize;
@@ -18,6 +19,7 @@ use crate::clock::Timestamp;
 use crate::config::schema::{ArtworkOnline, ArtworkPrefs};
 use crate::consts::{STEAM_CDN_HOST, STEAM_STORE_HOST};
 use crate::error::Result;
+use crate::fsx::Fs;
 use crate::ids::GameId;
 use crate::model::{ArtOrigin, ArtSlot, ArtworkRef, Game};
 use crate::storage::ArtworkRepo;
@@ -66,6 +68,44 @@ pub trait UmuDbSteamId: Send + Sync {
 impl<F: Fn(&Game) -> Option<u32> + Send + Sync> UmuDbSteamId for F {
     fn steam_app_id(&self, game: &Game) -> Option<u32> {
         self(game)
+    }
+}
+
+/// The real step 3.2: `identity::hints::read_steam_appid` through [`Fs`] (a regular file of
+/// at most 64 bytes, symlinks ignored).
+#[derive(Clone)]
+pub struct FsAppIdFile {
+    fs: Arc<dyn Fs>,
+}
+
+impl FsAppIdFile {
+    /// A reader over `fs`.
+    pub fn new(fs: Arc<dyn Fs>) -> Self {
+        Self { fs }
+    }
+}
+
+impl std::fmt::Debug for FsAppIdFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("FsAppIdFile")
+    }
+}
+
+impl AppIdFile for FsAppIdFile {
+    fn read_app_id(&self, game_root: &Path) -> Option<u32> {
+        crate::identity::hints::read_steam_appid(&*self.fs, game_root)
+    }
+}
+
+/// Step 3.3 placeholder: `runtime::umu_db` does not exist yet, so no game has a umu-database
+/// entry and this step never finds an ID. Replace with the real lookup when the umu-database
+/// module lands (ART-007 note).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoUmuDb;
+
+impl UmuDbSteamId for NoUmuDb {
+    fn steam_app_id(&self, _game: &Game) -> Option<u32> {
+        None
     }
 }
 

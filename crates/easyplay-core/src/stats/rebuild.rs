@@ -1,9 +1,11 @@
 //! Recomputing `game_stats` and `playtime_daily` from `sessions` (STATISTICS §7), the
 //! start-up consistency check, and recomputing `counted` after `min_session_secs` changes.
 //!
-//! The aggregation mirrors the incremental SQL of `SessionRepo::close_session` exactly, so
-//! for sessions closed in start order a rebuild reproduces the incremental tables (the
-//! `rebuild_equals_incremental` property test). An all-zero `game_stats` row and a missing
+//! The aggregation mirrors the incremental SQL of `SessionRepo::close_session` exactly and
+//! is order-independent (first played = earliest counted start, last played = latest counted
+//! end, last launch = latest start; STATISTICS §2), so a rebuild reproduces the incremental
+//! tables whatever order sessions were closed in (the `rebuild_equals_incremental` and
+//! `out_of_order_closes_equal_a_rebuild` tests). An all-zero `game_stats` row and a missing
 //! row mean the same ("never played"); [`normalized_stats`] compares them as equal.
 
 use std::collections::BTreeMap;
@@ -64,7 +66,8 @@ pub struct Aggregates {
     pub days: BTreeMap<(GameKey, u32), (u64, u32)>,
 }
 
-/// Aggregate ended sessions as the incremental path would, applying them in start order.
+/// Aggregate ended sessions as the incremental path would (the result does not depend on
+/// the order of `sessions`).
 pub fn aggregate(sessions: &[Session], include_removed: bool) -> Aggregates {
     let mut ended: Vec<&Session> = sessions
         .iter()
@@ -81,16 +84,18 @@ pub fn aggregate(sessions: &[Session], include_removed: bool) -> Aggregates {
                     let st = agg.games.entry(g).or_insert_with(|| GameStats::empty(g));
                     st.total_ms += d;
                     st.sessions += 1;
-                    st.first_played_at = st.first_played_at.or(Some(started));
+                    let ended = s.ended_at.unwrap_or(started);
+                    st.first_played_at =
+                        Some(st.first_played_at.map_or(started, |f| f.min(started)));
                     st.last_played_at =
-                        Some(st.last_played_at.unwrap_or(Timestamp::EPOCH).max(started));
+                        Some(st.last_played_at.unwrap_or(Timestamp::EPOCH).max(ended));
                     st.longest_ms = st.longest_ms.max(d);
-                    st.last_launch_at = Some(started);
+                    st.last_launch_at = Some(st.last_launch_at.map_or(started, |l| l.max(started)));
                     add_days(&mut agg, GameKey::Game(g), s, d);
                 } else if s.kind == SessionKind::Game {
                     let st = agg.games.entry(g).or_insert_with(|| GameStats::empty(g));
                     st.failed_launches += 1;
-                    st.last_launch_at = Some(started);
+                    st.last_launch_at = Some(st.last_launch_at.map_or(started, |l| l.max(started)));
                 }
             }
             None if include_removed && s.counted => {

@@ -351,28 +351,24 @@ fn rank(sums: BTreeMap<GameKey, u64>, limit: usize) -> Vec<Ranking> {
     v
 }
 
-/// Per-game sums in a range: all time from `game_stats` (one row per game); bounded ranges
-/// with one indexed `SUM` per game that has playtime at all, which stays within the §6
-/// budget where scanning every daily row does not. Kept history of removed games is part
-/// of the totals and series but not of rankings (the repository has no grouped query for
-/// it yet).
+/// Per-key sums in a range: all time from `game_stats` (one row per game) plus kept history
+/// of removed games; bounded ranges with one grouped scan of `playtime_daily`
+/// (`StatsRepo::playtime_by_key`), which includes kept history too.
 fn key_sums<S: StatsRepo + ?Sized>(
     store: &mut S,
     range: &DateRange,
 ) -> StorageResult<BTreeMap<GameKey, u64>> {
-    let mut sums = BTreeMap::new();
-    let played = store.all_game_stats()?;
-    if range.from.is_none() {
-        for s in played {
-            sums.insert(GameKey::Game(s.game_id), s.total_ms);
-        }
-        return Ok(sums);
-    }
     let (from, to) = range.keys();
-    for s in played.into_iter().filter(|s| s.total_ms > 0) {
-        let key = GameKey::Game(s.game_id);
-        let ms = store.playtime_sum(Some(&key), from, to)?;
-        sums.insert(key, ms);
+    if range.from.is_some() {
+        return Ok(store.playtime_by_key(from, to)?.into_iter().collect());
+    }
+    let mut sums: BTreeMap<GameKey, u64> = store
+        .playtime_by_key(0, u32::MAX)?
+        .into_iter()
+        .filter(|(k, _)| matches!(k, GameKey::Removed(_)))
+        .collect();
+    for s in store.all_game_stats()? {
+        sums.insert(GameKey::Game(s.game_id), s.total_ms);
     }
     Ok(sums)
 }
@@ -382,16 +378,15 @@ fn library<S: StatsRepo + ?Sized>(
     ctx: &QueryContext,
     range: &DateRange,
 ) -> StorageResult<LibraryOverview> {
-    let all = store.daily_totals(0, u32::MAX)?;
     let today = key_days(date_key(ctx.today));
-    let played: BTreeSet<i64> = all
-        .iter()
-        .filter(|d| d.ms > 0)
-        .map(|d| key_days(d.day))
+    let played: BTreeSet<i64> = store
+        .played_days(0, u32::MAX)?
+        .into_iter()
+        .map(key_days)
         .collect();
     let (current_streak, longest_streak) = streaks(&played, today);
     let (kf, kt) = range.keys();
-    let in_range: Vec<_> = all.iter().filter(|d| d.day >= kf && d.day <= kt).collect();
+    let in_range = store.daily_totals(kf, kt)?;
     let daily: BTreeMap<u32, u64> = in_range.iter().map(|d| (d.day, d.ms)).collect();
     let (from, to) = series_bounds(range, in_range.first().map(|d| d.day));
     let sums = key_sums(store, range)?;

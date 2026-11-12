@@ -233,6 +233,43 @@ impl<S: Store + ?Sized> StatsRepo for S {
         })
     }
 
+    fn playtime_by_key(&mut self, from: u32, to: u32) -> StorageResult<Vec<(GameKey, u64)>> {
+        conn(self).run(async move |c| {
+            let rows: Vec<(String, i64)> = ormlite::query_as(
+                "SELECT game_key, sum(ms) AS t FROM playtime_daily WHERE day BETWEEN ? AND ? \
+                 GROUP BY game_key HAVING t > 0 ORDER BY game_key",
+            )
+            .bind(i64::from(from))
+            .bind(i64::from(to))
+            .fetch_all(&mut *c)
+            .await
+            .map_err(map_sqlx)?;
+            rows.into_iter()
+                .map(|(k, ms)| {
+                    let key = GameKey::from_column(&k).ok_or_else(|| {
+                        StorageError::Decode(format!("playtime_daily.game_key {k:?}"))
+                    })?;
+                    Ok((key, uint(ms)))
+                })
+                .collect()
+        })
+    }
+
+    fn played_days(&mut self, from: u32, to: u32) -> StorageResult<Vec<u32>> {
+        conn(self).run(async move |c| {
+            let rows: Vec<(i64,)> = ormlite::query_as(
+                "SELECT day FROM playtime_daily WHERE day BETWEEN ? AND ? \
+                 GROUP BY day HAVING sum(ms) > 0 ORDER BY day",
+            )
+            .bind(i64::from(from))
+            .bind(i64::from(to))
+            .fetch_all(&mut *c)
+            .await
+            .map_err(map_sqlx)?;
+            Ok(rows.into_iter().map(|(d,)| uint32(d)).collect())
+        })
+    }
+
     fn clear_aggregates(&mut self) -> StorageResult<()> {
         conn(self).atomic(async |c| {
             exec_args(c, "DELETE FROM game_stats", &[]).await?;
