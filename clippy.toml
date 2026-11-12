@@ -1,0 +1,11 @@
+# Workspace clippy configuration. Crates may carry their own clippy.toml (clippy reads the
+# one next to the crate's Cargo.toml first); those files repeat this list and add to it.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-dbg-in-tests = false
+
+disallowed-methods = [
+    { path = "std::time::SystemTime::now", reason = "use easyplay_core::clock::Clock (MODULES §2 clock)" },
+    { path = "std::time::Instant::now", reason = "use easyplay_core::clock::Clock (MODULES §2 clock)" },
+    { path = "std::process::Command::new", reason = "processes are started only by host::runner and session::spawn (ARCH-002)" },
+]

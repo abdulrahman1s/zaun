@@ -1,0 +1,18 @@
+# easyplay-ui: the workspace list plus blocking receives and file access, which the UI thread
+# must never perform (ARCH-002, PERFORMANCE §2). Keep the first three entries in sync with
+# the workspace clippy.toml.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+
+disallowed-methods = [
+    { path = "std::time::SystemTime::now", reason = "use easyplay_core::clock::Clock (MODULES §2 clock)" },
+    { path = "std::time::Instant::now", reason = "use easyplay_core::clock::Clock (MODULES §2 clock)" },
+    { path = "std::process::Command::new", reason = "the UI never spawns processes (ARCHITECTURE §3 rule 2)" },
+    { path = "std::sync::mpsc::Receiver::recv", reason = "the UI thread never blocks; use try_recv" },
+    { path = "std::sync::mpsc::Receiver::recv_timeout", reason = "the UI thread never blocks; use try_recv" },
+    { path = "std::fs::write", reason = "the UI performs no I/O" },
+    { path = "std::fs::read", reason = "the UI performs no I/O" },
+    { path = "std::fs::File::open", reason = "the UI performs no I/O" },
+    { path = "std::fs::File::create", reason = "the UI performs no I/O" },
+    { path = "std::fs::OpenOptions::open", reason = "the UI performs no I/O" },
+]

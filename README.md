@@ -6,9 +6,10 @@ Every Windows program runs through [`umu-run`](https://github.com/Open-Wine-Comp
 inside a [Bubblewrap](https://github.com/containers/bubblewrap) sandbox that EasyPlay builds
 for that one game. The interface is built with [`egui`](https://github.com/emilk/egui).
 
-**This repository contains no application code.** It is the authoritative blueprint that an
-implementation agent follows file by file. If the code and these documents ever disagree, the
-documents win until they are changed by an explicit decision record.
+This repository holds the authoritative blueprint (`docs/`) and the implementation that
+follows it file by file (`crates/`, in progress: see [docs/tasks/STATUS.md](docs/tasks/STATUS.md)).
+If the code and these documents ever disagree, the documents win until they are changed by
+an explicit decision record.
 
 | | |
 |---|---|
@@ -146,3 +147,33 @@ easyplay/
 ```
 
 The full tree with one line per file is in [docs/MODULES.md](docs/MODULES.md).
+
+## Contributing
+
+The toolchain (Rust 1.99.1 from `rust-toolchain.toml`, with the musl target), `bubblewrap`,
+`umu-launcher`, `cargo-deny`, `cargo-nextest` and `cargo-insta` come from the Nix dev shell:
+
+```sh
+nix develop                     # or `direnv allow` with the provided .envrc
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
+cargo deny check
+```
+
+Without entering the shell, prefix any command: `nix develop -c cargo test --workspace`.
+
+| Task | Command |
+|---|---|
+| End-to-end tests that need real `bwrap` and user namespaces | `EASYPLAY_E2E=1 cargo test --workspace` |
+| Static init shim, as released | `cargo build --release -p easyplay-init --target x86_64-unknown-linux-musl` (fully specified profile: `--profile init-release`) |
+| Compiled-in shim location | set `EASYPLAY_LIBEXEC_DIR` at build time (default `/usr/libexec/easyplay`) |
+| Update snapshots | `cargo insta review` |
+
+Rules enforced by the build: no `unsafe` outside `easyplay-init`, `core::session::sys` and
+`core::sandbox::fd`; time only through `easyplay_core::clock::Clock`; files in core only
+through `easyplay_core::fsx::Fs`; processes only through `host::runner` and `session::spawn`
+(`clippy.toml`). Work through the tasks in [docs/tasks](docs/tasks/README.md) and tick them in
+[docs/tasks/STATUS.md](docs/tasks/STATUS.md); commits follow Conventional Commits (the release
+workflow derives versions from them).

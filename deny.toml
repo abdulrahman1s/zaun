@@ -1,0 +1,73 @@
+# cargo-deny: licences, advisories, duplicate versions, sources (ARCH-002).
+# Run with `cargo deny check`.
+
+[graph]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "aarch64-unknown-linux-gnu"]
+all-features = false
+
+[advisories]
+version = 2
+yanked = "deny"
+# Only crates the workspace depends on directly fail on "unmaintained"; transitive ones
+# (zbus' zvariant family via notify-rust) are reported by `cargo deny check` as warnings.
+unmaintained = "workspace"
+ignore = [
+    # sqlx-sqlite 0.9 pins libsqlite3-sys < 0.38; the fix is in 0.39. Revisit when sqlx
+    # releases a compatible version (task STORE-002 owns the storage dependency).
+    { id = "RUSTSEC-2026-0459", reason = "no sqlx 0.9 compatible fix yet; storage not implemented (ADR-0017)" },
+]
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+# GPL-3.0-or-later (EasyPlay itself, OQ-2) is compatible with every licence below.
+allow = [
+    "GPL-3.0-or-later",
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MPL-2.0",
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+    "0BSD",
+]
+
+[[licenses.clarify]]
+crate = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[licenses.private]
+ignore = true
+
+[bans]
+# The egui/wgpu/zbus/sqlx trees bring unavoidable duplicates; report them without failing.
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+    # ARCHITECTURE §11 "deliberately absent" (direct use; `lazy_static` arrives transitively
+    # through tracing-subscriber and cannot be banned).
+    { crate = "async-std" },
+    { crate = "reqwest" },
+    { crate = "ureq" },
+    { crate = "chrono" },
+    { crate = "egui_plot" },
+    { crate = "sysinfo" },
+    { crate = "rusqlite", reason = "superseded by ormlite/sqlx (ADR-0017)" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -1,0 +1,36 @@
+[package]
+name = "easyplay"
+description = "Run Windows games through umu-run inside a per-game bubblewrap sandbox"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "easyplay"
+path = "src/main.rs"
+
+[features]
+default = ["gamepad"]
+gamepad = ["easyplay-ui/gamepad"]
+seccomp = ["easyplay-core/seccomp"]
+wayland-security-context = []
+dev-inspection = ["easyplay-ui/dev-inspection"]
+
+[dependencies]
+easyplay-core.workspace = true
+easyplay-ui = { workspace = true, default-features = false }
+clap.workspace = true
+anyhow.workspace = true
+signal-hook.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+easyplay-testkit.workspace = true
+
+[lints]
+workspace = true

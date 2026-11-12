@@ -1,0 +1,152 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/easyplay-core",
+    "crates/easyplay-ui",
+    "crates/easyplay",
+    "crates/easyplay-init",
+    "crates/easyplay-testkit",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/easyplay/easyplay"
+authors = ["Abdulrahman <mail@abdulrahman.dev>"]
+publish = false
+
+# Versions are the baseline on 2026-11-12 (ARCHITECTURE §11): the egui family is pinned
+# with `=`, everything else uses caret requirements.
+[workspace.dependencies]
+# Workspace crates
+easyplay-core = { path = "crates/easyplay-core" }
+easyplay-ui = { path = "crates/easyplay-ui" }
+easyplay-testkit = { path = "crates/easyplay-testkit" }
+
+# UI
+eframe = { version = "=0.37.0", default-features = false, features = [
+    "wgpu",
+    "glow",
+    "wayland",
+    "x11",
+    "accesskit",
+    "system_fonts",
+    "clipboard",
+] }
+egui = { version = "=0.37.0" }
+egui_extras = { version = "=0.37.0", default-features = false, features = ["image", "svg"] }
+rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
+gilrs = { version = "0.11" }
+
+# Core
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+toml = "1.2"
+thiserror = "2.0"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", default-features = false, features = [
+    "std",
+    "fmt",
+    "json",
+    "env-filter",
+    "registry",
+    "ansi",
+] }
+tracing-appender = "0.2.3"
+sha2 = "0.11"
+uuid = { version = "1.16", features = ["v7", "serde"] }
+jiff = "0.2"
+rustix = { version = "1.0", features = ["fs", "process", "pipe", "event", "system", "thread"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "ico", "bmp"] }
+pelite = "0.10"
+bitflags = "2.9"
+smallvec = { version = "1.15", features = ["serde", "union"] }
+base64 = "0.23"
+crossbeam-channel = "0.5.15"
+parking_lot = "0.13"
+notify-rust = { version = "4.11", default-features = false, features = ["z"] }
+seccompiler = "0.5"
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+
+# Persistence (ADR-0017): ormlite on sqlx, driven by a private current-thread runtime.
+ormlite = { version = "0.25", default-features = false, features = [
+    "sqlite",
+    "runtime-tokio-rustls",
+    "json",
+    "uuid",
+] }
+tokio = { version = "1.45", default-features = false, features = ["rt"] }
+
+# Binary
+clap = { version = "4.5", default-features = false, features = [
+    "derive",
+    "std",
+    "help",
+    "usage",
+    "error-context",
+    "color",
+] }
+anyhow = "1.0"
+signal-hook = "0.4"
+
+# Init shim
+libc = "0.2.172"
+
+# Development
+egui_kittest = { version = "=0.37.0", features = ["wgpu", "snapshot"] }
+insta = { version = "1.43", features = ["json"] }
+tempfile = "3.20"
+proptest = "1.7"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unused_qualifications = "warn"
+unreachable_pub = "allow"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "warn"
+expect_used = "warn"
+undocumented_unsafe_blocks = "deny"
+disallowed_methods = "deny"
+disallowed_types = "deny"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.epaint]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16
+panic = "unwind"
+strip = "debuginfo"
+
+# `panic` and `lto` cannot be set per package; `cargo build --release -p easyplay-init`
+# therefore uses unwinding and thin LTO. Packaging scripts that want the fully specified
+# shim profile (ARCHITECTURE §12) build with `--profile init-release`.
+[profile.release.package.easyplay-init]
+opt-level = "s"
+codegen-units = 1
+
+[profile.init-release]
+inherits = "release"
+opt-level = "s"
+panic = "abort"
+lto = true
+codegen-units = 1
+strip = "symbols"

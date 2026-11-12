@@ -1,0 +1,21 @@
+[package]
+name = "easyplay-testkit"
+description = "Test fakes, fixtures and golden-file helpers for EasyPlay (dev-dependency only)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+easyplay-core.workspace = true
+parking_lot.workspace = true
+tempfile.workspace = true
+insta.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

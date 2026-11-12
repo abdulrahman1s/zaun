@@ -1,0 +1,48 @@
+[package]
+name = "easyplay-core"
+description = "EasyPlay core: domain model, storage, sandbox planning, launching (no UI)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# Build the seccomp BPF program (BUBBLEWRAP_SANDBOX §9); default from milestone 15.
+seccomp = ["dep:seccompiler"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+jiff.workspace = true
+rustix.workspace = true
+image.workspace = true
+pelite.workspace = true
+bitflags.workspace = true
+smallvec.workspace = true
+base64.workspace = true
+crossbeam-channel.workspace = true
+parking_lot.workspace = true
+notify-rust.workspace = true
+ormlite.workspace = true
+tokio.workspace = true
+seccompiler = { workspace = true, optional = true }
+
+[dev-dependencies]
+easyplay-testkit.workspace = true
+tempfile.workspace = true
+insta.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true
