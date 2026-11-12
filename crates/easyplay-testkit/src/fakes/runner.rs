@@ -1,12 +1,11 @@
-//! `ScriptedRunner`: expected argv → canned output.
-//!
-//! The `host::runner::CommandRunner` trait does not exist yet (milestone M3, task HOST-*);
-//! when it is added, implement it for `ScriptedRunner` by delegating to
-//! [`ScriptedRunner::run`].
+//! `ScriptedRunner`: expected argv → canned output. Implements
+//! `easyplay_core::host::CommandRunner` by matching the command's program followed by its
+//! arguments (the environment and timeout are recorded but not matched).
 
 use std::collections::VecDeque;
 use std::ffi::{OsStr, OsString};
 
+use easyplay_core::host::{CommandOutput, CommandRunner, CommandSpec, RunError};
 use parking_lot::Mutex;
 
 /// The result of one scripted command.
@@ -18,6 +17,8 @@ pub struct CannedOutput {
     pub stdout: Vec<u8>,
     /// Standard error.
     pub stderr: Vec<u8>,
+    /// The command "ran" into its timeout.
+    pub timed_out: bool,
 }
 
 impl CannedOutput {
@@ -27,6 +28,7 @@ impl CannedOutput {
             status: 0,
             stdout: stdout.into(),
             stderr: Vec::new(),
+            timed_out: false,
         }
     }
 
@@ -36,6 +38,17 @@ impl CannedOutput {
             status,
             stdout: Vec::new(),
             stderr: stderr.into(),
+            timed_out: false,
+        }
+    }
+
+    /// Killed after its timeout (status 137).
+    pub fn timeout() -> Self {
+        Self {
+            status: 128 + 9,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            timed_out: true,
         }
     }
 }
@@ -129,6 +142,19 @@ impl ScriptedRunner {
     }
 }
 
+impl CommandRunner for ScriptedRunner {
+    fn run(&self, cmd: &CommandSpec) -> Result<CommandOutput, RunError> {
+        let out = ScriptedRunner::run(self, &cmd.argv())
+            .map_err(|e| RunError::Unexpected(format!("{:?}", e.0)))?;
+        Ok(CommandOutput {
+            status: out.status,
+            stdout: out.stdout,
+            stderr: out.stderr,
+            timed_out: out.timed_out,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,5 +178,30 @@ mod tests {
         assert!(r.run(&["bwrap"]).is_err());
         assert_eq!(r.calls().len(), 5);
         assert_eq!(r.unused(), vec![vec![OsString::from("never")]]);
+    }
+
+    #[test]
+    fn implements_command_runner() {
+        let r = ScriptedRunner::new()
+            .expect(
+                &["/usr/bin/bwrap", "--version"],
+                CannedOutput::ok("bubblewrap 0.12.0\n"),
+            )
+            .expect(&["/usr/bin/bwrap", "--help"], CannedOutput::timeout());
+        let runner: &dyn CommandRunner = &r;
+        let out = runner
+            .run(&CommandSpec::new("/usr/bin/bwrap", &["--version"]))
+            .unwrap();
+        assert!(out.success());
+        assert!(
+            runner
+                .run(&CommandSpec::new("/usr/bin/bwrap", &["--help"]))
+                .unwrap()
+                .timed_out
+        );
+        assert!(matches!(
+            runner.run(&CommandSpec::new("/usr/bin/bwrap", &["x"])),
+            Err(RunError::Unexpected(_))
+        ));
     }
 }

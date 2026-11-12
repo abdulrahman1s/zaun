@@ -2,6 +2,9 @@
 //! trees. Each file is added with the milestone that needs it (MODULES §11); this module only
 //! hosts small shared samples for now.
 
+pub mod host_trees;
+pub mod runtime_trees;
+
 use std::path::Path;
 
 /// Write the directory tree used by walk and removal tests into `fs`:

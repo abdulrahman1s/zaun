@@ -1,0 +1,6 @@
+#Name	Version		Runtime	Runtime_Version	Comment
+depot	3.0.20261110.268881			# Overall version number
+pressure-vessel	0.20261110.0			
+pressure-vessel-arm64	0.20261110.0			
+scripts	0.20261110.0			# from steam-runtime-tools
+sniper	3.0.20261110.268881	sniper	3.0.20261110.268881	# sniper_platform_3.0.20261110.268881/
