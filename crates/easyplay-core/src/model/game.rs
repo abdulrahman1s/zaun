@@ -63,6 +63,10 @@ pub struct Game {
     pub flags: GameFlags,
     /// Last launch.
     pub last_launched_at: Option<Timestamp>,
+    /// Steam app ID used to fetch artwork from the Steam CDN (ADR-0018); `None` = unknown.
+    pub steam_app_id: Option<u32>,
+    /// Whether the user chose the Steam app ID (it is then never replaced automatically).
+    pub steam_app_id_is_user_set: bool,
     /// Executables; exactly one has role `Primary`.
     pub executables: Vec<Executable>,
 }
@@ -108,6 +112,12 @@ impl Game {
             return Err(ValidationError::new(
                 "game.executables",
                 Problem::ExactlyOnePrimary { found: primaries },
+            ));
+        }
+        if self.steam_app_id == Some(0) {
+            return Err(ValidationError::new(
+                "game.steam_app_id",
+                Problem::OutOfRange,
             ));
         }
         for exe in &self.executables {

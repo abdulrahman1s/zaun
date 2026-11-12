@@ -180,6 +180,8 @@ pub fn game(n: u32, exes: u32) -> Game {
         prefix_prepared_with: None,
         flags: GameFlags::empty(),
         last_launched_at: None,
+        steam_app_id: (n % 3 == 1).then_some(367_520 + n),
+        steam_app_id_is_user_set: n % 6 == 1,
         executables: (0..exes.max(1)).map(|k| executable(n, k, &root)).collect(),
     }
 }

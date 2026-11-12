@@ -48,6 +48,8 @@ pub(super) struct GameRow {
     pub prefix_prepared_with: Option<String>,
     pub flags: i64,
     pub last_launched_at: Option<i64>,
+    pub steam_app_id: Option<i64>,
+    pub steam_app_id_is_user_set: bool,
 }
 
 impl GameRow {
@@ -78,6 +80,8 @@ impl GameRow {
             prefix_prepared_with: g.prefix_prepared_with.as_ref().map(|r| r.to_string()),
             flags: i64::from(g.flags.bits()),
             last_launched_at: ms_opt(g.last_launched_at),
+            steam_app_id: g.steam_app_id.map(i64::from),
+            steam_app_id_is_user_set: g.steam_app_id_is_user_set,
         })
     }
 
@@ -121,6 +125,8 @@ impl GameRow {
                 .transpose()?,
             flags: GameFlags::from_bits_retain(u32::try_from(self.flags).unwrap_or(0)),
             last_launched_at: ts_opt(self.last_launched_at),
+            steam_app_id: self.steam_app_id.and_then(|v| u32::try_from(v).ok()),
+            steam_app_id_is_user_set: self.steam_app_id_is_user_set,
             executables,
         })
     }
@@ -184,6 +190,19 @@ impl GameRow {
         }
         if let Some(f) = p.flags {
             self.flags = i64::from(f.bits());
+        }
+        if let Some(id) = p.steam_app_id {
+            if id == Some(0) {
+                return Err(crate::model::ValidationError::new(
+                    "game.steam_app_id",
+                    crate::model::Problem::OutOfRange,
+                )
+                .into());
+            }
+            self.steam_app_id = id.map(i64::from);
+        }
+        if let Some(v) = p.steam_app_id_is_user_set {
+            self.steam_app_id_is_user_set = v;
         }
         self.updated_at = now.as_millis();
         Ok(())
@@ -437,7 +456,7 @@ mod tests {
             "policy":{policy},"policy_updated_at":0,"launch":{launch},"umu_id":null,"store":null,
             "runtime":"default","runtime_follow_updates":true,"runtime_last_resolved":null,
             "prefix_tainted_at":null,"prefix_prepared_with":null,"flags":0,
-            "last_launched_at":null,"executables":[{exe}]}}"#
+            "last_launched_at":null,"steam_app_id":null,"steam_app_id_is_user_set":false,"executables":[{exe}]}}"#
         );
         serde_json::from_str(&json).unwrap()
     }

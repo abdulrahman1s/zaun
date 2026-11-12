@@ -337,6 +337,11 @@ fn artwork_upsert_delete_and_unreferenced() {
     };
     db.upsert_artwork(&art(ArtSlot::Cover, 1)).unwrap();
     db.upsert_artwork(&art(ArtSlot::Icon, 2)).unwrap();
+    let mut hero = art(ArtSlot::Hero, 5);
+    hero.source = ArtOrigin::SteamCdn;
+    db.upsert_artwork(&hero).unwrap();
+    assert!(db.artwork_of(g.id).unwrap().contains(&hero));
+    assert!(db.delete_artwork(g.id, ArtSlot::Hero).unwrap());
     db.upsert_artwork(&art(ArtSlot::Cover, 3)).unwrap();
     let rows = db.artwork_of(g.id).unwrap();
     assert_eq!(rows, vec![art(ArtSlot::Cover, 3), art(ArtSlot::Icon, 2)]);
@@ -716,4 +721,45 @@ fn populate_generates_a_consistent_library() {
     let mut sorted = names.clone();
     sorted.sort();
     assert_eq!(names, sorted);
+}
+
+#[test]
+fn steam_app_id_round_trips_and_patches() {
+    let mut db = mem();
+    let mut g = games::game(2, 1);
+    g.steam_app_id = Some(367_520);
+    g.steam_app_id_is_user_set = true;
+    db.insert_game(&g).unwrap();
+    assert_eq!(db.game(g.id).unwrap().unwrap(), g);
+    let patch = GamePatch {
+        steam_app_id: Some(None),
+        steam_app_id_is_user_set: Some(false),
+        ..GamePatch::default()
+    };
+    db.update_game(g.id, &patch, t(1)).unwrap();
+    let back = db.game(g.id).unwrap().unwrap();
+    assert_eq!(
+        (back.steam_app_id, back.steam_app_id_is_user_set),
+        (None, false)
+    );
+    let set = GamePatch {
+        steam_app_id: Some(Some(570)),
+        ..GamePatch::default()
+    };
+    db.update_game(g.id, &set, t(2)).unwrap();
+    assert_eq!(db.game(g.id).unwrap().unwrap().steam_app_id, Some(570));
+    let zero = GamePatch {
+        steam_app_id: Some(Some(0)),
+        ..GamePatch::default()
+    };
+    assert!(matches!(
+        db.update_game(g.id, &zero, t(3)),
+        Err(StorageError::Invalid(_))
+    ));
+    let mut bad = games::game(3, 1);
+    bad.steam_app_id = Some(0);
+    assert!(matches!(
+        db.insert_game(&bad),
+        Err(StorageError::Invalid(_))
+    ));
 }

@@ -1217,6 +1217,7 @@ dependencies = [
  "image",
  "insta",
  "jiff",
+ "libsqlite3-sys",
  "notify-rust",
  "ormlite",
  "parking_lot 0.13.0",

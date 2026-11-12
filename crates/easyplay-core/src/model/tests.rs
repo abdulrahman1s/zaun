@@ -174,6 +174,8 @@ fn game() -> Game {
         prefix_prepared_with: Some(RuntimeName::new("GE-Proton10-25").unwrap()),
         flags: GameFlags::X11_NOTICE_ACK | GameFlags::BROAD_GRANT_ACK,
         last_launched_at: None,
+        steam_app_id: None,
+        steam_app_id_is_user_set: false,
         executables: vec![executable(ExeRole::Primary)],
     }
 }

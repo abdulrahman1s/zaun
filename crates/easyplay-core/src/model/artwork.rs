@@ -42,6 +42,8 @@ pub enum ArtOrigin {
     ExecutableIcon,
     /// Generated placeholder.
     Generated,
+    /// Downloaded from the Steam CDN (ADR-0018).
+    SteamCdn,
 }
 
 impl ArtOrigin {
@@ -51,6 +53,7 @@ impl ArtOrigin {
             ArtOrigin::File => "file",
             ArtOrigin::ExecutableIcon => "executable_icon",
             ArtOrigin::Generated => "generated",
+            ArtOrigin::SteamCdn => "steam_cdn",
         }
     }
 }

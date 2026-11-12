@@ -15,10 +15,11 @@ use toml::Value;
 
 use super::migrate;
 use super::schema::{
-    Accent, AdvancedPrefs, Appearance, CloseBehavior, ControllerDefault, General, GridDensity,
-    HandleExe, IntegrationPrefs, LaunchPrefs, LibraryView, LogLevel, LoggingPrefs, OnboardingPrefs,
-    PathPrefs, PreferencePatch, Preferences, Protection, ReduceMotion, RendererPref,
-    RuntimeDefault, RuntimePrefs, StatisticsPrefs, Theme, UnknownKeys, WeekStart,
+    Accent, AdvancedPrefs, Appearance, ArtworkOnline, ArtworkPrefs, CloseBehavior,
+    ControllerDefault, General, GridDensity, HandleExe, IntegrationPrefs, LaunchPrefs, LibraryView,
+    LogLevel, LoggingPrefs, OnboardingPrefs, PathPrefs, PreferencePatch, Preferences, Protection,
+    ReduceMotion, RendererPref, RuntimeDefault, RuntimePrefs, StatisticsPrefs, Theme, UnknownKeys,
+    WeekStart,
 };
 use crate::clock::Timestamp;
 use crate::consts::CONFIG_SCHEMA_VERSION;
@@ -42,6 +43,7 @@ const SEARCH_DIR_DENY: &[&str] = &[
 const SECTIONS: &[&str] = &[
     "general",
     "appearance",
+    "artwork",
     "protection",
     "runtime",
     "launch",
@@ -549,6 +551,18 @@ pub fn from_table(
     };
     r.finish(s);
 
+    let mut s = r.section(&mut root, "artwork");
+    let artwork = ArtworkPrefs {
+        online: r.word(
+            &mut s,
+            "online",
+            d.artwork.online,
+            &names(ArtworkOnline::ALL, ArtworkOnline::as_str),
+        ),
+        name_search: r.bool(&mut s, "name_search", d.artwork.name_search),
+    };
+    r.finish(s);
+
     let mut s = r.section(&mut root, "protection");
     let protection = Protection {
         default_preset: match r.string(&mut s, "default_preset") {
@@ -802,6 +816,7 @@ pub fn from_table(
         schema_version: CONFIG_SCHEMA_VERSION,
         general,
         appearance,
+        artwork,
         protection,
         runtime,
         launch,
