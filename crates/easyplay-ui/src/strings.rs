@@ -16,6 +16,7 @@ pub mod launch;
 pub mod menu;
 pub mod onboarding;
 pub mod picker;
+pub mod service;
 pub mod settings;
 pub mod setup;
 pub mod shortcuts;
@@ -1036,6 +1037,7 @@ mod tests {
             include_str!("strings/menu.rs"),
             include_str!("strings/onboarding.rs"),
             include_str!("strings/picker.rs"),
+            include_str!("strings/service.rs"),
             include_str!("strings/settings.rs"),
             include_str!("strings/setup.rs"),
             include_str!("strings/shortcuts.rs"),

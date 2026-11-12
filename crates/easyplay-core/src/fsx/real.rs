@@ -247,4 +247,41 @@ impl Fs for RealFs {
     fn reflink_supported(&self, dir_a: &Path, dir_b: &Path) -> FsResult<bool> {
         reflink_probe(dir_a, dir_b).map_err(|e| FsError::from_io(FsOp::Reflink, dir_a, e))
     }
+
+    fn copy_file(&self, from: &Path, to: &Path, mode: u32) -> FsResult<bool> {
+        let mut src = OpenOptions::new()
+            .read(true)
+            .custom_flags(o_nofollow())
+            .open(from)
+            .map_err(|e| FsError::from_io(FsOp::Read, from, e))?;
+        let md = src
+            .metadata()
+            .map_err(|e| FsError::from_io(FsOp::Read, from, e))?;
+        if !md.is_file() {
+            return Err(FsError::new(FsOp::Read, from, FsErrorKind::InvalidInput));
+        }
+        let mut dst = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(o_nofollow())
+            .open(to)
+            .map_err(|e| FsError::from_io(FsOp::Write, to, e))?;
+        let result = (|| -> io::Result<bool> {
+            let cloned = rustix::fs::ioctl_ficlone(&dst, &src).is_ok();
+            if !cloned {
+                io::copy(&mut src, &mut dst)?;
+            }
+            dst.set_permissions(fs::Permissions::from_mode(mode & 0o7777))?;
+            Ok(cloned)
+        })();
+        match result {
+            Ok(cloned) => Ok(cloned),
+            Err(e) => {
+                drop(dst);
+                let _ = fs::remove_file(to);
+                Err(FsError::from_io(FsOp::Write, to, e))
+            }
+        }
+    }
 }

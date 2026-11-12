@@ -471,6 +471,17 @@ pub const HOME: &str = "/home/sam";
 /// Statements and issues for `policy`, following `sandbox::explain` and the rules of
 /// `sandbox::validate` closely enough for the preview.
 pub fn assess(name: &str, root: Option<&Path>, policy: &SandboxPolicy) -> PolicyAssessment {
+    assess_in(Path::new(HOME), name, root, policy)
+}
+
+/// [`assess`] for a given home folder (the service backend's stand-in until a policy-only
+/// `sandbox::explain` exists in core).
+pub fn assess_in(
+    home: &Path,
+    name: &str,
+    root: Option<&Path>,
+    policy: &SandboxPolicy,
+) -> PolicyAssessment {
     use AccessCategory as C;
     use StatementSeverity as S;
     let mut out = Vec::new();
@@ -614,20 +625,20 @@ pub fn assess(name: &str, root: Option<&Path>, policy: &SandboxPolicy) -> Policy
     let mut issues = Vec::new();
     for g in &policy.folders {
         let p = g.canonical.as_path();
-        if p == Path::new(HOME) || p == Path::new("/") || p == Path::new("/home") {
+        if p == home || p == Path::new("/") || p == Path::new("/home") {
             issues.push(PolicyIssue::error(
                 IssueCode::PathDenied,
                 Some(p.to_path_buf()),
                 "sec.path.home|Your whole home folder can't be shared. Choose a folder inside it.",
             ));
-        } else if p.starts_with(format!("{HOME}/.ssh")) {
+        } else if p.starts_with(home.join(".ssh")) {
             issues.push(PolicyIssue::error(
                 IssueCode::PathDenied,
                 Some(p.to_path_buf()),
                 "sec.path.denied|This folder holds sign-in keys and can't be shared.",
             ));
         }
-        if !p.starts_with(HOME) && p != Path::new("/") {
+        if !p.starts_with(home) && p != Path::new("/") {
             issues.push(PolicyIssue::warning(
                 IssueCode::PathMissing,
                 Some(p.to_path_buf()),
@@ -1599,6 +1610,7 @@ impl DemoBackend {
                 s.events.push_back(UiEvent::HostChanged);
             }
             UiCommand::AnswerPrompt { .. } => {}
+            UiCommand::DiscardDraft => Self::next_setup(s),
             UiCommand::ImportArtwork { id, slot, source } => {
                 if let crate::bridge::ArtworkSource::File(p) = &source
                     && p.to_string_lossy().contains("huge")

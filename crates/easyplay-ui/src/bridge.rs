@@ -33,6 +33,7 @@
 //! | `OpenPaths` | `Command::OpenPaths` | `SetupRequested`, `Prompt`, `Failure`, or a launch |
 //! | `ScanFolder` | folder scan of GAME_LIBRARY §11 | `QueryResult(Folder)` |
 //! | `CreateGame` | `Command::CreateGame` | `LibraryChanged` (+ `LaunchProgress` when `then = Launch`) |
+//! | `DiscardDraft` | `Command::DiscardDraft` | the next queued `SetupRequested` |
 //! | `UpdateGame` | `Command::UpdateGame` with a [`GameEdit`] list | `LibraryChanged`, `QueryResult(Game)` refresh |
 //! | `RemoveGame`, `SetFavorite`, `SetHidden`, `SetTags`, `CreateTag` | library commands | `LibraryChanged` |
 //! | `ApplyPreset` | bulk preset change (GAME_LIBRARY §9) keeping folders and `game_dir` | `LibraryChanged`, `Toast` summary |
@@ -55,7 +56,10 @@
 //! `RuntimesChanged` (snapshots), `LaunchProgress { game, state }` (core `LaunchState`),
 //! `SetupRequested { draft, context }` (core `GameDraft`), `Prompt` (core `PromptRequest`),
 //! `Toast`, `Failure` (core `UserError`), `QueryResult { id, payload }`, `ArtworkFailed`,
-//! `QuitRequested`.
+//! `ShowGame`, `QuitRequested`.
+//!
+//! Three implementations ship with the crate: [`crate::service_backend::ServiceBackend`]
+//! (the real `AppService`), [`crate::demo::DemoBackend`] and [`FakeBackend`].
 //!
 //! Two implementations ship with the crate: [`crate::demo::DemoBackend`] (sample library,
 //! simulated launches; used when no service is connected) and [`FakeBackend`] (records
@@ -487,6 +491,9 @@ pub enum UiCommand {
         /// Then.
         then: AfterCreate,
     },
+    /// The setup sheet closed without saving (`Command::DiscardDraft`; the next queued
+    /// draft follows).
+    DiscardDraft,
     /// Change a game.
     UpdateGame {
         /// Game.
@@ -751,6 +758,8 @@ pub enum UiEvent {
         /// Why.
         error: UserError,
     },
+    /// Show a game's page (a known program was opened or dropped).
+    ShowGame(GameId),
     /// The service asks the window to close.
     QuitRequested,
 }

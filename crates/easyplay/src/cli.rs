@@ -37,6 +37,10 @@ pub struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     pub verbose: u8,
 
+    /// Show the sample library instead of yours (UI preview; also `EASYPLAY_PREVIEW=1`).
+    #[arg(long, hide = true)]
+    pub preview: bool,
+
     /// What to do; without a command EasyPlay starts (or focuses) the application.
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -64,6 +68,12 @@ pub enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Show running games and the latest sessions.
+    Status {
+        /// Machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
     /// List games.
     List {
         /// Machine-readable output.
@@ -89,6 +99,14 @@ pub enum Command {
         /// Do not launch after adding.
         #[arg(long)]
         no_launch: bool,
+    },
+    /// Remove a game from the library.
+    Remove {
+        /// The game.
+        game: GameArg,
+        /// Keep its private Windows storage (prefix and home).
+        #[arg(long)]
+        keep_storage: bool,
     },
     /// Show a game's settings.
     Show {
@@ -182,6 +200,22 @@ pub enum RuntimesCommand {
     Check,
     /// Verify the shared runtime against its manifest.
     Verify,
+    /// Copy the Steam Linux Runtime that umu installed in ~/.local/share/umu into EasyPlay's
+    /// store (reflinked where possible; the original is never modified).
+    Adopt {
+        /// Only this variant (default: every variant installed there and missing here).
+        #[arg(long, value_enum)]
+        variant: Option<VariantArg>,
+    },
+}
+
+/// `runtimes adopt --variant`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum VariantArg {
+    /// Steam Linux Runtime 3.0 (sniper).
+    Steamrt3,
+    /// Steam Linux Runtime 4.0.
+    Steamrt4,
 }
 
 /// `--preset`.
@@ -340,6 +374,10 @@ mod tests {
                 Some(Command::Runtimes { command: c })
             );
         }
+        assert_eq!(
+            parse(&["status", "--json"]).command,
+            Some(Command::Status { json: true })
+        );
         assert!(matches!(
             parse(&["supervise", "--plan", "/run/p.json"]).command,
             Some(Command::Supervise { .. })

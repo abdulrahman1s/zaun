@@ -229,6 +229,14 @@ pub const fn entry(code: ErrorCode) -> Entry {
             "What was already downloaded is kept and the download resumes next time.",
             &[A::Retry],
         ),
+        C::RtNotInstalled => e(
+            "The compatibility layer is not installed",
+            "This version of EasyPlay cannot download it yet. Install a Proton build with Steam \
+             or another launcher, and let EasyPlay copy the Steam Linux Runtime that is already \
+             on this computer (Settings, Compatibility layers; or the command \
+             \"easyplay runtimes adopt\").",
+            &[A::OpenSettings(SettingsTab::Runtimes), A::ChangeRuntime],
+        ),
         C::RtSharedTampered => e(
             "The shared compatibility runtime was modified",
             "EasyPlay found changes in the shared runtime and removed it. It will be downloaded again.",

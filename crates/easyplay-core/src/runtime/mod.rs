@@ -7,13 +7,16 @@
 //! skeleton. Provisioning, manifests, audits, garbage collection and the fix database arrive
 //! in M7 (RT-006 … RT-014).
 
+pub mod adopt;
 pub mod catalog;
 pub mod discovery;
+pub mod manifest;
 pub mod resolver;
 pub mod service;
 pub mod store;
 pub mod vdf;
 
+pub use adopt::{AdoptReport, adopt_slr, adoptable};
 pub use catalog::{CatalogDiff, CatalogStore, MemCatalogStore, RuntimeCatalog, SqliteCatalogStore};
 pub use discovery::{Discovery, ProtonBuild, RejectReason, Rejected, SlrInstall, discover};
 pub use resolver::{

@@ -5,19 +5,23 @@ use std::sync::Arc;
 
 use easyplay_core::Error;
 use easyplay_core::clock::{Clock, SystemClock};
-use easyplay_core::consts::{APP_VERSION, INIT_BIN_NAME, LIBEXEC_DIR};
+use easyplay_core::consts::{INIT_BIN_NAME, LIBEXEC_DIR};
+use easyplay_core::diagnostics::doctor_report;
 use easyplay_core::error::ErrorCode;
 use easyplay_core::fsx::{Fs, RealFs};
 use easyplay_core::host::{
-    CheckStatus, DOCTOR_FORMAT, DoctorContext, DoctorReport, HostProbe, LiveHostProbe, ProbeDeps,
-    RealAccess, RealRunner, host_checks,
+    CheckStatus, DoctorContext, HostProbe, LiveHostProbe, ProbeDeps, RealAccess, RealRunner,
 };
+use easyplay_core::jobs::CancelToken;
 use easyplay_core::jobs::{JobPool, JobPoolConfig};
+use easyplay_core::model::SlrVariant;
 use easyplay_core::paths::{AppPaths, PathEnv};
 use easyplay_core::runtime::{
     LocalRuntimeService, MemCatalogStore, RuntimeCatalog, RuntimeSettings, RuntimeStore,
-    catalog_check,
 };
+use easyplay_core::runtime::{adopt_slr, adoptable};
+use easyplay_core::storage::lock::{LibraryLock, LockMode};
+use easyplay_core::storage::{RuntimeRepo, StorageError};
 
 struct Ctx {
     env: PathEnv,
@@ -95,7 +99,7 @@ pub fn doctor(as_json: bool) -> Result<(), Error> {
     {
         init_candidates.push(dir.join(INIT_BIN_NAME));
     }
-    let mut checks = host_checks(
+    let report = doctor_report(
         &facts,
         &DoctorContext {
             fs: &*c.fs,
@@ -103,14 +107,8 @@ pub fn doctor(as_json: bool) -> Result<(), Error> {
             uid: c.env.uid(),
             init_candidates,
         },
+        &scan_runtimes(&c, facts.fs.reflink_ok),
     );
-    checks.push(catalog_check(&scan_runtimes(&c, facts.fs.reflink_ok)));
-    let report = DoctorReport {
-        format: DOCTOR_FORMAT,
-        version: APP_VERSION.to_owned(),
-        checks,
-        facts: (*facts).clone(),
-    };
     if as_json {
         println!("{}", json(&report)?);
         return Ok(());
@@ -172,4 +170,83 @@ pub fn runtimes_list() -> Result<(), Error> {
         println!("skipped {}: {}", r.path.display(), r.reason);
     }
     Ok(())
+}
+
+/// `easyplay runtimes adopt [--variant V]`: copy umu's runtime into the store.
+#[allow(clippy::print_stdout)]
+pub fn runtimes_adopt(variant: Option<crate::cli::VariantArg>) -> Result<u8, Error> {
+    let c = ctx()?;
+    let catalog = scan_runtimes(&c, None);
+    let want = variant.map(|v| match v {
+        crate::cli::VariantArg::Steamrt3 => SlrVariant::Steamrt3,
+        crate::cli::VariantArg::Steamrt4 => SlrVariant::Steamrt4,
+    });
+    let todo: Vec<_> = adoptable(&catalog.foreign.slr, &catalog.slr)
+        .filter(|s| want.is_none_or(|w| w == s.variant))
+        .cloned()
+        .collect();
+    if todo.is_empty() {
+        let have: Vec<&str> = catalog
+            .slr
+            .iter()
+            .filter(|s| s.is_complete())
+            .map(|s| s.variant.as_str())
+            .collect();
+        println!(
+            "Nothing to copy (EasyPlay has: {}; umu has: {}).",
+            if have.is_empty() {
+                "none".to_owned()
+            } else {
+                have.join(", ")
+            },
+            catalog
+                .foreign
+                .slr
+                .iter()
+                .map(|s| s.variant.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        return Ok(crate::cli::exit::OK);
+    }
+    c.fs.create_dir_all(&c.paths.data_dir, 0o700)?;
+    let _lock = LibraryLock::try_acquire(&c.paths.library_lock, LockMode::Exclusive).map_err(
+        |e| match e {
+            StorageError::LockHeld => Error::new(ErrorCode::LibBusy),
+            other => other.into(),
+        },
+    )?;
+    let mut db = easyplay_core::service::open_db(&*c.fs, &c.paths, &*c.clock)?;
+    let store = RuntimeStore::new(&c.paths);
+    for s in todo {
+        println!(
+            "copying {} {} from {} …",
+            s.variant.as_str(),
+            s.version.as_deref().unwrap_or("?"),
+            s.path.display()
+        );
+        let now = c.clock.now();
+        let r = adopt_slr(
+            &*c.fs,
+            &*c.clock,
+            &store,
+            &s.path,
+            s.variant,
+            now,
+            &CancelToken::new(),
+        )?;
+        if let Some(install) = &r.install {
+            db.put_slr_install(install)?;
+            db.record_audit_result(install.variant, now, "clean")?;
+        }
+        println!(
+            "  {} files ({} MiB, {} reflinked), manifest with {} entries -> {}",
+            r.files,
+            r.bytes >> 20,
+            r.reflinked,
+            r.manifest_entries,
+            r.path.display()
+        );
+    }
+    Ok(crate::cli::exit::OK)
 }

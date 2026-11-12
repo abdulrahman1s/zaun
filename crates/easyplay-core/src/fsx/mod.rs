@@ -362,6 +362,20 @@ pub trait Fs: Send + Sync {
     fn exists(&self, path: &Path) -> bool {
         self.metadata(path).is_ok()
     }
+
+    /// Copy the regular file `from` (never through a symlink) to the new file `to` with
+    /// exactly `mode`, as a reflink (`FICLONE`) when the filesystem allows it. Returns whether
+    /// the copy is a reflink. The default reads the whole file (fakes); [`RealFs`] streams.
+    fn copy_file(&self, from: &Path, to: &Path, mode: u32) -> FsResult<bool> {
+        let md = self.metadata(from)?;
+        if !md.is_file() {
+            return Err(FsError::new(FsOp::Read, from, FsErrorKind::InvalidInput));
+        }
+        let data = self.read(from, md.size)?;
+        self.write_new(to, &data, mode)?;
+        self.set_mode(to, mode)?;
+        Ok(false)
+    }
 }
 
 /// Create (mode 0700) or verify a private directory: it must be a real directory (not a

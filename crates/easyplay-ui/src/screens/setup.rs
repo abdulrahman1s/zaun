@@ -663,9 +663,16 @@ pub fn show(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) {
                 close(state);
             }
         }
-        Foot::Cancel | Foot::Background => close(state),
+        Foot::Background => close(state),
+        Foot::Cancel => {
+            env.bridge.send(UiCommand::DiscardDraft);
+            close(state);
+        }
         Foot::None => {
             if r.close_requested {
+                if editing {
+                    env.bridge.send(UiCommand::DiscardDraft);
+                }
                 close(state);
             }
         }

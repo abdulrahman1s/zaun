@@ -17,6 +17,10 @@ insta.workspace = true
 serde_json.workspace = true
 proptest.workspace = true
 thiserror.workspace = true
+# fake-bwrap and fake-umu-run (PROC-013).
+libc.workspace = true
+rustix.workspace = true
+signal-hook.workspace = true
 
 [lints]
 workspace = true

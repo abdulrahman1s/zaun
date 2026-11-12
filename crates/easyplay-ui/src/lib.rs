@@ -15,6 +15,7 @@ pub mod demo;
 pub mod input;
 pub mod route;
 pub mod screens;
+pub mod service_backend;
 pub mod strings;
 pub mod textures;
 pub mod theme;

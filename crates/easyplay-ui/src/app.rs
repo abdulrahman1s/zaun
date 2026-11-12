@@ -504,6 +504,13 @@ impl EasyPlayApp {
                 }
             }
             UiEvent::HostChanged | UiEvent::RuntimesChanged => {}
+            UiEvent::ShowGame(g) => {
+                if let Some(q) = &mut s.quick {
+                    q.game = Some(g);
+                } else {
+                    s.navigate(AfterDiscard::Route(Route::Game(g)));
+                }
+            }
             UiEvent::QuitRequested => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
         }
     }

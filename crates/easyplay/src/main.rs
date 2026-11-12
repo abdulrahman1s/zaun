@@ -6,12 +6,16 @@
 
 mod cli;
 mod dispatch;
+mod game_source;
 mod headless;
 mod host_verbs;
+mod library_verbs;
 mod panic;
 mod run_gui;
 mod run_supervisor;
 mod sandbox_print;
+mod session_verbs;
+mod wiring;
 
 use std::io::IsTerminal;
 use std::path::Path;
@@ -61,7 +65,10 @@ fn init_logging(cli: &Cli, env: &PathEnv) -> (Option<LogGuard>, Redactor) {
     opts.verbose = cli.verbose;
     opts.env_level = env.get(ENV_LOG).and_then(|v| v.to_str()).map(str::to_owned);
     opts.format = LogFormat::from_env_value(env.get(ENV_LOG_FORMAT).and_then(|v| v.to_str()));
-    opts.console = cli.verbose > 0 || std::io::stderr().is_terminal();
+    // A supervisor's stderr is its `supervisor.log` (PROCESS_LIFECYCLE §2).
+    opts.console = cli.verbose > 0
+        || std::io::stderr().is_terminal()
+        || role_of(cli) == ProcessRole::Supervisor;
     opts.redactor = redact.clone();
     if let Some(p) = &paths
         && RealFs::new().create_dir_all(&p.logs_dir, 0o700).is_ok()
@@ -96,7 +103,7 @@ fn main() -> ExitCode {
     );
 
     match dispatch::run(cli) {
-        Ok(()) => ExitCode::from(cli::exit::OK),
+        Ok(code) => ExitCode::from(code),
         Err(err) => {
             let redact_fn = |s: &str| redact.redact_str(s);
             let ctx = DescribeCtx {
