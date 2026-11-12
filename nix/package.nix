@@ -27,6 +27,9 @@
   src,
   version,
   commit ? "unknown",
+  # A path outside the store keeps evaluation free of import-from-derivation
+  # (`nix flake check --no-build` works); defaults to the lock file inside `src`.
+  cargoLockFile ? "${src}/Cargo.lock",
 }:
 
 let
@@ -63,7 +66,7 @@ let
     cargo = rustToolchain;
     rustc = rustToolchain;
   };
-  cargoDeps = rustPlatform.importCargoLock { lockFile = "${src}/Cargo.lock"; };
+  cargoDeps = rustPlatform.importCargoLock { lockFile = cargoLockFile; };
 
   # The shim is bind-mounted into every sandbox, so it is linked statically against musl
   # (ARCHITECTURE §12) and depends on nothing from the store at run time. Rust's musl
@@ -180,6 +183,14 @@ rustPlatform.buildRustPackage {
     if [ ! -e $out/share/applications/${appId}.desktop ]; then
       install -Dm644 ${fallbackDesktopEntry} $out/share/applications/${appId}.desktop
     fi
+
+    # Licence texts, at the path the other packages use (DESKTOP_INTEGRATION §10).
+    if [ -f LICENSE ]; then
+      install -Dm644 LICENSE -t $out/share/licenses/easyplay
+    fi
+    for f in assets/licenses/*.txt; do
+      [ -e "$f" ] && install -Dm644 "$f" -t $out/share/licenses/easyplay
+    done
 
     # Man pages and shell completions from the clap definitions (CLI-004).
     $out/bin/easyplay generate-assets --out generated
