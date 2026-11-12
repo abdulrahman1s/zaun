@@ -7,12 +7,14 @@ use easyplay_core::{Error, ErrorCode};
 use crate::cli::{Cli, Command, exit};
 use crate::{headless, run_gui, run_supervisor};
 
-/// Run the parsed command line.
-pub fn run(cli: Cli) -> Result<(), Error> {
+/// Run the parsed command line; returns the exit code of a successful run.
+pub fn run(cli: Cli) -> Result<u8, Error> {
     match cli.command {
-        None => run_gui::run(Vec::new()),
+        None => run_gui::run(Vec::new()).map(|()| exit::OK),
         Some(Command::Supervise { plan }) => run_supervisor::run(&plan),
-        Some(Command::Open { files }) if files.is_empty() => run_gui::run(Vec::new()),
+        Some(Command::Open { files }) if files.is_empty() => {
+            run_gui::run(Vec::new()).map(|()| exit::OK)
+        }
         Some(command) => headless::run(&command),
     }
 }
