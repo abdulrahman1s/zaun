@@ -49,7 +49,15 @@ fn help_lists_verbs_but_not_supervise() {
 #[test]
 fn verbs_report_not_available_yet() {
     let env = TestEnv::new().unwrap();
+    // `runtimes verify` with nothing installed; `runtimes check` is not available yet.
     let out = run(&env, &["runtimes", "verify"]);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .contains("No runtime installed")
+    );
+    let out = run(&env, &["runtimes", "check"]);
     assert_eq!(out.status.code(), Some(1));
     let err = String::from_utf8(out.stderr).unwrap();
     assert!(err.contains("CLI-002"), "{err}");

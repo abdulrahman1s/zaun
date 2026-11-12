@@ -1,12 +1,12 @@
 //! CLI verbs that work without a GUI. Calls the same `service::flows` as the GUI with a
 //! console prompt handler (CLI-002 read-only verbs, CLI-003 mutating verbs). Session verbs
 //! live in [`crate::session_verbs`], library verbs in [`crate::library_verbs`], host verbs in
-//! [`crate::host_verbs`].
+//! [`crate::host_verbs`], `runtimes install/remove/verify` in [`crate::runtime_verbs`].
 
 use easyplay_core::Error;
 
 use crate::cli::{Command, LaunchArgs, RuntimesCommand, SandboxCommand, exit};
-use crate::{host_verbs, library_verbs, sandbox_print, session_verbs};
+use crate::{host_verbs, library_verbs, runtime_verbs, sandbox_print, session_verbs};
 
 /// Run a verb headlessly; returns the exit code.
 pub fn run(command: &Command) -> Result<u8, Error> {
@@ -19,9 +19,18 @@ pub fn run(command: &Command) -> Result<u8, Error> {
         Command::Runtimes {
             command: RuntimesCommand::Adopt { variant },
         } => host_verbs::runtimes_adopt(*variant),
-        // Provisioning (M7) owns these.
         Command::Runtimes {
-            command: RuntimesCommand::Check | RuntimesCommand::Verify,
+            command: RuntimesCommand::Verify,
+        } => runtime_verbs::verify(),
+        Command::Runtimes {
+            command: RuntimesCommand::Install { what },
+        } => runtime_verbs::install(what),
+        Command::Runtimes {
+            command: RuntimesCommand::Remove { name },
+        } => runtime_verbs::remove(name),
+        // Automatic update checks (RUNTIME_MANAGEMENT §8); `runtimes install` checks a channel.
+        Command::Runtimes {
+            command: RuntimesCommand::Check,
         } => Err(Error::not_available("CLI-002")),
         Command::Sandbox {
             command: SandboxCommand::Print { game, format, kind },
@@ -39,7 +48,19 @@ pub fn run(command: &Command) -> Result<u8, Error> {
             name,
             preset,
             no_launch,
-        } => library_verbs::add(file, name.as_deref(), *preset, *no_launch),
+            runtime,
+        } => library_verbs::add(
+            file,
+            name.as_deref(),
+            *preset,
+            *no_launch,
+            runtime.as_deref(),
+        ),
+        Command::Edit {
+            game,
+            runtime,
+            no_follow_updates,
+        } => library_verbs::edit(game, runtime.as_deref(), *no_follow_updates),
         Command::Remove { game, keep_storage } => library_verbs::remove(game, *keep_storage),
         Command::List { json, running, tag } => {
             library_verbs::list(*json, *running, tag.as_deref())

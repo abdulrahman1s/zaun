@@ -233,40 +233,51 @@ fn setup_dialogs_are_shown_one_at_a_time() {
 }
 
 #[test]
-fn launch_without_runtime_fails_with_not_installed() {
+fn launch_without_runtime_runs_a_trusted_session_first() {
+    // M7: a runtime missing for a build umu cannot find by name is installed in a trusted
+    // Provision session (network on, no game); the game itself is never planned when that
+    // session cannot start.
     let mut w = World::new();
     let id = w.add("Bar");
-    let evs = w.send(Command::Launch {
-        id,
-        exe: None,
-        origin: LaunchOrigin::Library,
-    });
-    let failed = evs
-        .iter()
-        .find_map(|e| match e {
+    for _ in 0..2 {
+        w.launcher.push(easyplay_testkit::FakeStart::Fails(
+            ErrorCode::SesSupervisorNotStarted,
+        ));
+        let evs = w.send(Command::Launch {
+            id,
+            exe: None,
+            origin: LaunchOrigin::Library,
+        });
+        let failed = evs
+            .iter()
+            .find_map(|e| match e {
+                Event::LaunchProgress {
+                    state: LaunchState::Failed(u),
+                    ..
+                } => Some(u.clone()),
+                _ => None,
+            })
+            .expect("launch failed");
+        assert_eq!(failed.code, ErrorCode::SesSupervisorNotStarted);
+        assert!(evs.iter().any(|e| matches!(
+            e,
             Event::LaunchProgress {
-                state: LaunchState::Failed(u),
+                state: LaunchState::Provisioning { .. },
                 ..
-            } => Some(u.clone()),
-            _ => None,
-        })
-        .expect("launch failed");
-    assert_eq!(failed.code, ErrorCode::RtNotInstalled);
-    assert!(failed.details.unwrap_or_default().contains("steamrt3"));
-    assert!(w.launcher.plans().is_empty());
-    // The flow lock is released: a second launch is evaluated again.
-    let evs = w.send(Command::Launch {
-        id,
-        exe: None,
-        origin: LaunchOrigin::Library,
-    });
-    assert!(evs.iter().any(|e| matches!(
-        e,
-        Event::LaunchProgress {
-            state: LaunchState::Failed(u),
-            ..
-        } if u.code == ErrorCode::RtNotInstalled
-    )));
+            }
+        )));
+    }
+    // The flow lock is released: the second launch was evaluated again.
+    let plans = w.launcher.plans();
+    assert_eq!(plans.len(), 2);
+    for p in plans {
+        assert_eq!(p.session.kind, easyplay_core::model::SessionKind::Provision);
+        assert_eq!(p.session.game_id, None);
+        assert_eq!(
+            p.context.network,
+            Some(easyplay_core::model::NetworkAccess::Full)
+        );
+    }
 }
 
 #[test]

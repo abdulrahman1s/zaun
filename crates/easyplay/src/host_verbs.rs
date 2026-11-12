@@ -1,4 +1,5 @@
-//! `easyplay doctor [--json]` (HOST-009) and `easyplay runtimes list` (RT-004).
+//! `easyplay doctor [--json]` (HOST-009), `easyplay runtimes list` (RT-004, with sizes of
+//! the store's builds and runtimes) and `easyplay runtimes adopt`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -136,26 +137,39 @@ pub fn runtimes_list() -> Result<(), Error> {
     if catalog.builds.is_empty() {
         println!("No compatibility layers installed.");
     }
+    let size = |p: &std::path::Path| {
+        format!(
+            "{} MiB",
+            easyplay_core::runtime::gc::tree_size(&*c.fs, &*c.clock, p) >> 20
+        )
+    };
     for b in &catalog.builds {
+        let managed = b.origin == easyplay_core::model::RuntimeOrigin::Store;
         println!(
-            "{:<44} {:<12} {:<9} {:<20} {}",
+            "{:<44} {:<12} {:<9} {:<20} {:>9} {}",
             b.name,
             b.family.as_str(),
             b.required_slr.as_str(),
             b.origin_label,
+            if managed {
+                size(&b.path)
+            } else {
+                String::new()
+            },
             b.path.display()
         );
     }
     for s in &catalog.slr {
         println!(
-            "runtime {:<8} {:<24} {}",
+            "runtime {:<8} {:<24} {:<10} {:>9}",
             s.variant.as_str(),
             s.version.as_deref().unwrap_or("?"),
             if s.is_complete() {
                 "installed"
             } else {
                 "incomplete"
-            }
+            },
+            size(&s.path)
         );
     }
     for s in &catalog.foreign.slr {

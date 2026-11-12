@@ -13,6 +13,7 @@ Commands:
   status    Show running games and the latest sessions
   list      List games
   add       Add a program to the library
+  edit      Change a game's settings
   remove    Remove a game from the library
   show      Show a game's settings
   sandbox   Inspect sandboxes

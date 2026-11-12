@@ -22,8 +22,9 @@ use crate::model::{
 };
 use crate::sandbox::PolicyIssue;
 
-/// The umu-database title match of LOGIC_SPECS §2 step 6 (`umu_match`). `runtime::umu_db`
-/// does not exist yet; [`NoUmuTitles`] stands in.
+/// The umu-database title match of LOGIC_SPECS §2 step 6 (`umu_match`). The real one is
+/// `service::flows::runtime::CatalogUmuDb` (over `runtime::umu_db`); [`NoUmuTitles`] never
+/// matches (tests).
 pub trait UmuTitleMatch: Send + Sync {
     /// The umu `GAMEID` whose title equals `name` exactly, if any.
     fn exact_title(&self, name: &str) -> Option<String>;

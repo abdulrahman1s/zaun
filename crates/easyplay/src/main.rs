@@ -17,6 +17,7 @@ mod notify_watch;
 mod panic;
 mod run_gui;
 mod run_supervisor;
+mod runtime_verbs;
 mod sandbox_print;
 mod session_verbs;
 mod wiring;

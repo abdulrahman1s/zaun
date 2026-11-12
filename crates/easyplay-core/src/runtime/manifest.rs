@@ -4,8 +4,9 @@
 //! (files with mode, size and SHA-256; directories with mode; symlinks with their target),
 //! sorted bytewise by relative path. `tree_sha256` is the SHA-256 of the canonical JSON
 //! serialisation of `files`; it is also stored in `slr_installs` so that replacing the
-//! manifest file is detected. The audit that compares a tree against a manifest (RT-007)
-//! arrives with M7.
+//! manifest file is detected. Files are hashed in parallel in chunks of
+//! [`HASH_CHUNK`] entries. [`write`] and [`load`] store and read the manifest file;
+//! `runtime::audit` compares a tree against it (RT-007).
 
 use std::io::Read;
 use std::path::Path;
@@ -25,6 +26,10 @@ pub const MANIFEST_FORMAT: u32 = 1;
 pub const MAX_ENTRIES: usize = 200_000;
 /// Deepest nesting walked (§6.2).
 pub const MAX_DEPTH: usize = 64;
+/// Entries hashed per work unit (§6.2: "chunks of 256 files").
+pub const HASH_CHUNK: usize = 256;
+/// Largest manifest file read back (a sniper manifest is about 1.5 MiB).
+pub const MAX_MANIFEST_BYTES: u64 = 64 << 20;
 
 /// One recorded entry.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,6 +151,105 @@ pub fn entry_of(
     Ok(Some(e))
 }
 
+/// Workers used for hashing.
+pub fn hash_workers() -> usize {
+    std::thread::available_parallelism().map_or(2, |n| n.get().clamp(1, 4))
+}
+
+/// Describe every `(rel, path)` pair, in order, hashing files on up to [`hash_workers`]
+/// threads in chunks of [`HASH_CHUNK`].
+pub fn describe_all(
+    fs: &dyn Fs,
+    paths: &[(String, std::path::PathBuf)],
+    cancel: &CancelToken,
+) -> Result<Vec<ManifestEntry>> {
+    let chunks: Vec<&[(String, std::path::PathBuf)]> = paths.chunks(HASH_CHUNK).collect();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let mut results: Vec<Option<Result<Vec<ManifestEntry>>>> = Vec::new();
+    results.resize_with(chunks.len(), || None);
+    let results = parking_lot::Mutex::new(results);
+    std::thread::scope(|scope| {
+        for _ in 0..hash_workers().min(chunks.len().max(1)) {
+            scope.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(chunk) = chunks.get(i) else { break };
+                    let r = chunk
+                        .iter()
+                        .filter_map(|(rel, path)| entry_of(fs, path, rel, cancel).transpose())
+                        .collect::<Result<Vec<_>>>();
+                    let failed = r.is_err();
+                    results.lock()[i] = Some(r);
+                    if failed {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    let mut files = Vec::with_capacity(paths.len());
+    for r in results.into_inner() {
+        match r {
+            Some(Ok(v)) => files.extend(v),
+            Some(Err(e)) => return Err(e),
+            // A worker stopped after an error in another chunk.
+            None => {
+                return Err(Error::new(ErrorCode::IntTaskFailed).with("reason", "hashing stopped"));
+            }
+        }
+    }
+    Ok(files)
+}
+
+/// Write `m` to `<data>/runtime-manifests/<variant>.manifest.json` (atomic, 0600).
+pub fn write(fs: &dyn Fs, manifests_dir: &Path, m: &Manifest) -> Result<()> {
+    fs.create_dir_all(manifests_dir, 0o700)?;
+    let json = serde_json::to_vec_pretty(m)
+        .map_err(|e| Error::new(ErrorCode::IntTaskFailed).with_source(e))?;
+    let path = manifests_dir.join(format!("{}.manifest.json", m.variant));
+    fs.atomic_write(&path, &json, 0o600)?;
+    Ok(())
+}
+
+/// Why a stored manifest cannot be trusted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ManifestProblem {
+    /// No manifest file.
+    Missing,
+    /// Unreadable or not a manifest of this format and variant.
+    Invalid(String),
+    /// Its `tree_sha256` does not match its entries, or not the hash stored in the library
+    /// (the file was replaced).
+    Replaced,
+}
+
+/// Read and check a manifest: format, variant, entry count, its own tree hash, and (when
+/// given) the tree hash recorded in `slr_installs`.
+pub fn load(
+    fs: &dyn Fs,
+    file: &Path,
+    variant: SlrVariant,
+    stored_tree: Option<&Sha256>,
+) -> std::result::Result<Manifest, ManifestProblem> {
+    let bytes = match fs.read(file, MAX_MANIFEST_BYTES) {
+        Ok(b) => b,
+        Err(e) if e.kind == crate::fsx::FsErrorKind::NotFound => {
+            return Err(ManifestProblem::Missing);
+        }
+        Err(e) => return Err(ManifestProblem::Invalid(e.to_string())),
+    };
+    let m: Manifest =
+        serde_json::from_slice(&bytes).map_err(|e| ManifestProblem::Invalid(e.to_string()))?;
+    if m.format != MANIFEST_FORMAT || m.variant != variant.as_str() || m.entries != m.files.len() {
+        return Err(ManifestProblem::Invalid("format, variant or count".into()));
+    }
+    let tree = tree_hash(&m.files);
+    if to_hex(&tree) != m.tree_sha256 || stored_tree.is_some_and(|s| *s != tree) {
+        return Err(ManifestProblem::Replaced);
+    }
+    Ok(m)
+}
+
 /// Build the manifest of `dir` (a variant directory); `umu_shim` is the shim beside it.
 #[allow(clippy::too_many_arguments)]
 pub fn build(
@@ -184,12 +288,7 @@ pub fn build(
             ));
     }
     paths.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
-    let mut files = Vec::with_capacity(paths.len());
-    for (rel, path) in &paths {
-        if let Some(e) = entry_of(fs, path, rel, cancel)? {
-            files.push(e);
-        }
-    }
+    let files = describe_all(fs, &paths, cancel)?;
     let shim = match umu_shim {
         Some(p) if fs.metadata(p).is_ok_and(|m| m.is_file()) => {
             entry_of(fs, p, "umu-shim", cancel)?
