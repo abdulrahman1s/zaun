@@ -78,6 +78,32 @@ pub fn rig_on(fake: FakeBackend, start: Route, size: Vec2, choice: ThemeChoice) 
     rig_app(fake, start, size, choice, |a| a)
 }
 
+/// A rig at UI scale `scale` showing a window of `logical` points (the harness keeps the
+/// window size in points; the zoom factor scales the pixels, as on a high-density screen).
+/// The preferences carry the same scale, so a preference reload keeps it.
+pub fn rig_scaled(start: Route, logical: Vec2, scale: f32, choice: ThemeChoice) -> Rig {
+    let fake = FakeBackend::new(settled_library());
+    let mut prefs = demo::preferences();
+    prefs.appearance.ui_scale = f64::from(scale);
+    prefs.appearance.theme = match choice {
+        ThemeChoice::Light => easyplay_core::config::schema::Theme::Light,
+        ThemeChoice::HighContrast => easyplay_core::config::schema::Theme::HighContrast,
+        _ => easyplay_core::config::schema::Theme::Dark,
+    };
+    fake.publish_prefs(prefs);
+    rig_appearance(
+        fake,
+        start,
+        logical,
+        Appearance {
+            theme: choice,
+            ui_scale: scale,
+            ..Appearance::default()
+        },
+        |a| a,
+    )
+}
+
 /// A rig whose app is adjusted by `f` before the first frame (quick launch).
 pub fn rig_app(
     fake: FakeBackend,
@@ -86,12 +112,23 @@ pub fn rig_app(
     choice: ThemeChoice,
     f: impl FnOnce(EasyPlayApp) -> EasyPlayApp,
 ) -> Rig {
-    let picker = FakePicker::default();
-    let clock = Arc::new(FakeClock::new(now()));
     let appearance = Appearance {
         theme: choice,
         ..Appearance::default()
     };
+    rig_appearance(fake, start, size, appearance, f)
+}
+
+/// A rig with a full appearance.
+pub fn rig_appearance(
+    fake: FakeBackend,
+    start: Route,
+    size: Vec2,
+    appearance: Appearance,
+    f: impl FnOnce(EasyPlayApp) -> EasyPlayApp,
+) -> Rig {
+    let picker = FakePicker::default();
+    let clock = Arc::new(FakeClock::new(now()));
     let app = EasyPlayApp::new(
         UiBridge::new(Box::new(fake.clone())),
         clock.clone(),

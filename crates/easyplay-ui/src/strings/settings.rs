@@ -348,3 +348,8 @@ pub fn percent(v: f64) -> String {
 pub fn env_pair(name: &str, value: &str) -> String {
     format!("{name}={value}")
 }
+
+/// "EasyPlay · 1.1 GB · Used by 21 games" (narrow layer rows).
+pub fn layer_details(origin: &str, size: &str, used: &str) -> String {
+    format!("{origin} · {size} · {used}")
+}

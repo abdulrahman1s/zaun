@@ -38,7 +38,9 @@ pub fn sheet<R>(
     let rise = (1.0 - opacity) * space::S2 * f32::from(u8::from(!theme.motion.reduced));
     let mut close = false;
     let max_w = layout::SHEET_MAX_W.min(ctx.content_rect().width() - space::S8);
-    let max_h = ctx.content_rect().height() - space::S12;
+    // The frame's padding comes on top of the content height: keep a margin of `s6` above
+    // and below the sheet so it never touches the window edges (UX-004).
+    let max_h = ctx.content_rect().height() - space::S12 - layout::SHEET_PAD * 2.0;
     let area = Modal::default_area(id).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, rise));
     let resp = Modal::new(id)
         .area(area)

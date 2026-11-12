@@ -550,7 +550,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
         );
         ui.add_space(space::S3);
     }
-    ui.set_max_width(840.0);
+    ui.set_max_width(ui.available_width().min(840.0));
     // Preset.
     ui.horizontal(|ui| {
         let h = ui.label(Type::Heading.rich(s::PROTECTION).color(p.text_primary));

@@ -22,6 +22,7 @@ pub mod select;
 pub mod sheet;
 pub mod shield;
 pub mod skeleton;
+pub mod slider;
 pub mod stat_tile;
 pub mod tabs;
 pub mod text_field;

@@ -128,7 +128,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
         }
         return;
     };
-    ui.set_max_width(840.0);
+    ui.set_max_width(ui.available_width().min(840.0));
     // Programs.
     let mut exes = d.game.executables.clone();
     exes.sort_by_key(|e| (e.role != ExeRole::Primary, e.role.as_str(), e.path.clone()));
