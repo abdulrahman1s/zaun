@@ -23,6 +23,7 @@ pub fn tab(t: DetailsTab) -> &'static str {
         DetailsTab::Compatibility => "Compatibility",
         DetailsTab::LaunchOptions => "Launch options",
         DetailsTab::Activity => "Activity",
+        DetailsTab::Logs => "Logs",
     }
 }
 

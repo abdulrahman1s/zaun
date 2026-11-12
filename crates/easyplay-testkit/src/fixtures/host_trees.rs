@@ -302,7 +302,7 @@ pub fn umu_nix_wrapper(fs: &MemFs) {
     exe(
         fs,
         fhs,
-        "#!/nix/store/dddd-bash-5.3/bin/bash\nignored=(/nix /dev /proc /etc /tmp)\ncmd=(\n  /nix/store/iiii-bubblewrap-0.12.0/bin/bwrap\n  --dev-bind /dev /dev\n)\nexec \"${cmd[@]}\"\n",
+        "#!/nix/store/dddd-bash-5.3/bin/bash\nignored=(/nix /dev /proc /etc /tmp)\nfor i in /nix/store/llll-umu-launcher-1.4.4-fhsenv-rootfs/*; do :; done\ncmd=(\n  /nix/store/iiii-bubblewrap-0.12.0/bin/bwrap\n  --dev-bind /dev /dev\n)\nexec \"${cmd[@]}\"\n",
     );
     let wrapper = "/nix/store/jjjj-umu-launcher-1.4.4/bin/umu-run";
     exe(

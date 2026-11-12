@@ -239,10 +239,11 @@ fn problem_check(
 /// Every host-only check, in ID order.
 pub fn host_checks(facts: &HostFacts, ctx: &DoctorContext<'_>) -> Vec<Check> {
     let mut out = vec![d01(facts, ctx), d02(ctx)];
+    // D-03 needs the database itself: `diagnostics::doctor::database_check` replaces this.
     out.push(Check::new(
         "D-03",
         CheckStatus::Skipped,
-        "Database check arrives with the library database",
+        "The library database was not checked",
     ));
 
     // D-04 bubblewrap present with required options.
@@ -368,7 +369,7 @@ pub fn host_checks(facts: &HostFacts, ctx: &DoctorContext<'_>) -> Vec<Check> {
         }
         Some(u) => {
             let v = u.version.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into());
-            if let Some(w) = u.wrapper.as_ref().filter(|w| w.sandboxed) {
+            if let Some(w) = u.wrapper.as_ref().filter(|w| w.breaks_nesting()) {
                 let version_note = if u.version_accepted() {
                     String::new()
                 } else {
@@ -387,17 +388,20 @@ pub fn host_checks(facts: &HostFacts, ctx: &DoctorContext<'_>) -> Vec<Check> {
             } else if u.version.is_some_and(|x| x > UMU_VERIFIED_VERSION) {
                 Check::new("D-09", CheckStatus::Warn, format!("umu-run {v} is newer than the verified {UMU_VERIFIED_VERSION}"))
             } else {
-                let extra = if u.closure.is_empty() {
+                let mut extra = if u.closure.is_empty() {
                     String::new()
                 } else {
                     format!("; also shows {} folder(s) to games", u.closure.len())
                 };
+                if u.wrapper.as_ref().is_some_and(|w| w.fhs_env) {
+                    extra.push_str("; nixpkgs FHS environment (works inside the sandbox)");
+                }
                 Check::new("D-09", CheckStatus::Pass, format!("umu-run {v} at {}{extra}", u.path.display()))
             }
         }
     });
 
-    // D-10 init shim (presence only in this milestone).
+    // D-10 init shim: presence here; `diagnostics::doctor::init_check` runs it in a sandbox.
     out.push(
         match ctx
             .init_candidates

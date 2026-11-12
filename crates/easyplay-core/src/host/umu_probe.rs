@@ -25,6 +25,9 @@ const MAX_SHELL_ADDITIONS: usize = 8;
 const MAX_CHAIN: usize = 6;
 const SHELLS: &[&str] = &["sh", "bash", "dash", "zsh", "ksh", "mksh"];
 const SANDBOX_MARKERS: &[&str] = &["bwrap", "bubblewrap", "nixpak", "flatpak", "firejail"];
+/// What nixpkgs' `buildFHSEnv` writes into its bwrap launcher: the root file system it
+/// binds (`<name>-fhsenv-rootfs`).
+const FHS_ENV_MARKER: &str = "-fhsenv-rootfs";
 
 /// Inputs of the locator.
 #[derive(Clone, Debug, Default)]
@@ -238,6 +241,7 @@ pub fn exec_target(text: &str) -> Option<PathBuf> {
 fn follow_wrapper(fs: &dyn Fs, real: &Path, host_path: Option<&OsStr>) -> UmuWrapper {
     let mut chain = vec![real.to_path_buf()];
     let mut sandboxed = false;
+    let mut fhs_env = false;
     let mut reaches_python = false;
     let mut cur = real.to_path_buf();
     for _ in 0..MAX_CHAIN {
@@ -256,6 +260,9 @@ fn follow_wrapper(fs: &dyn Fs, real: &Path, host_path: Option<&OsStr>) -> UmuWra
             .any(|m| text.contains(m) || interp_text.contains(m))
         {
             sandboxed = true;
+        }
+        if text.contains(FHS_ENV_MARKER) {
+            fhs_env = true;
         }
         if is_python(&interp_name) {
             reaches_python = true;
@@ -285,6 +292,7 @@ fn follow_wrapper(fs: &dyn Fs, real: &Path, host_path: Option<&OsStr>) -> UmuWra
         chain,
         sandboxed,
         reaches_python,
+        fhs_env,
     }
 }
 
@@ -479,7 +487,7 @@ pub fn probe_umu(
             hint: located
                 .wrapper
                 .as_ref()
-                .filter(|w| w.sandboxed)
+                .filter(|w| w.breaks_nesting())
                 .map(|_| super::facts::HostHint::UmuWrapper),
         }),
         Some(_) => {}

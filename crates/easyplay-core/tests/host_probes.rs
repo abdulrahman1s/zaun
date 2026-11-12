@@ -266,6 +266,8 @@ fn umu_nix_wrapper_chain() {
     assert!(l.closure.is_empty());
     let w = l.wrapper.unwrap();
     assert!(w.sandboxed && !w.reaches_python);
+    // nixpkgs' buildFHSEnv wrapper works nested (TECHNICAL_RESEARCH F-228): no warning.
+    assert!(w.fhs_env && !w.breaks_nesting());
     assert_eq!(
         w.chain,
         vec![

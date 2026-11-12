@@ -1242,6 +1242,7 @@ dependencies = [
  "bitflags 2.13.2",
  "crossbeam-channel",
  "easyplay-testkit",
+ "flate2",
  "image",
  "insta",
  "jiff",

@@ -209,6 +209,10 @@ fn items(ui: &mut Ui, lib: &LibraryView, id: GameId, facts: MenuFacts) -> Option
             item(ui, Some(icons::COPY), m::COPY_COMMAND, None, false),
             GameAction::CopyCommand,
         );
+        pick(
+            item(ui, Some(icons::SEARCH), m::INSPECT, Some("Ctrl+L"), false),
+            GameAction::Inspect,
+        );
     }
     separator(ui);
     pick(

@@ -165,6 +165,12 @@ impl SessionLauncher for RealLauncher {
             plan_file::render_text(plan, &redact).as_bytes(),
             0o600,
         );
+        // The executed plan stays with the logs for the launch inspector (DEV-001).
+        let _ = plan_file::write(
+            fs,
+            &plan.paths.log_dir.join(crate::launch::inspect::PLAN_COPY),
+            plan,
+        );
         self.spawn(&plan_path, plan)?;
 
         let start = self.clock.mono();

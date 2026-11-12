@@ -451,6 +451,11 @@ impl LogGuard {
     pub fn recent_lines(&self) -> Vec<String> {
         self.recent.snapshot()
     }
+
+    /// The ring buffer itself (the panic hook reads it when writing a crash record).
+    pub fn recent(&self) -> RecentLines {
+        self.recent.clone()
+    }
 }
 
 /// Install the global subscriber for this process.

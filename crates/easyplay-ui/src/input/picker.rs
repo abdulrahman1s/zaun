@@ -20,6 +20,8 @@ pub enum PickKind {
     Folder,
     /// One image.
     Image,
+    /// A file to save (the diagnostics report).
+    Save,
 }
 
 /// Why it is being picked: where the result goes.
@@ -49,6 +51,8 @@ pub enum PickPurpose {
     WorkingDir(GameId),
     /// An extra compatibility-layer search folder (Settings).
     LayerFolder,
+    /// Where to save the diagnostics report.
+    SaveReport,
 }
 
 impl PickPurpose {
@@ -67,6 +71,7 @@ impl PickPurpose {
             | PickPurpose::SetupRoot
             | PickPurpose::WorkingDir(_)
             | PickPurpose::LayerFolder => PickKind::Folder,
+            PickPurpose::SaveReport => PickKind::Save,
         }
     }
 }
@@ -131,6 +136,11 @@ impl Picker for RfdPicker {
                         .into_iter()
                         .collect(),
                     PickKind::Folder => dialog.pick_folder().into_iter().collect(),
+                    PickKind::Save => dialog
+                        .set_file_name(strings::debug::REPORT_FILE_NAME)
+                        .save_file()
+                        .into_iter()
+                        .collect(),
                 };
                 let _ = tx.send(PickResult { purpose, paths });
                 waker();

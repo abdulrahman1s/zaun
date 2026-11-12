@@ -116,6 +116,48 @@ pub enum Notice {
         /// The game.
         game: GameId,
     },
+    /// The diagnostics report was saved.
+    ReportSaved {
+        /// Where.
+        path: PathBuf,
+    },
+    /// The damaged library was resolved (repaired, restored or replaced).
+    LibraryRecovered {
+        /// What was done.
+        how: RecoveredHow,
+        /// History rows that could not be recovered, when known.
+        history_rows_lost: Option<u64>,
+    },
+}
+
+/// How a damaged library was resolved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveredHow {
+    /// Salvage recovered every game (automatic).
+    Repaired,
+    /// A backup was restored.
+    Restored,
+    /// The partly repaired library is in use.
+    UsedRepaired,
+    /// An empty library was started.
+    StartedEmpty,
+}
+
+/// A chunk of a session log file (`Command::ReadLog`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LogChunk {
+    /// The session.
+    pub session: SessionId,
+    /// The file.
+    pub file: super::command::LogFile,
+    /// Offset of `bytes`.
+    pub offset: u64,
+    /// Content (sanitising is the viewer's job).
+    pub bytes: Vec<u8>,
+    /// File size when read.
+    pub size: u64,
+    /// The file does not exist (logs removed).
+    pub missing: bool,
 }
 
 /// The answer to a query command.
@@ -134,6 +176,16 @@ pub enum QueryResult {
         /// The walk was complete.
         complete: bool,
     },
+    /// `Command::Inspect`.
+    Inspector(Box<crate::launch::InspectorData>),
+    /// `Command::ListSessions`.
+    Sessions(Vec<crate::model::Session>),
+    /// `Command::ReadLog`.
+    LogChunk(LogChunk),
+    /// `Command::ListProcesses`.
+    Processes(Vec<crate::session::ProcessInfo>),
+    /// `Command::BuildReport`.
+    Report(Vec<crate::diagnostics::report::ReportFile>),
     /// The query failed.
     Failed(Box<UserError>),
 }
@@ -151,6 +203,8 @@ pub enum Event {
     PreferencesChanged,
     /// New host facts are in the hub.
     HostFactsChanged,
+    /// The diagnostics snapshot (Doctor report, crash record, recovery mode) changed.
+    DiagnosticsChanged,
     /// A launch advanced.
     LaunchProgress {
         /// The game.

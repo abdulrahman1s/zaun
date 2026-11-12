@@ -3,13 +3,14 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 
-use easyplay_core::procfs::{ProcEntry, ProcError, ProcSource, ProcState};
+use easyplay_core::procfs::{ProcEntry, ProcError, ProcSource, ProcState, ProcUsage};
 use parking_lot::Mutex;
 
 #[derive(Debug, Default)]
 struct State {
     entries: BTreeMap<u32, ProcEntry>,
     cmdlines: HashMap<u32, Vec<OsString>>,
+    usage: HashMap<u32, ProcUsage>,
     boot_id: String,
 }
 
@@ -91,6 +92,15 @@ impl FakeProc {
         self
     }
 
+    /// Set CPU time and resident memory.
+    pub fn set_usage(&self, pid: u32, cpu_ms: u64, rss_bytes: u64) -> &Self {
+        self.state
+            .lock()
+            .usage
+            .insert(pid, ProcUsage { cpu_ms, rss_bytes });
+        self
+    }
+
     /// Set the boot ID.
     pub fn set_boot_id(&self, id: &str) -> &Self {
         self.state.lock().boot_id = id.to_owned();
@@ -124,6 +134,14 @@ impl ProcSource for FakeProc {
 
     fn boot_id(&self) -> Result<String, ProcError> {
         Ok(self.state.lock().boot_id.clone())
+    }
+
+    fn usage(&self, pid: u32) -> Result<Option<ProcUsage>, ProcError> {
+        let s = self.state.lock();
+        if !s.entries.contains_key(&pid) {
+            return Ok(None);
+        }
+        Ok(Some(s.usage.get(&pid).copied().unwrap_or_default()))
     }
 }
 

@@ -4,6 +4,7 @@
 //! of every planning call; [`plan_invariants`] runs on every finished plan. A plan with a
 //! blocking issue is never executed.
 
+mod advanced;
 mod deny;
 mod env_rules;
 mod invariants;
@@ -11,6 +12,7 @@ mod issue;
 
 use std::path::{Path, PathBuf};
 
+pub use advanced::{AdvancedOption, advanced_options, effective_developer_mode};
 pub use deny::{DenyGroup, DenyHit, DenyList, Relation, relation};
 pub use env_rules::{UserVarRule, classify_user_var, is_never_set};
 pub use invariants::plan_invariants;

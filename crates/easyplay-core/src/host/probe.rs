@@ -427,6 +427,11 @@ pub trait HostProbe: Send + Sync {
     fn refresh(&self) -> Arc<HostFacts>;
     /// Cheap pre-launch check; on change the caller calls [`HostProbe::refresh`].
     fn revalidate(&self) -> Revalidation;
+    /// The runner the probe starts its test commands with (the Doctor's D-10 self-test uses
+    /// it too); `None` for probes that run nothing.
+    fn runner(&self) -> Option<Arc<dyn CommandRunner>> {
+        None
+    }
 }
 
 /// The real probe with its cache.
@@ -483,6 +488,10 @@ impl HostProbe for LiveHostProbe {
     fn refresh(&self) -> Arc<HostFacts> {
         let facts = probe_all(&self.deps);
         self.store(facts)
+    }
+
+    fn runner(&self) -> Option<Arc<dyn CommandRunner>> {
+        Some(Arc::clone(&self.deps.runner))
     }
 
     fn revalidate(&self) -> Revalidation {
