@@ -204,6 +204,8 @@ pub enum SandboxFormat {
     Json,
     /// Plain-language access summary.
     Explain,
+    /// A POSIX shell script that reproduces the launch by hand (DEVELOPER_MODE §5).
+    Shell,
 }
 
 /// `sandbox print --kind`.

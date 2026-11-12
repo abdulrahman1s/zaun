@@ -31,6 +31,8 @@ tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 jiff.workspace = true
+rustix.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 easyplay-testkit.workspace = true

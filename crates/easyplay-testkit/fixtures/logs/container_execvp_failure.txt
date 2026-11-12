@@ -1,0 +1,9 @@
+# pressure-vessel cannot start its container: unwrapped umu-run on a NixOS host without an FHS /usr
+# failure: EP-UMU-003
+# sandbox_started: yes
+phase:starting	INFO: umu-launcher version 1.4.4 (3.14.10 (main, Oct 25 2026, 17:12:00) [GCC 16.2.0])
+other	/run/current-system/sw/bin/ldconfig: Can't open cache file /nix/store/pqyiidz5mi73wv5f91d48s9plcqyj5bz-glibc-2.44-57/etc/ld.so.cache
+other	: No such file or directory
+phase:launching	INFO: Running 'UMU-Proton-10.0-4' using runtime 'sniper'
+phase:launching	INFO: Running 'steamrt3' using runtime 'host'
+container_error	pressure-vessel-wrap[16]: E: Child process exited with code 1: bwrap: execvp true: No such file or directory

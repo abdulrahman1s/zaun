@@ -1,0 +1,18 @@
+# umu-run offline without PROTONPATH and no local build
+# failure: EP-RT-011
+# sandbox_started: no
+phase:starting	INFO: umu-launcher version 1.4.4 (3.14.10 (main, Oct 25 2026, 17:12:00) [GCC 16.2.0])
+umu_log	INFO: No GAMEID set, using umu-default
+tb_start	Traceback (most recent call last):
+tb_line	  File "/nix/store/cr5w9whmzplqqc7s4psczy439yqjv50i-python3.14-umu-launcher-unwrapped-1.4.4/bin/.umu-run-wrapped", line 9, in <module>
+tb_line	    sys.exit(main())
+tb_line	             ~~~~^^
+tb_line	  File "/nix/store/cr5w9whmzplqqc7s4psczy439yqjv50i-python3.14-umu-launcher-unwrapped-1.4.4/lib/python3.14/site-packages/umu/__main__.py", line 90, in main
+tb_line	    return umu_run(args)
+tb_line	  File "/nix/store/cr5w9whmzplqqc7s4psczy439yqjv50i-python3.14-umu-launcher-unwrapped-1.4.4/lib/python3.14/site-packages/umu/umu_run.py", line 936, in umu_run
+tb_line	    download_proton(env, session_pools, download=do_download)
+tb_line	    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tb_line	  File "/nix/store/cr5w9whmzplqqc7s4psczy439yqjv50i-python3.14-umu-launcher-unwrapped-1.4.4/lib/python3.14/site-packages/umu/umu_run.py", line 205, in download_proton
+tb_line	    raise FileNotFoundError(err)
+umu_error	FileNotFoundError: Environment variable not set or is empty: PROTONPATH
+other	Possible reason: GE-Proton or UMU-Proton not found in '/home/sam/.local/share/Steam/compatibilitytools.d' or network error
