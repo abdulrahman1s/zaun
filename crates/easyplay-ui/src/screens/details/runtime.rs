@@ -59,7 +59,7 @@ fn layer_select(ui: &mut Ui, env: &Env<'_>, current: &mut RuntimeRef) -> bool {
     let resp = ui.add(
         Button::new(&label)
             .icon(icons::LAYERS)
-            .accessible_name(format!("{}: {label}", s::LAYER)),
+            .accessible_name(s::layer_button(&label)),
     );
     let mut changed = false;
     let rt = env.bridge.runtimes().clone();

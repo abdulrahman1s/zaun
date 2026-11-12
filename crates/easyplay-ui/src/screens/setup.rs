@@ -83,7 +83,7 @@ fn identity(ui: &mut Ui, v: &mut SetupVm, state_picks: &mut Vec<PickPurpose>, en
             let r = ui.add(
                 Button::new(&label)
                     .icon(icons::FOLDER)
-                    .accessible_name(format!("{}: {label}", s::GAME_FOLDER)),
+                    .accessible_name(s::folder_button(&label)),
             );
             let mut choose = None;
             Popup::menu(&r).show(|ui| {

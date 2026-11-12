@@ -310,7 +310,7 @@ type PromptView<'a> = (
 );
 
 fn answer(env: &mut Env<'_>, p: &PromptRequest, a: PromptAnswer) {
-    debug_assert!(p.kind.accepts(&a), "{a:?} is not an answer to {:?}", p.kind);
+    debug_assert!(p.kind.accepts(&a));
     env.bridge.send(UiCommand::AnswerPrompt {
         prompt: p.id,
         answer: a,

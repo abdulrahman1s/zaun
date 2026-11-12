@@ -96,7 +96,7 @@ fn rows(ui: &mut Ui, state: &mut UiState) {
                 ui.painter().text(
                     egui::pos2(rect.right() - space::S3, rect.center().y),
                     egui::Align2::RIGHT_CENTER,
-                    format!("{role}   {}", strings::fmt::bytes(prog.size)),
+                    s::role_size(role, prog.size),
                     Type::Body.numeric_font_id(),
                     p.text_muted,
                 );

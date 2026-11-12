@@ -143,3 +143,13 @@ pub const OPEN_EASYPLAY: &str = "Open EasyPlay";
 pub const DETAILS: &str = "Details";
 /// Already running.
 pub const ALREADY_RUNNING: &str = "Already running";
+
+/// "Game folder: Games › Celeste".
+pub fn folder_button(label: &str) -> String {
+    format!("{GAME_FOLDER}: {label}")
+}
+
+/// "Main program   32 MB".
+pub fn role_size(role: &str, size: u64) -> String {
+    format!("{role}   {}", super::fmt::bytes(size))
+}

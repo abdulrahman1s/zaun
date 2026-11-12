@@ -276,6 +276,12 @@ impl EasyPlayApp {
         start: Route,
         utc_offset_s: i32,
     ) -> Self {
+        // First launch: onboarding before the library (SCREEN_SPECS §1).
+        let start = if start == Route::Library && !bridge.prefs().onboarding.completed {
+            Route::Onboarding
+        } else {
+            start
+        };
         let mut state = UiState::new(start);
         if bridge.is_preview() {
             state.banners.set(Banner {

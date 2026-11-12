@@ -976,6 +976,52 @@ mod tests {
         );
     }
 
+    /// UI-029: screens contain no sentence literals (two or more words in quotes) and no
+    /// `format!` concatenation of user-facing text; everything comes from this module.
+    #[test]
+    fn screens_have_no_sentence_literals() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    out.push(p);
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/screens");
+        let mut files = Vec::new();
+        walk(&root, &mut files);
+        assert!(files.len() > 10);
+        let mut bad = Vec::new();
+        for f in files {
+            if f.ends_with("gallery.rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&f).unwrap_or_default();
+            let body = &text[..text.find("#[cfg(test)]").unwrap_or(text.len())];
+            for (n, line) in body.lines().enumerate() {
+                let code = line.trim_start();
+                if code.starts_with("//") {
+                    continue;
+                }
+                for (i, lit) in code.split('"').enumerate() {
+                    let sentence = i % 2 == 1
+                        && lit
+                            .split(' ')
+                            .filter(|w| w.chars().any(char::is_alphabetic))
+                            .count()
+                            >= 2;
+                    if sentence {
+                        bad.push(format!("{}:{}: {lit}", f.display(), n + 1));
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "sentence literals in screens: {bad:#?}");
+    }
+
     /// SECURITY_MODEL §10 / USER_EXPERIENCE §9: no security theatre in any string.
     #[test]
     fn no_forbidden_claims() {

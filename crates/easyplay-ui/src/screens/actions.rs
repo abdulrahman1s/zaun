@@ -177,7 +177,7 @@ pub fn apply(state: &mut UiState, env: &mut Env<'_>, id: GameId, action: GameAct
             }));
         }
         GameAction::CopyCommand => {
-            let cmd = format!("easyplay launch {}", g.id);
+            let cmd = strings::menu::launch_command(&g.id.to_string());
             env.ctx.copy_text(cmd);
             state.toast(
                 strings::feedback::COPIED,

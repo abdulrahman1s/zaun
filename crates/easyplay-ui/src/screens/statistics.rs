@@ -433,12 +433,7 @@ fn recent(ui: &mut Ui, state: &mut UiState, env: &Env<'_>) {
                                 ))
                                 .color(p.text_secondary),
                         );
-                        ui.add(
-                            egui::Label::new(
-                                Type::BodyStrong.rich(&r.game_name).color(p.text_primary),
-                            )
-                            .truncate(),
-                        );
+                        ui.label(Type::BodyStrong.rich(&r.game_name).color(p.text_primary));
                         ui.label(
                             Type::Body
                                 .numeric(strings::fmt::duration(r.duration_ms))

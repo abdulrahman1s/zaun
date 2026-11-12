@@ -40,3 +40,8 @@ pub const UNHIDE: &str = "Unhide";
 pub const COPY_COMMAND: &str = "Copy launch command";
 /// Item.
 pub const REMOVE: &str = "Remove…";
+
+/// The command line that starts a game ("easyplay launch <id>").
+pub fn launch_command(id: &str) -> String {
+    format!("easyplay launch {id}")
+}

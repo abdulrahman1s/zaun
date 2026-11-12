@@ -584,3 +584,8 @@ pub const LOAD_MORE: &str = "Load more";
 pub const REMOVE_SESSION: &str = "Remove from history";
 /// Link.
 pub const RESET_STATS: &str = "Reset statistics for this game…";
+
+/// "Compatibility layer: Default — UMU-Proton 10.0-4".
+pub fn layer_button(label: &str) -> String {
+    format!("{LAYER}: {label}")
+}
