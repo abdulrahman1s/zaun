@@ -692,3 +692,23 @@ fn umu_database_cache_reloads_on_change() {
             .is_none()
     );
 }
+
+#[test]
+fn interrupted_parts_are_kept_resumable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let cache = tmp.path().join("umu");
+    std::fs::create_dir_all(cache.join("tmpab12cd34")).unwrap();
+    std::fs::create_dir_all(cache.join("tmpempty")).unwrap();
+    std::fs::write(
+        cache.join("tmpab12cd34/UMU-Proton-10.0-4.tar.gz.parts"),
+        "123",
+    )
+    .unwrap();
+    std::fs::write(cache.join("tmpab12cd34/other"), "x").unwrap();
+    std::fs::write(cache.join("keep.tar.gz"), "k").unwrap();
+    let moved = easyplay_core::runtime::provision::rescue_parts(&RealFs::new(), &cache);
+    assert_eq!(moved, vec![cache.join("UMU-Proton-10.0-4.tar.gz.parts")]);
+    assert_eq!(std::fs::read(&moved[0]).unwrap(), b"123");
+    assert!(!cache.join("tmpab12cd34").exists() && !cache.join("tmpempty").exists());
+    assert!(cache.join("keep.tar.gz").exists());
+}

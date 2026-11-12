@@ -304,13 +304,17 @@ fn download_progress_is_measured_from_the_cache() {
                     b"12",
                 )
                 .unwrap();
-                for i in 1..=4u64 {
-                    std::fs::write(
-                        cache.join("UMU-Proton.tar.gz.parts"),
-                        vec![0u8; (i << 20) as usize],
-                    )
-                    .unwrap();
-                    std::fs::write(cache.join(".tmp-x/runtime"), vec![0u8; 1024]).unwrap();
+                std::fs::write(cache.join(".tmp-x/runtime"), vec![0u8; 1024]).unwrap();
+                for _ in 1..=4u64 {
+                    // Appending, like a download: the size never shrinks.
+                    use std::io::Write as _;
+                    std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(cache.join("UMU-Proton.tar.gz.parts"))
+                        .unwrap()
+                        .write_all(&vec![0u8; 1 << 20])
+                        .unwrap();
                     std::thread::sleep(Duration::from_millis(600));
                 }
             })

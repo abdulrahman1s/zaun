@@ -36,7 +36,7 @@ use crate::runtime::integrity::{AuditAction, AuditDue, IntegrityRecords, audit_d
 use crate::runtime::manifest;
 use crate::runtime::provision::{
     CACHE_POLL, CacheMeter, PREPARE_TIMEOUT, TrustedEnd, log_shows_interrupted, log_shows_offline,
-    sweep_partial,
+    rescue_parts, sweep_partial,
 };
 use crate::runtime::{RuntimeStore, gc};
 use crate::session::{SessionLauncher, StopMode};
@@ -287,6 +287,12 @@ impl TrustedSteps for LocalTrustedSteps {
         let mut fast_path_stopped = false;
         let mut cancelled = false;
         let mut dead_polls = 0u32;
+        let downloads = planned
+            .sandbox
+            .env
+            .get("PROTONPATH")
+            .is_some_and(|p| !p.starts_with('/'));
+        let mut launching_at: Option<crate::clock::MonoInstant> = None;
         let row = loop {
             let now = self.clock.mono();
             for ev in ro.session_events(id).unwrap_or_default() {
@@ -322,8 +328,12 @@ impl TrustedSteps for LocalTrustedSteps {
                 }
                 _ => {}
             }
+            // The Prepare timeout covers creating the prefix, not a download before it.
+            if launching_at.is_none() && (launching_seen || !downloads) {
+                launching_at = Some(now);
+            }
             let timed_out = kind == SessionKind::Prepare
-                && now.saturating_duration_since(started) > PREPARE_TIMEOUT;
+                && launching_at.is_some_and(|t| now.saturating_duration_since(t) > PREPARE_TIMEOUT);
             let want_stop = (fast_path && launching_seen) || cancel.is_cancelled() || timed_out;
             if want_stop
                 && !stop_sent
@@ -362,6 +372,11 @@ impl TrustedSteps for LocalTrustedSteps {
         let reason = row
             .end_reason
             .unwrap_or(crate::model::EndReason::Interrupted);
+        if writes_store {
+            for p in rescue_parts(&*self.fs, &self.store.cache) {
+                tracing::info!(part = %p.display(), "partial download kept for the next attempt");
+            }
+        }
         let failed_download = plan.context.network == Some(NetworkAccess::Full)
             && !matches!(reason, crate::model::EndReason::Exited { code: 0 })
             && !launching_seen;

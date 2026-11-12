@@ -273,6 +273,39 @@ pub fn sweep_partial(fs: &dyn Fs, store: &RuntimeStore) -> Vec<PathBuf> {
     removed
 }
 
+/// Keep interrupted downloads resumable (§4.1 "Cancel", F-126): umu 1.4 downloads into
+/// `tmpXXXXXXXX` directories of its cache and resumes only from `<cache>/<name>.parts`; a
+/// session stopped by a signal leaves the part in the temporary directory. Move such parts
+/// back (never over an existing file) and remove the emptied directories. Returns the
+/// parts moved. Only for umu's cache, which only trusted sessions write.
+pub fn rescue_parts(fs: &dyn Fs, cache: &Path) -> Vec<PathBuf> {
+    let mut moved = Vec::new();
+    let Ok(entries) = fs.read_dir(cache) else {
+        return moved;
+    };
+    for e in entries {
+        if e.file_type != FileType::Dir || !e.name.to_string_lossy().starts_with("tmp") {
+            continue;
+        }
+        let Ok(inner) = fs.read_dir(&e.path) else {
+            continue;
+        };
+        for f in inner {
+            let name = f.name.to_string_lossy().into_owned();
+            let to = cache.join(&name);
+            if f.file_type == FileType::File
+                && name.ends_with(".parts")
+                && !fs.exists(&to)
+                && fs.rename(&f.path, &to).is_ok()
+            {
+                moved.push(to);
+            }
+        }
+        let _ = safe_remove_tree(fs, cache, &e.path);
+    }
+    moved
+}
+
 /// Download progress from umu's cache (RT-012): the total size of `*.parts` files and of
 /// temporary directories (hidden ones, and umu 1.4's `tmpXXXXXXXX`), and the transfer rate
 /// since the previous poll.
