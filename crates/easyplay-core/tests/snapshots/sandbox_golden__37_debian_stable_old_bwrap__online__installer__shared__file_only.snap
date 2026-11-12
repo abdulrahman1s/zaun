@@ -1,0 +1,131 @@
+---
+source: crates/easyplay-core/tests/sandbox_golden.rs
+expression: run_cell(c)
+---
+--unshare-user
+--unshare-pid
+--unshare-uts
+--unshare-cgroup-try
+--hostname easyplay
+--die-with-parent
+--new-session
+--json-status-fd 4
+--sync-fd 5
+--seccomp 7
+--ro-bind /usr /usr
+--ro-bind /bin /bin
+--ro-bind /sbin /sbin
+--ro-bind /lib /lib
+--ro-bind /lib64 /lib64
+--ro-bind-try /opt /opt
+--ro-bind /srv/gl-libs /srv/gl-libs
+--dir /var
+--symlink ../run /var/run
+--perms 1777 --tmpfs /var/tmp
+--ro-bind-try /var/cache/fontconfig /var/cache/fontconfig
+--dir /etc
+--ro-bind-try /etc/ld.so.cache /etc/ld.so.cache
+--ro-bind-try /etc/ld.so.conf /etc/ld.so.conf
+--ro-bind-try /etc/ld.so.conf.d /etc/ld.so.conf.d
+--ro-bind-try /etc/alternatives /etc/alternatives
+--ro-bind-try /etc/fonts /etc/fonts
+--symlink ../usr/lib/os-release /etc/os-release
+--symlink ../usr/share/zoneinfo/Europe/Berlin /etc/localtime
+--ro-bind-try /etc/timezone /etc/timezone
+--ro-bind-try /etc/vulkan /etc/vulkan
+--ro-bind-try /etc/glvnd /etc/glvnd
+--ro-bind-try /etc/drirc /etc/drirc
+--ro-bind-try /etc/pulse /etc/pulse
+--ro-bind-try /etc/alsa /etc/alsa
+--perms 0444 --ro-bind-data 8 /etc/passwd
+--perms 0444 --ro-bind-data 9 /etc/group
+--perms 0444 --ro-bind-data 10 /etc/nsswitch.conf
+--perms 0444 --ro-bind-data 11 /etc/machine-id
+--ro-bind /etc/hosts /etc/hosts
+--ro-bind /etc/resolv.conf /etc/resolv.conf
+--ro-bind-try /etc/host.conf /etc/host.conf
+--ro-bind-try /etc/gai.conf /etc/gai.conf
+--ro-bind-try /etc/ssl /etc/ssl
+--ro-bind-try /etc/ca-certificates /etc/ca-certificates
+--ro-bind-try /etc/ca-certificates.conf /etc/ca-certificates.conf
+--proc /proc
+--dev /dev
+--dev-bind /dev/dri /dev/dri
+--dev-bind /dev/input/event21 /dev/input/event21
+--dev-bind /dev/input/js0 /dev/input/js0
+--dev-bind /dev/hidraw4 /dev/hidraw4
+--ro-bind /sys/block /sys/block
+--ro-bind /sys/bus /sys/bus
+--ro-bind /sys/class /sys/class
+--ro-bind /sys/dev /sys/dev
+--ro-bind /sys/devices /sys/devices
+--tmpfs /sys/class/net
+--tmpfs /sys/devices/pci0000:00/0000:00:1f.6/net
+--tmpfs /sys/devices/virtual/net
+--tmpfs /sys/devices/virtual/dmi
+--tmpfs /sys/class/dmi
+--perms 1777 --tmpfs /tmp
+--dir /run
+--perms 0700 --tmpfs /run/user/1000
+--dir /run/easyplay
+--dir /tmp/.X11-unix
+--ro-bind /tmp/.X11-unix/X0 /tmp/.X11-unix/X0
+--ro-bind /run/user/1000/.mutter-Xwaylandauth.A1B2C3 /run/user/1000/easyplay-xauth
+--ro-bind /run/user/1000/wayland-0 /run/user/1000/wayland-0
+--dir /run/user/1000/pulse
+--ro-bind /run/user/1000/pulse/native /run/user/1000/pulse/native
+--ro-bind /run/user/1000/pipewire-0 /run/user/1000/pipewire-0
+--ro-bind /run/udev /run/udev
+--bind D/games/G/home /home/sam
+--ro-bind-try /home/sam/.local/share/fonts /home/sam/.local/share/fonts
+--bind D/runtimes/umu /home/sam/.local/share/umu
+--ro-bind D/runtimes/Steam/compatibilitytools.d/GE-Proton10-25 /home/sam/.local/share/Steam/compatibilitytools.d/GE-Proton10-25
+--bind D/games/G/prefix D/games/G/prefix
+--ro-bind /home/sam/Downloads/setup.exe /home/sam/Downloads/setup.exe
+--ro-bind /usr/libexec/easyplay/easyplay-init /run/easyplay/init
+--clearenv
+--setenv DISPLAY :0
+--setenv GAMEID umu-default
+--setenv GST_DEBUG 0
+--setenv HOME /home/sam
+--setenv LANG en_US.UTF-8
+--setenv LOGNAME sam
+--setenv PATH /usr/local/bin:/usr/bin:/bin
+--setenv PRESSURE_VESSEL_SHARE_HOME 1
+--setenv PROTONPATH /home/sam/.local/share/Steam/compatibilitytools.d/GE-Proton10-25
+--setenv PULSE_SERVER unix:/run/user/1000/pulse/native
+--setenv UMU_RUNTIME_UPDATE 0
+--setenv USER sam
+--setenv WAYLAND_DISPLAY wayland-0
+--setenv WINEPREFIX D/games/G/prefix
+--setenv XAUTHORITY /run/user/1000/easyplay-xauth
+--setenv XDG_CURRENT_DESKTOP GNOME
+--setenv XDG_RUNTIME_DIR /run/user/1000
+--setenv XDG_SESSION_TYPE wayland
+--chdir /home/sam
+-- /run/easyplay/init --status-fd 6 -- /usr/bin/umu-run /home/sam/Downloads/setup.exe
+
+# descriptors
+7  <seccomp program>
+8 /etc/passwd sam:x:1000:1000:sam:/home/sam:/bin/sh\nnobody:x:65534:65534:nobody:/:/usr/sbin/nologin\n
+9 /etc/group sam:x:1000:\nnobody:x:65534:\n
+10 /etc/nsswitch.conf passwd: files\ngroup: files\nhosts: files dns\n
+11 /etc/machine-id 8903ab10a3569ca8f1da7542333af088\n
+
+# host actions
+{"create_dir":{"path":"D/games/G/home","mode":448}}
+{"create_dir":{"path":"D/games/G/prefix","mode":448}}
+{"acquire_lock":{"path":"D/games/G/session.lock"}}
+{"write_memfd":{"fd":3}}
+{"write_memfd":{"fd":7}}
+{"write_memfd":{"fd":8}}
+{"write_memfd":{"fd":9}}
+{"write_memfd":{"fd":10}}
+{"write_memfd":{"fd":11}}
+{"mark_tainted":{"game":"G"}}
+
+# notes
+note.ipc.shared: Shared memory is shared with the display server so X11 rendering works
+note.runtime.shared: The compatibility layer is shared and checked after the session
+
+# issues

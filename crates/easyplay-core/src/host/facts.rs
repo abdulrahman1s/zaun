@@ -56,6 +56,14 @@ pub struct HostFacts {
     pub sysfs: SysfsFacts,
     /// The runtime store's filesystem (RUNTIME_MANAGEMENT §7).
     pub fs: StoreFsFacts,
+    /// `/etc/machine-id` (32 lower-case hex digits) when readable: input of the stand-in
+    /// machine ID (BUBBLEWRAP_SANDBOX §4.3). Added by the sandbox planner (SANDBOX-007).
+    #[serde(default)]
+    pub machine_id: Option<String>,
+    /// `/dev/video*` character devices, sorted (BUBBLEWRAP_SANDBOX §4.5 camera). Added by the
+    /// sandbox planner (SANDBOX-008).
+    #[serde(default)]
+    pub video_nodes: Vec<PathBuf>,
     /// Blocking problems and warnings found by the probe, in probe order.
     pub problems: Vec<HostProblem>,
     /// Non-blocking remarks ("PipeWire socket not found", …).
@@ -81,6 +89,8 @@ impl HostFacts {
             input: InputFacts::default(),
             sysfs: SysfsFacts::default(),
             fs: StoreFsFacts::default(),
+            machine_id: None,
+            video_nodes: Vec::new(),
             problems: Vec::new(),
             notes: Vec::new(),
         }

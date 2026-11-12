@@ -3,6 +3,8 @@
 //! hosts small shared samples for now.
 
 pub mod host_trees;
+pub mod hosts;
+pub mod policies;
 pub mod runtime_trees;
 
 use std::path::Path;
