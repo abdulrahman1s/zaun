@@ -105,6 +105,9 @@
             cargo-insta
             just
             mold
+            # desktop-file-validate and appstreamcli validate (DESKTOP-003)
+            desktop-file-utils
+            appstream
           ]);
           buildInputs = easyplay.runtimeLibs;
           LD_LIBRARY_PATH = lib.makeLibraryPath easyplay.runtimeLibs;

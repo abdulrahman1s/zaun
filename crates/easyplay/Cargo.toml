@@ -33,11 +33,17 @@ serde_json.workspace = true
 jiff.workspace = true
 rustix.workspace = true
 sha2.workspace = true
+clap_mangen.workspace = true
+clap_complete.workspace = true
+wayland-sys.workspace = true
+x11-dl.workspace = true
+xkbcommon-dl.workspace = true
 
 [dev-dependencies]
 easyplay-testkit.workspace = true
 egui_kittest = { workspace = true, features = ["eframe"] }
 tempfile.workspace = true
+insta.workspace = true
 
 [lints]
 workspace = true

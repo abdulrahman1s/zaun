@@ -26,6 +26,7 @@ gilrs = { workspace = true, optional = true }
 thiserror.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+winit.workspace = true
 
 [dev-dependencies]
 easyplay-testkit.workspace = true

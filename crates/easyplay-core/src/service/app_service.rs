@@ -147,6 +147,8 @@ pub struct ServiceDeps {
     pub launch_env: LaunchEnv,
     /// Preferences as loaded.
     pub prefs: Preferences,
+    /// Desktop integration (handler, shortcuts, opening folders); `None` disables it.
+    pub desktop: Option<Arc<crate::desktop::DesktopServices>>,
     /// The HTTP client for Steam artwork (used only with `artwork.online = "steam"`).
     pub http: Option<Arc<HttpClient>>,
     /// `steam_appid.txt` reader.
@@ -188,6 +190,7 @@ pub(crate) enum Internal {
     Art(Box<ArtFetched>),
     Adopted(Result<crate::runtime::AdoptReport, Error>),
     Flow(Box<super::flows::FlowDone>),
+    Desktop(Box<super::flows::desktop::DesktopDone>),
 }
 
 /// The handle the UI (and the IPC listener) holds.
@@ -205,6 +208,13 @@ impl ServiceHandle {
     /// Queue a command (never blocks).
     pub fn send(&self, cmd: Command) {
         let _ = self.tx.send(Msg::Cmd(cmd));
+    }
+
+    /// A cloneable sender of commands (the instance-socket listener).
+    pub fn sender(&self) -> CommandSender {
+        CommandSender {
+            tx: self.tx.clone(),
+        }
     }
 
     /// Install the repaint waker.
@@ -239,6 +249,25 @@ impl Drop for ServiceHandle {
             let _ = self.tx.send(Msg::Cmd(Command::Shutdown));
             let _ = t.join();
         }
+    }
+}
+
+/// Queues commands from another thread (never blocks).
+#[derive(Clone)]
+pub struct CommandSender {
+    tx: Sender<Msg>,
+}
+
+impl CommandSender {
+    /// Queue a command.
+    pub fn send(&self, cmd: Command) {
+        let _ = self.tx.send(Msg::Cmd(cmd));
+    }
+}
+
+impl std::fmt::Debug for CommandSender {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CommandSender")
     }
 }
 
@@ -460,6 +489,7 @@ impl AppService {
         self.probe_host(false);
         self.scan_runtimes();
         self.start_maintenance();
+        self.refresh_integration();
     }
 
     fn run(&mut self, rx: &Receiver<Msg>) {
@@ -541,6 +571,10 @@ impl AppService {
             | Command::VerifyRuntime => self.fail(Error::not_available("M7")),
             Command::SetPreference(patch) => self.set_preference(&patch),
             Command::RefreshHostFacts => self.probe_host(true),
+            Command::SetDefaultHandler { enable } => self.set_default_handler(enable),
+            Command::SetShortcut { id, enable } => self.set_shortcut(id, enable),
+            Command::OpenFolder(target) => self.open_folder(target),
+            Command::ViewLog { session, game } => self.view_log(session, game),
             Command::Shutdown => self.stopping = true,
         }
     }
@@ -564,6 +598,7 @@ impl AppService {
             Internal::Art(a) => self.on_art_fetched(*a),
             Internal::Adopted(r) => self.on_adopted(r),
             Internal::Flow(f) => self.on_flow_done(*f),
+            Internal::Desktop(d) => self.on_desktop(*d),
         }
     }
 
@@ -623,6 +658,7 @@ impl AppService {
     pub(super) fn publish_library(&self) {
         self.hub.library.store(self.lib.snapshot());
         self.emit(Event::LibraryChanged);
+        self.sync_shortcuts();
     }
 
     fn after_library_edit(&mut self, r: Result<(), Error>) {

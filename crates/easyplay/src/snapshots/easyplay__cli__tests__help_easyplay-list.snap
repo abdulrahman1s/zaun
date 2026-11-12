@@ -1,0 +1,14 @@
+---
+source: crates/easyplay/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+List games
+
+Usage: easyplay list [OPTIONS]
+
+Options:
+      --json        Machine-readable output
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+      --running     Only running games
+      --tag <TAG>   Only games with this tag
+  -h, --help        Print help

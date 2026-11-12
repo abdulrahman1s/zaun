@@ -82,6 +82,8 @@ pub struct SnapshotHub {
     pub prefs: Swap<Preferences>,
     /// Host facts.
     pub host: Swap<HostSnapshot>,
+    /// Desktop integration: `.exe` handler and shortcuts.
+    pub integration: Swap<crate::desktop::IntegrationState>,
 }
 
 impl SnapshotHub {
@@ -93,6 +95,7 @@ impl SnapshotHub {
             runtimes: Swap::default(),
             prefs: Swap::new(prefs),
             host: Swap::new(None),
+            integration: Swap::default(),
         }
     }
 }

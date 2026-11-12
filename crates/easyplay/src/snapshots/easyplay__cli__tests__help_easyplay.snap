@@ -1,0 +1,29 @@
+---
+source: crates/easyplay/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Run Windows games through umu-run inside a per-game bubblewrap sandbox
+
+Usage: easyplay [OPTIONS] [COMMAND]
+
+Commands:
+  open      Open Windows programs: start known ones, set up unknown ones
+  launch    Launch a game
+  stop      Stop a running game
+  status    Show running games and the latest sessions
+  list      List games
+  add       Add a program to the library
+  remove    Remove a game from the library
+  show      Show a game's settings
+  sandbox   Inspect sandboxes
+  export    Export a game's settings as TOML
+  import    Import a game's settings
+  doctor    Check this system for everything EasyPlay needs
+  runtimes  Manage compatibility layers
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+      --add         Start (or focus) EasyPlay and open the add-game dialog
+  -h, --help        Print help
+  -V, --version     Print version

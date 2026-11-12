@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use easyplay_core::artwork::ArtSource;
 use easyplay_core::config::{PreferencePatch, Preferences};
+use easyplay_core::desktop::{HandlerOverall, IntegrationState};
 use easyplay_core::error::catalog::{self, DescribeCtx};
 use easyplay_core::error::{Error, ErrorCode, Severity, UserError};
 use easyplay_core::host::HostFacts;
@@ -24,15 +25,15 @@ use easyplay_core::ids::{GameId, QueryId};
 use easyplay_core::library::LibrarySnapshot;
 use easyplay_core::model::{Activity, BasePreset, RuntimeFamily, SandboxPolicy, UserDir};
 use easyplay_core::service::{
-    AfterCreate as SvcAfter, Command, Event, GameEdit as SvcEdit, LaunchOrigin, Notice,
-    OpenOrigin as SvcOrigin, QueryResult, ServiceHandle, StopMode,
+    AfterCreate as SvcAfter, Command, Event, FolderRequest, GameEdit as SvcEdit, LaunchOrigin,
+    Notice, OpenOrigin as SvcOrigin, QueryResult, ServiceHandle, StopMode,
 };
 
 use crate::bridge::{
-    AfterCreate, ArtworkSource, Backend, CheckState, FolderScan, GameDetail, GameEdit,
-    HandlerState, HostCheck, HostStatus, HostView, LayerInfo, OpenOrigin, PolicyAssessment,
-    ProgramFound, QueryPayload, RuntimesView, SetupContext, SetupOrigin, ToastLevel, ToastMsg,
-    UiCommand, UiEvent,
+    AfterCreate, ArtworkSource, Backend, CheckState, FolderScan, FolderTarget, GameDetail,
+    GameEdit, HandlerState, HostCheck, HostStatus, HostView, LayerInfo, OpenOrigin,
+    PolicyAssessment, ProgramFound, QueryPayload, RuntimesView, SetupContext, SetupOrigin,
+    ShortcutInfo, ToastLevel, ToastMsg, UiCommand, UiEvent,
 };
 use crate::strings::service as text;
 
@@ -161,7 +162,11 @@ impl ServiceBackend {
             Event::QueryResult { id, result } => UiEvent::QueryResult {
                 id,
                 payload: match result {
-                    QueryResult::Game(g) => QueryPayload::Game(Box::new(detail(*g))),
+                    QueryResult::Game(g) => {
+                        let mut d = detail(*g);
+                        d.has_shortcut = self.handle.hub.integration.load().has_shortcut(d.game.id);
+                        QueryPayload::Game(Box::new(d))
+                    }
                     QueryResult::Stats(s) => QueryPayload::Stats(s),
                     QueryResult::Folder(f) => QueryPayload::Folder(folder_scan(f)),
                     QueryResult::PrefixSize { bytes, .. } => QueryPayload::PrefixSize(bytes),
@@ -268,6 +273,28 @@ fn folder_scan(f: easyplay_core::library::FolderScan) -> FolderScan {
         truncated: f.truncated,
         scanning: false,
         error: f.error,
+    }
+}
+
+/// The `.exe` handler row from the integration snapshot.
+fn handler_state(i: &IntegrationState) -> HandlerState {
+    match &i.handler {
+        None => HandlerState::Unknown,
+        Some(HandlerOverall::EasyPlay) => HandlerState::EasyPlay,
+        Some(HandlerOverall::Other(name)) => HandlerState::Other(name.clone()),
+        Some(HandlerOverall::Nothing) => HandlerState::None,
+    }
+}
+
+/// The service's folder request for a UI folder target.
+fn folder_request(t: FolderTarget) -> FolderRequest {
+    match t {
+        FolderTarget::GameFolder(g) => FolderRequest::GameFolder(g),
+        FolderTarget::SaveData(g) => FolderRequest::SaveData(g),
+        FolderTarget::Prefix(g) => FolderRequest::Prefix(g),
+        FolderTarget::Session(s) => FolderRequest::Session(s),
+        FolderTarget::DataFolder => FolderRequest::DataFolder,
+        FolderTarget::Path(p) => FolderRequest::Granted(p),
     }
 }
 
@@ -472,11 +499,13 @@ impl Backend for ServiceBackend {
             UiCommand::ClearStatistics => h.send(Command::ClearStatistics),
             UiCommand::ResetGameStatistics { id } => h.send(Command::ResetGameStatistics { id }),
             UiCommand::RemoveSession { id } => h.send(Command::RemoveSession { id }),
-            UiCommand::RescanMissing
-            | UiCommand::SetDefaultHandler { .. }
-            | UiCommand::OpenFolder(_)
-            | UiCommand::ViewLog { .. }
-            | UiCommand::SetShortcut { .. } => self.unsupported(),
+            UiCommand::RescanMissing => self.unsupported(),
+            UiCommand::SetDefaultHandler { enable } => {
+                h.send(Command::SetDefaultHandler { enable });
+            }
+            UiCommand::SetShortcut { id, enable } => h.send(Command::SetShortcut { id, enable }),
+            UiCommand::OpenFolder(t) => h.send(Command::OpenFolder(folder_request(t))),
+            UiCommand::ViewLog { session, game } => h.send(Command::ViewLog { session, game }),
         }
     }
 
@@ -505,7 +534,10 @@ impl Backend for ServiceBackend {
 
     fn host(&self) -> Arc<HostView> {
         let facts = self.handle.hub.host.load();
-        let key = Arc::as_ptr(&facts) as usize;
+        let integration = self.handle.hub.integration.load();
+        // Either snapshot changing rebuilds the view.
+        let key =
+            (Arc::as_ptr(&facts) as usize) ^ (Arc::as_ptr(&integration) as usize).rotate_left(17);
         let mut s = self.lock();
         if let Some((k, v)) = &s.host
             && *k == key
@@ -516,10 +548,17 @@ impl Backend for ServiceBackend {
         let v = Arc::new(HostView {
             status: host_status(f),
             checks: host_checks(f),
-            handler: HandlerState::Unknown,
+            handler: handler_state(&integration),
             distro: f.and_then(|f| f.os.pretty_name.clone()).unwrap_or_default(),
             jobs: Vec::new(),
-            shortcuts: Vec::new(),
+            shortcuts: integration
+                .shortcuts
+                .iter()
+                .map(|s| ShortcutInfo {
+                    game: s.id,
+                    name: s.name.clone(),
+                })
+                .collect(),
             reflinks: false,
             input_readable: false,
             mangohud: false,

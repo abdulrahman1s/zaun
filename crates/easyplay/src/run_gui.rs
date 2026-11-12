@@ -10,8 +10,9 @@
 //! `wgpu` fails to start (V-301).
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{Sender, channel};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use easyplay_core::artwork::ThumbService;
 use easyplay_core::artwork::thumbs::ThumbDeps;
@@ -30,10 +31,21 @@ use easyplay_ui::textures::{disk, synthetic};
 use easyplay_ui::theme::Appearance;
 use easyplay_ui::{Renderer, StartMode, UiDeps, WindowGeometry, WindowStore, demo};
 
+use easyplay_core::desktop::instance::{
+    self, Claim, InstanceServer, InstanceTransport, RaiseThen, Request, RequestHandler, WireOrigin,
+};
+use easyplay_core::desktop::notify::DesktopNotifier;
+
+use crate::cli::exit;
+use crate::display_libs;
+use crate::instance_gui::{GuiRequests, LateHandler, Raiser, UiWaker};
+use crate::notify_watch::NotifyWatch;
 use crate::wiring::{self, Wiring};
 
 /// `EASYPLAY_PREVIEW=1`: the sample library instead of the real one.
 pub const ENV_PREVIEW: &str = "EASYPLAY_PREVIEW";
+/// Start a second GUI (development; refused with the default data directories).
+pub const ENV_NO_SINGLE_INSTANCE: &str = "EASYPLAY_NO_SINGLE_INSTANCE";
 use serde::{Deserialize, Serialize};
 
 /// `window.json` (PERSISTENCE §1).
@@ -181,6 +193,11 @@ fn deps(
         renderer,
         art: Some(art),
         open,
+        add_game: false,
+        activations: None,
+        focus: None,
+        on_waker: None,
+        display: easyplay_ui::DisplayBackend::Auto,
     }
 }
 
@@ -209,11 +226,84 @@ fn preview_requested(env: &PathEnv, flag: bool) -> bool {
         .is_some_and(|v| matches!(v, "1" | "true" | "yes"))
 }
 
-/// Start the GUI (optionally with files to open).
-pub fn run(open: Vec<PathBuf>, preview: bool) -> Result<(), Error> {
+/// Single instance: become the primary (serving the socket) or hand over to the running
+/// GUI. `None` means "do not take part" (preview, or `EASYPLAY_NO_SINGLE_INSTANCE` with
+/// non-default data directories).
+enum Instance {
+    Primary(InstanceServer, Arc<LateHandler>),
+    HandedOver(u8),
+    Alone,
+}
+
+fn claim_instance(
+    env: &PathEnv,
+    paths: &AppPaths,
+    preview: bool,
+    open: &[PathBuf],
+    add: bool,
+) -> Result<Instance, Error> {
+    if preview {
+        return Ok(Instance::Alone);
+    }
+    if env.get(ENV_NO_SINGLE_INSTANCE).is_some() {
+        if paths.uses_default_roots(env) {
+            tracing::warn!("{ENV_NO_SINGLE_INSTANCE} refused with the default data directories");
+        } else {
+            return Ok(Instance::Alone);
+        }
+    }
+    let late = Arc::new(LateHandler::default());
+    let h = Arc::clone(&late);
+    match instance::claim(paths, env.uid(), move || h as Arc<dyn RequestHandler>)? {
+        Claim::Primary(server) => Ok(Instance::Primary(server, late)),
+        Claim::Forward(t) => {
+            // Lost the start race: hand over like a second process would.
+            let token = instance::activation_token(env);
+            let req = if open.is_empty() {
+                Request::Raise {
+                    activation_token: token,
+                    then: add.then_some(RaiseThen::AddGame),
+                }
+            } else {
+                Request::Open {
+                    paths: open.to_vec(),
+                    origin: WireOrigin::FileManager,
+                    cwd: std::env::current_dir().ok(),
+                    activation_token: token,
+                }
+            };
+            let r = t.send(&req, &mut |_| {})?;
+            Ok(Instance::HandedOver(if r.ok {
+                exit::OK
+            } else {
+                exit::FAILED
+            }))
+        }
+    }
+}
+
+/// Start the GUI (optionally with files to open, or the add-game picker); returns the exit
+/// code (another process may have become the GUI first).
+pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
     let env = PathEnv::from_process();
     let preview = preview_requested(&env, preview);
     let paths = AppPaths::resolve(&env).ok();
+    let open: Vec<PathBuf> = open
+        .into_iter()
+        .map(|p| std::path::absolute(&p).unwrap_or(p))
+        .collect();
+    let instance = match &paths {
+        Some(p) => claim_instance(&env, p, preview, &open, add)?,
+        None => Instance::Alone,
+    };
+    let (_server, late) = match instance {
+        Instance::HandedOver(code) => return Ok(code),
+        Instance::Primary(s, l) => (Some(s), Some(l)),
+        Instance::Alone => (None, None),
+    };
+    // Before the service starts: the event loop exists once per process, so the windowing
+    // backend is chosen from what can be loaded (V-301 covers the renderer only).
+    let display = display_libs::choose(&env, display_libs::Loadable::probe())?;
     // PERSISTENCE §6: shared for the GUI's lifetime; headless writers take it exclusively.
     let _lock = match (&paths, preview) {
         (Some(p), false) => {
@@ -249,31 +339,54 @@ pub fn run(open: Vec<PathBuf>, preview: bool) -> Result<(), Error> {
         Renderer::Wgpu
     };
 
-    match easyplay_ui::run(
-        StartMode::Library,
-        deps(
-            source(preview, &open)?,
-            open.clone(),
-            window,
-            store(),
-            first,
-        ),
-    ) {
-        Ok(()) => Ok(()),
-        Err(e) if first == Renderer::Wgpu => {
-            // V-301: fall back to GL. eframe keeps its event loop for a second run.
+    let focus = Arc::new(AtomicBool::new(true));
+    let waker: UiWaker = Arc::new(Mutex::new(None));
+    let make = |renderer: Renderer| -> Result<(UiDeps, Option<NotifyWatch>), Error> {
+        let (tx, rx) = channel();
+        let raiser = Raiser::new(tx, Arc::clone(&waker));
+        let src = source(preview, &open)?;
+        let mut watch = None;
+        if let (Source::Service(b, _), Some(p)) = (&src, &paths) {
+            let hub = Arc::clone(&b.handle().hub);
+            if let Some(l) = &late {
+                l.attach(GuiRequests {
+                    cmds: b.handle().sender(),
+                    hub: Arc::clone(&hub),
+                    raiser: raiser.clone(),
+                    db_file: p.db_file.clone(),
+                });
+            }
+            let r2 = raiser.clone();
+            let notifier = Arc::new(DesktopNotifier::new(Some(Arc::new(move || {
+                r2.raise(None, false);
+            }))));
+            watch = NotifyWatch::spawn(hub, p.db_file.clone(), Arc::clone(&focus), notifier);
+        }
+        let mut d = deps(src, open.clone(), window, store(), renderer);
+        d.add_game = add;
+        d.activations = Some(rx);
+        d.focus = Some(Arc::clone(&focus));
+        let w = Arc::clone(&waker);
+        d.on_waker = Some(Box::new(move |f| {
+            *w.lock().unwrap_or_else(PoisonError::into_inner) = Some(f);
+        }));
+        d.display = display;
+        Ok((d, watch))
+    };
+
+    let (d, watch) = make(first)?;
+    let result = easyplay_ui::run(StartMode::Library, d);
+    drop(watch);
+    match result {
+        Ok(()) => Ok(exit::OK),
+        Err(e) if first == Renderer::Wgpu && !easyplay_ui::is_event_loop_error(&e) => {
+            // V-301: fall back to GL on the same event loop (eframe keeps it per thread).
             tracing::warn!("wgpu renderer failed ({e}); retrying with glow");
-            easyplay_ui::run(
-                StartMode::Library,
-                deps(
-                    source(preview, &open)?,
-                    open.clone(),
-                    window,
-                    store(),
-                    Renderer::Glow,
-                ),
-            )
-            .map_err(|e| Error::new(ErrorCode::HostNoDisplay).with("detail", e))
+            let (d, watch) = make(Renderer::Glow)?;
+            let r = easyplay_ui::run(StartMode::Library, d);
+            drop(watch);
+            r.map(|()| exit::OK)
+                .map_err(|e| Error::new(ErrorCode::HostNoDisplay).with("detail", e))
         }
         Err(e) => Err(Error::new(ErrorCode::HostNoDisplay).with("detail", e)),
     }

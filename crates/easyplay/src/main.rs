@@ -6,10 +6,14 @@
 
 mod cli;
 mod dispatch;
+mod display_libs;
 mod game_source;
+mod gen_assets;
 mod headless;
 mod host_verbs;
+mod instance_gui;
 mod library_verbs;
+mod notify_watch;
 mod panic;
 mod run_gui;
 mod run_supervisor;
@@ -33,6 +37,7 @@ use crate::cli::{Cli, Command};
 fn role_of(cli: &Cli) -> ProcessRole {
     match cli.command {
         None => ProcessRole::Gui,
+        Some(Command::GenerateAssets { .. }) => ProcessRole::Cli,
         Some(Command::Open { .. }) => ProcessRole::Gui,
         Some(Command::Supervise { .. }) => ProcessRole::Supervisor,
         Some(_) => ProcessRole::Cli,
@@ -116,6 +121,12 @@ fn main() -> ExitCode {
             let mut line = format!("easyplay: {}. {}", user.title, user.message);
             if let Some(task) = err.context_value("task") {
                 line.push_str(&format!(" (tracked as {task})"));
+            }
+            // Host problems name what is missing (e.g. display libraries).
+            if err.code.area() == "HOST"
+                && let Some(d) = err.context_value("detail")
+            {
+                line.push_str(&format!(" ({})", redact.redact_str(d)));
             }
             line.push_str(&format!(" [{}]", user.code));
             #[allow(clippy::print_stderr)]
