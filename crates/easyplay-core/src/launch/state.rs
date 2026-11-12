@@ -338,7 +338,7 @@ impl Timeline {
     }
 
     /// Time spent in state `s` (all visits), up to the next state mark.
-    fn in_state(&self, s: StateKind) -> Duration {
+    pub fn in_state(&self, s: StateKind) -> Duration {
         let states: Vec<(StateKind, MonoInstant)> = self
             .marks
             .iter()

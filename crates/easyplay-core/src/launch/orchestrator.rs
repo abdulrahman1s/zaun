@@ -46,7 +46,7 @@ use super::preflight::{
     FingerprintCheck, GrantChange, PrefixLocks, PreflightInput, PreflightReport, STAT_DEADLINE,
     preflight,
 };
-use super::state::{Launch, LaunchState};
+use super::state::{Launch, LaunchState, StateKind};
 use super::trusted::{TrustedProgress, TrustedSteps};
 
 /// What to launch.
@@ -693,6 +693,18 @@ pub fn launch(
         LaunchState::Starting { phase: None },
         clock,
         on_state,
+    );
+    // EasyPlay's own share of the launch (PERFORMANCE §9, PERF-004); the supervisor's
+    // segments follow in `events.jsonl`.
+    let t = state.timeline().timing();
+    tracing::info!(
+        game = %game.id.short(),
+        validate_ms = t.validate,
+        resolve_ms = t.resolve,
+        audit_ms = t.audit,
+        plan_ms = t.plan,
+        handoff_ms = state.timeline().in_state(StateKind::Spawning).as_millis() as u64,
+        "launch hand-off"
     );
     Ok(LaunchOutcome {
         handle,
