@@ -154,6 +154,12 @@ codegen-units = 16
 panic = "unwind"
 strip = "debuginfo"
 
+# Benchmarks (PERF-001): release code generation in its own directory (`target/perf`), so
+# measuring never replaces the release binaries. `cargo bench --profile perf`.
+[profile.perf]
+inherits = "release"
+debug = false
+
 # `panic` and `lto` cannot be set per package; `cargo build --release -p easyplay-init`
 # therefore uses unwinding and thin LTO. Packaging scripts that want the fully specified
 # shim profile (ARCHITECTURE §12) build with `--profile init-release`.

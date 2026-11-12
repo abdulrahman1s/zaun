@@ -32,5 +32,10 @@ winit.workspace = true
 easyplay-testkit.workspace = true
 egui_kittest = { workspace = true, features = ["eframe"] }
 
+# `grid_frame_5000` and friends (PERFORMANCE §1, PERF-001): `cargo bench -p easyplay-ui`.
+[[bench]]
+name = "grid"
+harness = false
+
 [lints]
 workspace = true

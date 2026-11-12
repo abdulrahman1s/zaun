@@ -172,8 +172,9 @@ impl SearchEntry {
 /// The precomputed search keys of a snapshot (`entries[i]` belongs to `games[i]`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SearchIndex {
-    /// Per game, parallel to [`LibrarySnapshot::games`].
-    pub entries: Vec<SearchEntry>,
+    /// Per game, parallel to [`LibrarySnapshot::games`]; shared between snapshots so an
+    /// incremental update copies pointers, not strings (PERFORMANCE §1).
+    pub entries: Vec<Arc<SearchEntry>>,
     /// Normalised words of each tag name.
     pub tags: HashMap<TagId, Box<[Box<str>]>>,
 }
@@ -543,7 +544,7 @@ impl LibrarySnapshot {
     fn assemble(
         revision: u64,
         now: Timestamp,
-        mut pairs: Vec<(GameSummary, SearchEntry)>,
+        mut pairs: Vec<(GameSummary, Arc<SearchEntry>)>,
         tags: &[TagInfo],
     ) -> Self {
         pairs.sort_by(|a, b| base_order(&a.0, &b.0));
@@ -555,7 +556,7 @@ impl LibrarySnapshot {
         revision: u64,
         now: Timestamp,
         games: Vec<GameSummary>,
-        entries: Vec<SearchEntry>,
+        entries: Vec<Arc<SearchEntry>>,
         tags: &[TagInfo],
     ) -> Self {
         let by_id = games
@@ -563,6 +564,18 @@ impl LibrarySnapshot {
             .enumerate()
             .map(|(i, g)| (g.id, i as u32))
             .collect();
+        Self::finish_with(revision, now, games, entries, tags, by_id)
+    }
+
+    fn finish_with(
+        revision: u64,
+        now: Timestamp,
+        games: Vec<GameSummary>,
+        entries: Vec<Arc<SearchEntry>>,
+        tags: &[TagInfo],
+        by_id: HashMap<GameId, u32>,
+    ) -> Self {
+        debug_assert_eq!(by_id.len(), games.len());
         let tags = tag_infos(tags, &games);
         Self {
             revision,
@@ -598,7 +611,7 @@ impl LibrarySnapshot {
             && self.search == other.search
     }
 
-    fn pairs(&self) -> Vec<(GameSummary, SearchEntry)> {
+    fn pairs(&self) -> Vec<(GameSummary, Arc<SearchEntry>)> {
         self.games
             .iter()
             .cloned()
@@ -618,18 +631,34 @@ impl LibrarySnapshot {
             {
                 self.search.entries[self.by_id[&summary.id] as usize].clone()
             }
-            _ => SearchEntry::new(&summary.name, &summary.primary_exe_path),
+            _ => Arc::new(SearchEntry::new(&summary.name, &summary.primary_exe_path)),
         };
         let mut games = self.games.clone();
         let mut entries = self.search.entries.clone();
-        if let Some(i) = self.by_id.get(&summary.id) {
-            games.remove(*i as usize);
-            entries.remove(*i as usize);
+        // The index map is patched rather than rebuilt: shifting positions is cheaper than
+        // hashing every ID again (PERFORMANCE §1, incremental update ≤ 0.5 ms).
+        let mut by_id = self.by_id.clone();
+        if let Some(i) = by_id.remove(&summary.id) {
+            games.remove(i as usize);
+            entries.remove(i as usize);
+            by_id.values_mut().filter(|v| **v > i).for_each(|v| *v -= 1);
         }
         let at = games.partition_point(|g| base_order(g, &summary) == Ordering::Less);
+        by_id
+            .values_mut()
+            .filter(|v| **v >= at as u32)
+            .for_each(|v| *v += 1);
+        by_id.insert(summary.id, at as u32);
         games.insert(at, summary);
         entries.insert(at, entry);
-        Self::finish(self.revision + 1, now, games, entries, &self.base_tags())
+        Self::finish_with(
+            self.revision + 1,
+            now,
+            games,
+            entries,
+            &self.base_tags(),
+            by_id,
+        )
     }
 
     /// Remove one game.
@@ -703,7 +732,7 @@ pub fn build(
                 overlays,
                 None,
             );
-            let e = SearchEntry::new(&s.name, &s.primary_exe_path);
+            let e = Arc::new(SearchEntry::new(&s.name, &s.primary_exe_path));
             (s, e)
         })
         .collect();
