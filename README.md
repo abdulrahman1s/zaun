@@ -178,7 +178,7 @@ These need a human decision. None blocks implementation; each has a default.
 | OQ-1 | Final product name and reverse-DNS application ID. | `EasyPlay`, `io.github.easyplay.EasyPlay`. Both live in one constants module. |
 | OQ-2 | Project licence. `umu-launcher` is GPL-3.0; EasyPlay only executes it. | `GPL-3.0-or-later`. |
 | OQ-3 | Should release builds bundle `umu-launcher` or require the distribution package? | Require it; detect and explain when missing. |
-| OQ-4 | Online artwork lookup (e.g. SteamGridDB) needs an API key and sends game names to a third party. | Not in 1.0. Local files and embedded icons only. |
+| OQ-4 | Online artwork lookup. | **Decided** (ADR-0018): opt-in Steam CDN by app ID in 1.0; other providers later (R-10). |
 | OQ-5 | Ship an AppArmor profile for distributions that restrict unprivileged user namespaces? | Yes, in the `.deb`; validated by task `PKG-006`. |
 
 ## Repository layout (target, once implementation starts)
