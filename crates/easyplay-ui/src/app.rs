@@ -6,7 +6,6 @@
 //! [`EasyPlayApp::frame`] is the whole per-frame UI; the eframe `ui` hook and the kittest
 //! harness both call it, so tests exercise exactly what the window shows.
 
-use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -40,19 +39,10 @@ use crate::vm::toasts::{ToastAction, ToastKind, ToastQueue};
 use crate::vm::{AsyncValue, details};
 use crate::widgets::banner::Severity;
 
-thread_local! {
-    static UI_THREAD: Cell<bool> = const { Cell::new(false) };
-}
-
-/// Mark the current thread as the UI thread (debug guard of PERFORMANCE §2).
-pub fn mark_ui_thread() {
-    UI_THREAD.with(|f| f.set(true));
-}
-
-/// Whether the current thread is the UI thread.
-pub fn is_ui_thread() -> bool {
-    UI_THREAD.with(Cell::get)
-}
+/// The UI-thread guard of PERFORMANCE §2 lives in core (`easyplay_core::ui_thread`) so the
+/// real `Fs`, `Store`, `CommandRunner` and spawners can check it; [`EasyPlayApp::logic`] and
+/// [`EasyPlayApp::paint`] mark the thread for their duration.
+pub use easyplay_core::ui_thread::is_ui_thread;
 
 /// Window geometry kept in `<state>/window.json` (PERSISTENCE §1).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -361,7 +351,7 @@ impl EasyPlayApp {
         if self.installed {
             return;
         }
-        mark_ui_thread();
+        let _ui = easyplay_core::ui_thread::enter();
         theme::install(ctx, &self.appearance);
         ctx.set_zoom_factor(self.appearance.ui_scale);
         let waker_ctx = ctx.clone();
@@ -393,6 +383,7 @@ impl EasyPlayApp {
     /// Per-frame logic: drain events, route them, collect picker results, tick toasts.
     /// Never blocks.
     pub fn logic(&mut self, ctx: &Context) {
+        let _ui = easyplay_core::ui_thread::enter();
         self.install(ctx);
         let mono = self.clock.mono();
         for ev in self.bridge.drain() {
@@ -752,6 +743,7 @@ impl EasyPlayApp {
 
     /// Paint the UI for this frame (eframe calls `logic` separately).
     pub fn paint(&mut self, ui: &mut Ui) {
+        let _ui = easyplay_core::ui_thread::enter();
         let ctx = ui.ctx().clone();
         self.install(&ctx);
         let (Some(textures), Some(art)) = (self.textures.as_mut(), self.art.as_deref()) else {

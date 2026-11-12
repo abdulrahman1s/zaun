@@ -114,6 +114,7 @@ impl RealLauncher {
     #[allow(clippy::disallowed_methods)] // session::launcher spawns the supervisor (ARCH-002).
     fn spawn(&self, plan_path: &Path, plan: &LaunchPlan) -> Result<(), Error> {
         use std::os::unix::fs::OpenOptionsExt;
+        crate::ui_thread::assert_not_ui_thread("SessionLauncher::spawn");
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)

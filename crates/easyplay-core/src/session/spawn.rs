@@ -177,6 +177,7 @@ impl SandboxSpawner for RealSpawner {
         sandbox: &PlanSandbox,
         io: SandboxIo,
     ) -> Result<Box<dyn SandboxChild>, Error> {
+        crate::ui_thread::assert_not_ui_thread("SandboxSpawner::spawn");
         let (owned, pairs) = descriptor_table(sandbox, &io)?;
         let log_out = io.log.try_clone().map_err(|e| setup_err("descriptor", e))?;
         let mut cmd = Command::new(bwrap);

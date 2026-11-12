@@ -114,6 +114,31 @@ pub fn rig_app(
     }
 }
 
+/// A harness over any backend (no picker, synthetic artwork).
+pub fn rig_backend(
+    backend: Box<dyn easyplay_ui::Backend>,
+    start: Route,
+    size: Vec2,
+    choice: ThemeChoice,
+) -> Harness<'static, EasyPlayApp> {
+    let appearance = Appearance {
+        theme: choice,
+        ..Appearance::default()
+    };
+    let app = EasyPlayApp::new(
+        UiBridge::new(backend),
+        Arc::new(FakeClock::new(now())),
+        appearance,
+        start,
+        0,
+    )
+    .with_art(Box::new(|_| Box::new(synthetic::Inline::new())));
+    Harness::builder()
+        .with_size(size)
+        .with_context_setup(move |ctx| theme::install(ctx, &appearance))
+        .build_eframe(move |_cc| app)
+}
+
 /// The settled library at 1280 × 800, dark.
 pub fn rig(start: Route) -> Rig {
     rig_with(

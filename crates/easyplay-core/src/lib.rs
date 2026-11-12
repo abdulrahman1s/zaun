@@ -5,7 +5,7 @@
 //!
 //! | Layer | Modules |
 //! |---|---|
-//! | 1 | [`consts`], [`ids`], [`clock`], [`paths`], [`error`], [`model`] |
+//! | 1 | [`consts`], [`ids`], [`clock`], [`paths`], [`error`], [`model`], [`ui_thread`] |
 //! | 2 | [`jobs`], [`logging`], [`fsx`], [`procfs`] |
 //! | 3 | [`storage`], [`config`], [`host`] |
 //! | 4 | [`identity`], [`sandbox`], [`umu`] |
@@ -22,6 +22,7 @@ pub mod error;
 pub mod ids;
 pub mod model;
 pub mod paths;
+pub mod ui_thread;
 
 // Layer 2 — mechanisms
 pub mod fsx;
