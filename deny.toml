@@ -60,7 +60,8 @@ deny = [
     # through tracing-subscriber and cannot be banned).
     { crate = "async-std" },
     { crate = "reqwest" },
-    { crate = "ureq" },
+    # ADR-0018: only `easyplay-core` (its `artwork::http`) may use it.
+    { crate = "ureq", wrappers = ["easyplay-core"] },
     { crate = "chrono" },
     { crate = "egui_plot" },
     { crate = "sysinfo" },

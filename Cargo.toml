@@ -70,6 +70,8 @@ notify-rust = { version = "4.11", default-features = false, features = ["z"] }
 seccompiler = "0.5"
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+# The only HTTP client (ADR-0018): `artwork::http`, rustls with webpki roots, no cookies.
+ureq = { version = "3.5", default-features = false, features = ["rustls"] }
 
 # Persistence (ADR-0017): ormlite on sqlx, driven by a private current-thread runtime.
 ormlite = { version = "0.25", default-features = false, features = [

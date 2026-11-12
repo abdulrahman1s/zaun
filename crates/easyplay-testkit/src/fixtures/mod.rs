@@ -5,6 +5,7 @@
 pub mod games;
 pub mod host_trees;
 pub mod hosts;
+pub mod images;
 pub mod policies;
 pub mod runtime_trees;
 

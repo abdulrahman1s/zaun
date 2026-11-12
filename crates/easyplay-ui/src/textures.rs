@@ -10,8 +10,9 @@
 //!    4 MB), cancels requests nobody asked for this frame, and evicts unpinned entries in
 //!    LRU order until the cache is under its byte cap.
 //!
-//! Decoding never happens here: pixels arrive through the source (jobs in production, ART-004;
-//! [`synthetic`] for now). Uploading goes through an [`Uploader`] so tests can count uploads
+//! Decoding never happens here: pixels arrive through the source: [`disk::ThumbSource`] in
+//! production (thumbnails decoded on the job pool, ART-004), [`synthetic`] for the preview
+//! library and tests. Uploading goes through an [`Uploader`] so tests can count uploads
 //! without a GPU.
 
 use std::collections::{HashMap, VecDeque};
@@ -328,6 +329,97 @@ impl<U: Uploader> TextureCache<U> {
     }
 }
 
+/// The production source: thumbnails from `<cache>/thumbnails`, generated and decoded on the
+/// job pool by [`easyplay_core::artwork::ThumbService`] (ART-004).
+pub mod disk {
+    use easyplay_core::artwork::{ThumbKey, ThumbResult, ThumbService, ThumbSize as CoreSize};
+    use easyplay_core::jobs::JobPriority;
+    use egui::{Color32, ColorImage};
+
+    use super::{ArtSource, Decoded, TexKey, ThumbSize};
+    use easyplay_core::model::ArtKey;
+
+    /// The core size for a UI size.
+    pub fn core_size(size: ThumbSize) -> CoreSize {
+        match size {
+            ThumbSize::Cover240 => CoreSize::Cover240,
+            ThumbSize::Cover480 => CoreSize::Cover480,
+            ThumbSize::Icon64 => CoreSize::Icon64,
+        }
+    }
+
+    fn ui_size(size: CoreSize) -> Option<ThumbSize> {
+        match size {
+            CoreSize::Cover240 => Some(ThumbSize::Cover240),
+            CoreSize::Cover480 => Some(ThumbSize::Cover480),
+            CoreSize::Icon64 => Some(ThumbSize::Icon64),
+            CoreSize::Icon32 | CoreSize::Icon128 => None,
+        }
+    }
+
+    /// [`ArtSource`] over a [`ThumbService`]. Build the service with
+    /// `wake: Arc::new(move || ctx.request_repaint())` so results arrive promptly.
+    pub struct ThumbSource {
+        service: ThumbService,
+        priority: JobPriority,
+    }
+
+    impl ThumbSource {
+        /// Requests at `Interactive` priority (the cache asks only for visible and prefetch
+        /// rows, and cancels the rest each frame).
+        pub fn new(service: ThumbService) -> Self {
+            Self {
+                service,
+                priority: JobPriority::Interactive,
+            }
+        }
+
+        /// The service (to update its index after imports).
+        pub fn service(&self) -> &ThumbService {
+            &self.service
+        }
+    }
+
+    fn key(k: TexKey) -> ThumbKey {
+        ThumbKey {
+            art_hash: k.art.0,
+            size: core_size(k.size),
+        }
+    }
+
+    impl ArtSource for ThumbSource {
+        fn request(&self, k: TexKey) {
+            self.service.request(key(k), self.priority);
+        }
+        fn cancel(&self, k: TexKey) {
+            self.service.cancel(key(k));
+        }
+        fn try_recv(&self) -> Option<Decoded> {
+            // Failures are skipped: the card keeps its placeholder.
+            while let Some(r) = self.service.try_recv() {
+                let ThumbResult::Ready(p) = r else { continue };
+                let Some(size) = ui_size(p.key.size) else {
+                    continue;
+                };
+                let [r, g, b] = p.dominant;
+                let image = ColorImage::from_rgba_unmultiplied(
+                    [p.image.width as usize, p.image.height as usize],
+                    &p.image.pixels,
+                );
+                return Some(Decoded {
+                    key: TexKey {
+                        art: ArtKey(p.key.art_hash),
+                        size,
+                    },
+                    image,
+                    dominant: Color32::from_rgb(r, g, b),
+                });
+            }
+            None
+        }
+    }
+}
+
 /// A synthetic artwork source: generated covers for the preview library and tests.
 pub mod synthetic {
     use std::cell::RefCell;
@@ -601,6 +693,82 @@ mod tests {
         assert_eq!(*never.0.borrow(), 1);
         assert_eq!(c.in_flight(), 0);
         let _ = src;
+    }
+
+    /// ART-004: the disk source feeds the cache from real thumbnails on the job pool; an
+    /// unknown hash keeps the placeholder.
+    #[test]
+    fn disk_source_feeds_the_cache() {
+        use std::sync::Arc;
+
+        use easyplay_core::artwork::thumbs::{self, ArtIndex, ThumbDeps};
+        use easyplay_core::artwork::{ImageCodec, ImageCrateCodec, RgbaImage, ThumbService};
+        use easyplay_core::clock::SystemClock;
+        use easyplay_core::jobs::{JobPool, JobPoolConfig};
+        use easyplay_testkit::MemFs;
+
+        let fs = Arc::new(MemFs::new());
+        let original = std::path::Path::new("/data/artwork/g/cover-0101010101010101.png");
+        let png = ImageCrateCodec
+            .encode_png(&RgbaImage::filled(600, 900, [200, 10, 10, 255]))
+            .unwrap();
+        fs.file(original, png);
+        let hash = [1u8; 32];
+        let thumbs_dir = std::path::PathBuf::from("/cache/thumbnails");
+        thumbs::generate(
+            &*fs,
+            &ImageCrateCodec,
+            original,
+            &thumbs_dir,
+            hash,
+            &[easyplay_core::artwork::ThumbSize::Cover240],
+            None,
+        )
+        .unwrap();
+        let pool = Arc::new(
+            JobPool::new(
+                JobPoolConfig {
+                    workers: 2,
+                    ..JobPoolConfig::default()
+                },
+                Arc::new(SystemClock::new()),
+            )
+            .unwrap(),
+        );
+        let src = disk::ThumbSource::new(ThumbService::new(ThumbDeps {
+            pool,
+            fs,
+            codec: Arc::new(ImageCrateCodec),
+            thumbs_dir,
+            index: Arc::new(ArtIndex::new()),
+            wake: Arc::new(|| {}),
+        }));
+        let mut c = TextureCache::new(FakeUploader::default(), Limits::default());
+        let k = TexKey {
+            art: ArtKey(hash),
+            size: ThumbSize::Cover240,
+        };
+        let missing = key(9, ThumbSize::Cover240);
+        let mut ready = false;
+        for _ in 0..400 {
+            c.begin_frame();
+            ready = matches!(c.get(k, true, &src), TexState::Ready(_));
+            c.get(missing, true, &src);
+            c.end_frame(&src);
+            if ready {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(ready);
+        assert_eq!(c.bytes(), 240 * 360 * 4);
+        c.begin_frame();
+        assert_eq!(
+            c.get(missing, true, &src),
+            TexState::Pending(None),
+            "unknown art keeps the placeholder"
+        );
+        assert_eq!(c.get(k, false, &src), TexState::Ready(TextureId::User(1)));
     }
 
     /// Acceptance (UI-007): scrolling a synthetic 5 000-item grid never uploads more than the

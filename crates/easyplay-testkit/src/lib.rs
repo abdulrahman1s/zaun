@@ -18,8 +18,8 @@ pub mod golden;
 
 pub use env::TestEnv;
 pub use fakes::{
-    CannedOutput, FakeClock, FakeProc, MemFs, ROOT_DEVICE, ScriptedRunner, UnexpectedCommand,
-    proc_entry,
+    CannedOutput, FakeClock, FakeHttpServer, FakeProc, MemFs, ROOT_DEVICE, Reply, ScriptedRunner,
+    UnexpectedCommand, proc_entry,
 };
 
 #[doc(hidden)]
