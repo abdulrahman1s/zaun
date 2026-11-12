@@ -67,6 +67,10 @@ words!(
     GridDensity { Compact = "compact", Comfortable = "comfortable", Large = "large" } default Comfortable
 );
 words!(
+    /// `artwork.online`: where artwork may be fetched from (ADR-0018).
+    ArtworkOnline { Off = "off", Steam = "steam" } default Off
+);
+words!(
     /// `protection.controller_access_default`.
     ControllerDefault { Detected = "detected", AllWhenSafe = "all-when-safe" } default Detected
 );
@@ -185,6 +189,16 @@ pub struct Appearance {
     pub grid_density: GridDensity,
     /// Playtime on cards.
     pub show_playtime_on_cards: bool,
+}
+
+/// `[artwork]` (ADR-0018).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ArtworkPrefs {
+    /// `"off"` (never contact a server) or `"steam"` (fetch from the Steam CDN).
+    pub online: ArtworkOnline,
+    /// With `online = "steam"` and no known app ID, the game's display name may be sent to
+    /// Steam's store search.
+    pub name_search: bool,
 }
 
 /// `[protection]`.
@@ -343,6 +357,8 @@ pub struct Preferences {
     pub general: General,
     /// `[appearance]`.
     pub appearance: Appearance,
+    /// `[artwork]`.
+    pub artwork: ArtworkPrefs,
     /// `[protection]`.
     pub protection: Protection,
     /// `[runtime]`.
@@ -385,6 +401,10 @@ impl Default for Preferences {
                 library_view: LibraryView::Grid,
                 grid_density: GridDensity::Comfortable,
                 show_playtime_on_cards: true,
+            },
+            artwork: ArtworkPrefs {
+                online: ArtworkOnline::Off,
+                name_search: true,
             },
             protection: Protection {
                 default_preset: BasePreset::Offline,

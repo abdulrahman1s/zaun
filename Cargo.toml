@@ -79,6 +79,10 @@ ormlite = { version = "0.25", default-features = false, features = [
     "uuid",
 ] }
 tokio = { version = "1.45", default-features = false, features = ["rt"] }
+# Not used directly: depending on it turns on `bundled` for sqlx-sqlite's copy through feature
+# unification, so SQLite is always compiled in (ADR-0017, RELEASE_STRATEGY §2.1). Keep the
+# version in step with what `sqlx-sqlite` requires.
+libsqlite3-sys = { version = "0.37", features = ["bundled"] }
 
 # Binary
 clap = { version = "4.5", default-features = false, features = [

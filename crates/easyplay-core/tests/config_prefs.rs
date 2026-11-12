@@ -156,6 +156,12 @@ fn validation_table() {
         ("[paths]\nbwrap = \"/does/not/exist\"".into(), 1),
         ("[paths]\nbwrap = \"\"".into(), 0),
         ("appearance = 3".into(), 1),
+        (
+            "[artwork]\nonline = \"Steam\"\nname_search = false".into(),
+            0,
+        ),
+        ("[artwork]\nonline = \"igdb\"".into(), 1),
+        ("[artwork]\nname_search = \"yes\"".into(), 1),
     ];
     for (text, expected) in cases {
         let table: toml::Table = text.parse().unwrap();
@@ -284,4 +290,35 @@ fn patches_validate_like_the_file() {
         let e: easyplay_core::Error = err.into();
         assert_eq!(e.code, easyplay_core::ErrorCode::CfgInvalidValue);
     }
+}
+
+#[test]
+fn artwork_defaults_to_offline_with_name_search() {
+    use easyplay_core::config::schema::ArtworkOnline;
+    let d = Preferences::default();
+    assert_eq!(d.artwork.online, ArtworkOnline::Off);
+    assert!(d.artwork.name_search);
+    let (p, w) = load::from_table(
+        "[artwork]\nonline = \"steam\"".parse().unwrap(),
+        &RealFs::new(),
+        &LoadOptions::default(),
+    );
+    assert!(w.is_empty());
+    assert_eq!(p.artwork.online, ArtworkOnline::Steam);
+    let next = d
+        .apply(
+            &PreferencePatch::new().set("artwork.online", "steam"),
+            &RealFs::new(),
+            &LoadOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(next.artwork.online, ArtworkOnline::Steam);
+    assert!(
+        d.apply(
+            &PreferencePatch::new().set("artwork.online", "everywhere"),
+            &RealFs::new(),
+            &LoadOptions::default(),
+        )
+        .is_err()
+    );
 }

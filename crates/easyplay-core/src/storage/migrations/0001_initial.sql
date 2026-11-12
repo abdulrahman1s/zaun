@@ -32,7 +32,9 @@ CREATE TABLE games (
   prefix_tainted_at      INTEGER,
   prefix_prepared_with   TEXT,
   flags                  INTEGER NOT NULL DEFAULT 0,
-  last_launched_at       INTEGER
+  last_launched_at       INTEGER,
+  steam_app_id           INTEGER CHECK (steam_app_id > 0),
+  steam_app_id_is_user_set INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 CREATE INDEX games_sort ON games(sort_name) WHERE deleted_at IS NULL;
 
@@ -77,7 +79,7 @@ CREATE TABLE artwork (
   hash       BLOB NOT NULL CHECK (length(hash) = 32),
   width      INTEGER NOT NULL,
   height     INTEGER NOT NULL,
-  source     TEXT NOT NULL CHECK (source IN ('file','executable_icon','generated')),
+  source     TEXT NOT NULL CHECK (source IN ('file','executable_icon','generated','steam_cdn')),
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (game_id, slot)
 ) STRICT, WITHOUT ROWID;

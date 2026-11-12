@@ -83,6 +83,10 @@ pub struct GameRecord {
     pub flags: GameFlags,
     /// Last launch.
     pub last_launched_at: Option<Timestamp>,
+    /// Steam app ID for artwork (ADR-0018).
+    pub steam_app_id: Option<u32>,
+    /// Whether the user chose the Steam app ID.
+    pub steam_app_id_is_user_set: bool,
     /// Executables (primary first, then by `added_at`).
     pub executables: Vec<Executable>,
 }
@@ -128,6 +132,8 @@ impl GameRecord {
             prefix_prepared_with: self.prefix_prepared_with,
             flags: self.flags,
             last_launched_at: self.last_launched_at,
+            steam_app_id: self.steam_app_id,
+            steam_app_id_is_user_set: self.steam_app_id_is_user_set,
             executables: self.executables,
         })
     }
@@ -187,6 +193,10 @@ pub struct GamePatch {
     pub prefix_prepared_with: Option<Option<RuntimeName>>,
     /// Flags.
     pub flags: Option<GameFlags>,
+    /// Steam app ID for artwork (`Some(None)` clears it).
+    pub steam_app_id: Option<Option<u32>>,
+    /// Whether the user chose the Steam app ID.
+    pub steam_app_id_is_user_set: Option<bool>,
 }
 
 /// A new session row (written by the supervisor at start).

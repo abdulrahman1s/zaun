@@ -32,6 +32,7 @@ fn origin_parse(s: &str) -> StorageResult<ArtOrigin> {
         ArtOrigin::File,
         ArtOrigin::ExecutableIcon,
         ArtOrigin::Generated,
+        ArtOrigin::SteamCdn,
     ]
     .into_iter()
     .find(|v| v.as_str() == s)

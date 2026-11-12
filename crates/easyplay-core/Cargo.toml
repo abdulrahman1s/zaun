@@ -36,6 +36,7 @@ parking_lot.workspace = true
 notify-rust.workspace = true
 ormlite.workspace = true
 tokio.workspace = true
+libsqlite3-sys.workspace = true
 seccompiler = { workspace = true, optional = true }
 
 [dev-dependencies]
