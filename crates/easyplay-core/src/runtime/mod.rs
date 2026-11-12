@@ -14,7 +14,7 @@ pub mod service;
 pub mod store;
 pub mod vdf;
 
-pub use catalog::{CatalogDiff, CatalogStore, MemCatalogStore, RuntimeCatalog};
+pub use catalog::{CatalogDiff, CatalogStore, MemCatalogStore, RuntimeCatalog, SqliteCatalogStore};
 pub use discovery::{Discovery, ProtonBuild, RejectReason, Rejected, SlrInstall, discover};
 pub use resolver::{
     IsolationInputs, ProvisionNeed, Resolution, ResolveInput, UnavailableReason, resolve,
