@@ -1,0 +1,45 @@
+# AppArmor profile for EasyPlay (PKG-006, RELEASE_STRATEGY §2.2, OQ-5, V-004).
+#
+# Installed by the .deb as /etc/apparmor.d/easyplay. On systems that set
+# kernel.apparmor_restrict_unprivileged_userns=1 (Ubuntu 23.10 and newer), unconfined
+# programs may not create user namespaces unless a profile grants `userns`. EasyPlay's
+# sandbox is bubblewrap, which needs one, and the Steam Linux Runtime started inside it
+# (pressure-vessel's own srt-bwrap) needs a nested one.
+#
+# This profile does not restrict EasyPlay: every profile here is `unconfined` and only adds
+# the `userns` permission. bwrap and srt-bwrap get child profiles of their own, so that a
+# distribution profile attached to /usr/bin/bwrap (for example Ubuntu's
+# bwrap-userns-restrict, which strips capabilities inside the namespace) does not apply to
+# the sandboxes EasyPlay builds; those sandboxes are EasyPlay's security boundary
+# (SECURITY_MODEL §2).
+#
+# Local additions belong in /etc/apparmor.d/local/easyplay. If a release cannot allow nested
+# namespaces through a profile, the alternative is the sysctl
+# kernel.apparmor_restrict_unprivileged_userns=0, which relaxes the restriction for every
+# program; EasyPlay's Doctor screen explains both. EasyPlay never edits AppArmor or sysctl
+# configuration itself.
+
+abi <abi/4.0>,
+
+include <tunables/global>
+
+profile easyplay /usr/bin/easyplay flags=(unconfined) {
+  userns,
+
+  # The supervisor is EasyPlay itself (same profile); bubblewrap gets a child profile.
+  /{usr/,usr/local/,}bin/bwrap cx -> bwrap,
+
+  profile bwrap flags=(unconfined) {
+    userns,
+
+    # pressure-vessel's bubblewrap inside the sandbox, from the Steam Linux Runtime that
+    # umu keeps under the user's data directory (path as seen inside the sandbox).
+    /**/srt-bwrap px -> easyplay//srt-bwrap,
+  }
+
+  profile srt-bwrap flags=(unconfined) {
+    userns,
+  }
+
+  include if exists <local/easyplay>
+}
