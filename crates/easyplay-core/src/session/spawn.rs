@@ -20,6 +20,7 @@ use crate::launch::{FdKind, PlanSandbox};
 use crate::sandbox::HostAction;
 use crate::sandbox::fd::sealed_memfd;
 use crate::sandbox::plan::{FD_ARGS, FD_INIT_STATUS, FD_JSON_STATUS, FD_SYNC};
+use crate::sandbox::seccomp;
 
 use super::lock::PrefixLock;
 use super::sys;
@@ -127,16 +128,29 @@ pub fn descriptor_table(sandbox: &PlanSandbox, io: &SandboxIo) -> Result<Descrip
                 format!("payload on reserved descriptor {}", fd.fd),
             ));
         }
-        let content = fd
+        let mut content = fd
             .content()
             .map_err(|e| Error::new(ErrorCode::SbxPlanInvariant).with_source(e))?;
-        if fd.kind == FdKind::Seccomp && content.is_empty() {
-            return Err(Error::new(ErrorCode::SbxSetupFailed).with(
-                "detail",
-                "the system-call filter is not available in this build",
-            ));
-        }
-        owned.push(sealed_memfd("easyplay-data", &content).map_err(|e| setup_err("memfd", e))?);
+        let name = if fd.kind == FdKind::Seccomp {
+            // The plan records only the descriptor; the program is built (once per process)
+            // for the profile the rendered options imply (BUBBLEWRAP_SANDBOX §9).
+            if content.is_empty() {
+                content = seccomp::program(seccomp::Profile::for_args(&sandbox.args))
+                    .map_err(|e| {
+                        Error::new(ErrorCode::SbxSetupFailed)
+                            .with(
+                                "detail",
+                                "the system-call filter is not available in this build",
+                            )
+                            .with_source(e)
+                    })?
+                    .to_vec();
+            }
+            "easyplay-seccomp"
+        } else {
+            "easyplay-data"
+        };
+        owned.push(sealed_memfd(name, &content).map_err(|e| setup_err("memfd", e))?);
         targets.push(fd.fd);
     }
     let mut pairs: Vec<(RawFd, RawFd)> = owned

@@ -15,7 +15,7 @@ name = "easyplay"
 path = "src/main.rs"
 
 [features]
-default = ["gamepad"]
+default = ["gamepad", "seccomp"]
 gamepad = ["easyplay-ui/gamepad"]
 seccomp = ["easyplay-core/seccomp"]
 wayland-security-context = []
