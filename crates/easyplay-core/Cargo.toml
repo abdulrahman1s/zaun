@@ -28,6 +28,7 @@ jiff.workspace = true
 rustix.workspace = true
 image.workspace = true
 pelite.workspace = true
+unicode-normalization.workspace = true
 bitflags.workspace = true
 smallvec.workspace = true
 base64.workspace = true

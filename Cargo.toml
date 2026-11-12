@@ -61,6 +61,8 @@ jiff = "0.2"
 rustix = { version = "1.0", features = ["fs", "process", "pipe", "event", "system", "thread"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "ico", "bmp"] }
 pelite = "0.10"
+# Search normalisation (GAME_LIBRARY §4: NFKD, combining marks removed).
+unicode-normalization = "0.1.24"
 bitflags = "2.9"
 smallvec = { version = "1.15", features = ["serde", "union"] }
 base64 = "0.23"

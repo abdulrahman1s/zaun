@@ -174,8 +174,8 @@ fn rows_to_sessions(rows: Vec<SessionRow>) -> StorageResult<Vec<Session>> {
     rows.into_iter().map(SessionRow::into_session).collect()
 }
 
-/// Recompute `longest_ms`, `first_played_at`, `last_played_at` of a game from its counted
-/// sessions (after a deletion).
+/// Recompute `longest_ms`, `first_played_at` (earliest start) and `last_played_at` (latest
+/// end) of a game from its counted sessions (after a deletion; STATISTICS §2).
 async fn recompute_extremes(c: &mut SqlConn, game: &str) -> StorageResult<()> {
     exec_args(
         c,
@@ -184,7 +184,7 @@ async fn recompute_extremes(c: &mut SqlConn, game: &str) -> StorageResult<()> {
                                   WHERE game_id = ?1 AND counted = 1), 0), \
            first_played_at = (SELECT min(started_at) FROM sessions \
                               WHERE game_id = ?1 AND counted = 1), \
-           last_played_at = (SELECT max(started_at) FROM sessions \
+           last_played_at = (SELECT max(coalesce(ended_at, started_at)) FROM sessions \
                              WHERE game_id = ?1 AND counted = 1) \
          WHERE game_id = ?1",
         &[Arg::text(game)],
@@ -303,6 +303,9 @@ impl<S: Store + ?Sized> SessionRepo for S {
             };
             let game_id: GameId = id_parse("sessions.game_id", &game)?;
             let started = row.started_at;
+            // STATISTICS §2: first played = earliest counted start, last played = latest
+            // counted end. Sessions may close out of start order (a long session started
+            // first ends last; recovery closes old rows late), hence min/max, not coalesce.
             if close.counted {
                 exec_args(
                     c,
@@ -311,15 +314,16 @@ impl<S: Store + ?Sized> SessionRepo for S {
                      ON CONFLICT(game_id) DO UPDATE SET \
                        total_ms = total_ms + excluded.total_ms, \
                        sessions = sessions + 1, \
-                       first_played_at = coalesce(first_played_at, excluded.first_played_at), \
+                       first_played_at = min(coalesce(first_played_at, excluded.first_played_at), \
+                                             excluded.first_played_at), \
                        last_played_at = max(coalesce(last_played_at, 0), excluded.last_played_at), \
                        longest_ms = max(longest_ms, excluded.longest_ms), \
-                       last_launch_at = excluded.last_launch_at",
+                       last_launch_at = max(coalesce(last_launch_at, 0), excluded.last_launch_at)",
                     &[
                         Arg::text(game.clone()),
                         Arg::int(int(close.duration_ms)),
                         Arg::int(started),
-                        Arg::int(started),
+                        Arg::int(close.ended_at.as_millis()),
                         Arg::int(int(close.duration_ms)),
                         Arg::int(started),
                     ],
@@ -335,7 +339,8 @@ impl<S: Store + ?Sized> SessionRepo for S {
                     c,
                     "INSERT INTO game_stats(game_id, failed_launches, last_launch_at) \
                      VALUES (?, 1, ?) ON CONFLICT(game_id) DO UPDATE SET \
-                     failed_launches = failed_launches + 1, last_launch_at = excluded.last_launch_at",
+                     failed_launches = failed_launches + 1, \
+                     last_launch_at = max(coalesce(last_launch_at, 0), excluded.last_launch_at)",
                     &[Arg::text(game.clone()), Arg::int(started)],
                 )
                 .await?;

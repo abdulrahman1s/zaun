@@ -6,7 +6,7 @@
 //! |---|---|
 //! | [`codec`] | `ImageCodec`: sniffing, limits, panic-isolated decode, encode |
 //! | [`import`] | geometry per slot, dominant colour, content-addressed store, row upsert |
-//! | [`icon_extract`] | `IconSource` seam for executable icons (PE source: IDENT-002) |
+//! | [`icon_extract`] | `IconSource` seam and its `PeInspector`-backed implementation |
 //! | [`thumbs`] | fixed-size thumbnails, `ThumbService` on the job pool |
 //! | [`store`] | file names, sweeping unreferenced files, broken-row repair |
 //! | [`placeholder`] | deterministic generated covers |
@@ -30,10 +30,10 @@ use std::path::PathBuf;
 pub use codec::{
     CodecError, ImageCodec, ImageCrateCodec, ImageFormat, ImageInfo, ImageLimits, RgbaImage, sniff,
 };
-pub use icon_extract::{IconSource, NoIcons};
+pub use icon_extract::{IconSource, NoIcons, PeIconSource};
 pub use import::{ImportDeps, ImportInput, Imported, Normalised, import, normalise};
 pub use placeholder::{Placeholder, placeholder_for};
-pub use steam::{Resolution, SteamAppIdSource};
+pub use steam::{FsAppIdFile, NoUmuDb, Resolution, SteamAppIdSource};
 pub use thumbs::{ArtIndex, ThumbKey, ThumbPixels, ThumbResult, ThumbService, ThumbSize};
 
 use crate::ids::ExecutableId;

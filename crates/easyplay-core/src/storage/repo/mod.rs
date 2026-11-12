@@ -519,6 +519,11 @@ pub trait StatsRepo {
     fn daily_totals(&mut self, from: u32, to: u32) -> StorageResult<Vec<DailyPlaytime>>;
     /// Sum of milliseconds in a range, optionally for one key.
     fn playtime_sum(&mut self, key: Option<&GameKey>, from: u32, to: u32) -> StorageResult<u64>;
+    /// Milliseconds per key in a range (one grouped scan of the `day` index), keys with a
+    /// positive sum only, ordered by key text. Includes kept history (`removed:<name>`).
+    fn playtime_by_key(&mut self, from: u32, to: u32) -> StorageResult<Vec<(GameKey, u64)>>;
+    /// Days in a range on which anything was played (`Σ ms > 0`), ascending.
+    fn played_days(&mut self, from: u32, to: u32) -> StorageResult<Vec<u32>>;
     /// Delete every aggregate row (before `stats::rebuild`).
     fn clear_aggregates(&mut self) -> StorageResult<()>;
 }
