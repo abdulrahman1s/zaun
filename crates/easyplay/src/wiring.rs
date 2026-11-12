@@ -18,11 +18,11 @@ use easyplay_core::host::{
 };
 use easyplay_core::identity::{FsPeInspector, PeInspector, SharedLocations};
 use easyplay_core::jobs::{JobPool, JobPoolConfig};
-use easyplay_core::library::draft::NoUmuTitles;
 use easyplay_core::model::{Channel, RuntimeRef};
 use easyplay_core::paths::{AppPaths, PathEnv};
 use easyplay_core::procfs::{ProcSource, RealProc};
 use easyplay_core::runtime::{LocalRuntimeService, MemCatalogStore, RuntimeSettings, RuntimeStore};
+use easyplay_core::service::flows::runtime::CatalogUmuDb;
 use easyplay_core::service::{LaunchEnv, ServiceDeps};
 use easyplay_core::session::{FlockLocks, RealLauncher};
 
@@ -96,7 +96,7 @@ impl Wiring {
 }
 
 /// Load the preferences (missing file → defaults; problems are logged).
-fn load_prefs(fs: &dyn Fs, paths: &AppPaths, clock: &dyn Clock) -> Preferences {
+pub(crate) fn load_prefs(fs: &dyn Fs, paths: &AppPaths, clock: &dyn Clock) -> Preferences {
     match config::load::load(
         fs,
         &paths.config_file,
@@ -181,20 +181,21 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
         .create_dir_all(&store.session_var, 0o700)
         .and_then(|()| fs.reflink_supported(&store.root, &store.session_var))
         .ok();
-    let runtimes = Arc::new(LocalRuntimeService::new(
-        Arc::clone(&fs),
-        Arc::clone(&clock),
-        Arc::new(MemCatalogStore::new()),
-        store,
-        home.clone(),
-        RuntimeSettings {
-            default: runtime_ref(&prefs.runtime.default),
-            extra_search_dirs: prefs.runtime.extra_search_dirs.clone(),
-            always_isolate: prefs.protection.always_isolate_runtime,
-            reflink_ok,
-        },
-        Arc::clone(&jobs),
-    ));
+    let runtimes: Arc<dyn easyplay_core::runtime::RuntimeService> =
+        Arc::new(LocalRuntimeService::new(
+            Arc::clone(&fs),
+            Arc::clone(&clock),
+            Arc::new(MemCatalogStore::new()),
+            store,
+            home.clone(),
+            RuntimeSettings {
+                default: runtime_ref(&prefs.runtime.default),
+                extra_search_dirs: prefs.runtime.extra_search_dirs.clone(),
+                always_isolate: prefs.protection.always_isolate_runtime,
+                reflink_ok,
+            },
+            Arc::clone(&jobs),
+        ));
     let pe: Arc<dyn PeInspector> =
         Arc::new(FsPeInspector::new(Arc::clone(&fs), Arc::clone(&clock)));
     let codec: Arc<dyn ImageCodec> = Arc::new(ImageCrateCodec);
@@ -229,6 +230,7 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
         proc,
         launcher,
         locks: Arc::new(FlockLocks),
+        umu_titles: Arc::new(CatalogUmuDb::new(Arc::clone(&fs), Arc::clone(&runtimes))),
         runtimes,
         host,
         pe: Arc::clone(&pe),
@@ -241,7 +243,6 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
         art_index: Arc::clone(&art_index),
         shared,
         policy_check: None,
-        umu_titles: Arc::new(NoUmuTitles),
         watch_sessions: true,
     };
     Ok(Wiring {

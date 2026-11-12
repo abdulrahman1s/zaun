@@ -187,6 +187,7 @@ pub(crate) enum Internal {
     Sessions(SessionPoll),
     Art(Box<ArtFetched>),
     Adopted(Result<crate::runtime::AdoptReport, Error>),
+    RuntimeJob(super::flows::runtime::RuntimeJobDone),
 }
 
 /// The handle the UI (and the IPC listener) holds.
@@ -434,6 +435,7 @@ impl AppService {
         }
         self.probe_host(false);
         self.scan_runtimes();
+        self.audit_runtimes(false);
     }
 
     fn run(&mut self, rx: &Receiver<Msg>) {
@@ -499,9 +501,9 @@ impl AppService {
             Command::ResetPrefix { id, options } => self.reset_prefix(id, options),
             Command::AdoptRuntime { variant } => self.adopt_runtime(variant),
             Command::RefreshRuntimes => self.scan_runtimes(),
-            Command::ProvisionRuntime { .. }
-            | Command::RemoveRuntime { .. }
-            | Command::VerifyRuntime => self.fail(Error::not_available("M7")),
+            Command::ProvisionRuntime { target } => self.provision_runtime(target),
+            Command::RemoveRuntime { name } => self.remove_runtime(name),
+            Command::VerifyRuntime => self.verify_runtimes(),
             Command::SetPreference(patch) => self.set_preference(&patch),
             Command::RefreshHostFacts => self.probe_host(true),
             Command::Shutdown => self.stopping = true,
@@ -526,6 +528,7 @@ impl AppService {
             Internal::Sessions(p) => self.on_sessions(p),
             Internal::Art(a) => self.on_art_fetched(*a),
             Internal::Adopted(r) => self.on_adopted(r),
+            Internal::RuntimeJob(d) => self.on_runtime_job(d),
         }
     }
 

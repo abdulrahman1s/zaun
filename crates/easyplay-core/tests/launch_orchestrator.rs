@@ -1,11 +1,14 @@
-//! Flow tests of the launch orchestrator (LAUNCH-004, M6 scope) with `FakeLauncher`,
-//! `FakeClock` and scripted runtime resolutions: the states of LOGIC_SPECS §3 in order and
-//! the failure rows reachable without Provision/Prepare.
+//! Flow tests of the launch orchestrator (LAUNCH-004, LAUNCH-005) with `FakeLauncher`,
+//! `FakeClock`, scripted runtime resolutions and `ScriptedSteps`: the states of LOGIC_SPECS
+//! §3 in order, every branch of RUNTIME_MANAGEMENT §4.3, the audit gate with a quarantine,
+//! the pristine-prefix rule, and dry runs without side effects.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use easyplay_core::clock::{Clock, Timestamp};
 use easyplay_core::error::ErrorCode;
@@ -13,8 +16,8 @@ use easyplay_core::fsx::{DirEntry, Fs, FsResult, Metadata};
 use easyplay_core::ids::SessionId;
 use easyplay_core::jobs::{JobHandle, JobLabel, JobPool, JobPoolConfig, JobPriority};
 use easyplay_core::launch::{
-    self, HostEnv, LaunchError, LaunchPrompt, LaunchRequest, LaunchState, NoLocks,
-    OrchestratorDeps, PrefixLocks,
+    self, DryStep, HostEnv, LaunchError, LaunchPrompt, LaunchRequest, LaunchState, NoLocks,
+    OrchestratorDeps, PrefixLocks, TrustedSteps,
 };
 use easyplay_core::model::{
     ExeRole, Executable, Fingerprint, Game, GameFlags, LaunchConfig, PeInfo, RuntimeRef,
@@ -23,6 +26,7 @@ use easyplay_core::runtime::{
     ProvisionNeed, Resolution, RuntimeCatalog, RuntimeService, UnavailableReason,
 };
 use easyplay_core::sandbox;
+use easyplay_testkit::fakes::{ScriptedSteps, StepScript};
 use easyplay_testkit::fixtures::hosts::{self, SandboxWorld};
 use easyplay_testkit::{FakeClock, FakeLauncher, FakeStart};
 
@@ -59,9 +63,9 @@ delegate! {
     reflink_supported(a: &Path, b: &Path) -> FsResult<bool>;
 }
 
-/// A runtime service answering with a scripted resolution.
+/// A runtime service answering with a scripted resolution (changed by step hooks).
 struct Scripted {
-    resolution: Resolution,
+    resolution: Arc<Mutex<Resolution>>,
     pool: JobPool,
 }
 
@@ -76,7 +80,7 @@ impl RuntimeService for Scripted {
             })
     }
     fn resolve(&self, _: &RuntimeRef, _: Option<&Game>) -> Resolution {
-        self.resolution.clone()
+        self.resolution.lock().clone()
     }
 }
 
@@ -178,9 +182,29 @@ fn run(
     launcher: &FakeLauncher,
     locks: &dyn PrefixLocks,
 ) -> Outcome {
+    run_with(
+        w,
+        game,
+        &Arc::new(Mutex::new(resolution)),
+        launcher,
+        locks,
+        None,
+        false,
+    )
+}
+
+fn run_with(
+    w: &Arc<SandboxWorld>,
+    game: &Game,
+    resolution: &Arc<Mutex<Resolution>>,
+    launcher: &FakeLauncher,
+    locks: &dyn PrefixLocks,
+    steps: Option<&ScriptedSteps>,
+    consent: bool,
+) -> Outcome {
     let clock = FakeClock::baseline();
     let runtimes = Scripted {
-        resolution,
+        resolution: Arc::clone(resolution),
         pool: JobPool::new(JobPoolConfig::default(), Arc::new(FakeClock::baseline())).unwrap(),
     };
     let env = env_of(w);
@@ -192,16 +216,23 @@ fn run(
         locks,
         fs: Arc::new(WorldFs(Arc::clone(w))),
         clock: &clock,
+        steps: steps.map(|s| s as &dyn TrustedSteps),
+        cancel: None,
     };
     let req = LaunchRequest {
         game,
         exe: None,
         extra_args: &[],
         session_id: SessionId::generate(&clock as &dyn Clock),
+        network_consent: consent,
     };
     let mut states = Vec::new();
+    // Progress updates within a state are collapsed.
     let result = launch::launch(&req, &deps, &mut |s: &LaunchState| {
-        states.push(s.kind().as_str())
+        let k = s.kind().as_str();
+        if states.last() != Some(&k) {
+            states.push(k);
+        }
     });
     Outcome { result, states }
 }
@@ -248,9 +279,7 @@ fn prefix_lock_held_is_already_running() {
         ErrorCode::SesAlreadyRunning
     );
     // Also without a runtime (the lock is checked first).
-    let need = Resolution::NeedsProvision(ProvisionNeed::Codename(
-        easyplay_core::model::Channel::UmuProton,
-    ));
+    let need = Resolution::NeedsProvision(ProvisionNeed::Codename(Channel::UmuProton));
     assert_eq!(
         code(run(&w, &g, need, &l, &Held)),
         ErrorCode::SesAlreadyRunning
@@ -263,9 +292,7 @@ fn provision_needed_stops_before_planning() {
     let w = world();
     let g = game_of(&w);
     let l = FakeLauncher::new();
-    let need = Resolution::NeedsProvision(ProvisionNeed::Codename(
-        easyplay_core::model::Channel::UmuProton,
-    ));
+    let need = Resolution::NeedsProvision(ProvisionNeed::Codename(Channel::UmuProton));
     let o = run(&w, &g, need, &l, &NoLocks);
     assert_eq!(o.states, ["validating", "resolving_runtime"]);
     assert!(matches!(o.result, Err(LaunchError::NeedsProvision(_))));
@@ -346,4 +373,397 @@ fn supervisor_not_started() {
     );
     assert_eq!(code(o), ErrorCode::SesSupervisorNotStarted);
     assert_eq!(l.plans().len(), 1);
+}
+
+// ---- M7: trusted steps (RUNTIME_MANAGEMENT §4.3) and the audit gate (§6.3) ---------------
+
+use easyplay_core::ids::RuntimeName;
+use easyplay_core::model::{
+    Channel, EndReason, NetworkAccess, RuntimeIsolationMode, SessionKind, SlrVariant,
+};
+use easyplay_core::runtime::{AuditAction, AuditDue, TamperSummary};
+
+fn shared(w: &SandboxWorld) -> Resolution {
+    let mut rt = w.runtime.clone();
+    rt.isolation = RuntimeIsolationMode::Shared;
+    Resolution::Ready(rt)
+}
+
+fn codename() -> Resolution {
+    Resolution::NeedsProvision(ProvisionNeed::Codename(Channel::UmuProton))
+}
+
+fn make_prefix(w: &SandboxWorld) {
+    w.fs.dir(w.game_paths.prefix.join("drive_c"));
+}
+
+/// A hook: the download happened (the resolver now answers `Ready`).
+fn becomes(
+    res: &Arc<Mutex<Resolution>>,
+    r: Resolution,
+) -> impl Fn(&launch::LaunchPlan) + Send + Sync + 'static {
+    let res = Arc::clone(res);
+    move |_| *res.lock() = r.clone()
+}
+
+fn env_of_plan(p: &launch::PlannedLaunch, k: &str) -> Option<String> {
+    p.sandbox.env.get(k).map(str::to_owned)
+}
+
+#[test]
+fn ready_with_prefix_goes_straight_to_the_game() {
+    let w = world();
+    make_prefix(&w);
+    let g = game_of(&w);
+    let l = FakeLauncher::new();
+    let steps = ScriptedSteps::new();
+    let res = Arc::new(Mutex::new(Resolution::Ready(w.runtime.clone())));
+    let o = run_with(&w, &g, &res, &l, &NoLocks, Some(&steps), false);
+    assert_eq!(
+        o.states,
+        [
+            "validating",
+            "resolving_runtime",
+            "planning",
+            "spawning",
+            "starting"
+        ]
+    );
+    let out = o.result.unwrap();
+    assert!(out.trusted.is_empty() && steps.runs().is_empty());
+    assert_eq!(steps.launched(), vec![(g.id, w.runtime.name.clone())]);
+}
+
+#[test]
+fn ready_without_prefix_prepares_online_while_pristine() {
+    let w = world();
+    let g = game_of(&w);
+    let l = FakeLauncher::new();
+    let steps = ScriptedSteps::new();
+    let w2 = Arc::clone(&w);
+    steps.push(StepScript::ok().with_hook(move |_| make_prefix(&w2)));
+    let res = Arc::new(Mutex::new(Resolution::Ready(w.runtime.clone())));
+    let o = run_with(&w, &g, &res, &l, &NoLocks, Some(&steps), false);
+    assert_eq!(
+        o.states,
+        [
+            "validating",
+            "resolving_runtime",
+            "preparing",
+            "resolving_runtime",
+            "planning",
+            "spawning",
+            "starting"
+        ]
+    );
+    let out = o.result.unwrap();
+    let runs = steps.runs();
+    assert_eq!(runs.len(), 1);
+    let prep = &runs[0].plan;
+    assert_eq!(prep.session.kind, SessionKind::Prepare);
+    assert_eq!(prep.session.game_id, Some(g.id));
+    // Pristine prefix + prepare_online: the network is on even for an Offline game.
+    assert_eq!(prep.context.network, Some(NetworkAccess::Full));
+    assert_eq!(out.trusted.len(), 1);
+    assert_eq!(
+        steps.installs(),
+        1,
+        "a network Prepare may change the store"
+    );
+    assert_eq!(steps.prepared(), vec![(g.id, w.runtime.name.clone())]);
+    // The game itself stays offline.
+    assert_eq!(l.plans()[0].context.network, Some(NetworkAccess::None));
+}
+
+#[test]
+fn first_run_from_nothing_prepares_with_the_codename() {
+    // §4.3: NeedsProvision, pristine prefix, prepare online → one Prepare that downloads.
+    let w = world();
+    let g = game_of(&w);
+    let l = FakeLauncher::new();
+    let steps = ScriptedSteps::new();
+    let res = Arc::new(Mutex::new(codename()));
+    let ready = becomes(&res, Resolution::Ready(w.runtime.clone()));
+    let w2 = Arc::clone(&w);
+    let mut s = StepScript::ok().with_hook(move |p| {
+        ready(p);
+        make_prefix(&w2);
+    });
+    s.phases.insert(
+        0,
+        easyplay_core::umu::UmuPhase::DownloadingProton {
+            name: "UMU-Proton-10.0-4.tar.gz".into(),
+        },
+    );
+    s.bytes = vec![10 << 20, 20 << 20];
+    steps.push(s);
+    let o = run_with(&w, &g, &res, &l, &NoLocks, Some(&steps), false);
+    assert_eq!(
+        o.states,
+        [
+            "validating",
+            "resolving_runtime",
+            "provisioning",
+            "preparing",
+            "resolving_runtime",
+            "planning",
+            "spawning",
+            "starting"
+        ]
+    );
+    o.result.unwrap();
+    let runs = steps.runs();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].plan.session.kind, SessionKind::Prepare);
+    assert_eq!(runs[0].plan.context.network, Some(NetworkAccess::Full));
+    assert_eq!(
+        env_of_plan(&runs[0], "PROTONPATH").as_deref(),
+        Some("UMU-Proton")
+    );
+    assert_eq!(l.plans().len(), 1);
+    assert_eq!(l.plans()[0].context.network, Some(NetworkAccess::None));
+}
+
+#[test]
+fn tainted_prefix_provisions_without_the_game() {
+    let w = world();
+    make_prefix(&w);
+    let mut g = game_of(&w);
+    g.prefix_tainted_at = Some(Timestamp::from_millis(1));
+    let l = FakeLauncher::new();
+    let steps = ScriptedSteps::new();
+    let res = Arc::new(Mutex::new(codename()));
+    steps.push(StepScript::ok().with_hook(becomes(&res, Resolution::Ready(w.runtime.clone()))));
+    let o = run_with(&w, &g, &res, &l, &NoLocks, Some(&steps), false);
+    assert_eq!(
+        o.states,
+        [
+            "validating",
+            "resolving_runtime",
+            "provisioning",
+            "resolving_runtime",
+            "planning",
+            "spawning",
+            "starting"
+        ]
+    );
+    let out = o.result.unwrap();
+    let p = &steps.runs()[0];
+    assert_eq!(p.plan.session.kind, SessionKind::Provision);
+    assert_eq!(p.plan.session.game_id, None);
+    assert_eq!(p.plan.paths.prefix_lock, None);
+    // Never the game's prefix or home (SECURITY_MODEL §4.1 rule 3).
+    let prefix = w.game_paths.prefix.to_string_lossy().into_owned();
+    assert!(
+        p.plan
+            .sandbox
+            .args
+            .iter()
+            .all(|a| !a.to_string_lossy().contains(&prefix))
+    );
+    assert_eq!(steps.installs(), 1);
+    assert!(steps.prepared().is_empty());
+    assert_eq!(out.trusted[0].kind, SessionKind::Provision);
+}
+
+#[test]
+fn provision_without_network_is_rt_010() {
+    let w = world();
+    make_prefix(&w);
+    let mut g = game_of(&w);
+    g.prefix_tainted_at = Some(Timestamp::from_millis(1));
+    let l = FakeLauncher::new();
+    let steps = ScriptedSteps::new();
+    steps.push(StepScript::fails(EndReason::FailedToStart {
+        code: ErrorCode::RtNotInstalledOffline,
+    }));
+    let res = Arc::new(Mutex::new(codename()));
+    let o = run_with(&w, &g, &res, &l, &NoLocks, Some(&steps), false);
+    assert_eq!(code(o), ErrorCode::RtNotInstalledOffline);
+    assert!(l.plans().is_empty());
+}
+
+#[test]
+fn prepare_failure_is_reported() {
+    let w = world();
+    let g = game_of(&w);
+    let l = FakeLauncher::new();
+    let steps = ScriptedSteps::new();
+    steps.push(StepScript::fails(EndReason::Exited { code: 1 }));
+    let res = Arc::new(Mutex::new(Resolution::Ready(w.runtime.clone())));
+    let o = run_with(&w, &g, &res, &l, &NoLocks, Some(&steps), false);
+    assert_eq!(code(o), ErrorCode::RtPrefixPrepareFailed);
+    assert!(l.plans().is_empty());
+}
+
+#[test]
+fn tainted_offline_prefix_never_gets_the_network_without_consent() {
+    for consent in [false, true] {
+        let w = world();
+        let mut g = game_of(&w);
+        g.prefix_tainted_at = Some(Timestamp::from_millis(1));
+        let l = FakeLauncher::new();
+        let steps = ScriptedSteps::new();
+        let w2 = Arc::clone(&w);
+        steps.push(StepScript::ok().with_hook(move |_| make_prefix(&w2)));
+        let res = Arc::new(Mutex::new(Resolution::Ready(w.runtime.clone())));
+        run_with(&w, &g, &res, &l, &NoLocks, Some(&steps), consent)
+            .result
+            .unwrap();
+        let prep = &steps.runs()[0].plan;
+        assert_eq!(prep.session.kind, SessionKind::Prepare);
+        let want = if consent {
+            NetworkAccess::Full
+        } else {
+            NetworkAccess::None
+        };
+        assert_eq!(prep.context.network, Some(want), "consent {consent}");
+        assert_eq!(steps.installs(), usize::from(consent));
+    }
+}
+
+#[test]
+fn shared_mode_waits_for_a_pending_audit() {
+    let w = world();
+    make_prefix(&w);
+    let g = game_of(&w);
+    let l = FakeLauncher::new();
+    let steps = ScriptedSteps::new();
+    steps.set_due(AuditDue::Pending);
+    let res = Arc::new(Mutex::new(shared(&w)));
+    let o = run_with(&w, &g, &res, &l, &NoLocks, Some(&steps), false);
+    assert_eq!(
+        o.states,
+        [
+            "validating",
+            "resolving_runtime",
+            "auditing_runtime",
+            "planning",
+            "spawning",
+            "starting"
+        ]
+    );
+    assert_eq!(steps.audited(), vec![SlrVariant::Steamrt3]);
+    // Pending applies to Shared mode only.
+    let steps = ScriptedSteps::new();
+    steps.set_due(AuditDue::Pending);
+    let res = Arc::new(Mutex::new(Resolution::Ready(w.runtime.clone())));
+    let mut iso = w.runtime.clone();
+    iso.isolation = RuntimeIsolationMode::Isolated;
+    *res.lock() = Resolution::Ready(iso);
+    run_with(&w, &g, &res, &l, &NoLocks, Some(&steps), false)
+        .result
+        .unwrap();
+    assert!(steps.audited().is_empty());
+    // A stale audit applies to every mode.
+    steps.set_due(AuditDue::Stale);
+    run_with(&w, &g, &res, &l, &NoLocks, Some(&steps), false)
+        .result
+        .unwrap();
+    assert_eq!(steps.audited().len(), 1);
+}
+
+#[test]
+fn tampered_runtime_is_quarantined_and_provisioned_again() {
+    // M7 acceptance: a deliberate modification is detected, quarantined and repaired.
+    let w = world();
+    make_prefix(&w);
+    let mut g = game_of(&w);
+    g.prefix_tainted_at = Some(Timestamp::from_millis(1));
+    let l = FakeLauncher::new();
+    let steps = ScriptedSteps::new();
+    steps.set_due(AuditDue::Pending);
+    let res = Arc::new(Mutex::new(shared(&w)));
+    let res2 = Arc::clone(&res);
+    let quarantined = move || {
+        *res2.lock() = Resolution::NeedsProvision(ProvisionNeed::Slr {
+            variant: SlrVariant::Steamrt3,
+            build: RuntimeName::new("UMU-Proton-10.0-4").unwrap(),
+        });
+    };
+    steps.push_audit(
+        AuditAction::Quarantined {
+            variant: SlrVariant::Steamrt3,
+            quarantine: "/q/steamrt3-1".into(),
+            summary: TamperSummary {
+                changed: vec!["run".into()],
+                changed_count: 1,
+                ..TamperSummary::default()
+            },
+            suspects: vec![easyplay_core::runtime::integrity::Suspect {
+                game: g.id,
+                name: g.name.clone(),
+            }],
+        },
+        Some(Arc::new(quarantined)),
+    );
+    steps.push(StepScript::ok().with_hook(becomes(&res, shared(&w))));
+    let o = run_with(&w, &g, &res, &l, &NoLocks, Some(&steps), false);
+    assert_eq!(
+        o.states,
+        [
+            "validating",
+            "resolving_runtime",
+            "auditing_runtime",
+            "resolving_runtime",
+            "provisioning",
+            "resolving_runtime",
+            "planning",
+            "spawning",
+            "starting"
+        ]
+    );
+    let out = o.result.unwrap();
+    assert_eq!(out.notices.len(), 1);
+    assert_eq!(out.notices[0].code, ErrorCode::RtSharedTampered);
+    assert_eq!(steps.runs()[0].plan.session.kind, SessionKind::Provision);
+    // The fresh install is not audited again in the same launch.
+    assert_eq!(steps.audited().len(), 1);
+}
+
+#[test]
+fn dry_run_has_no_side_effects() {
+    let w = world();
+    let g = game_of(&w);
+    let l = FakeLauncher::new();
+    let steps = ScriptedSteps::new();
+    let clock = FakeClock::baseline();
+    let before = w.fs.paths();
+    let writes_before = w.fs.total_calls();
+    for (res, want) in [
+        (codename(), DryStep::Prepare),
+        (Resolution::Ready(w.runtime.clone()), DryStep::Prepare),
+    ] {
+        let runtimes = Scripted {
+            resolution: Arc::new(Mutex::new(res)),
+            pool: JobPool::new(JobPoolConfig::default(), Arc::new(FakeClock::baseline())).unwrap(),
+        };
+        let env = env_of(&w);
+        let deps = OrchestratorDeps {
+            host: &w.host,
+            env: &env,
+            runtimes: &runtimes,
+            launcher: &l,
+            locks: &NoLocks,
+            fs: Arc::new(WorldFs(Arc::clone(&w))),
+            clock: &clock,
+            steps: Some(&steps),
+            cancel: None,
+        };
+        let req = LaunchRequest {
+            game: &g,
+            exe: None,
+            extra_args: &[],
+            session_id: SessionId::generate(&clock as &dyn Clock),
+            network_consent: false,
+        };
+        let d = launch::dry_run(&req, &deps).unwrap();
+        assert_eq!(d.step, want);
+        assert!(d.note.is_some());
+        assert_eq!(d.planned.plan.session.kind, SessionKind::Prepare);
+    }
+    assert_eq!(w.fs.paths(), before);
+    assert!(w.fs.total_calls() >= writes_before);
+    assert!(l.plans().is_empty() && steps.runs().is_empty());
+    assert!(steps.prepared().is_empty() && steps.launched().is_empty());
 }

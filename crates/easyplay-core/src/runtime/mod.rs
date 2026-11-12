@@ -4,27 +4,39 @@
 //! Layer 5. See MODULES §5 and RUNTIME_MANAGEMENT. Milestone M3 provides the store layout
 //! ([`store`]), the VDF reader ([`vdf`]), discovery ([`discovery`]), the catalogue and its
 //! synchronisation ([`catalog`]), the resolver ([`resolver`]) and the [`RuntimeService`]
-//! skeleton. Provisioning, manifests, audits, garbage collection and the fix database arrive
-//! in M7 (RT-006 … RT-014).
+//! skeleton. M7 adds integrity manifests ([`manifest`]), audits ([`audit`]) and their
+//! scheduling and tamper handling ([`integrity`]), the Provision/Prepare decisions and
+//! outcomes ([`provision`]), garbage collection ([`gc`]) and the fix database ([`umu_db`]).
+//! The trusted sessions themselves are run by `launch::trusted` (this module never spawns).
 
 pub mod adopt;
+pub mod audit;
 pub mod catalog;
 pub mod discovery;
+pub mod gc;
+pub mod integrity;
 pub mod manifest;
+pub mod provision;
 pub mod resolver;
 pub mod service;
 pub mod store;
+pub mod umu_db;
 pub mod vdf;
 
 pub use adopt::{AdoptReport, adopt_slr, adoptable};
+pub use audit::{AuditReport, TamperSummary, audit_variant};
 pub use catalog::{CatalogDiff, CatalogStore, MemCatalogStore, RuntimeCatalog, SqliteCatalogStore};
 pub use discovery::{Discovery, ProtonBuild, RejectReason, Rejected, SlrInstall, discover};
+pub use gc::{KeepReason, RemovalCandidate};
+pub use integrity::{AuditAction, AuditDue, IntegrityRecords, audit_due, handle_audit};
+pub use provision::{NextStep, PrefixState, StepInput, TrustedEnd, next_step};
 pub use resolver::{
     IsolationInputs, ProvisionNeed, Resolution, ResolveInput, UnavailableReason, resolve,
     select_isolation,
 };
 pub use service::{LocalRuntimeService, RuntimeSettings, catalog_check};
 pub use store::{RuntimeStore, SandboxStore};
+pub use umu_db::{UmuDb, UmuDbCache, UmuDbEntry};
 
 use std::sync::Arc;
 

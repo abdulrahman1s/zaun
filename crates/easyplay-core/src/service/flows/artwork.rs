@@ -11,8 +11,8 @@ use super::super::app_service::{AppService, Internal};
 use super::super::event::Notice;
 use crate::artwork::import::{Normalised, normalise, store_and_commit};
 use crate::artwork::steam::{
-    self, NoUmuDb, Resolution, ResolveDeps, SteamAppIdSource, apply_app_id, cdn_candidates,
-    fetch_slot, may_fetch,
+    self, Resolution, ResolveDeps, SteamAppIdSource, apply_app_id, cdn_candidates, fetch_slot,
+    may_fetch,
 };
 use crate::artwork::{ArtSource, ImageLimits};
 use crate::error::{Error, ErrorCode};
@@ -54,13 +54,17 @@ impl AppService {
         let app_id_file = Arc::clone(&self.deps.app_id_file);
         let tracker = Arc::clone(&self.art_tracker);
         let post = self.poster();
+        let umu_db = super::runtime::CatalogUmuDb::new(
+            Arc::clone(&self.deps.fs),
+            Arc::clone(&self.deps.runtimes),
+        );
         let _ = self.deps.jobs.submit(
             JobPriority::Background,
             JobLabel("steam-artwork"),
             move |_| {
                 let deps = ResolveDeps {
                     app_id_file: &*app_id_file,
-                    umu_db: &NoUmuDb,
+                    umu_db: &umu_db,
                     http: Some(&http),
                 };
                 let mut out = ArtFetched {

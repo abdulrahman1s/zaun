@@ -150,7 +150,8 @@ impl StateKind {
     }
 
     /// Whether `self → next` is legal (LOGIC_SPECS §3). Progress updates within
-    /// `Provisioning`, `Preparing` and `Starting` are self-transitions.
+    /// `Provisioning`, `Preparing` and `Starting` are self-transitions. `Provisioning →
+    /// Preparing` is a network Prepare that downloaded first (RUNTIME_MANAGEMENT §4.2).
     pub const fn can_go_to(self, next: StateKind) -> bool {
         use StateKind as S;
         if matches!(next, S::Cancelled) {
@@ -166,7 +167,10 @@ impl StateKind {
                     S::ResolvingRuntime,
                     S::Provisioning | S::Preparing | S::AuditingRuntime | S::Planning
                 )
-                | (S::Provisioning, S::Provisioning | S::ResolvingRuntime)
+                | (
+                    S::Provisioning,
+                    S::Provisioning | S::Preparing | S::ResolvingRuntime
+                )
                 | (S::Preparing, S::Preparing | S::ResolvingRuntime)
                 | (S::AuditingRuntime, S::Planning | S::ResolvingRuntime)
                 | (S::Planning, S::Spawning)
@@ -491,6 +495,7 @@ mod tests {
                 S::Provisioning,
                 &[
                     S::Provisioning,
+                    S::Preparing,
                     S::ResolvingRuntime,
                     S::Failed,
                     S::Cancelled,

@@ -85,7 +85,11 @@ pub fn add(
     name: Option<&str>,
     preset: Option<PresetArg>,
     no_launch: bool,
+    runtime: Option<&str>,
 ) -> Result<u8, Error> {
+    let runtime = runtime
+        .map(crate::runtime_verbs::parse_runtime_ref)
+        .transpose()?;
     let file = std::path::absolute(file)
         .map_err(|e| Error::new(ErrorCode::FsReadDenied).with_source(e))?;
     let (mut svc, events, _lock) = headless()?;
@@ -97,6 +101,9 @@ pub fn add(
         Event::SetupRequested { mut draft, .. } => {
             if let Some(n) = name {
                 draft.set_name(n);
+            }
+            if let Some(r) = &runtime {
+                draft.runtime = r.clone();
             }
             if let Some(p) = preset {
                 let base = match p {
@@ -176,6 +183,46 @@ pub fn add(
         _ => None,
     });
     Ok(code)
+}
+
+/// `easyplay edit GAME [--runtime R] [--no-follow-updates]`.
+#[allow(clippy::print_stdout)]
+pub fn edit(game: &str, runtime: Option<&str>, no_follow_updates: bool) -> Result<u8, Error> {
+    let Some(r) = runtime else {
+        return Err(Error::new(ErrorCode::LibInvalidField).with("detail", "nothing to change"));
+    };
+    let reference = crate::runtime_verbs::parse_runtime_ref(r)?;
+    let (mut svc, events, _lock) = headless()?;
+    let snap = svc.hub().library.load();
+    let id = resolve(&snap, game)?;
+    svc.handle(Command::UpdateGame {
+        id,
+        edits: vec![easyplay_core::service::GameEdit::Runtime {
+            reference: reference.clone(),
+            follow: !no_follow_updates,
+        }],
+    });
+    Ok(drive(&mut svc, &events, |_, ev| match ev {
+        Event::LibraryChanged => {
+            println!("compatibility layer: {}", describe_ref(&reference));
+            Some(exit::OK)
+        }
+        Event::Failure(u) => {
+            print_user_error(&u);
+            Some(exit::FAILED)
+        }
+        _ => None,
+    }))
+}
+
+fn describe_ref(r: &easyplay_core::model::RuntimeRef) -> String {
+    use easyplay_core::model::RuntimeRef;
+    match r {
+        RuntimeRef::Default => "default".into(),
+        RuntimeRef::Channel(c) => format!("newest {}", c.umu_codename()),
+        RuntimeRef::Pinned(n) => n.to_string(),
+        RuntimeRef::External(p) => p.display().to_string(),
+    }
 }
 
 /// `easyplay remove GAME [--keep-storage]`.

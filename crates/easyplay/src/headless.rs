@@ -1,13 +1,14 @@
 //! CLI verbs that work without a GUI. Calls the same `service::flows` as the GUI with a
 //! console prompt handler. Tasks CLI-002 (read-only verbs) and CLI-003 (mutating verbs).
 //! M6 provides `launch` (without `--exe`), `stop` and `status` ([`crate::session_verbs`]);
-//! the service provides `add`, `remove`, `list` and `show` ([`crate::library_verbs`]) and
-//! `runtimes adopt`.
+//! the service provides `add`, `edit`, `remove`, `list` and `show`
+//! ([`crate::library_verbs`]); `runtimes list/adopt` ([`crate::host_verbs`]) and
+//! `runtimes install/remove/verify` ([`crate::runtime_verbs`]) work on the store directly.
 
 use easyplay_core::Error;
 
 use crate::cli::{Command, LaunchArgs, RuntimesCommand, SandboxCommand, exit};
-use crate::{host_verbs, library_verbs, sandbox_print, session_verbs};
+use crate::{host_verbs, library_verbs, runtime_verbs, sandbox_print, session_verbs};
 
 /// Run a verb headlessly; returns the exit code.
 pub fn run(command: &Command) -> Result<u8, Error> {
@@ -33,7 +34,30 @@ pub fn run(command: &Command) -> Result<u8, Error> {
             name,
             preset,
             no_launch,
-        } => return library_verbs::add(file, name.as_deref(), *preset, *no_launch),
+            runtime,
+        } => {
+            return library_verbs::add(
+                file,
+                name.as_deref(),
+                *preset,
+                *no_launch,
+                runtime.as_deref(),
+            );
+        }
+        Command::Edit {
+            game,
+            runtime,
+            no_follow_updates,
+        } => return library_verbs::edit(game, runtime.as_deref(), *no_follow_updates),
+        Command::Runtimes {
+            command: RuntimesCommand::Install { what },
+        } => return runtime_verbs::install(what),
+        Command::Runtimes {
+            command: RuntimesCommand::Remove { name },
+        } => return runtime_verbs::remove(name),
+        Command::Runtimes {
+            command: RuntimesCommand::Verify,
+        } => return runtime_verbs::verify(),
         Command::Remove { game, keep_storage } => {
             return library_verbs::remove(game, *keep_storage);
         }
@@ -56,6 +80,7 @@ pub fn run(command: &Command) -> Result<u8, Error> {
         Command::Launch(_)
         | Command::Stop { .. }
         | Command::Add { .. }
+        | Command::Edit { .. }
         | Command::Remove { .. }
         | Command::Export { .. }
         | Command::Import { .. } => "CLI-003",

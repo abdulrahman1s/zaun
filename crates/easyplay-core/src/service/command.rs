@@ -203,7 +203,7 @@ pub enum Command {
         options: ResetOptions,
     },
     // ---- runtimes
-    /// Install a build or runtime (M7; answers `EP-INT-003` until then).
+    /// Install a build or runtime in a Provision session (a channel: check for updates).
     ProvisionRuntime {
         /// What.
         target: RuntimeRef,
@@ -214,14 +214,14 @@ pub enum Command {
         /// The variant.
         variant: SlrVariant,
     },
-    /// Remove a store build (M7).
+    /// Remove a store build (refused for external, newest or used builds).
     RemoveRuntime {
         /// The build.
         name: RuntimeName,
     },
     /// Rescan compatibility layers.
     RefreshRuntimes,
-    /// Verify the runtimes (M7).
+    /// Audit every installed runtime now; a modified one is quarantined.
     VerifyRuntime,
     // ---- preferences and host
     /// Change preferences (LOGIC_SPECS §10); invalid patches change nothing.

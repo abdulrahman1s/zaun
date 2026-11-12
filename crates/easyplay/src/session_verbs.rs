@@ -155,12 +155,12 @@ fn install_id(db: &mut Db) -> String {
         .unwrap_or_else(|| "0".repeat(32))
 }
 
-fn supervisor_exe() -> Result<PathBuf, Error> {
+pub(crate) fn supervisor_exe() -> Result<PathBuf, Error> {
     std::env::current_exe()
         .map_err(|e| Error::new(ErrorCode::SesSupervisorNotStarted).with_source(e))
 }
 
-fn real_proc(hc: &HostContext) -> Arc<dyn ProcSource> {
+pub(crate) fn real_proc(hc: &HostContext) -> Arc<dyn ProcSource> {
     Arc::new(RealProc::new(Arc::clone(&hc.fs)))
 }
 
@@ -192,6 +192,7 @@ pub fn launch(game_arg: &str, wait: bool, extra: &[String]) -> Result<u8, Error>
         Arc::clone(&proc),
         Arc::clone(&hc.clock),
     );
+    let steps = crate::runtime_verbs::trusted_steps(&hc)?;
     let deps = OrchestratorDeps {
         host: &hc.host,
         env: &env,
@@ -200,6 +201,8 @@ pub fn launch(game_arg: &str, wait: bool, extra: &[String]) -> Result<u8, Error>
         locks: &FlockLocks,
         fs: Arc::clone(&hc.fs),
         clock: &*hc.clock,
+        steps: Some(&steps),
+        cancel: None,
     };
     let session_id = SessionId::generate(&*hc.clock);
     let req = LaunchRequest {
@@ -207,8 +210,36 @@ pub fn launch(game_arg: &str, wait: bool, extra: &[String]) -> Result<u8, Error>
         exe: None,
         extra_args: extra,
         session_id,
+        network_consent: false,
     };
-    let mut on_state = |s: &LaunchState| tracing::debug!(state = s.kind().as_str(), "launch");
+    let mut last_kind = "";
+    let mut last_mib = 0u64;
+    let mut on_state = |s: &LaunchState| {
+        tracing::debug!(state = s.kind().as_str(), "launch");
+        let kind = s.kind().as_str();
+        match s {
+            LaunchState::Provisioning { phase, bytes } => {
+                if kind != last_kind {
+                    eprintln!(
+                        "downloading the compatibility layer (once; the game stays offline) …"
+                    );
+                }
+                if let Some(p) = phase {
+                    tracing::info!(phase = ?p, "provisioning");
+                }
+                if bytes >> 26 != last_mib {
+                    last_mib = bytes >> 26;
+                    eprintln!("  {} MiB", bytes >> 20);
+                }
+            }
+            LaunchState::Preparing { .. } if kind != last_kind => {
+                eprintln!("preparing the private Windows storage …");
+            }
+            LaunchState::AuditingRuntime => eprintln!("checking the compatibility layer …"),
+            _ => {}
+        }
+        last_kind = kind;
+    };
     let outcome = match launch::launch(&req, &deps, &mut on_state) {
         Ok(o) => o,
         Err(LaunchError::Failed(e)) => {
@@ -220,6 +251,21 @@ pub fn launch(game_arg: &str, wait: bool, extra: &[String]) -> Result<u8, Error>
         Err(e) => return Err(e.into()),
     };
     print_issues(&outcome.report.warnings);
+    for n in &outcome.notices {
+        eprintln!("warning: {n} [{}]", n.code.as_str());
+    }
+    for t in &outcome.trusted {
+        eprintln!(
+            "note: {} session {} ({})",
+            t.kind.as_str(),
+            t.session.short(),
+            if t.network == easyplay_core::model::NetworkAccess::Full {
+                "with internet"
+            } else {
+                "offline"
+            }
+        );
+    }
     if let Some((avail, wanted)) = outcome.report.low_space {
         eprintln!(
             "note: low disk space: {} MiB free, {} MiB recommended (EP-FS-002)",

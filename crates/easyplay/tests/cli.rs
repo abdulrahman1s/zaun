@@ -52,7 +52,7 @@ fn verbs_report_not_available_yet() {
     for (args, task) in [
         (&["export", "x"][..], "CLI-003"),
         (&["launch", "x", "--exe", "dx12"][..], "CLI-003"),
-        (&["runtimes", "verify"][..], "CLI-002"),
+        (&["runtimes", "check"][..], "CLI-002"),
     ] {
         let out = run(&env, args);
         assert_eq!(out.status.code(), Some(1), "{args:?}");
@@ -60,6 +60,14 @@ fn verbs_report_not_available_yet() {
         assert!(err.contains(task), "{args:?}: {err}");
         assert!(err.contains("EP-INT-003"), "{err}");
     }
+    // `runtimes verify` with nothing installed.
+    let out = run(&env, &["runtimes", "verify"]);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .contains("No runtime installed")
+    );
     // The application log was written to the state directory.
     let log = std::fs::read_to_string(env.state().join("logs/easyplay.log")).unwrap();
     assert!(log.contains(" cli["), "{log}");

@@ -97,9 +97,8 @@ impl AppIdFile for FsAppIdFile {
     }
 }
 
-/// Step 3.3 placeholder: `runtime::umu_db` does not exist yet, so no game has a umu-database
-/// entry and this step never finds an ID. Replace with the real lookup when the umu-database
-/// module lands (ART-007 note).
+/// Step 3.3 without a database: never finds an ID (tests). The service uses
+/// `service::flows::runtime::CatalogUmuDb` over `runtime::umu_db`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoUmuDb;
 

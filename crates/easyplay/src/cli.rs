@@ -99,6 +99,22 @@ pub enum Command {
         /// Do not launch after adding.
         #[arg(long)]
         no_launch: bool,
+        /// Compatibility layer: `default`, `umu-proton`, `ge-proton`, a build name, or the
+        /// absolute path of a Proton directory.
+        #[arg(long, value_name = "RUNTIME")]
+        runtime: Option<String>,
+    },
+    /// Change a game's settings.
+    Edit {
+        /// The game.
+        game: GameArg,
+        /// Compatibility layer: `default`, `umu-proton`, `ge-proton`, a build name, or the
+        /// absolute path of a Proton directory.
+        #[arg(long, value_name = "RUNTIME")]
+        runtime: Option<String>,
+        /// Keep using the current build of the channel instead of following its updates.
+        #[arg(long)]
+        no_follow_updates: bool,
     },
     /// Remove a game from the library.
     Remove {
@@ -198,8 +214,21 @@ pub enum RuntimesCommand {
     List,
     /// Check for updates.
     Check,
-    /// Verify the shared runtime against its manifest.
+    /// Verify the runtimes against their manifests (a modified runtime is quarantined).
     Verify,
+    /// Download and install a compatibility layer and its runtime (needs the internet once).
+    Install {
+        /// What to install: `umu-proton` (default), `ge-proton`, an exact build name such as
+        /// `GE-Proton10-25`, or the path or name of an installed build whose runtime is
+        /// missing.
+        #[arg(value_name = "WHAT", default_value = "umu-proton")]
+        what: String,
+    },
+    /// Remove a compatibility layer EasyPlay downloaded (not the newest, not one in use).
+    Remove {
+        /// The build's name.
+        name: String,
+    },
     /// Copy the Steam Linux Runtime that umu installed in ~/.local/share/umu into EasyPlay's
     /// store (reflinked where possible; the original is never modified).
     Adopt {
@@ -347,6 +376,35 @@ mod tests {
                     kind: PlanKind::Prepare,
                     ..
                 }
+            })
+        ));
+        assert!(matches!(
+            parse(&["add", "x.exe", "--runtime", "/opt/proton"]).command,
+            Some(Command::Add {
+                runtime: Some(_),
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse(&["edit", "g", "--runtime", "ge-proton", "--no-follow-updates"]).command,
+            Some(Command::Edit {
+                runtime: Some(_),
+                no_follow_updates: true,
+                ..
+            })
+        ));
+        assert_eq!(
+            parse(&["runtimes", "install"]).command,
+            Some(Command::Runtimes {
+                command: RuntimesCommand::Install {
+                    what: "umu-proton".into()
+                }
+            })
+        );
+        assert!(matches!(
+            parse(&["runtimes", "remove", "GE-Proton10-9"]).command,
+            Some(Command::Runtimes {
+                command: RuntimesCommand::Remove { .. }
             })
         ));
         assert!(matches!(

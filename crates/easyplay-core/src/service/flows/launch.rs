@@ -6,8 +6,8 @@
 //! supervisor; the session watcher reports `Running` and the end, after which the game's
 //! statistics are re-read.
 //!
-//! `NeedsProvision` (Provision/Prepare sessions arrive in M7) ends the launch with the typed
-//! error `EP-RT-017` "The compatibility layer is not installed".
+//! Provision and Prepare sessions and the audit gate run inside the launch job through
+//! `launch::LocalTrustedSteps` (built by `flows::runtime`).
 
 use std::sync::Arc;
 
@@ -127,10 +127,11 @@ impl AppService {
         let locks = Arc::clone(&self.deps.locks);
         let host = Arc::clone(&self.deps.host);
         let post = self.poster();
-        let _ = self
-            .deps
-            .jobs
-            .submit(JobPriority::Interactive, JobLabel("launch"), move |_| {
+        let steps = self.trusted_steps();
+        let _ = self.deps.jobs.submit(
+            JobPriority::Interactive,
+            JobLabel("launch"),
+            move |cancel| {
                 let facts = host.facts();
                 let henv = env.host_env(&paths, &install_id, &other_roots, &*fs);
                 let deps = OrchestratorDeps {
@@ -141,6 +142,8 @@ impl AppService {
                     locks: &*locks,
                     fs: Arc::clone(&fs),
                     clock: &*clock,
+                    steps: Some(&steps),
+                    cancel: Some(cancel),
                 };
                 let session_id = SessionId::generate(&*clock);
                 let req = LaunchRequest {
@@ -148,6 +151,7 @@ impl AppService {
                     exe,
                     extra_args: &[],
                     session_id,
+                    network_consent: false,
                 };
                 let mut on_state = |s: &LaunchState| {
                     post(Internal::LaunchState {
@@ -156,8 +160,13 @@ impl AppService {
                         state: s.clone(),
                     });
                 };
-                let result =
-                    launch::launch(&req, &deps, &mut on_state).map(|o| o.handle.session_id);
+                let result = launch::launch(&req, &deps, &mut on_state).map(|o| {
+                    for n in &o.notices {
+                        tracing::warn!(code = n.code.as_str(), "{n}");
+                    }
+                    o.handle.session_id
+                });
+                post(Internal::Runtimes(runtimes.catalog()));
                 post(Internal::LaunchDone(Box::new(LaunchDone {
                     game: id,
                     launch,
@@ -165,7 +174,8 @@ impl AppService {
                     origin,
                     result,
                 })));
-            });
+            },
+        );
     }
 
     pub(crate) fn on_launch_state(&mut self, game: GameId, launch: LaunchId, state: LaunchState) {
@@ -391,6 +401,9 @@ impl AppService {
                 self.set_activity(g, Activity::Idle);
                 games_changed.push(g);
             }
+        }
+        if !p.ended.is_empty() {
+            self.after_session_ended();
         }
         for s in &p.ended {
             let Some(g) = s.game_id else { continue };
