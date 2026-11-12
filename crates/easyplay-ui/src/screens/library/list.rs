@@ -256,6 +256,7 @@ pub fn show(
             let id = row_id(g.id);
             let resp = ui.interact(rect, id, Sense::click());
             let state_text = strings::card::state(g.activity, g.availability, env.now);
+            crate::widgets::card::tick_elapsed(ui.ctx(), g.activity, env.now);
             let name = strings::card::accessible_name(
                 &g.name,
                 g.preset,
