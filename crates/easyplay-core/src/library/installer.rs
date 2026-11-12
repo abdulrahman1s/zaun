@@ -66,10 +66,19 @@ fn is_excluded_dir(rel: &Path) -> bool {
         || s == "program files (x86)/common files"
 }
 
+/// Longest offered name, in bytes.
+const MAX_NAME_BYTES: usize = 80;
+
+/// A display name from game-controlled text: control and bidirectional characters removed,
+/// length-capped (SECURITY_MODEL §9 rule 5).
+fn display_name(s: &str) -> Option<String> {
+    crate::identity::pe::sanitize_str(s, MAX_NAME_BYTES)
+}
+
 fn stem(p: &Path) -> String {
     p.file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .and_then(|s| display_name(&s.to_string_lossy()))
+        .unwrap_or_else(|| "Program".to_owned())
 }
 
 /// `discover(prefix, since)` of LOGIC_SPECS §13.
@@ -138,7 +147,8 @@ pub fn discover(
         let size = fs.metadata(&path).map(|m| m.size).unwrap_or(0);
         let display = target
             .name
-            .filter(|n| !n.trim().is_empty() && n.chars().count() <= 80)
+            .filter(|n| n.chars().count() <= MAX_NAME_BYTES)
+            .and_then(|n| display_name(&n))
             .unwrap_or_else(|| stem(&s));
         out.push(InstalledProgram {
             path,

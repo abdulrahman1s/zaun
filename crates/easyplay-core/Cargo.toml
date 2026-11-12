@@ -10,8 +10,8 @@ authors.workspace = true
 publish.workspace = true
 
 [features]
-default = []
-# Build the seccomp BPF program (BUBBLEWRAP_SANDBOX §9); default from milestone 15.
+default = ["seccomp"]
+# Build the seccomp BPF program (BUBBLEWRAP_SANDBOX §9); on by default since milestone 15.
 seccomp = ["dep:seccompiler"]
 
 [dependencies]
