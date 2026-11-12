@@ -29,14 +29,15 @@ pub const MIN_FREE_PROVISION_STORE: u64 = 3 * 1024 * 1024 * 1024;
 /// Free space a Provision session needs on the cache's filesystem (blocking).
 pub const MIN_FREE_PROVISION_CACHE: u64 = 1024 * 1024 * 1024;
 
-/// Whether a session already holds a prefix lock. The real implementation arrives with
-/// `session::lock` (PROC); [`NoLocks`] reports every lock free.
+/// Whether a session already holds a prefix lock. The real implementation is
+/// `session::FlockLocks` (the supervisor's `flock`); [`NoLocks`] reports every lock free and
+/// is for tests only.
 pub trait PrefixLocks: Send + Sync {
     /// Whether `lock` is held by a live session.
     fn is_held(&self, lock: &Path) -> bool;
 }
 
-/// No session holds anything (CLI dry runs before M6).
+/// No session holds anything (tests).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoLocks;
 

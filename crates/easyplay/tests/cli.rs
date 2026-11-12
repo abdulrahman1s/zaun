@@ -51,9 +51,8 @@ fn verbs_report_not_available_yet() {
     let env = TestEnv::new().unwrap();
     for (args, task) in [
         (&["list"][..], "CLI-002"),
-        (&["launch", "x"][..], "CLI-003"),
+        (&["launch", "x", "--exe", "dx12"][..], "CLI-003"),
         (&["open", "/tmp/x.exe"][..], "DESKTOP-002"),
-        (&["supervise", "--plan", "/tmp/p.json"][..], "PROC-003"),
     ] {
         let out = run(&env, args);
         assert_eq!(out.status.code(), Some(1), "{args:?}");
@@ -65,6 +64,44 @@ fn verbs_report_not_available_yet() {
     let log = std::fs::read_to_string(env.state().join("logs/easyplay.log")).unwrap();
     assert!(log.contains(" cli["), "{log}");
     assert!(log.contains("command failed"));
+}
+
+/// M6 session verbs on an empty library: recovery runs, nothing is running.
+#[test]
+fn session_verbs_on_an_empty_library() {
+    let env = TestEnv::new().unwrap();
+    let out = run(&env, &["status"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .contains("no game is running")
+    );
+    let out = run(&env, &["status", "--json"]);
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["format"], 1);
+    assert_eq!(v["active"].as_array().unwrap().len(), 0);
+    let out = run(&env, &["stop", "nothing-like-this"]);
+    assert!(out.status.success());
+    assert!(
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .contains("not running")
+    );
+    let out = run(&env, &["launch", "nothing-like-this"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        String::from_utf8(out.stderr)
+            .unwrap()
+            .contains("EP-LIB-030")
+    );
+    // A supervisor without a readable plan does not start.
+    let out = run(&env, &["supervise", "--plan", "/nonexistent/plan.json"]);
+    assert_eq!(out.status.code(), Some(1));
 }
 
 /// With no arguments the GUI starts (UI-001); without a display it fails cleanly with the

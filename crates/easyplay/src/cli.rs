@@ -64,6 +64,12 @@ pub enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Show running games and the latest sessions.
+    Status {
+        /// Machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
     /// List games.
     List {
         /// Machine-readable output.
@@ -340,6 +346,10 @@ mod tests {
                 Some(Command::Runtimes { command: c })
             );
         }
+        assert_eq!(
+            parse(&["status", "--json"]).command,
+            Some(Command::Status { json: true })
+        );
         assert!(matches!(
             parse(&["supervise", "--plan", "/run/p.json"]).command,
             Some(Command::Supervise { .. })

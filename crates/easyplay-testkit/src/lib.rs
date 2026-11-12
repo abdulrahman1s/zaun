@@ -11,6 +11,7 @@
 // Test support code: panicking on broken fixtures is the desired behaviour.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+pub mod bins;
 mod env;
 pub mod fakes;
 pub mod fixtures;
@@ -18,8 +19,8 @@ pub mod golden;
 
 pub use env::TestEnv;
 pub use fakes::{
-    CannedOutput, FakeClock, FakeHttpServer, FakeProc, MemFs, ROOT_DEVICE, Reply, ScriptedRunner,
-    UnexpectedCommand, proc_entry,
+    CannedOutput, FakeClock, FakeHttpServer, FakeLauncher, FakeProc, FakeStart, MemFs, ROOT_DEVICE,
+    Reply, ScriptedRunner, UnexpectedCommand, proc_entry,
 };
 
 #[doc(hidden)]

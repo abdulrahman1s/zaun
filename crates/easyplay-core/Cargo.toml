@@ -40,6 +40,9 @@ tokio.workspace = true
 libsqlite3-sys.workspace = true
 ureq.workspace = true
 seccompiler = { workspace = true, optional = true }
+# The supervisor's signal handling and the `unsafe` syscalls of `session::sys`.
+signal-hook.workspace = true
+libc.workspace = true
 
 [dev-dependencies]
 easyplay-testkit.workspace = true
