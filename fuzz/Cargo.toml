@@ -1,5 +1,7 @@
-# cargo-fuzz targets (TESTING_STRATEGY §5, THREAT_MODEL T-18). Not a workspace member:
-# run with `cargo +nightly fuzz run image_codec` from this directory.
+# cargo-fuzz targets for the parsers of untrusted input (TESTING_STRATEGY §5,
+# THREAT_MODEL T-18, IDENT-002, IDENT-006, ART-001). Not a workspace member and not
+# built in CI:
+#   cargo install cargo-fuzz && cargo +nightly fuzz run pe_inspect
 [package]
 name = "easyplay-fuzz"
 version = "0.0.0"
@@ -20,6 +22,27 @@ easyplay-core = { path = "../crates/easyplay-core" }
 [[bin]]
 name = "image_codec"
 path = "fuzz_targets/image_codec.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pe_inspect"
+path = "fuzz_targets/pe_inspect.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lnk_parse"
+path = "fuzz_targets/lnk_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "steam_appid"
+path = "fuzz_targets/steam_appid.rs"
 test = false
 doc = false
 bench = false
