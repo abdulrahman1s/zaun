@@ -59,12 +59,36 @@ fn env_os(env: &PathEnv, key: &str) -> Option<OsString> {
     env.get(key).map(ToOwned::to_owned)
 }
 
+/// `/etc/machine-id` when it holds 32 hex digits.
+fn read_machine_id(fs: &dyn Fs) -> Option<String> {
+    let bytes = fs.read_follow(Path::new("/etc/machine-id"), 64).ok()?;
+    let id = String::from_utf8(bytes).ok()?.trim().to_ascii_lowercase();
+    (id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit())).then_some(id)
+}
+
+/// `/dev/video*` character devices, sorted.
+fn list_video_nodes(fs: &dyn Fs) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = fs
+        .read_dir(Path::new("/dev"))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| {
+            e.name.to_string_lossy().starts_with("video") && e.file_type == FileType::CharDevice
+        })
+        .map(|e| e.path)
+        .collect();
+    v.sort();
+    v
+}
+
 /// Run every sub-probe.
 pub fn probe_all(deps: &ProbeDeps) -> HostFacts {
     let fs = &*deps.fs;
     let mut facts = HostFacts::empty(deps.clock.now());
     facts.os = read_os_release(fs);
     facts.kernel = read_kernel_facts(fs);
+    facts.machine_id = read_machine_id(fs);
+    facts.video_nodes = list_video_nodes(fs);
     facts.layout = probe_layout(
         fs,
         &LayoutInput {
