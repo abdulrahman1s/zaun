@@ -63,6 +63,8 @@ pub struct Rig {
     pub fake: FakeBackend,
     /// The picker.
     pub picker: FakePicker,
+    /// The clock.
+    pub clock: Arc<FakeClock>,
 }
 
 /// A rig at `start`, `size`, `choice`.
@@ -73,6 +75,17 @@ pub fn rig_with(lib: LibraryView, start: Route, size: Vec2, choice: ThemeChoice)
 
 /// A rig over an existing backend.
 pub fn rig_on(fake: FakeBackend, start: Route, size: Vec2, choice: ThemeChoice) -> Rig {
+    rig_app(fake, start, size, choice, |a| a)
+}
+
+/// A rig whose app is adjusted by `f` before the first frame (quick launch).
+pub fn rig_app(
+    fake: FakeBackend,
+    start: Route,
+    size: Vec2,
+    choice: ThemeChoice,
+    f: impl FnOnce(EasyPlayApp) -> EasyPlayApp,
+) -> Rig {
     let picker = FakePicker::default();
     let clock = Arc::new(FakeClock::new(now()));
     let appearance = Appearance {
@@ -81,18 +94,24 @@ pub fn rig_on(fake: FakeBackend, start: Route, size: Vec2, choice: ThemeChoice) 
     };
     let app = EasyPlayApp::new(
         UiBridge::new(Box::new(fake.clone())),
-        clock,
+        clock.clone(),
         appearance,
         start,
         0,
     )
     .with_art(Box::new(|_| Box::new(synthetic::Inline::new())))
     .with_picker(Box::new(picker.clone()));
+    let app = f(app);
     let h = Harness::builder()
         .with_size(size)
         .with_context_setup(move |ctx| theme::install(ctx, &appearance))
         .build_eframe(move |_cc| app);
-    Rig { h, fake, picker }
+    Rig {
+        h,
+        fake,
+        picker,
+        clock,
+    }
 }
 
 /// The settled library at 1280 × 800, dark.

@@ -619,12 +619,18 @@ fn error(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>, e: &User
             });
             if details {
                 let mut t = strings::errors::copy_text(e);
-                ui.add(
+                let r = ui.add(
                     egui::TextEdit::multiline(&mut t)
                         .font(Type::Mono.font_id())
                         .desired_rows(4)
                         .desired_width(f32::INFINITY)
                         .interactive(true),
+                );
+                crate::a11y::labelled(
+                    ui.ctx(),
+                    r.id,
+                    egui::Role::MultilineTextInput,
+                    d::SHOW_DETAILS,
                 );
                 if ui
                     .add(crate::widgets::button::Button::ghost(d::COPY).icon(icons::COPY))

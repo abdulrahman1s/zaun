@@ -46,6 +46,8 @@ pub struct SetupVm {
     pub args: String,
     /// The last rejected folder, explained.
     pub folder_error: Option<String>,
+    /// Give the primary button focus when next drawn (initial focus).
+    pub focus_primary: bool,
 }
 
 impl SetupVm {
@@ -62,6 +64,7 @@ impl SetupVm {
             acknowledged: false,
             phase: SetupPhase::Editing,
             folder_error: None,
+            focus_primary: true,
         }
     }
 

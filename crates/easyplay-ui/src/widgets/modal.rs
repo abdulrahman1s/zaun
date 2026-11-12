@@ -147,7 +147,13 @@ pub fn rich_dialog(
     let p = theme.palette.clone();
     let opacity = ctx.animate_bool_with_time(id.with("in"), true, theme.motion.fade(Dur::Base));
     let mut outcome = DialogOutcome::Open;
-    let max_w = layout::DIALOG_MAX_W.min(ctx.content_rect().width() - space::S8);
+    // Three actions with long verbs need more room than the standard width.
+    let want = if actions.len() >= 3 {
+        layout::DIALOG_MAX_W + space::S16 + space::S6
+    } else {
+        layout::DIALOG_MAX_W
+    };
+    let max_w = want.min(ctx.content_rect().width() - space::S8);
     let resp = Modal::new(id)
         .backdrop_color(fade(p.backdrop, opacity))
         .frame(overlay_frame(ctx, max_w))
@@ -165,17 +171,20 @@ pub fn rich_dialog(
                 .auto_shrink([false, true])
                 .show(ui, body);
             ui.add_space(space::S2);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                for (i, a) in actions.iter().enumerate().rev() {
-                    let r = ui.add(Button::new(a.label).variant(a.variant));
-                    if i == default && ui.memory(|m| m.focused().is_none()) {
-                        r.request_focus();
+            ui.with_layout(
+                Layout::right_to_left(Align::Center).with_main_wrap(true),
+                |ui| {
+                    for (i, a) in actions.iter().enumerate().rev() {
+                        let r = ui.add(Button::new(a.label).variant(a.variant));
+                        if i == default && ui.memory(|m| m.focused().is_none()) {
+                            r.request_focus();
+                        }
+                        if r.clicked() {
+                            outcome = DialogOutcome::Chose(i);
+                        }
                     }
-                    if r.clicked() {
-                        outcome = DialogOutcome::Chose(i);
-                    }
-                }
-            });
+                },
+            );
         });
     if outcome == DialogOutcome::Open
         && resp.is_top_modal

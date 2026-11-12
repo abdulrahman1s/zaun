@@ -304,7 +304,7 @@ pub fn folder_location(path: &Path, home: &Path) -> String {
             rel.components()
                 .map(|c| c.as_os_str().to_string_lossy().into_owned())
                 .collect::<Vec<_>>()
-                .join(" ▸ ")
+                .join(" › ")
         ),
         Err(_) => format!("in {}", parent.display()),
     }

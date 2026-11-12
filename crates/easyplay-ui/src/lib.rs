@@ -82,6 +82,9 @@ pub struct UiDeps {
     pub renderer: Renderer,
     /// Artwork source factory; `None` paints placeholders only.
     pub art: Option<app::ArtFactory>,
+    /// A program opened from the file manager: start in the quick-launch layout
+    /// (SCREEN_SPECS §7). Empty for a normal start.
+    pub open: Vec<std::path::PathBuf>,
 }
 
 /// `NativeOptions` for the main window: saved size, minimum 640 × 480, app id, icon.
@@ -121,8 +124,18 @@ pub fn run(start: StartMode, deps: UiDeps) -> eframe::Result {
         utc_offset_s,
         renderer,
         art,
+        open,
     } = deps;
-    let options = native_options(&window, renderer);
+    let mut options = native_options(&window, renderer);
+    if !open.is_empty() {
+        options.viewport = options
+            .viewport
+            .with_inner_size(screens::quick_launch::SIZE)
+            .with_min_inner_size(screens::quick_launch::SIZE)
+            .with_resizable(false)
+            .with_maximized(false)
+            .with_title(strings::APP_NAME);
+    }
     eframe::run_native(
         APP_ID,
         options,
@@ -140,6 +153,9 @@ pub fn run(start: StartMode, deps: UiDeps) -> eframe::Result {
             }));
             if let Some(store) = window_store {
                 app = app.with_window_store(store, window);
+            }
+            if let Some(path) = open.into_iter().next() {
+                app = app.quick_launch(path);
             }
             app.install(&cc.egui_ctx);
             Ok(Box::new(app))

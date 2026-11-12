@@ -22,6 +22,8 @@ pub const DELETE: &str = "Delete";
 pub const BACKSPACE: &str = "Backspace";
 /// Key names.
 pub const TAB: &str = "Tab";
+/// Key names ("+" separates keys in hints).
+pub const PLUS: &str = "Plus";
 /// Key names.
 pub const PAGE_DOWN: &str = "PgDn";
 /// Key names.

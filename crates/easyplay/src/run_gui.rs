@@ -125,6 +125,7 @@ fn deps(window: WindowGeometry, store: Option<Box<dyn WindowStore>>, renderer: R
             let ctx = ctx.clone();
             Box::new(synthetic::Threaded::spawn(move || ctx.request_repaint()))
         })),
+        open: Vec::new(),
     }
 }
 

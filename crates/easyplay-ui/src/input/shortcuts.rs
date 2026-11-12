@@ -208,7 +208,7 @@ fn key_name(k: Key) -> String {
         Key::Period => ".".into(),
         Key::Slash => "/".into(),
         Key::Questionmark => "?".into(),
-        Key::Plus => "+".into(),
+        Key::Plus => s::PLUS.into(),
         Key::Equals => "=".into(),
         Key::Minus => "-".into(),
         Key::Num0 => "0".into(),
