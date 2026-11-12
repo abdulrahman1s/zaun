@@ -7,6 +7,7 @@
   stdenv,
   makeRustPlatform,
   makeWrapper,
+  installShellFiles,
   pkg-config,
   sqlite,
   writeText,
@@ -145,6 +146,7 @@ rustPlatform.buildRustPackage {
   nativeBuildInputs = [
     pkg-config
     makeWrapper
+    installShellFiles
   ];
   # libsqlite3-sys currently resolves without its `bundled` feature and links the system
   # library through pkg-config; when the workspace bundles SQLite this is simply unused.
@@ -178,6 +180,14 @@ rustPlatform.buildRustPackage {
     if [ ! -e $out/share/applications/${appId}.desktop ]; then
       install -Dm644 ${fallbackDesktopEntry} $out/share/applications/${appId}.desktop
     fi
+
+    # Man pages and shell completions from the clap definitions (CLI-004).
+    $out/bin/easyplay generate-assets --out generated
+    installManPage generated/man/man1/*.1
+    installShellCompletion --cmd easyplay \
+      --bash generated/completions/easyplay.bash \
+      --zsh generated/completions/_easyplay \
+      --fish generated/completions/easyplay.fish
 
     wrapProgram $out/bin/easyplay \
       --prefix PATH : ${lib.makeBinPath hostTools} \

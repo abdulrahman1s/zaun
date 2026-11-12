@@ -87,30 +87,21 @@ fn find_in_library(db: &mut Db, arg: &str) -> Result<Option<Game>, Error> {
         return Ok(db.game(id)?);
     }
     let rows = db.load_library()?;
-    let lower = arg.to_lowercase();
-    let matches: Vec<GameId> = rows
-        .games
-        .iter()
-        .filter(|g| {
-            let id = g.id.to_string();
-            (arg.len() >= 6 && id.starts_with(&lower)) || g.name.to_lowercase() == lower
-        })
-        .map(|g| g.id)
-        .collect();
-    match matches.as_slice() {
-        [] => Ok(None),
-        [one] => Ok(db.game(*one)?),
-        many => Err(fail(
-            ErrorCode::LibInvalidField,
-            format!(
-                "{arg:?} matches {} games: {}",
-                many.len(),
-                many.iter()
-                    .map(|g| g.short())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        )),
+    if rows.games.is_empty() {
+        return Ok(None);
+    }
+    match easyplay_core::library::resolve::resolve_game(
+        rows.games.iter().map(|g| (g.id, g.name.as_str())),
+        arg,
+    ) {
+        Ok(id) => Ok(db.game(id)?),
+        Err(e)
+            if e.context_value("detail")
+                .is_some_and(|d| d.starts_with("no game")) =>
+        {
+            Ok(None)
+        }
+        Err(e) => Err(e),
     }
 }
 
@@ -164,9 +155,14 @@ fn real_proc(hc: &HostContext) -> Arc<dyn ProcSource> {
     Arc::new(RealProc::new(Arc::clone(&hc.fs)))
 }
 
-/// `easyplay launch <GAME> [--wait] [-- ARGS]`.
+/// `easyplay launch <GAME> [--exe <LABEL|ID>] [--wait] [-- ARGS]`.
 #[allow(clippy::print_stdout, clippy::print_stderr)]
-pub fn launch(game_arg: &str, wait: bool, extra: &[String]) -> Result<u8, Error> {
+pub fn launch(
+    game_arg: &str,
+    exe_arg: Option<&str>,
+    wait: bool,
+    extra: &[String],
+) -> Result<u8, Error> {
     let hc = HostContext::probe()?;
     let mut db = open_library(&hc)?;
     let proc = real_proc(&hc);
@@ -179,6 +175,9 @@ pub fn launch(game_arg: &str, wait: bool, extra: &[String]) -> Result<u8, Error>
         find_in_library(&mut db, game_arg)?
             .ok_or_else(|| fail(ErrorCode::LibInvalidField, format!("no game {game_arg:?}")))?
     };
+    let exe = exe_arg
+        .map(|a| crate::library_verbs::resolve_exe(&game, a))
+        .transpose()?;
     if !hc.fs.metadata_follow(&hc.init).is_ok_and(|m| m.is_file()) {
         return Err(Error::new(ErrorCode::HostInitMissing).with("path", hc.init.display()));
     }
@@ -204,7 +203,7 @@ pub fn launch(game_arg: &str, wait: bool, extra: &[String]) -> Result<u8, Error>
     let session_id = SessionId::generate(&*hc.clock);
     let req = LaunchRequest {
         game: &game,
-        exe: None,
+        exe,
         extra_args: extra,
         session_id,
     };

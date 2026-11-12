@@ -304,6 +304,13 @@ jobs:
           cp "target/${{ matrix.target }}/release/${BIN_NAME}" "${root}/bin/"
           cp "target/${{ matrix.init_target }}/release/${INIT_NAME}" "${root}/libexec/easyplay/"
           if [[ -d assets/share ]]; then cp -r assets/share/. "${root}/share/"; fi
+          # Man pages and completions from the clap definitions (CLI-004).
+          gen="$(mktemp -d)"
+          "target/${{ matrix.target }}/release/${BIN_NAME}" generate-assets --out "${gen}"
+          install -Dm644 -t "${root}/share/man/man1" "${gen}"/man/man1/*.1
+          install -Dm644 "${gen}/completions/easyplay.bash" "${root}/share/bash-completion/completions/easyplay"
+          install -Dm644 "${gen}/completions/_easyplay" "${root}/share/zsh/site-functions/_easyplay"
+          install -Dm644 "${gen}/completions/easyplay.fish" "${root}/share/fish/vendor_completions.d/easyplay.fish"
           if [[ -d packaging/tarball ]]; then cp packaging/tarball/*.sh "${root}/" 2>/dev/null || true; fi
           cp README.md "${root}/"
           archive="${BIN_NAME}-${RELEASE_TAG}-${{ matrix.target }}.tar.zst"

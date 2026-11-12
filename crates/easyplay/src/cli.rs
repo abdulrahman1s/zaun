@@ -41,6 +41,10 @@ pub struct Cli {
     #[arg(long, hide = true)]
     pub preview: bool,
 
+    /// Start (or focus) EasyPlay and open the add-game dialog.
+    #[arg(long)]
+    pub add: bool,
+
     /// What to do; without a command EasyPlay starts (or focuses) the application.
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -156,6 +160,13 @@ pub enum Command {
         /// The launch plan file.
         #[arg(long, value_name = "FILE")]
         plan: PathBuf,
+    },
+    /// Write the man page and shell completions (packaging; RELEASE_STRATEGY §7).
+    #[command(hide = true, name = "generate-assets")]
+    GenerateAssets {
+        /// Output directory: `man/man1/easyplay.1` and `completions/` are created in it.
+        #[arg(long, value_name = "DIR")]
+        out: PathBuf,
     },
 }
 
@@ -396,6 +407,31 @@ mod tests {
                 .unwrap_err();
             assert_eq!(err.exit_code(), i32::from(exit::USAGE), "{args:?}");
         }
+    }
+
+    /// `--help` of every visible verb, reviewed as snapshots (CLI-001).
+    #[test]
+    fn help_snapshots() {
+        fn walk(cmd: &mut clap::Command, prefix: &str) {
+            let name = if prefix.is_empty() {
+                "easyplay".to_owned()
+            } else {
+                format!("{prefix}-{}", cmd.get_name())
+            };
+            insta::assert_snapshot!(format!("help_{name}"), cmd.render_help().to_string());
+            let subs: Vec<clap::Command> = cmd
+                .get_subcommands()
+                // `runtimes` belongs to runtime provisioning and is reviewed there.
+                .filter(|c| !c.is_hide_set() && !matches!(c.get_name(), "help" | "runtimes"))
+                .cloned()
+                .collect();
+            for mut s in subs {
+                walk(&mut s, &name);
+            }
+        }
+        let mut cmd = Cli::command();
+        cmd.build();
+        walk(&mut cmd, "");
     }
 
     #[test]

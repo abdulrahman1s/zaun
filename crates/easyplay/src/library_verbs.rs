@@ -12,16 +12,16 @@ use std::time::Duration;
 use easyplay_core::clock::{Clock, SystemClock};
 use easyplay_core::error::{Error, ErrorCode, UserError};
 use easyplay_core::fsx::{Fs, RealFs};
-use easyplay_core::ids::GameId;
+use easyplay_core::ids::{ExecutableId, GameId};
 use easyplay_core::launch::LaunchState;
 use easyplay_core::library::index::build as build_snapshot;
 use easyplay_core::library::{DefaultRuntimeInfo, LibrarySnapshot, Overlays, RemoveOptions};
-use easyplay_core::model::{GameSummary, PromptAnswer};
+use easyplay_core::model::{Game, GameSummary, PromptAnswer};
 use easyplay_core::paths::{AppPaths, PathEnv};
 use easyplay_core::sandbox::presets;
 use easyplay_core::service::{AfterCreate, AppService, Command, Event, Notice, OpenOrigin};
 use easyplay_core::storage::lock::{LibraryLock, LockMode};
-use easyplay_core::storage::{Db, GameRepo, ReadDb, SessionRepo, StorageError};
+use easyplay_core::storage::{Db, GameRepo, ReadDb, SessionRepo, StorageError, TagRepo};
 
 use crate::cli::{PresetArg, exit};
 use crate::wiring;
@@ -43,7 +43,10 @@ fn lock_exclusive(paths: &AppPaths) -> Result<LibraryLock, Error> {
 fn headless() -> Result<(AppService, std::sync::mpsc::Receiver<Event>, LibraryLock), Error> {
     let mut w = wiring::build()?;
     let lock = lock_exclusive(&w.paths)?;
-    let (svc, events) = AppService::open_headless(w.take_deps()?)?;
+    let mut deps = w.take_deps()?;
+    // Desktop integration is the GUI's (shortcuts follow the library when it next starts).
+    deps.desktop = None;
+    let (svc, events) = AppService::open_headless(deps)?;
     Ok((svc, events, lock))
 }
 
@@ -216,7 +219,7 @@ pub fn remove(game: &str, keep_storage: bool) -> Result<u8, Error> {
 }
 
 /// The library as a snapshot, read-only.
-fn read_snapshot() -> Result<(LibrarySnapshot, ReadDb, AppPaths), Error> {
+pub(crate) fn read_snapshot() -> Result<(LibrarySnapshot, ReadDb, AppPaths), Error> {
     let env = PathEnv::from_process();
     let paths = AppPaths::resolve(&env)
         .map_err(|e| Error::new(ErrorCode::IntTaskFailed).with("paths", e))?;
@@ -235,29 +238,51 @@ fn read_snapshot() -> Result<(LibrarySnapshot, ReadDb, AppPaths), Error> {
     Ok((snap, db, paths))
 }
 
-/// `<GAME>`: an ID, an ID prefix of at least 6 characters, or a unique name.
-fn resolve(snap: &LibrarySnapshot, arg: &str) -> Result<GameId, Error> {
-    if let Ok(id) = arg.parse::<GameId>()
-        && snap.get(id).is_some()
-    {
-        return Ok(id);
-    }
-    let lower = arg.to_lowercase();
-    let m: Vec<&GameSummary> = snap
-        .games
+/// `<GAME>`: an ID, an ID prefix of at least 6 characters, or a unique name
+/// (CONFIGURATION §6; ambiguity lists the candidates).
+pub(crate) fn resolve(snap: &LibrarySnapshot, arg: &str) -> Result<GameId, Error> {
+    easyplay_core::library::resolve::resolve_game(snap.games.iter().map(|g| (g.id, &*g.name)), arg)
+}
+
+/// `--exe <LABEL|ID>`: a program of `game` by ID (or a unique prefix of at least 6
+/// characters), label or file name, case-insensitively.
+pub(crate) fn resolve_exe(game: &Game, arg: &str) -> Result<ExecutableId, Error> {
+    let lower = arg.trim().to_lowercase();
+    let hits: Vec<&easyplay_core::model::Executable> = game
+        .executables
         .iter()
-        .filter(|g| {
-            (arg.len() >= 6 && g.id.to_string().starts_with(&lower))
-                || g.name.to_lowercase() == lower
+        .filter(|e| {
+            let id = e.id.to_string();
+            id == lower
+                || (lower.len() >= 6 && id.starts_with(&lower))
+                || e.label
+                    .as_deref()
+                    .is_some_and(|l| l.to_lowercase() == lower)
+                || e.path
+                    .file_name()
+                    .is_some_and(|f| f.to_string_lossy().to_lowercase() == lower)
         })
         .collect();
-    match m.as_slice() {
+    match hits.as_slice() {
         [one] => Ok(one.id),
-        [] => {
-            Err(Error::new(ErrorCode::LibInvalidField).with("detail", format!("no game {arg:?}")))
-        }
+        [] => Err(Error::new(ErrorCode::LibInvalidField).with(
+            "detail",
+            format!(
+                "{} has no program {arg:?}; its programs: {}",
+                game.name,
+                game.executables
+                    .iter()
+                    .map(|e| e.label.clone().unwrap_or_else(|| e
+                        .path
+                        .file_name()
+                        .map(|f| f.to_string_lossy().into_owned())
+                        .unwrap_or_default()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        )),
         many => Err(Error::new(ErrorCode::LibInvalidField)
-            .with("detail", format!("{arg:?} matches {} games", many.len()))),
+            .with("detail", format!("{arg:?} matches {} programs", many.len()))),
     }
 }
 
@@ -419,6 +444,152 @@ pub fn show(arg: &str, json: bool) -> Result<u8, Error> {
             s.end_reason.map(|r| r.as_str()).unwrap_or(s.state.as_str()),
             s.duration_ms.map(hours).unwrap_or_default()
         );
+    }
+    Ok(exit::OK)
+}
+
+/// A file name from a game name (exports folder).
+fn export_file_name(name: &str) -> String {
+    let s: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(60)
+        .collect();
+    let s = s.trim_matches('_');
+    format!("{}.toml", if s.is_empty() { "game" } else { s })
+}
+
+/// `easyplay export GAME [-o FILE]`: read-only (works while the GUI runs).
+#[allow(clippy::print_stdout)]
+pub fn export(arg: &str, output: Option<&Path>) -> Result<u8, Error> {
+    let (snap, mut db, paths) = read_snapshot()?;
+    let id = resolve(&snap, arg)?;
+    let game = db
+        .game(id)?
+        .ok_or_else(|| Error::new(ErrorCode::LibInvalidField).with("detail", "no such game"))?;
+    let mine = db.tags_of(id)?;
+    let tags: Vec<_> = db
+        .tags_with_counts()?
+        .into_iter()
+        .filter(|(t, _)| mine.contains(&t.id))
+        .map(|(t, _)| t.name)
+        .collect();
+    let text = easyplay_core::library::export::export(&game, &tags, SystemClock::new().now())?;
+    let fs = RealFs::new();
+    let out = match output {
+        Some(p) if p.as_os_str() == "-" => {
+            print!("{text}");
+            return Ok(exit::OK);
+        }
+        Some(p) => std::path::absolute(p)
+            .map_err(|e| Error::new(ErrorCode::FsWriteDenied).with_source(e))?,
+        None => {
+            fs.create_dir_all(&paths.exports_dir, 0o700)?;
+            paths.exports_dir.join(export_file_name(&game.name))
+        }
+    };
+    fs.atomic_write(&out, text.as_bytes(), 0o600)?;
+    println!("exported {} to {}", game.name, out.display());
+    Ok(exit::OK)
+}
+
+/// `easyplay import FILE --exe EXE`: apply exported settings to the game of `EXE`, adding it
+/// first (with the setup defaults) when it is not in the library. Validated exactly like an
+/// edit on the game page; folder grants with absolute paths are listed, never applied.
+#[allow(clippy::print_stdout, clippy::print_stderr)]
+pub fn import(file: &Path, exe: &Path) -> Result<u8, Error> {
+    let fs = RealFs::new();
+    let text = fs.read_follow(
+        &std::path::absolute(file)
+            .map_err(|e| Error::new(ErrorCode::FsReadDenied).with_source(e))?,
+        easyplay_core::library::export::EXPORT_MAX_BYTES as u64,
+    )?;
+    let text = String::from_utf8(text).map_err(|_| {
+        Error::new(ErrorCode::CfgInvalidValue).with("reason", "the file is not UTF-8 text")
+    })?;
+    // Validate before touching the library.
+    easyplay_core::library::export::parse(&text)?;
+    let exe = fs.canonicalize(
+        &std::path::absolute(exe)
+            .map_err(|e| Error::new(ErrorCode::FsReadDenied).with_source(e))?,
+    )?;
+    let (mut svc, events, _lock) = headless()?;
+    let find = |svc: &mut AppService| {
+        svc.hub()
+            .library
+            .load()
+            .games
+            .iter()
+            .find(|g| *g.primary_exe_path == *exe)
+            .map(|g| g.id)
+    };
+    let id = match find(&mut svc) {
+        Some(id) => id,
+        None => {
+            svc.handle(Command::OpenPaths {
+                paths: vec![exe.clone()],
+                origin: OpenOrigin::Picker,
+            });
+            let mut added = None;
+            let code = drive(&mut svc, &events, |svc, ev| match ev {
+                Event::SetupRequested { draft, .. } => {
+                    if draft.is_blocked() {
+                        for i in &draft.issues {
+                            eprintln!("{} {:?}: {}", i.code.as_str(), i.severity, i.message);
+                        }
+                        return Some(exit::FAILED);
+                    }
+                    svc.handle(Command::CreateGame {
+                        draft,
+                        then: AfterCreate::Nothing,
+                    });
+                    None
+                }
+                Event::Notice(Notice::GameAdded { game, .. })
+                | Event::Notice(Notice::AlreadyInLibrary { game }) => {
+                    added = Some(game);
+                    Some(exit::OK)
+                }
+                Event::Prompt(p) => {
+                    svc.handle(Command::AnswerPrompt {
+                        prompt: p.id,
+                        answer: PromptAnswer::Cancel,
+                    });
+                    Some(exit::FAILED)
+                }
+                Event::Failure(u) => {
+                    print_user_error(&u);
+                    Some(exit::FAILED)
+                }
+                _ => None,
+            });
+            match added {
+                Some(id) if code == exit::OK => id,
+                _ => return Ok(exit::FAILED),
+            }
+        }
+    };
+    let facts = svc
+        .hub()
+        .host
+        .load()
+        .as_ref()
+        .clone()
+        .unwrap_or_else(|| easyplay_core::host::HostFacts::empty(SystemClock::new().now()));
+    let preset = |b| presets::preset_policy(b, &facts);
+    let (settings, warnings) = svc.library().import_settings(id, &text, &preset, &[])?;
+    println!("imported settings into {} ({id})", settings.name);
+    for n in &settings.notes {
+        println!("  note: {n:?}");
+    }
+    for w in &warnings {
+        println!("  warning: {w:?}");
     }
     Ok(exit::OK)
 }
