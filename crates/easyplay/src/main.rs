@@ -11,6 +11,7 @@ mod host_verbs;
 mod panic;
 mod run_gui;
 mod run_supervisor;
+mod sandbox_print;
 
 use std::io::IsTerminal;
 use std::path::Path;

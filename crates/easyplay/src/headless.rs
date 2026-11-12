@@ -3,8 +3,8 @@
 
 use easyplay_core::Error;
 
-use crate::cli::{Command, RuntimesCommand};
-use crate::host_verbs;
+use crate::cli::{Command, RuntimesCommand, SandboxCommand};
+use crate::{host_verbs, sandbox_print};
 
 /// Run a verb headlessly.
 pub fn run(command: &Command) -> Result<(), Error> {
@@ -13,6 +13,9 @@ pub fn run(command: &Command) -> Result<(), Error> {
         Command::Runtimes {
             command: RuntimesCommand::List,
         } => return host_verbs::runtimes_list(),
+        Command::Sandbox {
+            command: SandboxCommand::Print { game, format, kind },
+        } => return sandbox_print::run(game, *format, *kind),
         _ => {}
     }
     let task = match command {

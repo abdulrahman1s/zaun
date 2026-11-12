@@ -1,0 +1,28 @@
+# Proton script traceback inside the container (library path not set up)
+# failure: EP-UMU-001
+# sandbox_started: yes
+phase:starting	INFO: umu-launcher version 1.4.4 (3.14.10 (main, Oct 25 2026, 17:12:00) [GCC 16.2.0])
+phase:launching	INFO: Running 'UMU-Proton-10.0-4' using runtime 'sniper'
+phase:launching	INFO: Running 'steamrt3' using runtime 'host'
+noise:hard_link	pressure-vessel-wrap[14]: W: Unable to create hard link "/run/easyplay/pv-var/tmp-B3KOY3/usr/./manifest.dpkg" to "/home/sam/.local/share/umu/steamrt3/sniper_platform_3.0.20261110.268881/files/./manifest.dpkg": Invalid cross-device link
+noise:hard_link	pressure-vessel-wrap[14]: W: Falling back to copying, but this will take more time and disk space.
+noise:hard_link	pressure-vessel-wrap[14]: W: For best results, "/home/sam/.local/share/umu/steamrt3/sniper_platform_3.0.20261110.268881/files" and "/run/easyplay/pv-var/tmp-B3KOY3/usr" should both be on the same fully-featured Linux filesystem.
+noise:hard_link	pressure-vessel-wrap[14]: W: Unable to create hard link "/run/easyplay/pv-var/tmp-B3KOY3/usr/./manifest.dpkg.built-using" to "/home/sam/.local/share/umu/steamrt3/sniper_platform_3.0.20261110.268881/files/./manifest.dpkg.built-using": Invalid cross-device link
+noise:hard_link	pressure-vessel-wrap[14]: W: Falling back to copying, but this will take more time and disk space.
+noise:hard_link	pressure-vessel-wrap[14]: W: For best results, "/home/sam/.local/share/umu/steamrt3/sniper_platform_3.0.20261110.268881/files" and "/run/easyplay/pv-var/tmp-B3KOY3/usr" should both be on the same fully-featured Linux filesystem.
+noise:hard_link	pressure-vessel-wrap[14]: W: Unable to create hard link "/run/easyplay/pv-var/tmp-B3KOY3/usr/./share/base-passwd/group.master" to "/home/sam/.local/share/umu/steamrt3/sniper_platform_3.0.20261110.268881/files/./share/base-passwd/group.master": Invalid cross-device link
+noise:hard_link	pressure-vessel-wrap[14]: W: Falling back to copying, but this will take more time and disk space.
+noise:hard_link	pressure-vessel-wrap[14]: W: For best results, "/home/sam/.local/share/umu/steamrt3/sniper_platform_3.0.20261110.268881/files" and "/run/easyplay/pv-var/tmp-B3KOY3/usr" should both be on the same fully-featured Linux filesystem.
+other	pressure-vessel-wrap[14]: W: "/run/current-system/sw/bin/getent" is unlikely to appear in "/run/host"
+other	pressure-vessel-wrap[14]: W: Unable to determine architecture of provider / ldconfig: Error reading "(null)" ELF header: invalid `Elf' handle
+other	setlocale "en_US.UTF-8": No such file or directory
+noise:locale_gen	pv-locale-gen: Missing locale en_US.UTF-8 (found in $LANG)
+noise:locale_gen	pv-locale-gen: Generating locale en_US.UTF-8...
+noise:locale_gen	pv-locale-gen: Generated locale en_US.UTF-8 successfully
+other	pv-adverb[64]: W: Container startup will be faster if missing locales are created at OS level
+tb_start	Traceback (most recent call last):
+tb_line	  File "/home/sam/.local/share/Steam/compatibilitytools.d/UMU-Proton-10.0-4/proton", line 24, in <module>
+tb_line	    from ctypes import CDLL
+tb_line	  File "/usr/lib/python3.9/ctypes/__init__.py", line 8, in <module>
+tb_line	    from _ctypes import Union, Structure, Array
+umu_error	ImportError: libffi.so.7: cannot open shared object file: No such file or directory
