@@ -1,18 +1,20 @@
 //! Text field: label above (`caption`, `text.secondary`), field height `md`, helper or error
-//! text below; error is a `danger` border and a message with an icon. Search fields get a
-//! leading icon, a clear button when non-empty, and `Esc` clears (§7.4, ACCESSIBILITY §2).
+//! text below; error is a `danger` border and a message with an icon. Search fields are
+//! quiet (a soft fill and a hairline: the icon and the hint identify them) and get a leading
+//! icon, a clear button when non-empty, an optional shortcut keycap while empty, and `Esc`
+//! clears (§7.4, ACCESSIBILITY §2).
 
 use egui::{
     Align, Align2, CornerRadius, Frame, Key, Layout, Rect, Response, Sense, Stroke, StrokeKind,
     TextEdit, Ui, UiBuilder, pos2, vec2,
 };
 
-use super::focus_ring;
+use super::{focus_ring, tooltip};
 use crate::a11y;
 use crate::strings;
-use crate::theme::palette::mix;
+use crate::theme::palette::{fade, mix};
 use crate::theme::tokens::{control, icon as icon_size, radius, space, stroke};
-use crate::theme::{self, Type, icons};
+use crate::theme::{self, Dur, Type, icons};
 
 /// A text field builder.
 #[must_use = "call `.show(ui)`"]
@@ -25,6 +27,7 @@ pub struct TextField<'a> {
     help: Option<&'a str>,
     error: Option<&'a str>,
     search: bool,
+    shortcut: Option<&'a str>,
     mono: bool,
     width: Option<f32>,
 }
@@ -50,6 +53,7 @@ impl<'a> TextField<'a> {
             help: None,
             error: None,
             search: false,
+            shortcut: None,
             mono: false,
             width: None,
         }
@@ -88,6 +92,12 @@ impl<'a> TextField<'a> {
     /// Search styling and behaviour.
     pub fn search(mut self) -> Self {
         self.search = true;
+        self
+    }
+
+    /// The key that focuses a search field, shown as a keycap while it is empty and idle.
+    pub fn shortcut_hint(mut self, key: &'a str) -> Self {
+        self.shortcut = Some(key);
         self
     }
 
@@ -193,15 +203,18 @@ impl<'a> TextField<'a> {
                     );
                     let c = ui.interact(cr, id.with("clear"), Sense::click());
                     a11y::button(&c, strings::library::CLEAR_SEARCH);
-                    let c = c.on_hover_text(strings::library::CLEAR_SEARCH);
+                    let c = tooltip::attach(c, strings::library::CLEAR_SEARCH);
                     let col = if c.hovered() {
                         p.text_primary
                     } else {
                         p.text_muted
                     };
                     if c.hovered() {
-                        ui.painter()
-                            .rect_filled(cr, CornerRadius::same(radius::SM), p.bg_overlay);
+                        ui.painter().rect_filled(
+                            cr,
+                            CornerRadius::same(radius::SM),
+                            p.fill_selected,
+                        );
                     }
                     ui.painter().text(
                         cr.center(),
@@ -221,29 +234,38 @@ impl<'a> TextField<'a> {
                 }
                 let focused = r.has_focus();
                 let hovered = r.hovered();
+                let focus_t = ui.ctx().animate_bool_with_time(
+                    id.with("focus"),
+                    focused,
+                    theme.motion.fade(Dur::Fast),
+                );
+                let hover_t = ui.ctx().animate_bool_with_time(
+                    id.with("hover"),
+                    hovered || focused,
+                    theme.motion.fade(Dur::Fast),
+                );
+                // Form fields carry a boundary of their own; a search field is identified by
+                // its icon and hint, so its edge can stay a hairline.
+                let (fill, rest_border) = if self.search {
+                    (mix(p.fill_hover, p.fill_selected, hover_t), p.hairline)
+                } else {
+                    (
+                        p.bg_raised,
+                        mix(p.border_strong, p.text_secondary, 0.35 * hover_t),
+                    )
+                };
                 let border = if self.error.is_some() {
                     p.danger
-                } else if focused {
-                    p.accent
-                } else if hovered {
-                    mix(p.border_strong, p.text_secondary, 0.35)
                 } else {
-                    p.border_strong
+                    mix(rest_border, p.accent, focus_t)
                 };
                 let corner = CornerRadius::same(radius::MD);
                 let shapes = vec![
-                    egui::Shape::rect_filled(rect, corner, p.bg_raised),
+                    egui::Shape::rect_filled(rect, corner, fill),
                     egui::Shape::rect_stroke(
                         rect,
                         corner,
-                        Stroke::new(
-                            if focused {
-                                stroke::FOCUS
-                            } else {
-                                stroke::BORDER
-                            },
-                            border,
-                        ),
+                        Stroke::new(egui::lerp(stroke::BORDER..=stroke::FOCUS, focus_t), border),
                         StrokeKind::Inside,
                     ),
                 ];
@@ -254,12 +276,32 @@ impl<'a> TextField<'a> {
                         Align2::LEFT_CENTER,
                         icons::SEARCH.text(false),
                         icons::font(icon_size::INLINE),
-                        if focused {
-                            p.text_secondary
-                        } else {
-                            p.text_muted
-                        },
+                        mix(p.text_muted, p.text_primary, focus_t),
                     );
+                    // The shortcut keycap, while there is nothing typed and room for it.
+                    if let Some(key) = self.shortcut
+                        && !has_text
+                        && rect.width() > 200.0
+                    {
+                        let cap = Rect::from_center_size(
+                            pos2(rect.right() - space::S2 - 10.0, rect.center().y),
+                            vec2(20.0, 20.0),
+                        );
+                        let a = 1.0 - focus_t;
+                        ui.painter().rect_stroke(
+                            cap,
+                            CornerRadius::same(radius::XS + 1),
+                            Stroke::new(stroke::BORDER, fade(p.hairline, a)),
+                            StrokeKind::Inside,
+                        );
+                        ui.painter().text(
+                            cap.center(),
+                            Align2::CENTER_CENTER,
+                            key,
+                            Type::Caption.font_id(),
+                            fade(p.text_muted, a),
+                        );
+                    }
                 }
                 if let Some(err) = self.error {
                     ui.horizontal(|ui| {

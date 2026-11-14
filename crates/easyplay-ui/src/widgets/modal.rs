@@ -13,7 +13,7 @@ use egui::{
 use super::button::{Button, Variant};
 use crate::a11y;
 use crate::theme::palette::fade;
-use crate::theme::tokens::{icon as icon_size, layout, radius, space, stroke};
+use crate::theme::tokens::{icon as icon_size, layout, radius, space, stroke, travel};
 use crate::theme::{self, Dur, Icon, Type, icons};
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -80,17 +80,42 @@ pub fn overlay_frame(ctx: &Context, max_w: f32) -> Frame {
     let _ = max_w;
     Frame::NONE
         .fill(p.bg_overlay)
-        .stroke(Stroke::new(
-            stroke::BORDER,
-            if p.allows_translucency() {
-                p.border_subtle
-            } else {
-                p.border_strong
-            },
-        ))
+        .stroke(Stroke::new(stroke::BORDER, p.hairline))
         .corner_radius(CornerRadius::same(radius::LG))
         .shadow(ctx.global_style().visuals.window_shadow)
         .inner_margin(Margin::same(layout::SHEET_PAD as i8))
+}
+
+/// Show `content` in the overlay frame with the entrance of dialogs and sheets: the panel
+/// fades in while it rises 8 px and grows from 96 % (USER_EXPERIENCE §10); the backdrop
+/// only fades. `opacity` is the 0–1 progress from [`theme::motion::appear`]. Call inside a
+/// `Modal` whose own frame is `Frame::NONE`.
+pub fn overlay_panel<R>(
+    ui: &mut Ui,
+    max_w: f32,
+    opacity: f32,
+    content: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    let ctx = ui.ctx().clone();
+    let theme = theme::theme(&ctx);
+    let rest = 1.0 - opacity;
+    let (scale, rise) = if theme.motion.reduced {
+        (1.0, 0.0)
+    } else {
+        (1.0 - (1.0 - travel::POP_FROM) * rest, travel::RISE * rest)
+    };
+    let transform =
+        theme::motion::scale_about(ctx.content_rect().center(), scale, egui::vec2(0.0, rise));
+    ui.with_visual_transform(transform, |ui| {
+        overlay_frame(&ctx, max_w)
+            .multiply_with_opacity(opacity)
+            .show(ui, |ui| {
+                ui.multiply_opacity(opacity);
+                content(ui)
+            })
+            .inner
+    })
+    .inner
 }
 
 /// A dialog action.
@@ -156,36 +181,46 @@ pub fn rich_dialog(
     let max_w = want.min(ctx.content_rect().width() - space::S8);
     let resp = Modal::new(id)
         .backdrop_color(fade(p.backdrop, opacity))
-        .frame(overlay_frame(ctx, max_w))
+        .frame(Frame::NONE)
         .show(ctx, |ui| {
-            ui.multiply_opacity(opacity);
-            ui.set_max_width(max_w - layout::SHEET_PAD * 2.0);
-            ui.set_min_width((max_w - layout::SHEET_PAD * 2.0).min(360.0));
-            ui.spacing_mut().item_spacing.y = space::S3;
-            if let Some(icon) = icon {
-                ui.label(icons::icon(icon, icon_size::NAV + 4.0).color(p.text_secondary));
-            }
-            ui.label(Type::Title.rich(title).color(p.text_primary));
-            a11y::labelled(ctx, ui.scope_id(), egui::Role::Dialog, title);
-            egui::ScrollArea::vertical()
-                .max_height((ctx.content_rect().height() - 220.0).max(120.0))
-                .auto_shrink([false, true])
-                .show(ui, body);
-            ui.add_space(space::S2);
-            ui.with_layout(
-                Layout::right_to_left(Align::Center).with_main_wrap(true),
-                |ui| {
-                    for (i, a) in actions.iter().enumerate().rev() {
-                        let r = ui.add(Button::new(a.label).variant(a.variant));
-                        if i == default && ui.memory(|m| m.focused().is_none()) {
-                            r.request_focus();
+            overlay_panel(ui, max_w, opacity, |ui| {
+                ui.set_max_width(max_w - layout::SHEET_PAD * 2.0);
+                ui.set_min_width((max_w - layout::SHEET_PAD * 2.0).min(360.0));
+                ui.spacing_mut().item_spacing.y = space::S3;
+                if let Some(icon) = icon {
+                    ui.label(icons::icon(icon, icon_size::NAV + 4.0).color(p.text_secondary));
+                }
+                ui.label(Type::Title.rich(title).color(p.text_primary));
+                a11y::labelled(ctx, ui.scope_id(), egui::Role::Dialog, title);
+                egui::ScrollArea::vertical()
+                    .max_height((ctx.content_rect().height() - 220.0).max(120.0))
+                    .auto_shrink([false, true])
+                    .show(ui, body);
+                ui.add_space(space::S2);
+                ui.with_layout(
+                    Layout::right_to_left(Align::Center).with_main_wrap(true),
+                    |ui| {
+                        for (i, a) in actions.iter().enumerate().rev() {
+                            let r = ui.add(Button::new(a.label).variant(a.variant));
+                            if i == default && ui.memory(|m| m.focused().is_none()) {
+                                r.request_focus();
+                            }
+                            if i == default && r.has_focus() {
+                                // `Enter` chooses this one: always marked.
+                                super::default_ring(
+                                    ui.painter(),
+                                    r.rect,
+                                    CornerRadius::same(radius::MD),
+                                    &theme,
+                                );
+                            }
+                            if r.clicked() {
+                                outcome = DialogOutcome::Chose(i);
+                            }
                         }
-                        if r.clicked() {
-                            outcome = DialogOutcome::Chose(i);
-                        }
-                    }
-                },
-            );
+                    },
+                );
+            });
         });
     if outcome == DialogOutcome::Open
         && resp.is_top_modal

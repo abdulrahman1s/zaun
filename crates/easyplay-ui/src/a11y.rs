@@ -32,6 +32,13 @@ pub fn option(resp: &Response, role: Role, label: &str, selected: bool) {
     resp.widget_info(move || WidgetInfo::selected(role, enabled, selected, &label));
 }
 
+/// A non-interactive element that has a place on screen (a list item, a fact, a figure):
+/// its role, its name and, from the response, its bounds.
+pub fn item(resp: &Response, role: Role, label: &str) {
+    let label = label.to_owned();
+    resp.widget_info(move || WidgetInfo::labeled(role, true, &label));
+}
+
 /// A non-interactive element with a role and a name (images, landmarks, groups).
 pub fn labelled(ctx: &Context, id: Id, role: Role, label: &str) {
     ctx.accesskit_node_builder(id, |n| {

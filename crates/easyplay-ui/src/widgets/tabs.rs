@@ -1,5 +1,6 @@
-//! Tab bar: text tabs with a 2 px accent underline on the selected one; arrow keys move
-//! between tabs (§7.5). Horizontal scrolling when they do not fit.
+//! Tab bar: text tabs with a 2 px accent underline on the selected one, on a rule as wide as
+//! the container; arrow keys move between tabs (§7.5). Horizontal scrolling when they do not
+//! fit.
 
 use egui::accesskit::Role;
 use egui::{Key, Response, ScrollArea, Sense, Stroke, Ui, WidgetText, pos2, vec2};
@@ -88,10 +89,10 @@ pub fn tabs(ui: &mut Ui, label: &str, selected: &mut usize, names: &[&str]) -> R
         });
     let list = inner.inner.response;
     a11y::labelled(ui.ctx(), list.id, Role::TabList, label);
-    // Underline across the whole bar.
+    // The rule runs the width of the container, past the last tab.
     let r = list.rect;
     ui.painter().hline(
-        r.x_range(),
+        r.left()..=r.right().max(ui.max_rect().right()),
         r.bottom(),
         Stroke::new(stroke::BORDER, p.border_subtle),
     );

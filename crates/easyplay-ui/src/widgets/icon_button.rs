@@ -2,7 +2,7 @@
 
 use egui::{Align2, CornerRadius, Response, Sense, Stroke, StrokeKind, Ui, Widget, pos2, vec2};
 
-use super::{focus_ring, hover_t};
+use super::{focus_ring, hover_t, press_t, tooltip};
 use crate::a11y;
 use crate::theme::palette::{fade, mix};
 use crate::theme::tokens::{alpha, control, icon as icon_size, radius, stroke};
@@ -77,17 +77,17 @@ impl Widget for IconButton<'_> {
         }
         if ui.is_rect_visible(rect) {
             let hover = hover_t(&resp, &theme);
-            let corner = CornerRadius::same(radius::SM);
+            let pressed = press_t(&resp, &theme);
+            let corner = CornerRadius::same(radius::ROW);
             let painter = ui.painter();
-            let base = if self.selected {
-                p.accent_subtle
-            } else {
-                p.bg_raised
-            };
             let fill = if self.selected {
-                base
+                mix(p.accent_subtle, fade(p.accent, 0.22), hover.max(pressed))
             } else {
-                fade(mix(base, p.text_primary, 0.04), hover)
+                mix(
+                    fade(p.fill_selected, hover),
+                    mix(p.fill_selected, p.text_primary, alpha::HOVER_LIGHTEN),
+                    pressed,
+                )
             };
             painter.rect_filled(rect, corner, fill);
             if !p.allows_translucency() {
@@ -116,14 +116,6 @@ impl Widget for IconButton<'_> {
                 focus_ring(painter, rect, corner, &theme);
             }
         }
-        let tip = match self.shortcut {
-            Some(s) => format!("{} ({s})", self.label),
-            None => self.label.to_owned(),
-        };
-        if resp.has_focus() && !resp.hovered() {
-            // Immediately on keyboard focus (USER_EXPERIENCE §8).
-            resp.show_tooltip_text(tip.clone());
-        }
-        resp.on_hover_text(tip)
+        tooltip::tooltip(resp, self.label, self.shortcut)
     }
 }

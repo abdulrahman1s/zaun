@@ -423,6 +423,7 @@ pub fn runtimes_view() -> RuntimesView {
         )],
         last_checked: Some(baseline_now().saturating_sub(Duration::from_millis(5 * H))),
         downloads: Vec::<DownloadInfo>::new(),
+        adoptable: Vec::new(),
     }
 }
 
@@ -1696,6 +1697,7 @@ impl DemoBackend {
             | UiCommand::LocateExecutable { .. }
             | UiCommand::RescanMissing
             | UiCommand::ProvisionRuntime { .. }
+            | UiCommand::AdoptRuntime { .. }
             | UiCommand::RefreshRuntimes
             | UiCommand::VerifyRuntime
             | UiCommand::ResetGameStatistics { .. }

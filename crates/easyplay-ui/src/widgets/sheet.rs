@@ -5,7 +5,7 @@
 use egui::{Align, Context, Id, Layout, Modal, ScrollArea, Ui};
 
 use super::icon_button::IconButton;
-use super::modal::{closed, overlay_frame, remember_invoker};
+use super::modal::{closed, overlay_panel, remember_invoker};
 use crate::a11y;
 use crate::strings;
 use crate::theme::palette::fade;
@@ -35,45 +35,44 @@ pub fn sheet<R>(
     let theme = theme::theme(ctx);
     let p = theme.palette.clone();
     let opacity = theme::motion::appear(ctx, id.with("in"), theme.motion.fade(Dur::Base));
-    let rise = (1.0 - opacity) * space::S2 * f32::from(u8::from(!theme.motion.reduced));
     let mut close = false;
     let max_w = layout::SHEET_MAX_W.min(ctx.content_rect().width() - space::S8);
     // The frame's padding comes on top of the content height: keep a margin of `s6` above
     // and below the sheet so it never touches the window edges (UX-004).
     let max_h = ctx.content_rect().height() - space::S12 - layout::SHEET_PAD * 2.0;
-    let area = Modal::default_area(id).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, rise));
     let resp = Modal::new(id)
-        .area(area)
         .backdrop_color(fade(p.backdrop, opacity))
-        .frame(overlay_frame(ctx, max_w))
+        .frame(egui::Frame::NONE)
         .show(ctx, |ui| {
-            ui.multiply_opacity(opacity);
-            let inner_w = max_w - layout::SHEET_PAD * 2.0;
-            ui.set_width(inner_w);
-            ui.set_max_height(max_h);
-            a11y::labelled(ctx, ui.scope_id(), egui::Role::Dialog, title);
-            ui.horizontal(|ui| {
-                ui.label(Type::Title.rich(title).color(p.text_primary));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui
-                        .add(
-                            IconButton::new(icons::CLOSE, strings::feedback::CLOSE).shortcut("Esc"),
-                        )
-                        .clicked()
-                    {
-                        close = true;
-                    }
+            overlay_panel(ui, max_w, opacity, |ui| {
+                let inner_w = max_w - layout::SHEET_PAD * 2.0;
+                ui.set_width(inner_w);
+                ui.set_max_height(max_h);
+                a11y::labelled(ctx, ui.scope_id(), egui::Role::Dialog, title);
+                ui.horizontal(|ui| {
+                    ui.label(Type::Title.rich(title).color(p.text_primary));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui
+                            .add(
+                                IconButton::new(icons::CLOSE, strings::feedback::CLOSE)
+                                    .shortcut("Esc"),
+                            )
+                            .clicked()
+                        {
+                            close = true;
+                        }
+                    });
                 });
-            });
-            ui.add_space(space::S4);
-            let footer_h = layout::SHEET_PAD + space::S12;
-            ScrollArea::vertical()
-                .max_height((max_h - footer_h - space::S16).max(space::S16))
-                .auto_shrink([false, true])
-                .show(ui, body);
-            ui.add_space(space::S4);
-            ui.with_layout(Layout::right_to_left(Align::Center), footer)
-                .inner
+                ui.add_space(space::S4);
+                let footer_h = layout::SHEET_PAD + space::S12;
+                ScrollArea::vertical()
+                    .max_height((max_h - footer_h - space::S16).max(space::S16))
+                    .auto_shrink([false, true])
+                    .show(ui, body);
+                ui.add_space(space::S4);
+                ui.with_layout(Layout::right_to_left(Align::Center), footer)
+                    .inner
+            })
         });
     if resp.should_close() {
         // Backdrop clicks are ignored while there is unsaved input; Esc still asks.

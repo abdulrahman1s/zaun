@@ -11,7 +11,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use egui::epaint::text::{FontInsert, InsertFontFamily, VariationCoords};
-use egui::{FontData, FontDefinitions, FontFamily, FontId, FontTweak, RichText, TextStyle};
+use egui::text::{LayoutJob, TextFormat, TextWrapping};
+use egui::{
+    Color32, FontData, FontDefinitions, FontFamily, FontId, FontTweak, Galley, RichText, TextStyle,
+    Ui,
+};
 
 static INTER: &[u8] = include_bytes!("../../../../assets/fonts/Inter-Variable.ttf");
 static INTER_TABULAR: &[u8] = include_bytes!("../../../../assets/fonts/Inter-Tabular.ttf");
@@ -122,11 +126,13 @@ pub fn icon_font_insert() -> FontInsert {
 /// A style token of the type scale (§3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
-    /// 28 / 34, 650: game title on the game page.
+    /// 34 / 40, 650: the game title of the spotlight.
+    Hero,
+    /// 28 / 34, 650: page titles, the game title on the game page.
     Display,
-    /// 20 / 26, 600: screen and sheet titles.
+    /// 20 / 26, 600: sheet and dialog titles, secondary screen titles.
     Title,
-    /// 16 / 22, 600: section headings.
+    /// 16 / 22, 600: section headings, the wordmark.
     Heading,
     /// 14 / 20, 400: default text.
     Body,
@@ -134,35 +140,37 @@ pub enum Type {
     BodyStrong,
     /// 12 / 16, 450: metadata, helper text.
     Caption,
-    /// 11 / 14, 600, upper case with +4 % tracking: section labels, chips.
-    Micro,
+    /// 12 / 16, 550, sentence case: section labels, column headers.
+    Label,
     /// 13 / 18, 400: technical text.
     Mono,
 }
 
 impl Type {
     /// Every token, largest first.
-    pub const ALL: [Type; 8] = [
+    pub const ALL: [Type; 9] = [
+        Type::Hero,
         Type::Display,
         Type::Title,
         Type::Heading,
         Type::Body,
         Type::BodyStrong,
         Type::Caption,
-        Type::Micro,
+        Type::Label,
         Type::Mono,
     ];
 
     /// The `TextStyle::Name` used for this token in `Style.text_styles`.
     pub const fn name(self) -> &'static str {
         match self {
+            Type::Hero => "hero",
             Type::Display => "display",
             Type::Title => "title",
             Type::Heading => "heading",
             Type::Body => "body",
             Type::BodyStrong => "body.strong",
             Type::Caption => "caption",
-            Type::Micro => "micro",
+            Type::Label => "label",
             Type::Mono => "mono",
         }
     }
@@ -170,12 +178,12 @@ impl Type {
     /// Size in logical pixels.
     pub const fn size(self) -> f32 {
         match self {
+            Type::Hero => 34.0,
             Type::Display => 28.0,
             Type::Title => 20.0,
             Type::Heading => 16.0,
             Type::Body | Type::BodyStrong => 14.0,
-            Type::Caption => 12.0,
-            Type::Micro => 11.0,
+            Type::Caption | Type::Label => 12.0,
             Type::Mono => 13.0,
         }
     }
@@ -183,12 +191,12 @@ impl Type {
     /// Line height in logical pixels.
     pub const fn line_height(self) -> f32 {
         match self {
+            Type::Hero => 40.0,
             Type::Display => 34.0,
             Type::Title => 26.0,
             Type::Heading => 22.0,
             Type::Body | Type::BodyStrong => 20.0,
-            Type::Caption => 16.0,
-            Type::Micro => 14.0,
+            Type::Caption | Type::Label => 16.0,
             Type::Mono => 18.0,
         }
     }
@@ -196,11 +204,23 @@ impl Type {
     /// Weight (`wght` axis).
     pub const fn weight(self) -> u16 {
         match self {
-            Type::Display => 650,
-            Type::Title | Type::Heading | Type::Micro => 600,
+            Type::Hero | Type::Display => 650,
+            Type::Title | Type::Heading => 600,
             Type::Body | Type::Mono => 400,
-            Type::BodyStrong => 550,
+            Type::BodyStrong | Type::Label => 550,
             Type::Caption => 450,
+        }
+    }
+
+    /// Extra letter spacing in logical pixels: large sizes are set tighter, as their optical
+    /// size asks for; text sizes are left as drawn.
+    pub const fn tracking(self) -> f32 {
+        match self {
+            Type::Hero => -0.75,
+            Type::Display => -0.55,
+            Type::Title => -0.28,
+            Type::Heading => -0.12,
+            _ => 0.0,
         }
     }
 
@@ -224,20 +244,67 @@ impl Type {
         TextStyle::Name(self.name().into())
     }
 
-    /// `text` in this style. `Micro` is upper-cased and tracked.
+    /// `text` in this style.
     pub fn rich(self, text: impl Into<String>) -> RichText {
-        let text: String = text.into();
-        match self {
-            Type::Micro => RichText::new(text.to_uppercase())
-                .font(self.font_id())
-                .extra_letter_spacing(self.size() * 0.04),
-            _ => RichText::new(text).font(self.font_id()),
-        }
+        RichText::new(text)
+            .font(self.font_id())
+            .extra_letter_spacing(self.tracking())
     }
 
     /// `text` in this style with tabular figures (numbers that change: elapsed time, bytes).
     pub fn numeric(self, text: impl Into<String>) -> RichText {
-        RichText::new(text).font(self.numeric_font_id())
+        RichText::new(text)
+            .font(self.numeric_font_id())
+            .extra_letter_spacing(self.tracking())
+    }
+
+    /// The text format of this token: font, tracking and the scale's line height. Painted
+    /// text that wraps (card titles, the spotlight, empty states) is laid out with it.
+    pub fn format(self, color: Color32, numeric: bool) -> TextFormat {
+        TextFormat {
+            font_id: if numeric {
+                self.numeric_font_id()
+            } else {
+                self.font_id()
+            },
+            extra_letter_spacing: self.tracking(),
+            line_height: Some(self.line_height()),
+            color,
+            ..TextFormat::default()
+        }
+    }
+
+    /// A layout job for `text` wrapped at `width`, cut to `max_rows` with an ellipsis.
+    pub fn job(self, text: &str, color: Color32, width: f32, max_rows: usize) -> LayoutJob {
+        let mut job = LayoutJob::single_section(text.to_owned(), self.format(color, false));
+        job.wrap = TextWrapping {
+            max_width: width.max(1.0),
+            max_rows,
+            // A single row is cut at the last letter that fits, several rows at words.
+            break_anywhere: max_rows == 1,
+            ..TextWrapping::default()
+        };
+        job
+    }
+
+    /// `text` laid out for painting: wrapped at `width`, at most `max_rows` rows. Goes
+    /// through egui's layout cache, so a steady screen lays out no text.
+    /// [`Galley::elided`] tells whether the full text needs a tooltip.
+    pub fn galley(
+        self,
+        ui: &Ui,
+        text: &str,
+        color: Color32,
+        width: f32,
+        max_rows: usize,
+    ) -> Arc<Galley> {
+        ui.fonts_mut(|f| f.layout_job(self.job(text, color, width, max_rows)))
+    }
+
+    /// One row of `text` with tabular figures, never wrapped.
+    pub fn numeric_galley(self, ui: &Ui, text: &str, color: Color32) -> Arc<Galley> {
+        let job = LayoutJob::single_section(text.to_owned(), self.format(color, true));
+        ui.fonts_mut(|f| f.layout_job(job))
     }
 }
 
@@ -287,7 +354,7 @@ mod tests {
         let widths: Vec<f32> = ctx.fonts_mut(|f| {
             ('0'..='9')
                 .map(|c| {
-                    f.layout_no_wrap(c.to_string(), font.clone(), egui::Color32::WHITE)
+                    f.layout_no_wrap(c.to_string(), font.clone(), Color32::WHITE)
                         .size()
                         .x
                 })
@@ -303,7 +370,7 @@ mod tests {
             ['0', '1']
                 .iter()
                 .map(|c| {
-                    f.layout_no_wrap(c.to_string(), Type::Display.font_id(), egui::Color32::WHITE)
+                    f.layout_no_wrap(c.to_string(), Type::Display.font_id(), Color32::WHITE)
                         .size()
                         .x
                 })
@@ -320,7 +387,7 @@ mod tests {
                 f.layout_no_wrap(
                     "Library".into(),
                     FontId::new(14.0, t.font_id().family),
-                    egui::Color32::WHITE,
+                    Color32::WHITE,
                 )
                 .size()
                 .x

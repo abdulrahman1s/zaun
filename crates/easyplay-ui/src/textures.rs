@@ -234,6 +234,24 @@ impl<U: Uploader> TextureCache<U> {
         TexState::Pending(self.dominant.get(&key.art).copied())
     }
 
+    /// Look up `key` like [`Self::get`] but never start a request: for a frame in which
+    /// what is on screen will not stay (the page jumped further than its own height).
+    /// A texture already cached is returned and kept fresh; a request already in flight is
+    /// kept alive.
+    pub fn peek(&mut self, key: TexKey, pin: bool) -> TexState {
+        if pin {
+            self.pinned.push(key);
+        }
+        if let Some(e) = self.entries.get_mut(&key) {
+            e.last_used = self.frame;
+            return TexState::Ready(U::id(&e.handle));
+        }
+        if let Some(f) = self.requested.get_mut(&key) {
+            *f = self.frame;
+        }
+        TexState::Pending(self.dominant.get(&key.art).copied())
+    }
+
     /// Receive, upload within budget, cancel stale requests, evict to capacity.
     pub fn end_frame(&mut self, source: &dyn ArtSource) {
         while let Some(d) = source.try_recv() {
@@ -622,6 +640,26 @@ mod tests {
         c.begin_frame();
         assert!(matches!(c.get(k, true, &src), TexState::Ready(_)));
         assert_eq!(c.bytes(), COVER);
+    }
+
+    #[test]
+    fn peek_never_requests_but_keeps_what_exists() {
+        let src = Inline::tiny();
+        let mut c = TextureCache::new(FakeUploader::default(), Limits::default());
+        c.begin_frame();
+        let (cached, passing) = (key(1, ThumbSize::Cover240), key(2, ThumbSize::Cover240));
+        c.get(cached, true, &src);
+        c.end_frame(&src);
+        c.begin_frame();
+        // A cover that flies past is not asked for; one already cached is shown.
+        assert_eq!(c.peek(passing, true), TexState::Pending(None));
+        assert!(matches!(c.peek(cached, true), TexState::Ready(_)));
+        c.end_frame(&src);
+        assert_eq!(*src.requests.borrow(), 1);
+        // Once the page rests, the cover is requested as usual.
+        c.begin_frame();
+        assert_eq!(c.get(passing, true, &src), TexState::Pending(None));
+        assert_eq!(*src.requests.borrow(), 2);
     }
 
     #[test]

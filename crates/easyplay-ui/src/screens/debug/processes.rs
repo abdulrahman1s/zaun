@@ -50,7 +50,7 @@ pub fn show(ui: &mut Ui, env: &mut Env<'_>, vm: &mut ProcessTreeVm) {
         .header(20.0, |mut h| {
             for t in s::PROCESS_COLUMNS {
                 h.col(|ui| {
-                    ui.label(Type::Micro.rich(t).color(p.text_secondary));
+                    ui.label(Type::Label.rich(t).color(p.text_secondary));
                 });
             }
         })

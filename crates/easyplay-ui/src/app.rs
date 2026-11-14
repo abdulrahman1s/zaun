@@ -554,7 +554,13 @@ impl EasyPlayApp {
                 };
                 s.toast(t.text, kind, t.undo.map(|b| *b), mono);
             }
-            UiEvent::Failure(e) => s.show_dialog(Dialog::Error(e)),
+            UiEvent::Failure(e) => {
+                // A failed artwork request arrives as a plain failure; stop its spinners.
+                if let Some(a) = &mut s.artwork {
+                    a.busy.clear();
+                }
+                s.show_dialog(Dialog::Error(e));
+            }
             UiEvent::Prompt(p) => s.show_dialog(Dialog::Prompt(p)),
             UiEvent::LaunchProgress { game, state } => {
                 if let Some(q) = &mut s.quick
@@ -703,6 +709,20 @@ impl EasyPlayApp {
                 QueryPayload::Failed(e) => AsyncValue::Failed(e),
                 _ => AsyncValue::Idle,
             };
+            return;
+        }
+        if d.week_q == Some(id) {
+            d.week_q = None;
+            match payload {
+                QueryPayload::Stats(easyplay_core::stats::StatsResult::Game(o)) => {
+                    d.week = AsyncValue::Ready(o);
+                }
+                // A failed refresh keeps the week that is on screen.
+                QueryPayload::Failed(e) if d.week.ready().is_none() => {
+                    d.week = AsyncValue::Failed(e);
+                }
+                _ => {}
+            }
             return;
         }
         if d.activity.history_q == Some(id) {

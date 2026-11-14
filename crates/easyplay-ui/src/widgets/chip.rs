@@ -1,11 +1,11 @@
-//! Chips: `r.pill`, height 24/28; filter (toggle), tag (dot + label + optional remove), status
-//! (non-interactive) (§7.4).
+//! Chips: `r.pill`, height 24/28; filter (toggle), tag (dot + label + optional remove),
+//! removable (an active filter: label + remove), status (non-interactive) (§7.4).
 
 use egui::{Align2, CornerRadius, Response, Sense, Stroke, StrokeKind, Ui, WidgetText, pos2, vec2};
 
 use super::{focus_ring, hover_t};
 use crate::a11y;
-use crate::theme::palette::{fade, mix};
+use crate::theme::palette::mix;
 use crate::theme::tokens::{control, radius, space, stroke};
 use crate::theme::{self, Icon, Type, icons};
 
@@ -24,6 +24,8 @@ pub enum ChipKind {
         /// Show a remove affordance.
         removable: bool,
     },
+    /// An active filter that is not a tag: the label and a ✕ (click or Delete removes it).
+    Removable,
     /// Display only.
     Status,
 }
@@ -62,20 +64,22 @@ pub fn chip(
     let dot = matches!(kind, ChipKind::Tag { .. });
     let removable = matches!(
         kind,
-        ChipKind::Tag {
-            removable: true,
-            ..
-        }
+        ChipKind::Removable
+            | ChipKind::Tag {
+                removable: true,
+                ..
+            }
     );
     let lead = if dot {
-        8.0
+        space::S3
     } else if icon.is_some() {
         14.0 + space::S1
     } else {
         0.0
     };
     let trail = if removable { 14.0 + space::S1 } else { 0.0 };
-    let w = space::S3 * 2.0 + lead + g.size().x + trail;
+    let pad = space::S2 + 2.0;
+    let w = pad * 2.0 + lead + g.size().x + trail;
     let sense = if kind == ChipKind::Status {
         Sense::hover()
     } else {
@@ -85,7 +89,8 @@ pub fn chip(
     let mut removed = false;
     match kind {
         ChipKind::Filter { selected } => a11y::toggle(&resp, label, selected),
-        ChipKind::Tag {
+        ChipKind::Removable
+        | ChipKind::Tag {
             removable: true, ..
         } => {
             a11y::button(&resp, &crate::strings::library::remove_chip(label));
@@ -106,19 +111,12 @@ pub fn chip(
         };
         let corner = CornerRadius::same(radius::PILL);
         let painter = ui.painter();
+        let quiet = mix(p.fill_hover, p.fill_selected, hover);
         let (fill, border, fg) = match kind {
             ChipKind::Filter { selected: true } => (p.accent_subtle, p.accent, p.text_primary),
-            ChipKind::Filter { selected: false } => (
-                fade(p.bg_raised, 0.5 + 0.5 * hover),
-                p.border_strong,
-                p.text_secondary,
-            ),
-            ChipKind::Tag { color, .. } => (
-                fade(p.bg_raised, 0.6 + 0.4 * hover),
-                fade(p.tag(color), 0.55),
-                p.text_primary,
-            ),
-            ChipKind::Status => (p.bg_raised, p.border_subtle, p.text_secondary),
+            ChipKind::Filter { selected: false } => (quiet, p.hairline, p.text_secondary),
+            ChipKind::Tag { .. } | ChipKind::Removable => (quiet, p.hairline, p.text_primary),
+            ChipKind::Status => (p.fill_hover, p.hairline, p.text_secondary),
         };
         painter.rect_filled(rect, corner, fill);
         painter.rect_stroke(
@@ -127,10 +125,10 @@ pub fn chip(
             Stroke::new(stroke::BORDER, border),
             StrokeKind::Inside,
         );
-        let mut x = rect.left() + space::S3;
+        let mut x = rect.left() + pad;
         let cy = rect.center().y;
         if let ChipKind::Tag { color, .. } = kind {
-            painter.circle_filled(pos2(x + 3.0, cy), 3.5, p.tag(color));
+            painter.circle_filled(pos2(x + 3.5, cy), 3.5, p.tag(color));
             x += lead;
         } else if let Some(icon) = icon {
             painter.text(
@@ -149,11 +147,11 @@ pub fn chip(
         );
         if removable {
             painter.text(
-                pos2(rect.right() - space::S3 - 7.0, cy),
+                pos2(rect.right() - pad - 6.0, cy),
                 Align2::CENTER_CENTER,
                 icons::CLOSE.text(false),
                 icons::font(12.0),
-                p.text_muted,
+                mix(p.text_muted, p.text_primary, hover),
             );
         }
         if resp.has_focus() {

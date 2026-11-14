@@ -9,7 +9,7 @@ use egui::{Align2, CornerRadius, Key, Modifiers, Response, Sense, Stroke, Ui, po
 use super::focus_ring;
 use crate::a11y::{self, Announcer, Politeness};
 use crate::theme::palette::fade;
-use crate::theme::tokens::{radius, space, stroke};
+use crate::theme::tokens::{layout, radius, space, stroke};
 use crate::theme::{self, Type};
 
 /// One bar.
@@ -160,7 +160,7 @@ pub fn bar_chart(
                     pos2(bar.center().x, plot.bottom() + space::S1),
                     Align2::CENTER_TOP,
                     &b.label,
-                    Type::Micro.font_id(),
+                    Type::Label.font_id(),
                     p.text_muted,
                 );
             }
@@ -170,6 +170,55 @@ pub fn bar_chart(
         focus_ring(&painter, rect, CornerRadius::same(radius::SM), &theme);
     }
     resp
+}
+
+/// The strip: one thin bar per value in `color`, the tallest at full height; a bar without a
+/// value is a stub on the baseline, so the days can still be counted. Pointing at a bar
+/// names it. It reads as part of a line of text, so it takes that text's colour instead of
+/// the accent. `name` is its accessible name, value included.
+pub fn spark(ui: &mut Ui, name: &str, bars: &[Bar], color: egui::Color32) -> Response {
+    let theme = theme::theme(ui.ctx());
+    let n = bars.len().max(1) as f32;
+    let slot = layout::SPARK_BAR_W + layout::SPARK_GAP;
+    let size = vec2(n * slot - layout::SPARK_GAP, layout::SPARK_H);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
+    a11y::item(&resp, Role::Figure, name);
+    let max = bars
+        .iter()
+        .map(|b| b.value)
+        .fold(0.0_f64, f64::max)
+        .max(1.0);
+    // The bars rise once, when the strip first appears.
+    let rise = theme::motion::appear(ui.ctx(), resp.id, theme.motion.movement(theme::Dur::Slow));
+    let over = resp
+        .hover_pos()
+        .map(|h| ((h.x - rect.left() + layout::SPARK_GAP / 2.0) / slot) as usize)
+        .filter(|i| *i < bars.len());
+    for (i, b) in bars.iter().enumerate() {
+        let x = rect.left() + i as f32 * slot;
+        let h = if b.value > 0.0 {
+            ((b.value / max) as f32 * layout::SPARK_H * rise).max(stroke::FOCUS + stroke::BORDER)
+        } else {
+            stroke::FOCUS
+        };
+        let c = if b.value > 0.0 {
+            fade(color, if over == Some(i) { 1.0 } else { 0.8 })
+        } else {
+            fade(color, if over == Some(i) { 0.6 } else { 0.3 })
+        };
+        ui.painter().rect_filled(
+            egui::Rect::from_min_max(
+                pos2(x, rect.bottom() - h),
+                pos2(x + layout::SPARK_BAR_W, rect.bottom()),
+            ),
+            CornerRadius::same(1),
+            c,
+        );
+    }
+    match over {
+        Some(i) => resp.on_hover_text_at_pointer(super::tooltip::rich(ui.ctx(), &bars[i].spoken)),
+        None => resp,
+    }
 }
 
 /// The table alternative: one row per bar.

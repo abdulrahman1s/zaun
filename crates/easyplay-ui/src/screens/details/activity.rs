@@ -161,7 +161,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
         .spacing(egui::vec2(space::S6, space::S2))
         .show(ui, |ui| {
             for h in [st::COL_DATE, st::COL_START, st::COL_DURATION, st::COL_END] {
-                ui.label(Type::Micro.rich(h).color(p.text_muted));
+                ui.label(Type::Label.rich(h).color(p.text_muted));
             }
             ui.end_row();
             for r in &rows {

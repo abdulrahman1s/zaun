@@ -35,11 +35,11 @@ pub fn key_hint(ui: &mut Ui, combo: &str) -> Response {
         for (g, w) in galleys.into_iter().zip(widths) {
             let r = egui::Rect::from_min_size(pos2(x, rect.top()), vec2(w, cap_h));
             let corner = CornerRadius::same(radius::XS);
-            painter.rect_filled(r, corner, p.bg_raised);
+            painter.rect_filled(r, corner, p.fill_selected);
             painter.rect_stroke(
                 r,
                 corner,
-                Stroke::new(stroke::BORDER, p.border_strong),
+                Stroke::new(stroke::BORDER, p.hairline),
                 StrokeKind::Inside,
             );
             painter.galley(r.center() - g.size() / 2.0, g, p.text_secondary);

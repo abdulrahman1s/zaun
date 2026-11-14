@@ -203,7 +203,8 @@ impl Column {
     pub fn default_width(self) -> f32 {
         match self {
             Column::Protection => 110.0,
-            Column::LastPlayed | Column::Added => 120.0,
+            Column::LastPlayed => 144.0,
+            Column::Added => 120.0,
             Column::Playtime => 100.0,
             Column::Tags => 150.0,
             Column::Layer => 150.0,
@@ -331,6 +332,12 @@ impl LibraryVm {
         self.cache = Some((lib.revision, q, r.clone()));
         self.generation += 1;
         r
+    }
+
+    /// A number that changes whenever the visible order is recomputed (the grid animates
+    /// its cards to their new places when it does).
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Focus following by game ID (ACCESSIBILITY §2.1, UX-002): after the visible order

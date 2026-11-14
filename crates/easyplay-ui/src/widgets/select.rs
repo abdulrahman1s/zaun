@@ -8,7 +8,7 @@ use egui::{
 
 use super::{context_menu, focus_ring, hover_t};
 use crate::a11y;
-use crate::theme::palette::mix;
+use crate::theme::palette::{fade, mix};
 use crate::theme::tokens::{control, icon as icon_size, radius, space, stroke};
 use crate::theme::{self, Icon, Type, icons};
 
@@ -49,29 +49,18 @@ pub fn select(
     };
     let pre_w = pre.as_ref().map_or(0.0, |g| g.size().x);
     let w = space::S3 * 2.0 + lead + pre_w + g.size().x + space::S2 + 12.0;
-    let h = if ghost {
-        control::SM + space::S1
-    } else {
-        control::MD
-    };
+    let h = control::MD;
     let (rect, mut resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
     let open = Popup::is_id_open(ui.ctx(), Popup::default_response_id(&resp));
     let name = format!("{label}: {value}");
     let enabled = resp.enabled();
     resp.widget_info(move || egui::WidgetInfo::labeled(egui::Role::ComboBox, enabled, &name));
     if ui.is_rect_visible(rect) {
-        let hover = hover_t(&resp, &theme);
+        let hover = hover_t(&resp, &theme).max(f32::from(u8::from(open)));
         let corner = CornerRadius::same(radius::MD);
         let painter = ui.painter();
         if ghost {
-            if hover > 0.0 || open {
-                painter.rect_filled(
-                    rect,
-                    corner,
-                    egui::Color32::TRANSPARENT
-                        .lerp_to_gamma(p.bg_raised, hover.max(f32::from(u8::from(open)))),
-                );
-            }
+            painter.rect_filled(rect, corner, fade(p.fill_selected, hover));
         } else {
             painter.rect_filled(rect, corner, p.bg_raised);
             painter.rect_stroke(
@@ -79,7 +68,11 @@ pub fn select(
                 corner,
                 Stroke::new(
                     stroke::BORDER,
-                    if open { p.accent } else { p.border_strong },
+                    if open {
+                        p.accent
+                    } else {
+                        mix(p.border_strong, p.text_secondary, 0.35 * hover)
+                    },
                 ),
                 StrokeKind::Inside,
             );
@@ -110,7 +103,7 @@ pub fn select(
             pos2(rect.right() - space::S3, cy),
             Align2::RIGHT_CENTER,
             icons::CARET_DOWN.text(false),
-            icons::font(12.0),
+            icons::font(space::S3),
             p.text_muted,
         );
         if resp.has_focus() {
@@ -118,17 +111,19 @@ pub fn select(
         }
     }
     let before = *selected;
-    Popup::menu(&resp)
-        .close_behavior(PopupCloseBehavior::CloseOnClick)
-        .width(rect.width().max(160.0))
-        .show(|ui| {
+    context_menu::popup(
+        Popup::menu(&resp)
+            .close_behavior(PopupCloseBehavior::CloseOnClick)
+            .width(rect.width().max(180.0)),
+        |ui| {
             for (i, opt) in options.iter().enumerate() {
                 let r = context_menu::item(ui, None, opt, None, i == *selected);
                 if r.clicked() {
                     *selected = i;
                 }
             }
-        });
+        },
+    );
     a11y::describe(&resp, label);
     if *selected != before {
         resp.mark_changed();

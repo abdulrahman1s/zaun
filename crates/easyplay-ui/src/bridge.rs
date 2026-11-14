@@ -80,7 +80,7 @@ use easyplay_core::launch::LaunchState;
 use easyplay_core::library::{LibrarySnapshot, RemoveOptions, ResetOptions};
 use easyplay_core::model::{
     ArtSlot, BasePreset, EntryKind, ExeRole, Game, GameSummary, LaunchConfig, PromptAnswer,
-    PromptRequest, RuntimeBuild, RuntimeRef, SandboxPolicy, TagColor, Tool,
+    PromptRequest, RuntimeBuild, RuntimeRef, SandboxPolicy, SlrVariant, TagColor, Tool,
 };
 use easyplay_core::sandbox::{AccessStatement, PolicyIssue};
 use easyplay_core::stats::{StatsRequest, StatsResult};
@@ -263,6 +263,8 @@ pub struct RuntimesView {
     pub last_checked: Option<Timestamp>,
     /// Downloads in progress.
     pub downloads: Vec<DownloadInfo>,
+    /// Runtime variants umu already installed that the store lacks (`AdoptRuntime`).
+    pub adoptable: Vec<SlrVariant>,
 }
 
 /// A policy as it would run, explained (SCREEN_SPECS §6, SCREEN_SPECS_2 §8).
@@ -646,6 +648,11 @@ pub enum UiCommand {
     ProvisionRuntime {
         /// What.
         target: RuntimeRef,
+    },
+    /// Copy a runtime umu already installed into the store.
+    AdoptRuntime {
+        /// Variant.
+        variant: SlrVariant,
     },
     /// Delete an installed layer.
     RemoveRuntime {

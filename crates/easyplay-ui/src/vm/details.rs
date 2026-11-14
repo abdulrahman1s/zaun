@@ -273,6 +273,13 @@ pub struct DetailsVm {
     pub launch: Option<LaunchDraft>,
     /// Activity.
     pub activity: ActivityVm,
+    /// The last seven days, for the strip beside Play (whatever range the Activity tab
+    /// shows).
+    pub week: AsyncValue<GameOverview, UserError>,
+    /// Its query.
+    pub week_q: Option<QueryId>,
+    /// The sessions and playtime the week was asked for: asked again when they change.
+    pub week_for: Option<(u32, u64)>,
     /// Private-storage size.
     pub prefix_size: AsyncValue<u64>,
     /// Its query.

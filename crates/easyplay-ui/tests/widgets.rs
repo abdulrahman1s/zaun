@@ -64,6 +64,73 @@ fn button_activates_by_mouse_and_keyboard_and_explains_when_disabled() {
 }
 
 #[test]
+fn link_rows_are_buttons_that_report_the_row_and_list_their_points() {
+    use easyplay_ui::theme::icons;
+    use easyplay_ui::widgets::link_row::{LinkRow, Point, Points, Tone, link_rows};
+    let mut h = Harness::builder()
+        .with_size(Vec2::new(900.0, 400.0))
+        .with_context_setup(setup)
+        .build_ui_state(
+            |ui, chosen: &mut Vec<usize>| {
+                let points = [
+                    Point {
+                        icon: icons::WIFI_OFF,
+                        text: "No internet or local network",
+                        tone: Tone::Normal,
+                    },
+                    Point {
+                        icon: icons::CAMERA,
+                        text: "Can use your cameras",
+                        tone: Tone::Warning,
+                    },
+                ];
+                let rows = [
+                    LinkRow::new(
+                        icons::SHIELD_OFFLINE,
+                        "Protection",
+                        "Offline",
+                        "Protection: Offline",
+                    )
+                    .points(Points::Listed {
+                        name: "What this game can reach",
+                        items: &points,
+                        more: Some("and 3 more"),
+                    }),
+                    LinkRow::new(
+                        icons::FOLDER,
+                        "Game folder",
+                        "Celeste",
+                        "Game folder: Celeste",
+                    )
+                    .detail(Some("in Games"), Tone::Normal)
+                    .external("Open in the file manager", Some("Ctrl+O")),
+                ];
+                if let Some(i) = link_rows(ui, Id::unique("rows"), &rows) {
+                    chosen.push(i);
+                }
+            },
+            Vec::new(),
+        );
+    h.run();
+    h.get_by_role_and_label(Role::List, "What this game can reach");
+    h.get_by_role_and_label(Role::ListItem, "Can use your cameras");
+    h.get_by_role_and_label(Role::ListItem, "and 3 more");
+    // The pointer on a point still presses the row beneath it.
+    h.get_by_role_and_label(Role::ListItem, "No internet or local network")
+        .click();
+    h.run();
+    h.get_by_role_and_label(Role::Button, "Game folder: Celeste")
+        .click();
+    h.run();
+    h.get_by_role_and_label(Role::Button, "Protection: Offline")
+        .focus();
+    h.run();
+    h.key_press(Key::Space);
+    h.run();
+    assert_eq!(*h.state(), vec![0, 1, 0]);
+}
+
+#[test]
 fn toggle_row_flips_on_click_and_space() {
     let mut h = Harness::builder().with_context_setup(setup).build_ui_state(
         |ui, on: &mut bool| {

@@ -74,9 +74,9 @@ fn layer_select(ui: &mut Ui, env: &Env<'_>, current: &mut RuntimeRef) -> bool {
                     changed = true;
                 }
             };
-            ui.label(Type::Micro.rich(s::GROUP_DEFAULT).color(p.text_muted));
+            ui.label(Type::Label.rich(s::GROUP_DEFAULT).color(p.text_muted));
             opt(ui, RuntimeRef::Default);
-            ui.label(Type::Micro.rich(s::GROUP_CHANNELS).color(p.text_muted));
+            ui.label(Type::Label.rich(s::GROUP_CHANNELS).color(p.text_muted));
             opt(ui, RuntimeRef::Channel(Channel::UmuProton));
             opt(ui, RuntimeRef::Channel(Channel::GeProton));
             for (title, origin) in [
@@ -91,7 +91,7 @@ fn layer_select(ui: &mut Ui, env: &Env<'_>, current: &mut RuntimeRef) -> bool {
                 if builds.is_empty() {
                     continue;
                 }
-                ui.label(Type::Micro.rich(title).color(p.text_muted));
+                ui.label(Type::Label.rich(title).color(p.text_muted));
                 for l in builds {
                     opt(ui, RuntimeRef::Pinned(l.build.name.clone()));
                 }

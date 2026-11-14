@@ -81,35 +81,42 @@ pub fn played_line(
 
 // ---- Overview ----------------------------------------------------------------------------
 
-/// Card.
-pub const REACH: &str = "What this game can reach";
-/// Link.
-pub const SEE_EVERYTHING: &str = "See everything";
-/// Card.
-pub const PLAYTIME: &str = "Playtime";
-/// Caption.
+/// Label beside Play.
+pub const TIME_PLAYED: &str = "Time played";
+/// Label beside Play.
 pub const LAST_7_DAYS: &str = "Last 7 days";
-/// Card.
-pub const DETAILS: &str = "Details";
+
+/// "Last 7 days: 1 hour 12 minutes".
+pub fn week_name(ms: u64) -> String {
+    format!("{LAST_7_DAYS}: {}", super::fmt::duration_spoken(ms))
+}
+
+/// "Last played: Yesterday".
+pub fn fact_name(label: &str, value: &str) -> String {
+    format!("{label}: {value}")
+}
+
+/// Section: protection, compatibility, launch options.
+pub const RUNS: &str = "How it runs";
+/// Section: the folders.
+pub const LIVES: &str = "Where it lives";
+/// The list of access statements.
+pub const REACH: &str = "What this game can reach";
 /// Row.
-pub const LOCATION: &str = "Location";
+pub const GAME_FOLDER: &str = "Game folder";
+/// Row, for a game that is a single file.
+pub const PROGRAM_FILE: &str = "Program";
 /// Row.
 pub const SAVE_DATA: &str = "Save data";
 /// Row.
-pub const ADDED: &str = "Added";
-/// Row.
-pub const PROGRAMS: &str = "Programs";
-/// Button.
-pub const OPEN: &str = "Open";
+pub const OTHER_PROGRAMS: &str = "Other programs";
+/// Tooltip of a folder row.
+pub const OPEN_IN_FILES: &str = "Open in the file manager";
 /// Value.
 pub const PRIVATE_STORAGE: &str = "Private storage";
 /// Value.
 pub const YOUR_FOLDER: &str = "A folder you chose";
-/// Card.
-pub const RECENT_SESSIONS: &str = "Recent sessions";
-/// Link.
-pub const SEE_ALL: &str = "See all";
-/// Card.
+/// Section.
 pub const NOTES: &str = "Notes";
 /// Hint.
 pub const ADD_NOTE: &str = "Add a note";
@@ -121,6 +128,46 @@ pub const RETRY: &str = "Retry";
 /// "31 sessions".
 pub fn sessions(n: u32) -> String {
     format!("{n} {}", super::plural(u64::from(n), "session", "sessions"))
+}
+
+/// "Protection: Offline", "Game folder: Hollow Knight, in Games".
+pub fn row_name(title: &str, value: &str, detail: Option<&str>) -> String {
+    match detail {
+        Some(d) => format!("{title}: {value}, {d}"),
+        None => format!("{title}: {value}"),
+    }
+}
+
+/// "and 3 more".
+pub fn more_statements(n: usize) -> String {
+    format!("and {n} more")
+}
+
+/// "2 more…".
+pub fn more_programs(n: usize) -> String {
+    format!("{n} more…")
+}
+
+/// "1 variable".
+pub fn variables(n: usize) -> String {
+    format!("{n} {}", super::plural(n as u64, "variable", "variables"))
+}
+
+/// "-windowed · 1 variable": what a game's launch options add, `None` when nothing.
+pub fn launch_summary(args: &str, variables_set: usize) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if !args.is_empty() {
+        parts.push(args.to_owned());
+    }
+    if variables_set > 0 {
+        parts.push(variables(variables_set));
+    }
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
+/// "Added 16 Oct", "Added yesterday" (`date` as written inside a sentence).
+pub fn added(date: &str) -> String {
+    format!("Added {date}")
 }
 
 /// ("Hollow Knight", Some("in Games")) for a game folder; the program's file otherwise.

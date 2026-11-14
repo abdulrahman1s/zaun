@@ -163,6 +163,8 @@ pub struct OnboardingVm {
     pub reduced: bool,
     /// The layer download was started.
     pub downloading: bool,
+    /// "Use umu's runtime" was pressed; cleared when the runtime arrives.
+    pub adopting: bool,
     /// The user chose "Later" for the download.
     pub later: bool,
     /// Steam artwork opt-in (ADR-0018), sent on finish.

@@ -11,7 +11,7 @@ use crate::screens::actions::GameAction;
 use crate::strings;
 use crate::strings::menu as m;
 use crate::theme::icons;
-use crate::widgets::context_menu::{danger_item, item, separator};
+use crate::widgets::context_menu::{danger_item, frame, item, separator};
 
 /// Facts the menu needs that are not in the summary.
 #[derive(Clone, Copy, Debug, Default)]
@@ -48,9 +48,10 @@ pub fn show(
     .layout(egui::Layout::top_down_justified(egui::Align::Min))
     .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
     .accessible_name(strings::menu::NAME)
-    .width(240.0)
+    .width(248.0)
     .open_bool(open)
-    .show(|ui| out = items(ui, lib, id, facts, focus_first));
+    .frame(egui::Frame::NONE)
+    .show(|ui| out = frame(ui, |ui| items(ui, lib, id, facts, focus_first)));
     if out.is_some() {
         *open = false;
     }
@@ -73,7 +74,9 @@ fn items(
     let g = lib.get(id)?;
     let mut first = focus_first;
     ui.spacing_mut().item_spacing.y = 0.0;
-    ui.spacing_mut().button_padding.x = crate::theme::tokens::space::S2;
+    // The submenu rows are egui buttons: give them the inset and icon gap of our items.
+    ui.spacing_mut().button_padding.x = crate::theme::tokens::space::S2 + 2.0;
+    ui.spacing_mut().icon_spacing = crate::theme::tokens::space::S2 + 2.0;
     let mut out = None;
     let mut pick = |r: egui::Response, a: GameAction| {
         if std::mem::take(&mut first) {
@@ -132,44 +135,69 @@ fn items(
             .min_size(egui::vec2(0.0, crate::theme::tokens::control::MENU_ITEM)),
         )
     };
+    // egui draws frameless buttons without their inset: add ours, so the submenu rows line
+    // up with the items around them.
+    let inset = crate::theme::tokens::space::S2 + 2.0;
+    let row = |ui: &mut Ui, add: &mut dyn FnMut(&mut Ui)| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.add_space(inset);
+            ui.set_min_width(ui.available_width());
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                add(ui);
+            });
+        });
+    };
     let tags_btn = sub(m::TAGS, icons::TAG);
-    tags_btn.ui(ui, |ui| {
-        ui.set_min_width(180.0);
-        for t in &lib.tags {
-            let on = g.tags.contains(&t.id);
+    let mut tags_btn = Some(tags_btn);
+    row(ui, &mut |ui| {
+        let Some(tags_btn) = tags_btn.take() else {
+            return;
+        };
+        tags_btn.ui(ui, |ui| {
+            ui.set_min_width(180.0);
+            for t in &lib.tags {
+                let on = g.tags.contains(&t.id);
+                pick(
+                    item(ui, Some(icons::TAG), &t.name, None, on),
+                    GameAction::ToggleTag(t.id),
+                );
+            }
             pick(
-                item(ui, Some(icons::TAG), &t.name, None, on),
-                GameAction::ToggleTag(t.id),
+                item(ui, Some(icons::PLUS), m::NEW_TAG, Some("T"), false),
+                GameAction::EditTags,
             );
-        }
-        pick(
-            item(ui, Some(icons::PLUS), m::NEW_TAG, Some("T"), false),
-            GameAction::EditTags,
-        );
+        });
     });
     let prot_btn = sub(
         m::PROTECTION,
         crate::widgets::shield::glyph(g.preset, false),
     );
-    prot_btn.ui(ui, |ui| {
-        ui.set_min_width(180.0);
-        for p in BasePreset::ALL {
-            let on = g.preset == p.into();
+    let mut prot_btn = Some(prot_btn);
+    row(ui, &mut |ui| {
+        let Some(prot_btn) = prot_btn.take() else {
+            return;
+        };
+        prot_btn.ui(ui, |ui| {
+            ui.set_min_width(180.0);
+            for p in BasePreset::ALL {
+                let on = g.preset == p.into();
+                pick(
+                    item(
+                        ui,
+                        Some(crate::widgets::shield::glyph(p.into(), false)),
+                        strings::shield::preset_name(p.into()),
+                        None,
+                        on,
+                    ),
+                    GameAction::Preset(p),
+                );
+            }
             pick(
-                item(
-                    ui,
-                    Some(crate::widgets::shield::glyph(p.into(), false)),
-                    strings::shield::preset_name(p.into()),
-                    None,
-                    on,
-                ),
-                GameAction::Preset(p),
+                item(ui, Some(icons::WRENCH), m::EDIT_PROTECTION, None, false),
+                GameAction::EditProtection,
             );
-        }
-        pick(
-            item(ui, Some(icons::WRENCH), m::EDIT_PROTECTION, None, false),
-            GameAction::EditProtection,
-        );
+        });
     });
     separator(ui);
     if g.root.is_some() {

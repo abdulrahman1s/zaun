@@ -1,4 +1,4 @@
-//! Toast stack: bottom centre, `bg.overlay`, `r.md`, max 420 wide, icon + text + optional
+//! Toast stack: bottom centre, `bg.overlay`, `r.pop`, max 420 wide, icon + text + optional
 //! action (§7.5). Rendering only; timing lives in [`crate::vm::toasts::ToastQueue`].
 
 use easyplay_core::clock::MonoInstant;
@@ -8,7 +8,7 @@ use super::button::{Button, Size, Variant};
 use super::icon_button::IconButton;
 use crate::a11y;
 use crate::strings;
-use crate::theme::tokens::{icon as icon_size, layout, radius, space, stroke};
+use crate::theme::tokens::{icon as icon_size, layout, radius, space, stroke, travel};
 use crate::theme::{self, Type, icons};
 use crate::vm::toasts::{ToastId, ToastKind, ToastQueue};
 
@@ -49,7 +49,7 @@ pub fn show(
             theme.motion.fade(theme::Dur::Base),
         )
     });
-    let rise = (1.0 - t_in) * space::S3 * f32::from(u8::from(!theme.motion.reduced));
+    let rise = (1.0 - t_in) * travel::TOAST_RISE * f32::from(u8::from(!theme.motion.reduced));
     Area::new(Id::unique("easyplay.toasts"))
         .order(if modal_open {
             Order::Middle
@@ -78,8 +78,8 @@ pub fn show(
                 };
                 let r = Frame::NONE
                     .fill(p.bg_overlay)
-                    .stroke(Stroke::new(stroke::BORDER, p.border_strong))
-                    .corner_radius(CornerRadius::same(radius::MD))
+                    .stroke(Stroke::new(stroke::BORDER, p.hairline))
+                    .corner_radius(CornerRadius::same(radius::POP))
                     .shadow(ctx.global_style().visuals.popup_shadow)
                     .inner_margin(egui::Margin::symmetric(space::S4 as i8, space::S2 as i8))
                     .multiply_with_opacity(if fading { t_in } else { 1.0 })

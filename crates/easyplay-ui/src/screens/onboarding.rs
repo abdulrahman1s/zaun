@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use easyplay_core::config::PreferencePatch;
 use easyplay_core::config::schema::ArtworkOnline;
-use easyplay_core::model::RuntimeRef;
+use easyplay_core::model::{RuntimeRef, SlrVariant};
 use egui::{Align, Key, Layout, Modifiers, Sense, Ui, vec2};
 
 use super::Env;
@@ -37,7 +37,26 @@ fn dots(ui: &mut Ui, step: OnboardingStep, total: usize) {
     }
 }
 
-fn check_row(ui: &mut Ui, c: &HostCheck) {
+/// "Use umu's runtime", or a note while the copy runs. True when pressed.
+fn adopt_button(ui: &mut Ui, adoptable: &[SlrVariant], adopting: bool) -> bool {
+    if adoptable.is_empty() {
+        return false;
+    }
+    if adopting {
+        let p = theme::theme(ui.ctx()).palette.clone();
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(Type::Body.rich(s::ADOPTING).color(p.text_secondary));
+        });
+        return false;
+    }
+    ui.add(Button::primary(s::USE_UMU_RUNTIME).icon(icons::DOWNLOAD))
+        .clicked()
+}
+
+/// Rows of the check; true when the runtime row's adopt button was pressed.
+fn check_row(ui: &mut Ui, c: &HostCheck, adoptable: &[SlrVariant], adopting: bool) -> bool {
+    let mut adopt = false;
     let theme = theme::theme(ui.ctx());
     let p = theme.palette.clone();
     let (icon, color) = match c.state {
@@ -66,7 +85,7 @@ fn check_row(ui: &mut Ui, c: &HostCheck) {
                 );
             },
         );
-        ui.label(Type::Body.rich(&c.result).color(p.text_secondary));
+        ui.add(egui::Label::new(Type::Body.rich(&c.result).color(p.text_secondary)).wrap());
     });
     crate::a11y::labelled(
         ui.ctx(),
@@ -81,7 +100,10 @@ fn check_row(ui: &mut Ui, c: &HostCheck) {
                 ..Default::default()
             })
             .show(ui, |ui| {
-                if let Some(d) = &c.detail {
+                // D-15's fix is "adopt umu's runtime": offer the button instead of the command.
+                if c.id == "D-15" && !adoptable.is_empty() {
+                    adopt = adopt_button(ui, adoptable, adopting);
+                } else if let Some(d) = &c.detail {
                     ui.add(egui::Label::new(Type::Body.rich(d).color(p.text_secondary)).wrap());
                 }
                 if let Some(cmd) = &c.fix_command {
@@ -112,6 +134,7 @@ fn check_row(ui: &mut Ui, c: &HostCheck) {
                 }
             });
     }
+    adopt
 }
 
 fn finish(state: &mut UiState, env: &mut Env<'_>, skipped: bool) {
@@ -219,8 +242,19 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                                     );
                                 }
                             }
+                            let rt = env.bridge.runtimes().clone();
+                            if rt.adoptable.is_empty() {
+                                state.onboarding.adopting = false;
+                            }
+                            let mut adopt = false;
                             for c in &host.checks {
-                                check_row(ui, c);
+                                adopt |= check_row(ui, c, &rt.adoptable, state.onboarding.adopting);
+                            }
+                            if adopt {
+                                state.onboarding.adopting = true;
+                                for v in &rt.adoptable {
+                                    env.bridge.send(UiCommand::AdoptRuntime { variant: *v });
+                                }
                             }
                             if ui
                                 .add(

@@ -1,8 +1,8 @@
 //! The game page (SCREEN_SPECS §4, UI-014): back and overflow, hero with ambient tint, cover
-//! menu, inline rename, meta line with tags, the page-size Play pill, one state area (launch
-//! progress, problem panel, still running, availability), tabs, and the Overview cards.
-//! The page renders at once from the `GameSummary`; the full record and the playtime query
-//! fill in (skeletons after 150 ms).
+//! menu, inline rename, meta line with tags, the page-size Play pill with the facts of play
+//! beside it, one state area (launch progress, problem panel, still running, availability),
+//! tabs, and the Overview sheet. The page renders at once from the `GameSummary`; the full
+//! record and the week's playtime fill in (skeletons after 150 ms).
 
 pub mod activity;
 pub mod launch_options;
@@ -31,13 +31,16 @@ use crate::theme::{self, Icon, Type, icons};
 use crate::vm::AsyncValue;
 use crate::vm::details::{DetailsTab, DetailsVm, range_for};
 use crate::vm::toasts::ToastKind;
-use crate::widgets::button::{Button, PillSize, Size, Variant, play_pill};
+use crate::widgets::button::{Button, PillSize, Variant, play_pill};
 use crate::widgets::card::play_state;
 use crate::widgets::chip::{ChipKind, chip};
 use crate::widgets::context_menu::item;
-use crate::widgets::cover::{CoverSource, paint_cover, placeholder_colors};
+use crate::widgets::cover::{
+    CoverSource, paint_cover, paint_edge, paint_rounded_wash, placeholder_colors,
+};
 use crate::widgets::icon_button::IconButton;
 use crate::widgets::shield;
+use crate::widgets::stat_tile::Fact;
 use crate::widgets::tabs::tabs;
 
 /// The icon of an access statement.
@@ -108,27 +111,34 @@ pub fn statement_row(ui: &mut Ui, st: &AccessStatement, marker: Option<&str>) {
         StatementSeverity::Danger => p.danger,
         _ => p.text_primary,
     };
-    ui.horizontal(|ui| {
-        ui.label(icons::icon(statement_icon(st), icon_size::INLINE).color(
-            if matches!(
-                st.severity,
-                StatementSeverity::Warning | StatementSeverity::Danger
-            ) {
-                color
-            } else {
-                p.text_secondary
-            },
-        ));
-        ui.add(egui::Label::new(Type::Body.rich(&st.text).color(color)).wrap());
-        if let Some(m) = marker {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(Type::Caption.rich(m).color(p.accent));
+    ui.scope(|ui| {
+        // Lines of text, not lines of controls.
+        ui.spacing_mut().interact_size.y = Type::Body.line_height();
+        ui.horizontal(|ui| {
+            ui.label(icons::icon(statement_icon(st), icon_size::INLINE).color(
+                if matches!(
+                    st.severity,
+                    StatementSeverity::Warning | StatementSeverity::Danger
+                ) {
+                    color
+                } else {
+                    p.text_secondary
+                },
+            ));
+            ui.add(egui::Label::new(Type::Body.rich(&st.text).color(color)).wrap());
+            if let Some(m) = marker {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(Type::Caption.rich(m).color(p.accent));
+                });
+            }
+        });
+        if let Some(d) = &st.detail {
+            ui.horizontal(|ui| {
+                ui.add_space(icon_size::INLINE + ui.spacing().item_spacing.x);
+                ui.add(egui::Label::new(Type::Caption.rich(d).color(p.text_muted)).wrap());
             });
         }
     });
-    if let Some(d) = &st.detail {
-        ui.label(Type::Caption.rich(d).color(p.text_muted));
-    }
 }
 
 /// Reset the page state for `id` and ask for its record and playtime.
@@ -147,7 +157,7 @@ fn enter(state: &mut UiState, env: &mut Env<'_>, id: GameId) {
     overview::request(state, env, id);
 }
 
-fn load(state: &mut UiState, env: &mut Env<'_>, id: GameId) {
+pub(super) fn load(state: &mut UiState, env: &mut Env<'_>, id: GameId) {
     let q = env.bridge.query_id();
     state.details.detail_q = Some(q);
     if !matches!(state.details.detail, AsyncValue::Ready(_)) {
@@ -180,27 +190,24 @@ fn hero_cover(
         },
         None => CoverSource::Placeholder,
     };
-    paint_cover(
-        ui.painter(),
-        rect,
-        CornerRadius::same(radius::MD),
-        src,
-        &g.name,
-        &theme,
-    );
-    if resp.hovered() || resp.has_focus() {
+    let corner = CornerRadius::same(radius::POP);
+    paint_cover(ui.painter(), rect, corner, src, &g.name, &theme);
+    // Pointing at the cover dims it and shows what a click offers.
+    let hot = crate::widgets::hover_t(&resp, &theme);
+    if hot > 0.0 {
         ui.painter()
-            .rect_filled(rect, CornerRadius::same(radius::MD), fade(p.scrim, 0.35));
+            .rect_filled(rect, corner, fade(p.scrim, 0.35 * hot));
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
             icons::GRID.text(false),
             icons::font(icon_size::NAV),
-            p.on_art,
+            fade(p.on_art, hot),
         );
     }
+    paint_edge(ui.painter(), rect, corner, hot, &theme);
     if resp.has_focus() {
-        crate::widgets::focus_ring(ui.painter(), rect, CornerRadius::same(radius::MD), &theme);
+        crate::widgets::focus_ring(ui.painter(), rect, corner, &theme);
     }
     crate::a11y::button(&resp, s::CHANGE_PICTURE);
     state.dnd.target(rect, DropTarget::Cover(g.id));
@@ -331,14 +338,13 @@ fn meta_line(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummar
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(space::S2, space::S1);
         shield::badge(ui, g.preset, g.flags.needs_attention, icon_size::INLINE);
-        let (fg, fg2) = hero_text(&p);
+        let (fg, _) = hero_text(&p);
         ui.label(
             Type::BodyStrong
                 .rich(strings::shield::preset_name(g.preset))
                 .color(fg),
         );
-        ui.label(Type::Body.rich("·").color(fg2));
-        ui.label(Type::Body.rich(&*g.runtime_label).color(fg2));
+        ui.add_space(space::S1);
         for t in &g.tags {
             if let Some(t) = lib.tag(*t) {
                 chip(
@@ -362,11 +368,90 @@ fn meta_line(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummar
     });
 }
 
+/// Beside Play: what the game is doing if it is doing something, otherwise the facts of
+/// play (when last, how long in all, the last seven days), as many as the line holds.
+fn play_facts(ui: &mut Ui, state: &UiState, env: &Env<'_>, g: &GameSummary) {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let (fg, fg2) = hero_text(&p);
+    crate::widgets::card::tick_elapsed(ui.ctx(), g.activity, env.now);
+    let running = match g.activity {
+        Activity::Running { since } => Some(since),
+        _ => None,
+    };
+    if running.is_none()
+        && let Some(text) = strings::card::state(g.activity, g.availability, env.now)
+    {
+        ui.label(Type::Body.rich(text).color(fg2));
+        return;
+    }
+    let mut facts: Vec<(&str, String)> = Vec::new();
+    if let Some(since) = running {
+        let ms = env.now.since(since).map_or(0, |d| d.as_millis() as u64);
+        facts.push((strings::card::RUNNING, strings::fmt::clock(ms)));
+    } else if let Some(t) = g.last_played_at.filter(|_| g.total_playtime_ms > 0) {
+        facts.push((
+            strings::stats::LAST_PLAYED,
+            strings::fmt::relative_date(t, env.now, env.utc_offset_s),
+        ));
+    }
+    if g.total_playtime_ms > 0 {
+        facts.push((s::TIME_PLAYED, strings::fmt::duration(g.total_playtime_ms)));
+    }
+    if facts.is_empty() {
+        ui.label(Type::Body.rich(strings::card::NOT_PLAYED).color(fg2));
+        return;
+    }
+    ui.spacing_mut().item_spacing.x = space::S8;
+    for (i, (label, value)) in facts.iter().enumerate() {
+        let spoken = s::fact_name(label, value);
+        let fact = Fact {
+            label,
+            value,
+            spoken: &spoken,
+            strip: None,
+            fg,
+            fg2,
+        };
+        // The first fact is shown whatever the room: the line is never empty.
+        if i > 0 && fact.width(ui) > ui.available_width() {
+            return;
+        }
+        fact.show(ui);
+    }
+    // The last seven days, once known, if the game was played in them.
+    let Some(week) = state.details.week.ready().filter(|w| w.totals.ms > 0) else {
+        return;
+    };
+    let bars = crate::screens::statistics::bars(&week.series, env.utc_offset_s);
+    let value = strings::fmt::duration(week.totals.ms);
+    let spoken = s::week_name(week.totals.ms);
+    let arrive = theme::motion::appear(
+        ui.ctx(),
+        egui::Id::unique(("details.week", g.id)),
+        theme::theme(ui.ctx()).motion.fade(theme::Dur::Base),
+    );
+    let fact = Fact {
+        label: s::LAST_7_DAYS,
+        value: &value,
+        spoken: &spoken,
+        strip: Some(&bars),
+        fg: fade(fg, arrive),
+        fg2: fade(fg2, arrive),
+    };
+    if fact.width(ui) <= ui.available_width() {
+        fact.show(ui);
+    }
+}
+
 fn hero(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
     let theme = theme::theme(ui.ctx());
     let p = theme.palette.clone();
     let compact = ui.available_width() < layout::COMPACT_BELOW;
-    let cover_w = if compact { 96.0 } else { 132.0 };
+    let cover_w = if compact {
+        layout::HERO_COVER_COMPACT
+    } else {
+        layout::HERO_COVER
+    };
     let h = cover_w * layout::COVER_ASPECT + space::S6 * 2.0;
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
     // Ambient tint from the cover's dominant colour (snapshot or thumbnail header), else the
@@ -381,7 +466,8 @@ fn hero(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
     };
     let top = mix(p.bg_base, a, if p.kind.is_dark() { 0.55 } else { 0.35 });
     let bottom = mix(p.bg_base, b, if p.kind.is_dark() { 0.25 } else { 0.15 });
-    crate::widgets::cover::paint_vertical_gradient(ui.painter(), rect, top, bottom);
+    let corner = CornerRadius::same(radius::LG);
+    paint_rounded_wash(ui.painter(), rect, corner, top, bottom);
     // The banner image, cropped to fill, under a scrim that keeps the text readable.
     if let Some(art) = g.hero
         && let TexState::Ready(tex) = env.textures.get(
@@ -395,20 +481,25 @@ fn hero(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
     {
         let [tw, th] = ThumbSize::Hero.pixels();
         let uv = cover_uv(rect.aspect_ratio(), tw as f32 / th as f32);
-        ui.painter().image(tex, rect, uv, egui::Color32::WHITE);
+        ui.painter().add(
+            egui::epaint::RectShape::filled(rect, corner, egui::Color32::WHITE)
+                .with_texture(tex, uv),
+        );
         let scrim = fade(p.bg_base, if p.kind.is_dark() { 0.55 } else { 0.65 });
-        crate::widgets::cover::paint_vertical_gradient(
-            ui.painter(),
+        paint_rounded_wash(ui.painter(), rect, corner, fade(p.bg_base, 0.2), scrim);
+    }
+    if p.kind.is_dark() {
+        ui.painter().rect_filled(rect, corner, fade(p.scrim, 0.35));
+    }
+    if !p.allows_translucency() {
+        // High contrast: no tint to tell the panel from the page, so it gets its outline.
+        ui.painter().rect_stroke(
             rect,
-            fade(p.bg_base, 0.2),
-            scrim,
+            corner,
+            egui::Stroke::new(stroke::BORDER, p.border_strong),
+            egui::StrokeKind::Inside,
         );
     }
-    ui.painter().rect_filled(
-        rect,
-        CornerRadius::same(radius::LG),
-        fade(p.scrim, if p.kind.is_dark() { 0.35 } else { 0.0 }),
-    );
     let inner = rect.shrink(space::S6);
     let cover = egui::Rect::from_min_size(inner.min, vec2(cover_w, cover_w * layout::COVER_ASPECT));
     hero_cover(ui, state, env, g, cover);
@@ -429,9 +520,11 @@ fn hero(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
             }
             title(ui, state, env, g);
             meta_line(ui, state, env, g);
-            ui.add_space(space::S2);
+            // Play stands on the cover's bottom edge, the title on its top edge.
+            let slack = text.bottom() - control::XL - ui.cursor().top();
+            ui.add_space(slack.max(space::S2));
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = space::S4;
+                ui.spacing_mut().item_spacing.x = space::S6;
                 let st = play_state(g);
                 let pill = play_pill(ui, &st, &g.name, PillSize::Page, 1.0);
                 if !state.details.play_focused {
@@ -442,17 +535,7 @@ fn hero(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
                 if pill.clicked() {
                     actions::play(state, env, g);
                 }
-                crate::widgets::card::tick_elapsed(ui.ctx(), g.activity, env.now);
-                let status = strings::card::state(g.activity, g.availability, env.now)
-                    .unwrap_or_else(|| {
-                        s::played_line(
-                            g.total_playtime_ms,
-                            g.last_played_at,
-                            env.now,
-                            env.utc_offset_s,
-                        )
-                    });
-                ui.label(Type::Body.numeric(status).color(hero_text(&p).1));
+                play_facts(ui, state, env, g);
             });
         },
     );
@@ -488,41 +571,86 @@ pub fn hero_text(p: &theme::Palette) -> (egui::Color32, egui::Color32) {
 }
 
 fn top_bar(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
-    let p = theme::theme(ui.ctx()).palette.clone();
-    ui.horizontal(|ui| {
-        if ui
-            .add(
-                Button::ghost(strings::library::TITLE)
-                    .icon(icons::BACK)
-                    .size(Size::Sm),
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), control::MD), Sense::hover());
+    // The plate of the back button hangs over the page's edge; its arrow keeps the axis.
+    let bar = egui::Rect::from_min_max(
+        egui::pos2(rect.left() - ui.spacing().button_padding.x, rect.top()),
+        rect.max,
+    );
+    let mut ui = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(bar)
+            .layout(Layout::left_to_right(Align::Center)),
+    );
+    let ui = &mut ui;
+    if ui
+        .add(Button::ghost(strings::library::TITLE).icon(icons::BACK))
+        .on_hover_text(strings::nav::BACK_SHORTCUT)
+        .clicked()
+    {
+        state.navigate(crate::vm::dialogs::AfterDiscard::Back);
+    }
+    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        let fav = ui.add(
+            IconButton::new(
+                if g.favorite {
+                    icons::STAR_FILL
+                } else {
+                    icons::STAR
+                },
+                strings::card::FAVORITE,
             )
-            .on_hover_text(strings::nav::BACK_SHORTCUT)
-            .clicked()
-        {
-            state.navigate(crate::vm::dialogs::AfterDiscard::Back);
+            .toggle(g.favorite)
+            .shortcut("F"),
+        );
+        if fav.clicked() {
+            actions::apply(state, env, g.id, GameAction::Favorite);
         }
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let fav = ui.add(
-                IconButton::new(
-                    if g.favorite {
-                        icons::STAR_FILL
-                    } else {
-                        icons::STAR
-                    },
-                    strings::card::FAVORITE,
-                )
-                .toggle(g.favorite)
-                .shortcut("F"),
-            );
-            if fav.clicked() {
-                actions::apply(state, env, g.id, GameAction::Favorite);
-            }
-            let more = ui.add(IconButton::new(icons::DOTS, strings::menu::NAME));
-            if more.clicked() {
-                state.library.menu = Some((g.id, more.rect.left_bottom()));
-            }
-            let _ = p;
-        });
+        let more = ui.add(IconButton::new(icons::DOTS, strings::menu::NAME));
+        if more.clicked() {
+            state.library.menu = Some((g.id, more.rect.left_bottom()));
+        }
+    });
+}
+
+/// The page's column: hero, the state area, tabs and the tab's content.
+fn column_body(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
+    hero(ui, state, env, g);
+    ui.add_space(space::S4);
+    launch_panel::state_area(ui, state, env, g);
+    let developer = env.bridge.prefs().advanced.developer_mode;
+    if !developer && state.details.tab == DetailsTab::Logs {
+        state.details.tab = DetailsTab::Overview;
+    }
+    let names: Vec<&str> = DetailsTab::visible(developer)
+        .iter()
+        .map(|t| s::tab(*t))
+        .collect();
+    let mut sel = state.details.tab.index();
+    if tabs(ui, s::TABS, &mut sel, &names).changed() {
+        state.navigate(crate::vm::dialogs::AfterDiscard::Tab(sel));
+    }
+    ui.add_space(space::S5);
+    if state.details.tab == DetailsTab::Overview {
+        overview::show(ui, state, env, g);
+        return;
+    }
+    // Activity is read like the Overview and takes the column; the tabs of controls keep a
+    // narrower measure.
+    let w = if state.details.tab == DetailsTab::Activity {
+        ui.available_width()
+    } else {
+        ui.available_width().min(layout::PAGE_TEXT_MAX_W)
+    };
+    ui.allocate_ui_with_layout(vec2(w, 0.0), Layout::top_down(Align::Min), |ui| {
+        ui.set_width(w);
+        match state.details.tab {
+            DetailsTab::Protection => permissions::show(ui, state, env, g),
+            DetailsTab::Compatibility => runtime::show(ui, state, env, g),
+            DetailsTab::LaunchOptions => launch_options::show(ui, state, env, g),
+            DetailsTab::Logs => crate::screens::debug::logs::tab(ui, state, env, g.id),
+            _ => activity::show(ui, state, env, g),
+        }
     });
 }
 
@@ -540,6 +668,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, id: GameId) {
     {
         load(state, env, id);
     }
+    overview::keep_week(state, env, &g);
     // Page shortcuts not in the global table.
     if state.nav.overlays().is_empty()
         && ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S))
@@ -563,49 +692,34 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, id: GameId) {
         .auto_shrink([false, false])
         .show(ui, |ui| {
             egui::Frame::NONE
-                .inner_margin(egui::Margin::symmetric(m as i8, space::S4 as i8))
+                .inner_margin(egui::Margin {
+                    left: m as i8,
+                    right: m as i8,
+                    // The back button and the page's actions sit in the top band, level
+                    // with the brand.
+                    top: ((layout::TOOLBAR_H - control::MD) / 2.0) as i8,
+                    bottom: space::S4 as i8,
+                })
                 .show(ui, |ui| {
-                    top_bar(ui, state, env, &g);
-                    ui.add_space(space::S2);
-                    hero(ui, state, env, &g);
-                    ui.add_space(space::S4);
-                    launch_panel::state_area(ui, state, env, &g);
-                    let developer = env.bridge.prefs().advanced.developer_mode;
-                    if !developer && state.details.tab == DetailsTab::Logs {
-                        state.details.tab = DetailsTab::Overview;
-                    }
-                    let names: Vec<&str> = DetailsTab::visible(developer)
-                        .iter()
-                        .map(|t| s::tab(*t))
-                        .collect();
-                    let mut sel = state.details.tab.index();
-                    if tabs(ui, s::TABS, &mut sel, &names).changed() {
-                        state.navigate(crate::vm::dialogs::AfterDiscard::Tab(sel));
-                    }
-                    ui.add_space(space::S4);
-                    if state.details.tab == DetailsTab::Overview {
-                        overview::show(ui, state, env, &g);
-                    } else {
-                        let w = ui.available_width().min(880.0);
-                        ui.allocate_ui_with_layout(
-                            vec2(w, 0.0),
-                            Layout::top_down(Align::Min),
-                            |ui| {
-                                ui.set_width(w);
-                                match state.details.tab {
-                                    DetailsTab::Protection => permissions::show(ui, state, env, &g),
-                                    DetailsTab::Compatibility => runtime::show(ui, state, env, &g),
-                                    DetailsTab::LaunchOptions => {
-                                        launch_options::show(ui, state, env, &g)
-                                    }
-                                    DetailsTab::Logs => {
-                                        crate::screens::debug::logs::tab(ui, state, env, id)
-                                    }
-                                    _ => activity::show(ui, state, env, &g),
-                                }
-                            },
-                        );
-                    }
+                    // The page is one column, centred when the window is wider than it.
+                    let room = ui.available_rect_before_wrap();
+                    let w = room.width().min(layout::PAGE_MAX_W);
+                    let left = room.left() + ((room.width() - w) / 2.0).floor();
+                    let column = egui::Rect::from_min_max(
+                        egui::pos2(left, room.top()),
+                        egui::pos2(left + w, room.bottom()),
+                    );
+                    ui.scope_builder(
+                        egui::UiBuilder::new()
+                            .max_rect(column)
+                            .layout(Layout::top_down(Align::Min)),
+                        |ui| {
+                            ui.set_width(w);
+                            top_bar(ui, state, env, &g);
+                            ui.add_space((layout::TOOLBAR_H - control::MD) / 2.0);
+                            column_body(ui, state, env, &g);
+                        },
+                    );
                     ui.add_space(space::S8);
                 });
         });

@@ -9,7 +9,7 @@ mod common;
 use common::{Rig, game_id, now, rebuild, rig_with, settle, settled_library};
 use easyplay_core::launch::LaunchState;
 use easyplay_core::model::{Activity, Availability, FolderAccess};
-use easyplay_ui::bridge::{GameEdit, UiCommand, UiEvent};
+use easyplay_ui::bridge::{FolderTarget, GameEdit, QueryPayload, UiCommand, UiEvent};
 use easyplay_ui::demo;
 use easyplay_ui::route::Route;
 use easyplay_ui::theme::ThemeChoice;
@@ -58,12 +58,170 @@ fn page_renders_from_the_summary_and_fills_in() {
         ThemeChoice::Dark,
     );
     r.h.get_by_role_and_label(Role::Button, "Play Lantern Keep");
-    r.h.get_all_by_label("What this game can reach")
-        .next()
-        .unwrap();
-    r.h.get_by_label_contains("No internet or local network");
+    r.h.get_by_role_and_label(Role::Button, "Protection: Offline");
+    r.h.get_by_role_and_label(Role::List, "What this game can reach");
+    r.h.get_by_role_and_label(Role::ListItem, "No internet or local network");
     r.h.get_all_by_label("Notes").next().unwrap();
     assert!(r.h.state().state.details.record().is_some());
+}
+
+#[test]
+fn the_facts_of_play_stand_beside_play() {
+    let (r, _) = page(
+        "Lantern Keep",
+        DetailsTab::Overview,
+        big(),
+        ThemeChoice::Dark,
+    );
+    r.h.get_by_label("Last played: Yesterday");
+    r.h.get_by_label("Time played: 12 h 05 min");
+    r.h.get_by_label("Last 7 days: 1 hour 12 minutes");
+    // The facts are on every tab, and a game never played says so instead.
+    let (r, _) = page(
+        "Vale of Cinders",
+        DetailsTab::Protection,
+        big(),
+        ThemeChoice::Dark,
+    );
+    r.h.get_by_label("Not played yet");
+    assert!(r.h.query_by_label_contains("Time played").is_none());
+    // A narrow window keeps the facts that fit and drops the week first.
+    let (r, _) = page(
+        "Lantern Keep",
+        DetailsTab::Overview,
+        Vec2::new(640.0, 480.0),
+        ThemeChoice::Dark,
+    );
+    r.h.get_by_label("Time played: 12 h 05 min");
+    assert!(r.h.query_by_label_contains("Last 7 days").is_none());
+}
+
+#[test]
+fn the_week_is_asked_again_when_a_session_was_counted() {
+    let lib = settled_library();
+    let (mut r, id) = page_in(
+        lib.clone(),
+        "Lantern Keep",
+        DetailsTab::Overview,
+        big(),
+        ThemeChoice::Dark,
+    );
+    let asked = |r: &Rig| {
+        r.fake
+            .sent()
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c,
+                    UiCommand::QueryStats {
+                        request: easyplay_core::stats::StatsRequest::GameOverview { game, .. },
+                        ..
+                    } if *game == id
+                )
+            })
+            .count()
+    };
+    r.h.run_steps(4);
+    assert_eq!(asked(&r), 0, "nothing is asked again while nothing changed");
+    r.fake.publish_library(rebuild(&lib, |g| {
+        if g.id == id {
+            g.session_count += 1;
+            g.total_playtime_ms += 30 * 60_000;
+        }
+    }));
+    r.h.run_steps(3);
+    assert_eq!(asked(&r), 1);
+    // The week on screen stays until its successor arrives.
+    r.h.get_by_label("Last 7 days: 1 hour 12 minutes");
+}
+
+#[test]
+fn overview_rows_lead_to_their_tabs() {
+    for (row, tab) in [
+        ("Protection: Offline", DetailsTab::Protection),
+        (
+            "Compatibility: UMU-Proton 10.0-4",
+            DetailsTab::Compatibility,
+        ),
+        (
+            "Launch options: LanternKeep.exe, -screen-fullscreen 1 · 1 variable",
+            DetailsTab::LaunchOptions,
+        ),
+    ] {
+        let (mut r, _) = page(
+            "Lantern Keep",
+            DetailsTab::Overview,
+            big(),
+            ThemeChoice::Dark,
+        );
+        r.h.get_by_role_and_label(Role::Button, row).click();
+        r.h.run_steps(2);
+        assert_eq!(r.h.state().state.details.tab, tab, "{row}");
+    }
+    // The keyboard does the same: the row is a button.
+    let (mut r, _) = page(
+        "Lantern Keep",
+        DetailsTab::Overview,
+        big(),
+        ThemeChoice::Dark,
+    );
+    r.h.get_by_label("Compatibility: UMU-Proton 10.0-4").focus();
+    r.h.run();
+    r.h.key_press(Key::Enter);
+    r.h.run_steps(2);
+    assert_eq!(r.h.state().state.details.tab, DetailsTab::Compatibility);
+}
+
+#[test]
+fn overview_rows_open_the_folders_and_run_the_other_programs() {
+    let (mut r, id) = page(
+        "Lantern Keep",
+        DetailsTab::Overview,
+        Vec2::new(1280.0, 1100.0),
+        ThemeChoice::Dark,
+    );
+    r.h.get_by_label("Game folder: Lantern Keep, in Games")
+        .click();
+    r.h.run_steps(2);
+    r.h.get_by_label("Save data: Private storage").click();
+    r.h.run_steps(2);
+    r.h.get_by_role_and_label(Role::Button, "Run Config.exe")
+        .click();
+    r.h.run_steps(2);
+    let sent = r.fake.sent();
+    assert!(sent.contains(&UiCommand::OpenFolder(FolderTarget::GameFolder(id))));
+    assert!(sent.contains(&UiCommand::OpenFolder(FolderTarget::SaveData(id))));
+    assert!(
+        sent.iter()
+            .any(|c| matches!(c, UiCommand::Launch { id: g, exe: Some(_) } if *g == id))
+    );
+}
+
+#[test]
+fn a_record_that_fails_to_load_offers_retry() {
+    let lib = settled_library();
+    let id = game_id(&lib, "Lantern Keep");
+    let mut r = rig_with(lib, Route::Game(id), big(), ThemeChoice::Dark);
+    r.h.run_steps(2);
+    let load = |r: &Rig| {
+        r.fake.sent().into_iter().find_map(|c| match c {
+            UiCommand::LoadGame { reply_to, .. } => Some(reply_to),
+            _ => None,
+        })
+    };
+    let q = load(&r).expect("the record is asked for");
+    r.fake.clear_sent();
+    r.fake.push_event(UiEvent::QueryResult {
+        id: q,
+        payload: QueryPayload::Failed(demo::launch_failure(id, "Lantern Keep")),
+    });
+    r.h.run_steps(2);
+    // The page still stands on the summary; the sheet says what is missing.
+    r.h.get_by_role_and_label(Role::Button, "Play Lantern Keep");
+    r.h.get_by_label("Couldn't load this.");
+    r.h.get_by_role_and_label(Role::Button, "Retry").click();
+    r.h.run_steps(2);
+    assert!(load(&r).is_some());
 }
 
 #[test]

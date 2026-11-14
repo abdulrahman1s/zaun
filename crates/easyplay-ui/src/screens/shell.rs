@@ -114,6 +114,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let theme = theme::theme(&ctx);
     let p = theme.palette.clone();
     crate::widgets::modal::apply_focus_return(&ctx);
+    crate::widgets::track_focus_source(&ctx);
 
     let title = window_title(state, env);
     if state.last_title.as_deref() != Some(title.as_str()) {
@@ -157,7 +158,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         let t = ctx.animate_bool_with_time(
             Id::unique("sidebar.width"),
             collapsed,
-            theme.motion.movement(Dur::Sidebar),
+            theme.motion.movement(Dur::Glide),
         );
         let w = egui::lerp(full_w..=layout::RAIL_W, t);
         Panel::left("sidebar")
@@ -180,30 +181,12 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         .frame(Frame::NONE.fill(p.bg_base))
         .show(ui, |ui| {
             ui.multiply_opacity(route_in);
-            let margin = if window_w < layout::COMPACT_BELOW {
-                layout::PAGE_MARGIN_COMPACT
-            } else {
-                layout::PAGE_MARGIN
-            };
-            if let Some(b) = state.banners.top().cloned()
-                && route != Route::Onboarding
-            {
-                Frame::NONE
-                    .inner_margin(egui::Margin {
-                        left: margin as i8,
-                        right: margin as i8,
-                        top: space::S4 as i8,
-                        bottom: 0,
-                    })
-                    .show(ui, |ui| {
-                        let r = banner(ui, b.severity, &b.text, b.action.as_deref(), b.dismissible);
-                        if r.dismissed {
-                            state.banners.dismiss(b.key);
-                        }
-                        if r.action {
-                            banner_action(state, b.key);
-                        }
-                    });
+            // The library keeps its tools in the top band, level with the brand, and shows
+            // the banner beneath them; everywhere else the banner leads the page.
+            let recovering = env.bridge.diagnostics().recovery.is_some();
+            let in_page = route == Route::Library && !recovering;
+            if route != Route::Onboarding && !in_page {
+                banner_slot(ui, state, space::S4, 0.0);
             }
             if super::debug::recovery::full_area(ui, state, env) {
                 return;
@@ -228,6 +211,31 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
             env.bridge.send(cmd);
         }
     }
+}
+
+/// The banner that owns the slot, on the page's margins, with `top` and `bottom` space
+/// around it. Paints nothing when there is no banner.
+pub fn banner_slot(ui: &mut Ui, state: &mut UiState, top: f32, bottom: f32) {
+    let Some(b) = state.banners.top().cloned() else {
+        return;
+    };
+    let margin = library::margin(ui);
+    Frame::NONE
+        .inner_margin(egui::Margin {
+            left: margin as i8,
+            right: margin as i8,
+            top: top as i8,
+            bottom: bottom as i8,
+        })
+        .show(ui, |ui| {
+            let r = banner(ui, b.severity, &b.text, b.action.as_deref(), b.dismissible);
+            if r.dismissed {
+                state.banners.dismiss(b.key);
+            }
+            if r.action {
+                banner_action(state, b.key);
+            }
+        });
 }
 
 /// Each toast is announced once, politely, when it appears (ACCESSIBILITY §4.3).
@@ -648,7 +656,7 @@ fn drop_zone(ctx: &egui::Context, state: &mut UiState, env: &mut Env<'_>) {
     let shown = theme::motion::appear(
         ctx,
         Id::unique("easyplay.dropzone.in"),
-        theme.motion.fade(Dur::Out),
+        theme.motion.fade(Dur::Quick),
     );
     egui::Area::new(Id::unique("easyplay.dropzone"))
         .order(egui::Order::Foreground)

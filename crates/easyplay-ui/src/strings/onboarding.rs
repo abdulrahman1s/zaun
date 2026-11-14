@@ -25,6 +25,10 @@ pub const TO_FIX: &str = "To turn it on, run:";
 pub const COPY: &str = "Copy";
 /// Button accessible name.
 pub const COPY_COMMAND: &str = "Copy command";
+/// Button: adopt umu's runtime (D-15).
+pub const USE_UMU_RUNTIME: &str = "Use umu's runtime";
+/// Adopting.
+pub const ADOPTING: &str = "Copying umu's runtime…";
 /// Layer step.
 pub const NO_LAYER: &str = "No compatibility layer is installed yet. EasyPlay can download one now (about 1 GB), or when you first start a game.";
 /// Button.

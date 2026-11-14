@@ -179,6 +179,14 @@ pub mod library {
     pub const ASCENDING: &str = "Ascending order";
     /// Sort direction.
     pub const DESCENDING: &str = "Descending order";
+    /// Sort menu: section label.
+    pub const SORT_BY: &str = "Sort by";
+    /// Sort menu: direction.
+    pub const ORDER_ASCENDING: &str = "Ascending";
+    /// Sort menu: direction.
+    pub const ORDER_DESCENDING: &str = "Descending";
+    /// Sort menu: section label.
+    pub const GROUP_BY: &str = "Group by";
     /// Grouping select.
     pub const GROUP: &str = "Group";
     /// Groupings.
@@ -229,6 +237,31 @@ pub mod library {
     pub const CHANGE_PROTECTION: &str = "Change protection";
     /// Selection bar.
     pub const REMOVE_SELECTED: &str = "Remove…";
+
+    /// A sparse library: how to add more.
+    pub const DROP_HINT: &str = "Drop a Windows program anywhere in this window to add it.";
+
+    /// The sort button's accessible name: "Sort: Name, ascending".
+    pub fn sort_button(label: &str, descending: bool) -> String {
+        format!(
+            "{SORT}: {label}, {}",
+            if descending {
+                "descending"
+            } else {
+                "ascending"
+            }
+        )
+    }
+
+    /// The sort button's tooltip: "Sorted by Name, ascending" and, while grouping is on,
+    /// ", grouped by Tag".
+    pub fn arranged_by(sort: &str, descending: bool, group: Option<&str>) -> String {
+        let by = sorted_by(sort, descending);
+        match group {
+            Some(g) => format!("{by}, grouped by {g}"),
+            None => by,
+        }
+    }
 
     /// "Filter" or "Filter · 2".
     pub fn filter_button(active: usize) -> String {
@@ -375,6 +408,67 @@ pub mod card {
     pub const STILL_RUNNING: &str = "Still running in the background";
     /// Status.
     pub const STOPPING: &str = "Stopping…";
+
+    /// The favourite toggle on a card, named for assistive technology:
+    /// "Favourite Hollow Knight".
+    pub fn favorite_name(name: &str) -> String {
+        format!("{FAVORITE} {name}")
+    }
+
+    /// The more control on a card, named: "More actions for Hollow Knight".
+    pub fn more_name(name: &str) -> String {
+        format!("{MORE} for {name}")
+    }
+
+    /// Status: a session is running (the elapsed time follows).
+    pub const RUNNING: &str = "Running";
+    /// The control that opens the game's menu.
+    pub const MORE: &str = "More actions";
+
+    /// The two ends of a card's status line: what is true now on the left ("12 h 05 min",
+    /// "Running", "Not found"), when on the right ("Yesterday", "0:42:10").
+    pub fn status_parts(
+        activity: Activity,
+        availability: Availability,
+        total_ms: u64,
+        last: Option<Timestamp>,
+        now: Timestamp,
+        offset_s: i32,
+    ) -> (String, Option<String>) {
+        if let Activity::Running { since } = activity {
+            let ms = now.since(since).map_or(0, |d| d.as_millis() as u64);
+            return (RUNNING.to_owned(), Some(fmt::clock(ms)));
+        }
+        if let Some(s) = state(activity, availability, now) {
+            return (s, None);
+        }
+        match last {
+            Some(t) if total_ms > 0 => (
+                fmt::duration(total_ms),
+                Some(fmt::relative_date(t, now, offset_s)),
+            ),
+            Some(t) => (fmt::relative_date(t, now, offset_s), None),
+            None => (NOT_PLAYED.to_owned(), None),
+        }
+    }
+
+    /// One sentence about playtime for the spotlight: "12 h 05 min played, last yesterday".
+    pub fn played_sentence(
+        total_ms: u64,
+        last: Option<Timestamp>,
+        now: Timestamp,
+        offset_s: i32,
+    ) -> String {
+        match last {
+            Some(t) if total_ms > 0 => format!(
+                "{} played, last {}",
+                fmt::duration(total_ms),
+                fmt::relative_inline(t, now, offset_s)
+            ),
+            Some(t) => format!("Last opened {}", fmt::relative_inline(t, now, offset_s)),
+            None => NOT_PLAYED.to_owned(),
+        }
+    }
 
     /// "Running · 0:42:10".
     pub fn running(elapsed_ms: u64) -> String {
@@ -771,6 +865,38 @@ pub mod gallery {
     pub const STAT_SPOKEN: &str = "1,240 hours";
     /// Sample clock.
     pub const CLOCK_SAMPLE: &str = "1:11:11 · 0:42:10";
+    /// Fact sample.
+    pub const FACT_LABEL: &str = "Last played";
+    /// Fact sample.
+    pub const FACT_VALUE: &str = "Yesterday";
+    /// Fact sample with a strip.
+    pub const WEEK_LABEL: &str = "Last 7 days";
+    /// Fact sample with a strip.
+    pub const WEEK_VALUE: &str = "3 h 40 min";
+    /// Strip sample: a day and its value.
+    pub const WEEK_DAY: &str = "Tuesday 3 November: 2 h 10 min";
+    /// Link row sample.
+    pub const ROW_PROTECTION: &str = "Protection";
+    /// Link row sample.
+    pub const ROW_PRESET: &str = "Offline";
+    /// Link row sample.
+    pub const ROW_ATTENTION: &str = "Needs attention";
+    /// Link row sample: the list of points.
+    pub const ROW_REACH: &str = "What this game can reach";
+    /// Link row sample: points.
+    pub const ROW_POINTS: [&str; 3] = [
+        "No internet or local network",
+        "Cannot see your personal files",
+        "Can use your cameras",
+    ];
+    /// Link row sample.
+    pub const ROW_FOLDER: &str = "Game folder";
+    /// Link row sample.
+    pub const ROW_FOLDER_HINT: &str = "Open in the file manager";
+    /// Control row sample.
+    pub const ROW_PROGRAMS: &str = "Other programs";
+    /// Control row sample.
+    pub const ROW_TOOL: &str = "Settings";
 }
 
 /// Theme names for pickers.
@@ -965,6 +1091,55 @@ mod tests {
         assert_eq!(fmt::relative_date(day(6), now, 0), "Friday");
         assert_eq!(fmt::relative_date(day(9), now, 0), "3 Nov");
         assert_eq!(fmt::relative_date(day(400), now, 0), "8 Oct 2025");
+    }
+
+    #[test]
+    fn card_status_has_a_what_and_a_when() {
+        let now = Timestamp::from_millis(1_794_441_600_000 + 15 * 3_600_000);
+        let yesterday = Timestamp::from_millis(now.as_millis() - 86_400_000);
+        let parts = |activity, availability, total, last| {
+            card::status_parts(activity, availability, total, last, now, 0)
+        };
+        assert_eq!(
+            parts(
+                Activity::Idle,
+                Availability::Present,
+                12 * 3_600_000 + 5 * 60_000,
+                Some(yesterday)
+            ),
+            ("12 h 05 min".to_owned(), Some("Yesterday".to_owned()))
+        );
+        assert_eq!(
+            parts(Activity::Idle, Availability::Present, 0, None),
+            ("Not played yet".to_owned(), None)
+        );
+        assert_eq!(
+            parts(Activity::Idle, Availability::Missing, 5, Some(yesterday)),
+            ("Not found".to_owned(), None)
+        );
+        let since = Timestamp::from_millis(now.as_millis() - 42 * 60_000 - 10_000);
+        assert_eq!(
+            parts(
+                Activity::Running { since },
+                Availability::Present,
+                5,
+                Some(yesterday)
+            ),
+            ("Running".to_owned(), Some("0:42:10".to_owned()))
+        );
+        assert_eq!(
+            card::played_sentence(12 * 3_600_000 + 5 * 60_000, Some(yesterday), now, 0),
+            "12 h 05 min played, last yesterday"
+        );
+        assert_eq!(library::sort_button("Name", false), "Sort: Name, ascending");
+        assert_eq!(
+            library::arranged_by("Name", false, Some("Tag")),
+            "Sorted by Name, ascending, grouped by Tag"
+        );
+        assert_eq!(
+            library::arranged_by("Playtime", true, None),
+            "Sorted by Playtime, descending"
+        );
     }
 
     #[test]

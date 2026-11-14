@@ -59,6 +59,9 @@ impl HostProbe for OverrideProbe {
     fn revalidate(&self) -> Revalidation {
         self.inner.revalidate()
     }
+    fn runner(&self) -> Option<Arc<dyn easyplay_core::host::CommandRunner>> {
+        self.inner.runner()
+    }
 }
 
 fn runtime_ref(d: &RuntimeDefault) -> RuntimeRef {

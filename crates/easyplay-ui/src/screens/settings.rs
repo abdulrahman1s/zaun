@@ -1342,17 +1342,18 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, tab: SettingsTa
                         Sense::click(),
                     );
                     if sel || resp.hovered() || resp.has_focus() {
+                        // The same plates as the sidebar's items.
                         ui.painter().rect_filled(
                             rect,
-                            egui::CornerRadius::same(theme::tokens::radius::SM),
-                            if sel { p.accent_subtle } else { p.bg_surface },
+                            egui::CornerRadius::same(theme::tokens::radius::ROW),
+                            if sel { p.fill_selected } else { p.fill_hover },
                         );
                     }
                     if resp.has_focus() {
                         crate::widgets::focus_ring(
                             ui.painter(),
                             rect,
-                            egui::CornerRadius::same(theme::tokens::radius::SM),
+                            egui::CornerRadius::same(theme::tokens::radius::ROW),
                             &theme::theme(ui.ctx()),
                         );
                         crate::widgets::own_arrow_keys(&resp);

@@ -19,6 +19,34 @@ fn widget(fill: egui::Color32, border: egui::Color32, fg: egui::Color32, bw: f32
     }
 }
 
+/// The shadow under menus, popovers, tooltips and toasts.
+pub fn popup_shadow(p: &Palette) -> Shadow {
+    if p.allows_translucency() {
+        Shadow {
+            offset: [0, 8],
+            blur: 24,
+            spread: 0,
+            color: p.shadow,
+        }
+    } else {
+        Shadow::NONE
+    }
+}
+
+/// The shadow under sheets and dialogs.
+pub fn overlay_shadow(p: &Palette) -> Shadow {
+    if p.allows_translucency() {
+        Shadow {
+            offset: [0, 16],
+            blur: 48,
+            spread: 0,
+            color: p.shadow,
+        }
+    } else {
+        Shadow::NONE
+    }
+}
+
 /// egui visuals for a palette.
 pub fn visuals(p: &Palette) -> Visuals {
     let mut v = if p.kind.is_dark() {
@@ -66,28 +94,12 @@ pub fn visuals(p: &Palette) -> Visuals {
     v.error_fg_color = p.danger;
     v.window_corner_radius = CornerRadius::same(radius::LG);
     v.window_fill = p.bg_overlay;
-    v.window_stroke = Stroke::new(bw, if hc { p.border_strong } else { p.border_subtle });
-    v.window_shadow = if p.allows_translucency() {
-        Shadow {
-            offset: [0, 8],
-            blur: 24,
-            spread: 0,
-            color: p.shadow,
-        }
-    } else {
-        Shadow::NONE
-    };
-    v.popup_shadow = if p.allows_translucency() {
-        Shadow {
-            offset: [0, 4],
-            blur: 12,
-            spread: 0,
-            color: p.shadow,
-        }
-    } else {
-        Shadow::NONE
-    };
-    v.menu_corner_radius = CornerRadius::same(radius::SM);
+    // Menus, popovers and tooltips take their outline from here: a hairline that reads on
+    // any plane (the high-contrast hairline is a full border).
+    v.window_stroke = Stroke::new(bw, p.hairline);
+    v.window_shadow = overlay_shadow(p);
+    v.popup_shadow = popup_shadow(p);
+    v.menu_corner_radius = CornerRadius::same(radius::POP);
     v.panel_fill = p.bg_base;
     v.window_highlight_topmost = false;
     v.collapsing_header_frame = false;
@@ -110,9 +122,10 @@ pub fn style(theme: &Theme) -> Style {
     s.spacing.item_spacing = Vec2::splat(space::S2);
     s.spacing.button_padding = Vec2::new(space::S3, space::S1 + 2.0);
     s.spacing.interact_size.y = control::MD;
-    s.spacing.menu_margin = Margin::same(space::S1 as i8);
+    s.spacing.menu_margin = Margin::same((space::S1 + space::S0) as i8);
     s.spacing.window_margin = Margin::same(space::S6 as i8);
     s.spacing.icon_spacing = space::S2;
+    s.spacing.tooltip_width = super::tokens::layout::TEXT_MAX_W * 0.6;
     s.interaction.selectable_labels = false;
     s.interaction.tooltip_delay = timing::TOOLTIP_DELAY;
     s.interaction.show_tooltips_only_when_still = false;

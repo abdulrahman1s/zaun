@@ -74,7 +74,7 @@ fn table(ui: &mut Ui, salt: &str, headers: &[&str], widths: &[f32], rows: &[Vec<
     b.header(ROW_H, |mut h| {
         for t in headers {
             h.col(|ui| {
-                ui.label(Type::Micro.rich(*t).color(p.text_secondary));
+                ui.label(Type::Label.rich(*t).color(p.text_secondary));
             });
         }
     })

@@ -509,6 +509,7 @@ impl Backend for ServiceBackend {
             }
             UiCommand::ResetPrefix { id, options } => h.send(Command::ResetPrefix { id, options }),
             UiCommand::ProvisionRuntime { target } => h.send(Command::ProvisionRuntime { target }),
+            UiCommand::AdoptRuntime { variant } => h.send(Command::AdoptRuntime { variant }),
             UiCommand::RemoveRuntime { name } => h.send(Command::RemoveRuntime { name }),
             UiCommand::RefreshRuntimes => h.send(Command::RefreshRuntimes),
             UiCommand::VerifyRuntime => h.send(Command::VerifyRuntime),
@@ -696,6 +697,9 @@ impl Backend for ServiceBackend {
                 .collect(),
             last_checked: cat.scanned_at,
             downloads: Vec::new(),
+            adoptable: easyplay_core::runtime::adoptable(&cat.foreign.slr, &cat.slr)
+                .map(|s| s.variant)
+                .collect(),
         });
         s.runtimes = Some((key, lib.revision, Arc::clone(&v)));
         v

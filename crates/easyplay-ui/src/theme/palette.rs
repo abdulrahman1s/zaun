@@ -110,8 +110,15 @@ pub struct Palette {
     pub bg_overlay: Color32,
     /// Outlines and separators.
     pub border_subtle: Color32,
-    /// Inputs, focused card outline base.
+    /// Boundaries that alone identify a control: form fields, unselected toggles.
     pub border_strong: Color32,
+    /// A translucent edge that works on any plane and over artwork: cover edges, quiet
+    /// controls identified by their label, menu and sheet outlines.
+    pub hairline: Color32,
+    /// Fill of a quiet control or row under the pointer, over any plane.
+    pub fill_hover: Color32,
+    /// Fill of the selected row or segment, over any plane.
+    pub fill_selected: Color32,
     /// Titles and body.
     pub text_primary: Color32,
     /// Supporting text.
@@ -168,17 +175,20 @@ impl Palette {
         let [a, ah, ap, on, focus] = accent.dark();
         Self {
             kind: ThemeKind::Dark,
-            bg_sunken: hex(0x090B0F),
-            bg_base: hex(0x0D0F14),
-            bg_surface: hex(0x141821),
-            bg_raised: hex(0x1B2030),
-            bg_overlay: hex(0x232A3D),
-            border_subtle: hex(0x232838),
-            border_strong: hex(0x6B7490),
-            text_primary: hex(0xEEF0F6),
-            text_secondary: hex(0xA9B0C3),
-            text_muted: hex(0x949DB5),
-            text_disabled: hex(0x4B5266),
+            bg_sunken: hex(0x09090B),
+            bg_base: hex(0x0E0E10),
+            bg_surface: hex(0x141416),
+            bg_raised: hex(0x1C1C1F),
+            bg_overlay: hex(0x232327),
+            border_subtle: hex(0x27272B),
+            border_strong: hex(0x72727A),
+            hairline: hex_a(0xF3F3F5, alpha_u8(0.09)),
+            fill_hover: hex_a(0xF3F3F5, alpha_u8(0.05)),
+            fill_selected: hex_a(0xF3F3F5, alpha_u8(0.09)),
+            text_primary: hex(0xF3F3F5),
+            text_secondary: hex(0xB5B5BC),
+            text_muted: hex(0x9999A1),
+            text_disabled: hex(0x505057),
             accent: hex(a),
             accent_hover: hex(ah),
             accent_pressed: hex(ap),
@@ -189,7 +199,7 @@ impl Palette {
             danger: hex(0xF87171),
             info: hex(0x60A5FA),
             focus: hex(focus),
-            backdrop: hex_a(0x000000, alpha_u8(0.55)),
+            backdrop: hex_a(0x000000, alpha_u8(0.60)),
             shadow: hex_a(0x000000, alpha_u8(0.45)),
             scrim: hex(0x000000),
             on_art: hex(0xFFFFFF),
@@ -211,17 +221,20 @@ impl Palette {
         let [a, ah, ap, on, focus] = accent.light();
         Self {
             kind: ThemeKind::Light,
-            bg_sunken: hex(0xECEEF2),
-            bg_base: hex(0xF6F7F9),
+            bg_sunken: hex(0xEBEBEF),
+            bg_base: hex(0xF5F5F7),
             bg_surface: hex(0xFFFFFF),
             bg_raised: hex(0xFFFFFF),
             bg_overlay: hex(0xFFFFFF),
-            border_subtle: hex(0xE3E6ED),
-            border_strong: hex(0x878EA1),
-            text_primary: hex(0x151821),
-            text_secondary: hex(0x4A5165),
-            text_muted: hex(0x5D6579),
-            text_disabled: hex(0xA8AEBD),
+            border_subtle: hex(0xE3E3E8),
+            border_strong: hex(0x80808A),
+            hairline: hex_a(0x121214, alpha_u8(0.10)),
+            fill_hover: hex_a(0x121214, alpha_u8(0.04)),
+            fill_selected: hex_a(0x121214, alpha_u8(0.07)),
+            text_primary: hex(0x121214),
+            text_secondary: hex(0x494951),
+            text_muted: hex(0x5C5C66),
+            text_disabled: hex(0xA9A9B2),
             accent: hex(a),
             accent_hover: hex(ah),
             accent_pressed: hex(ap),
@@ -233,7 +246,7 @@ impl Palette {
             info: hex(0x1D4ED8),
             focus: hex(focus),
             backdrop: hex_a(0x000000, alpha_u8(0.35)),
-            shadow: hex_a(0x000000, alpha_u8(0.12)),
+            shadow: hex_a(0x000000, alpha_u8(0.14)),
             scrim: hex(0x000000),
             on_art: hex(0xFFFFFF),
             on_art_secondary: hex(0xE4E7EE),
@@ -262,6 +275,9 @@ impl Palette {
             bg_overlay: black,
             border_subtle: white,
             border_strong: white,
+            hairline: white,
+            fill_hover: hex(0x1F1F1F),
+            fill_selected: hex(0x2B2B2B),
             text_primary: white,
             text_secondary: hex(0xF2F2F2),
             text_muted: hex(0xD9D9D9),
@@ -333,6 +349,47 @@ pub fn hsl(h: f32, s: f32, l: f32) -> Color32 {
     let m = l - c / 2.0;
     let to = |v: f32| ((v + m).clamp(0.0, 1.0) * 255.0).round() as u8;
     Color32::from_rgb(to(r), to(g), to(b))
+}
+
+/// The colours of a generated cover (UI_DESIGN_SYSTEM §7.2): a quiet wash from `top` to
+/// `bottom` and the tone-on-tone `ink` of its monogram.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlaceholderColors {
+    /// Top of the wash.
+    pub top: Color32,
+    /// Bottom of the wash.
+    pub bottom: Color32,
+    /// The monogram.
+    pub ink: Color32,
+}
+
+/// Hues a generated cover may take, in turns: evenly spread, none of them the accent's.
+const PLACEHOLDER_HUES: [f32; 10] = [0.02, 0.08, 0.13, 0.27, 0.40, 0.55, 0.61, 0.68, 0.77, 0.90];
+
+/// The colours of the generated cover for `seed` (a hash of the game's name). Saturation and
+/// lightness are fixed per theme, so a shelf of generated covers reads as one family.
+pub fn placeholder(seed: u64, kind: ThemeKind) -> PlaceholderColors {
+    let hue = PLACEHOLDER_HUES[(seed % PLACEHOLDER_HUES.len() as u64) as usize];
+    // A small per-name drift keeps two games on the same hue from being identical.
+    let drift = ((seed >> 16) % 5) as f32 * 0.006;
+    let h = hue + drift;
+    match kind {
+        ThemeKind::Dark => PlaceholderColors {
+            top: hsl(h, 0.30, 0.24),
+            bottom: hsl(h + 0.03, 0.34, 0.13),
+            ink: hsl(h, 0.30, 0.36),
+        },
+        ThemeKind::Light => PlaceholderColors {
+            top: hsl(h, 0.36, 0.84),
+            bottom: hsl(h + 0.03, 0.34, 0.74),
+            ink: hsl(h, 0.30, 0.62),
+        },
+        ThemeKind::HighContrast => PlaceholderColors {
+            top: hex(0x000000),
+            bottom: hex(0x000000),
+            ink: hex(0xFFFFFF),
+        },
+    }
 }
 
 /// A black colour at `fraction` opacity.
@@ -459,6 +516,24 @@ pub fn allowed_pairs(p: &Palette) -> Vec<Pair> {
         push("text.muted", p.text_muted, bg_role, bg, MIN_TEXT);
         push("accent (icon)", p.accent, bg_role, bg, MIN_NON_TEXT);
     }
+    // Quiet fills: the row or control under the pointer on every plane, and the selected
+    // row or segment on the planes that carry lists.
+    let fills = [
+        ("fill.hover/bg.base", p.fill_hover, p.bg_base),
+        ("fill.hover/bg.surface", p.fill_hover, p.bg_surface),
+        ("fill.hover/bg.raised", p.fill_hover, p.bg_raised),
+        ("fill.hover/bg.overlay", p.fill_hover, p.bg_overlay),
+        ("fill.selected/bg.base", p.fill_selected, p.bg_base),
+        ("fill.selected/bg.surface", p.fill_selected, p.bg_surface),
+        ("fill.selected/bg.raised", p.fill_selected, p.bg_raised),
+    ];
+    for (bg_role, fill, under) in fills {
+        let bg = over(fill, under);
+        push("text.primary", p.text_primary, bg_role, bg, MIN_TEXT);
+        push("text.secondary", p.text_secondary, bg_role, bg, MIN_TEXT);
+        push("text.muted", p.text_muted, bg_role, bg, MIN_TEXT);
+        push("accent (icon)", p.accent, bg_role, bg, MIN_NON_TEXT);
+    }
     // Filled accent buttons in every state.
     for (bg_role, bg) in [
         ("accent", p.accent),
@@ -531,8 +606,8 @@ mod tests {
     #[test]
     fn the_matrix_covers_every_theme_and_accent() {
         let p = Palette::new(ThemeKind::Dark, Accent::Tide);
-        // 4 planes × (9 + 8 tags) + sunken 3 + subtle 3 × 4 + accent fills 3 + 2.
-        assert_eq!(allowed_pairs(&p).len(), 4 * 18 + 3 + 12 + 3 + 2);
+        // 4 planes × (9 + 8 tags) + sunken 3 + subtle 3 × 4 + fills 7 × 4 + accent fills 3 + 2.
+        assert_eq!(allowed_pairs(&p).len(), 4 * 18 + 3 + 12 + 28 + 3 + 2);
     }
 
     #[test]
@@ -546,25 +621,38 @@ mod tests {
         assert!(low.iter().any(|x| x.fg_role == "text.muted"));
     }
 
-    /// Card titles over artwork: the darkest part of the gradient keeps white text at
-    /// 4.5:1 over a pure white image, and over a pure black one (ACCESSIBILITY §3).
+    /// Controls over artwork (favourite, more, the state glyph of a missing game) sit on a
+    /// scrim disc that keeps their glyph at 3:1 over a pure white image and over a pure black
+    /// one (ACCESSIBILITY §3). Titles are never painted over artwork.
     #[test]
-    fn card_gradient_keeps_white_titles_legible_over_any_art() {
-        use crate::theme::tokens::alpha::CARD_GRADIENT;
+    fn the_scrim_keeps_glyphs_legible_over_any_art() {
+        use crate::theme::tokens::alpha::SCRIM;
         for kind in ThemeKind::ALL {
             let p = Palette::new(kind, Accent::Tide);
-            let scrim = black(CARD_GRADIENT);
             for art in [Color32::WHITE, Color32::BLACK, hex(0xFFE600), hex(0x7DD3FC)] {
-                let bg = over(scrim, art);
-                for (role, fg) in [
-                    ("on_art", p.on_art),
-                    ("on_art_secondary", p.on_art_secondary),
-                ] {
-                    let r = contrast(fg, bg);
-                    assert!(r >= MIN_TEXT, "{kind:?}: {role} over {art:?} = {r:.2}");
-                }
+                let bg = over(fade(p.scrim, SCRIM), art);
+                let r = contrast(p.on_art, bg);
+                assert!(r >= MIN_NON_TEXT, "{kind:?}: on_art over {art:?} = {r:.2}");
             }
         }
+    }
+
+    /// The generated cover's monogram is decoration (the title is beneath the cover), but it
+    /// must stay visible: its ink differs from both ends of the wash.
+    #[test]
+    fn placeholder_ink_is_visible_and_stable() {
+        for kind in ThemeKind::ALL {
+            for seed in [0_u64, 1, 7, 12_345, u64::MAX] {
+                let c = placeholder(seed, kind);
+                assert_eq!(c, placeholder(seed, kind));
+                assert!(contrast(c.ink, c.top) > 1.15, "{kind:?} {seed}");
+                assert!(contrast(c.ink, c.bottom) > 1.15, "{kind:?} {seed}");
+            }
+        }
+        assert_ne!(
+            placeholder(1, ThemeKind::Dark).top,
+            placeholder(2, ThemeKind::Dark).top
+        );
     }
 
     #[test]

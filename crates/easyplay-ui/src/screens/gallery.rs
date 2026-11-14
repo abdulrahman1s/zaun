@@ -13,19 +13,21 @@ use crate::theme::tokens::{icon as icon_size, space};
 use crate::theme::{self, Accent, Appearance, Density, ThemeChoice, Type, icons};
 use crate::vm::toasts::{ToastAction, ToastKind};
 use crate::widgets::banner::{Severity, banner};
+use crate::widgets::bar_chart::Bar;
 use crate::widgets::button::{Button, PillSize, PlayState, Size, Variant, play_pill};
 use crate::widgets::card::{CardCtx, card};
 use crate::widgets::chip::{ChipKind, chip};
 use crate::widgets::empty_state::empty_state;
 use crate::widgets::icon_button::IconButton;
 use crate::widgets::key_hint::key_hint;
+use crate::widgets::link_row::{LinkRow, Point, Points, Tone, control_row, link_rows};
 use crate::widgets::path_row::path_row;
 use crate::widgets::progress;
 use crate::widgets::segmented::{Segment, segmented};
 use crate::widgets::select::select;
 use crate::widgets::shield;
 use crate::widgets::skeleton;
-use crate::widgets::stat_tile::stat_tile;
+use crate::widgets::stat_tile::{Fact, stat_tile};
 use crate::widgets::tabs::tabs;
 use crate::widgets::text_field::TextField;
 use crate::widgets::toggle::toggle;
@@ -380,6 +382,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                             skeleton::line(ui, r.min + vec2(0.0, 20.0), 140.0, 12.0);
                         });
                     });
+                    facts_and_rows(ui);
                     banner(
                         ui,
                         Severity::Info,
@@ -434,6 +437,90 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
 }
 
 /// Every card state at the current density, short and long names (UI-005 acceptance).
+/// A line of facts (one with a strip) and a list of link rows: with points, with a detail
+/// that needs attention, opening outside, and a row of controls.
+fn facts_and_rows(ui: &mut Ui) {
+    use strings::gallery as g;
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let week: Vec<Bar> = [0.0, 130.0, 0.0, 45.0, 0.0, 0.0, 45.0]
+        .iter()
+        .map(|v| Bar {
+            label: String::new(),
+            spoken: g::WEEK_DAY.to_owned(),
+            value_text: String::new(),
+            value: *v,
+        })
+        .collect();
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = space::S8;
+        Fact {
+            label: g::FACT_LABEL,
+            value: g::FACT_VALUE,
+            spoken: &strings::details::fact_name(g::FACT_LABEL, g::FACT_VALUE),
+            strip: None,
+            fg: p.text_primary,
+            fg2: p.text_secondary,
+        }
+        .show(ui);
+        Fact {
+            label: g::WEEK_LABEL,
+            value: g::WEEK_VALUE,
+            spoken: &strings::details::fact_name(g::WEEK_LABEL, g::WEEK_VALUE),
+            strip: Some(&week),
+            fg: p.text_primary,
+            fg2: p.text_secondary,
+        }
+        .show(ui);
+    });
+    ui.add_space(space::S3);
+    let points = [
+        Point {
+            icon: icons::WIFI_OFF,
+            text: g::ROW_POINTS[0],
+            tone: Tone::Normal,
+        },
+        Point {
+            icon: icons::FOLDER_LOCK,
+            text: g::ROW_POINTS[1],
+            tone: Tone::Normal,
+        },
+        Point {
+            icon: icons::CAMERA,
+            text: g::ROW_POINTS[2],
+            tone: Tone::Warning,
+        },
+    ];
+    let rows = [
+        LinkRow::new(
+            icons::SHIELD_OFFLINE,
+            g::ROW_PROTECTION,
+            g::ROW_PRESET,
+            g::ROW_PROTECTION,
+        )
+        .points(Points::Listed {
+            name: g::ROW_REACH,
+            items: &points,
+            more: None,
+        }),
+        LinkRow::new(
+            icons::SHIELD_ALERT,
+            g::TAB_COMPAT,
+            g::CHIP_OFFLINE,
+            g::TAB_COMPAT,
+        )
+        .icon_tone(Tone::Danger)
+        .detail(Some(g::ROW_ATTENTION), Tone::Danger),
+        LinkRow::new(icons::FOLDER, g::ROW_FOLDER, g::PATH_NAME, g::ROW_FOLDER)
+            .detail(Some(g::PATH_LOCATION), Tone::Normal)
+            .external(g::ROW_FOLDER_HINT, None),
+    ];
+    link_rows(ui, egui::Id::unique("gallery.rows"), &rows);
+    control_row(ui, icons::FILE_EXE, g::ROW_PROGRAMS, false, |ui| {
+        ui.add(Button::new(g::ROW_TOOL).size(Size::Sm).icon(icons::PLAY));
+    });
+    ui.add_space(space::S3);
+}
+
 fn card_matrix(ui: &mut Ui, env: &mut Env<'_>) {
     let theme = theme::theme(ui.ctx());
     let lib = crate::demo::library(env.now);
@@ -450,7 +537,7 @@ fn card_matrix(ui: &mut Ui, env: &mut Env<'_>) {
     }
     for density in [Density::Compact, Density::Comfortable, Density::Large] {
         let w = density.card_min_width();
-        let h = w * 1.5;
+        let h = w * 1.5 + crate::widgets::card::caption_height(density);
         let per_row = ((ui.available_width() + space::S4) / (w + space::S4))
             .floor()
             .max(1.0) as usize;
@@ -479,6 +566,7 @@ fn card_matrix(ui: &mut Ui, env: &mut Env<'_>) {
                 focusable: true,
                 show_playtime: true,
                 density,
+                opacity: 1.0,
             };
             card(
                 ui,
