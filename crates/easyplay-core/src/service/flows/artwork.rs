@@ -207,10 +207,14 @@ impl AppService {
                 });
             }
         }
-        if let Some(e) = a.error
-            && a.user_asked
-        {
+        if !a.user_asked {
+            return;
+        }
+        if let Some(e) = a.error {
             self.fail(e);
+        } else if stored == 0 {
+            // The window shows a spinner until the request ends one way or the other.
+            self.fail(Error::new(ErrorCode::ArtNotFound));
         }
     }
 }

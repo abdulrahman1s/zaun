@@ -214,6 +214,8 @@ error_codes! {
     ArtTooLarge = "EP-ART-002", Error;
     /// Image could not be read.
     ArtUnreadable = "EP-ART-003", Error;
+    /// Steam has no official artwork for this game (or its app ID is unknown).
+    ArtNotFound = "EP-ART-004", Warning;
 
     // ---- Integration and internal — EP-DSK, EP-INT ---------------------------------------
     /// Could not change the default application.

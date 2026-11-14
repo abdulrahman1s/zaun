@@ -263,6 +263,14 @@ fn missing_file_gives_defaults() {
 }
 
 #[test]
+fn first_save_creates_the_config_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("easyplay").join("config.toml");
+    load::save(&RealFs::new(), &path, &Preferences::default()).unwrap();
+    assert!(read(&path).contains("[runtime]"));
+}
+
+#[test]
 fn patches_validate_like_the_file() {
     let fs = RealFs::new();
     let opts = LoadOptions::default();

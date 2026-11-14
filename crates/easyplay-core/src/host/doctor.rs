@@ -512,9 +512,10 @@ pub fn host_checks(facts: &HostFacts, ctx: &DoctorContext<'_>) -> Vec<Check> {
         .joysticks()
         .filter(|n| n.kind == super::facts::InputNodeKind::Event)
         .count();
+    // Readable keyboards only rule out the opt-in "all input devices" mode; controllers work.
     out.push(if i.keyboards_readable {
-        Check::new("D-14", CheckStatus::Warn, format!(
-            "{pads} controller(s); your account can read keyboards directly, so \"all input devices\" mode is disabled"
+        Check::new("D-14", CheckStatus::Pass, format!(
+            "{pads} controller(s); \"all input devices\" mode is off because your account can read keyboards directly"
         ))
     } else {
         Check::new("D-14", CheckStatus::Pass, format!("{pads} controller(s); keyboards are not readable"))

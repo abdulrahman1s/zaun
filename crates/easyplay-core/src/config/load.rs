@@ -993,6 +993,10 @@ pub fn to_toml_string(prefs: &Preferences) -> Result<String, ConfigError> {
 /// [`LoadedPreferences::writable`] is false.
 pub fn save(fs: &dyn Fs, path: &Path, prefs: &Preferences) -> Result<(), ConfigError> {
     let text = to_toml_string(prefs)?;
+    // The first save on a fresh account creates `~/.config/easyplay`.
+    if let Some(dir) = path.parent() {
+        fs.create_dir_all(dir, 0o700)?;
+    }
     fs.atomic_write(path, text.as_bytes(), 0o600)?;
     Ok(())
 }

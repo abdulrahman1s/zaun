@@ -475,6 +475,11 @@ pub const fn entry(code: ErrorCode) -> Entry {
             "The file may be damaged. Choose another image.",
             &[A::Dismiss],
         ),
+        C::ArtNotFound => e(
+            "No official artwork found",
+            "Steam has no artwork for this game, or EasyPlay could not tell which Steam game it is. Enter its Steam app ID or store link and try again.",
+            &[A::Dismiss],
+        ),
 
         // ---- Integration and internal ----
         C::DskDefaultHandlerFailed => e(

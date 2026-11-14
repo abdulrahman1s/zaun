@@ -662,6 +662,10 @@ impl AppService {
             Internal::Runtimes(c) => {
                 self.hub.runtimes.store(c);
                 self.emit(Event::RuntimesChanged);
+                // The runtime check (D-15) reads the catalog.
+                if self.hub.diagnostics.load().doctor.is_some() {
+                    self.run_doctor();
+                }
             }
             Internal::Sessions(p) => self.on_sessions(p),
             Internal::Art(a) => self.on_art_fetched(*a),
