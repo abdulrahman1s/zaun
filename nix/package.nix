@@ -8,6 +8,7 @@
   makeRustPlatform,
   makeWrapper,
   installShellFiles,
+  removeReferencesTo,
   pkg-config,
   sqlite,
   writeText,
@@ -150,6 +151,7 @@ rustPlatform.buildRustPackage {
     pkg-config
     makeWrapper
     installShellFiles
+    removeReferencesTo
   ];
   # libsqlite3-sys currently resolves without its `bundled` feature and links the system
   # library through pkg-config; when the workspace bundles SQLite this is simply unused.
@@ -200,10 +202,16 @@ rustPlatform.buildRustPackage {
     installShellCompletion --zsh generated/completions/_easyplay
     installShellCompletion --fish generated/completions/easyplay.fish
 
+    # Panic locations in std embed the toolchain's store path, which would otherwise pull
+    # the whole toolchain (about 1.2 GiB) into the runtime closure.
+    remove-references-to -t ${rustToolchain} $out/bin/easyplay
+
     wrapProgram $out/bin/easyplay \
       --prefix PATH : ${lib.makeBinPath hostTools} \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath runtimeLibs}
   '';
+
+  disallowedReferences = [ rustToolchain ];
 
   passthru = {
     inherit easyplay-init runtimeLibs hostTools;
