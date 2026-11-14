@@ -284,3 +284,160 @@ fn cli_launch_pipeline_and_latency() {
     let out = w.cmd(&["stop", "Latency Test"]).output().unwrap();
     assert!(out.status.code().is_some(), "{out:?}");
 }
+
+/// A running `easyplay service`, killed when dropped (also when the test fails).
+struct Service(std::process::Child);
+
+impl Drop for Service {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// Start `easyplay service` (the resident service, ADR-0022) and wait until it serves.
+fn start_service(w: &World) -> Service {
+    let mut c = Command::new(BIN);
+    c.arg("service")
+        .env_clear()
+        .envs(w.env.envs())
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        // The display client libraries (the dev shell's), so the service gets as far as
+        // trying to open a window on the stand-in compositor.
+        .env(
+            "LD_LIBRARY_PATH",
+            std::env::var_os("LD_LIBRARY_PATH").unwrap_or_default(),
+        )
+        .envs(w.extra.iter().map(|(k, v)| (k, v)))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let child = Service(c.spawn().unwrap());
+    let t = std::time::Instant::now();
+    while !w.log().contains("service ready") {
+        assert!(
+            t.elapsed() < Duration::from_secs(30),
+            "service did not start:\n{}",
+            w.log()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    child
+}
+
+/// A command against the running service (single instance on, unlike [`World::cmd`]).
+fn forward(w: &World, args: &[&str]) -> Output {
+    let out = Command::new(BIN)
+        .args(args)
+        .env_clear()
+        .envs(w.env.envs())
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .envs(w.extra.iter().map(|(k, v)| (k, v)))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "easyplay {args:?}: {}\n{}\nlog:\n{}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr),
+        w.log()
+    );
+    out
+}
+
+/// Wait for the `n`-th bwrap stamp; returns it.
+fn stamp_after(w: &World, n: usize) -> u128 {
+    let t = std::time::Instant::now();
+    loop {
+        if let Some(s) = w.stamps().get(n) {
+            return *s;
+        }
+        assert!(
+            t.elapsed() < Duration::from_secs(20),
+            "bwrap was not executed\n{}",
+            w.log()
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The resident service: `launch` and a file-manager `open` of a known game are handed over
+/// and start the sandbox without a cold start; the service outlives its requests.
+#[test]
+fn resident_service_starts_games_at_once() {
+    let w = World::new();
+    w.run(&["runtimes", "adopt", "--variant", "steamrt3"]);
+    let exe = w.exe.to_str().unwrap().to_owned();
+    let proton = w.proton.to_str().unwrap().to_owned();
+    w.run(&[
+        "add",
+        &exe,
+        "--name",
+        "Latency Test",
+        "--runtime",
+        &proton,
+        "--no-launch",
+    ]);
+    let list: serde_json::Value =
+        serde_json::from_slice(&w.run(&["list", "--json"]).stdout).unwrap();
+    let id = list["games"][0]["id"].as_str().unwrap().to_owned();
+    let prefix = w.env.data().join("games").join(&id).join("prefix");
+    write(&prefix.join("system.reg"), "WINE REGISTRY Version 2\n");
+    std::fs::create_dir_all(prefix.join("drive_c")).unwrap();
+    // A first launch audits the adopted runtime; the measured ones below do not.
+    w.run(&["launch", "Latency Test", "--wait"]);
+
+    let mut service = start_service(&w);
+    let tol = tolerance();
+    let mut over = Vec::new();
+    let mut check = |label: &str, before: usize, t0: u128| {
+        let ms = (stamp_after(&w, before) - t0) / 1_000_000;
+        println!("{label:<22} → bwrap exec {ms:>5} ms  (budget {OPEN_TO_BWRAP_MS} ms)");
+        if ms as u64 > OPEN_TO_BWRAP_MS * tol {
+            over.push(format!("{label}: {ms} ms"));
+        }
+    };
+
+    let before = w.stamps().len();
+    let t0 = now_ns();
+    let out = forward(&w, &["open", &exe]);
+    assert!(String::from_utf8_lossy(&out.stdout).contains("handed over"));
+    check("open (file manager)", before, t0);
+
+    // The service sees the short fake session end a moment later; until then `launch` is
+    // refused ("already running": exit 3 at once, or after the hand-over). Retry until a
+    // sandbox starts and time the attempt that started it.
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    let (before, t0) = loop {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "launch never started\n{}",
+            w.log()
+        );
+        let before = w.stamps().len();
+        let t0 = now_ns();
+        let out = w
+            .cmd(&["launch", "Latency Test"])
+            .env_remove("EASYPLAY_NO_SINGLE_INSTANCE")
+            .output()
+            .unwrap();
+        match out.status.code() {
+            Some(0) => assert!(String::from_utf8_lossy(&out.stdout).contains("handed over")),
+            Some(3) => {}
+            _ => panic!("launch: {out:?}\n{}", w.log()),
+        }
+        let t = std::time::Instant::now();
+        while w.stamps().len() == before && t.elapsed() < Duration::from_millis(500) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if w.stamps().len() > before {
+            break (before, t0);
+        }
+    };
+    check("launch (handed over)", before, t0);
+    assert!(
+        service.0.try_wait().unwrap().is_none(),
+        "the service exited:\n{}",
+        w.log()
+    );
+    assert!(over.is_empty(), "over budget: {over:?}");
+}

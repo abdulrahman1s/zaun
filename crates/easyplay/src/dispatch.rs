@@ -3,6 +3,7 @@
 //!
 //! ```text
 //! supervise, generate-assets           → run, never touch the instance socket
+//! service                               → the resident service (waits while a GUI runs)
 //! read-only verbs (list, show, status, sandbox print, doctor, runtimes, export)
 //!                                       → headless against the database
 //! GUI running (socket answers ping in 300 ms)
@@ -23,7 +24,7 @@ use easyplay_core::paths::{AppPaths, PathEnv};
 use easyplay_core::{Error, ErrorCode};
 
 use crate::cli::{Cli, Command, LaunchArgs, exit};
-use crate::{gen_assets, headless, library_verbs, run_gui, run_supervisor};
+use crate::{gen_assets, headless, library_verbs, run_gui, run_service, run_supervisor};
 
 /// Where a command line goes.
 #[derive(Debug, PartialEq, Eq)]
@@ -32,6 +33,8 @@ pub enum Route {
     Supervise,
     /// `generate-assets`.
     Generate,
+    /// `service`: the resident service.
+    Service,
     /// Run in this process without a window.
     Headless,
     /// Start the window (no GUI is running).
@@ -64,6 +67,7 @@ pub fn decide(cli: &Cli, gui_running: bool) -> Route {
     match &cli.command {
         Some(Command::Supervise { .. }) => Route::Supervise,
         Some(Command::GenerateAssets { .. }) => Route::Generate,
+        Some(Command::Service) => Route::Service,
         Some(c) if read_only(c) => Route::Headless,
         Some(Command::Import { .. } | Command::Remove { .. }) => Route::Headless,
         _ if gui_running => Route::Forward,
@@ -104,6 +108,7 @@ pub fn run(cli: Cli) -> Result<u8, Error> {
             Some(Command::GenerateAssets { out }) => gen_assets::run(out),
             _ => Ok(exit::USAGE),
         },
+        Route::Service => run_service::run(),
         Route::Headless => match &cli.command {
             Some(c) => headless::run(c),
             None => Ok(exit::USAGE),
@@ -298,6 +303,7 @@ mod tests {
                 Route::Supervise,
                 Route::Supervise,
             ),
+            (&["service"], Route::Service, Route::Service),
             (
                 &["generate-assets", "--out", "/o"],
                 Route::Generate,

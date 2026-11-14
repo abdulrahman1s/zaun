@@ -170,6 +170,11 @@ rustPlatform.buildRustPackage {
       mkdir -p $out/share
       cp -r assets/share/. $out/share/
     fi
+    # The background service's user unit (ADR-0022) names the wrapped binary.
+    if [ -f $out/share/systemd/user/easyplay.service ]; then
+      substituteInPlace $out/share/systemd/user/easyplay.service \
+        --replace-fail "ExecStart=/usr/bin/easyplay " "ExecStart=$out/bin/easyplay "
+    fi
     if [ -d assets/desktop ]; then
       for f in assets/desktop/*.desktop; do
         [ -e "$f" ] && install -Dm644 "$f" -t $out/share/applications

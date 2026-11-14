@@ -613,3 +613,74 @@ fn snapshot_quick_launch() {
     r.h.snapshot("quick_launch_dark_420x150");
     let _ = (serve, settle);
 }
+
+/// Records every saved window geometry.
+#[derive(Clone, Default)]
+struct SavedGeometry(std::sync::Arc<std::sync::Mutex<Vec<easyplay_ui::WindowGeometry>>>);
+
+impl easyplay_ui::WindowStore for SavedGeometry {
+    fn save(&self, geometry: &easyplay_ui::WindowGeometry) {
+        self.0.lock().unwrap().push(*geometry);
+    }
+}
+
+/// The resident service sends the program before the window exists: the compact window only
+/// follows it, and its size never becomes the library's saved size.
+#[test]
+fn resident_quick_launch_follows_without_resending_or_saving_its_size() {
+    let fake = FakeBackend::new(settled_library());
+    let g = settled_library().games[0].clone();
+    let path = g.primary_exe_path.to_path_buf();
+    let saved = SavedGeometry::default();
+    let s2 = saved.clone();
+    let mut r = rig_app(
+        fake,
+        Route::Library,
+        Vec2::new(420.0, 150.0),
+        ThemeChoice::Dark,
+        move |a| {
+            // A saved zoom the compact window does not have: tracking would save a change.
+            let initial = easyplay_ui::WindowGeometry {
+                ui_scale: 1.5,
+                ..easyplay_ui::WindowGeometry::default()
+            };
+            a.with_window_store(Box::new(s2), initial)
+                .follow_quick_launch(path)
+        },
+    );
+    // Past the geometry debounce (1 s of frame time).
+    r.h.run_steps(120);
+    assert!(
+        !r.fake
+            .sent()
+            .iter()
+            .any(|c| matches!(c, UiCommand::OpenPaths { .. })),
+        "{:?}",
+        r.fake.sent()
+    );
+    assert!(saved.0.lock().unwrap().is_empty());
+    r.fake.push_event(UiEvent::LaunchProgress {
+        game: g.id,
+        state: LaunchState::Preparing { phase: None },
+    });
+    r.h.run_steps(3);
+    r.h.get_all_by_label_contains(&g.name).next().unwrap();
+}
+
+/// A window that closes while the service runs on releases the flows it was showing.
+#[test]
+fn closing_the_window_discards_the_setup_and_cancels_prompts() {
+    let mut r = rig(Route::Library);
+    r.h.run();
+    request_setup(&r, EXE, SetupOrigin::FileManager);
+    r.fake
+        .push_event(UiEvent::Prompt(prompt(PromptKind::InstallerFinished {
+            game: game_id(&settled_library(), "Setup Glassworks"),
+            programs: Vec::new(),
+        })));
+    r.h.run();
+    r.h.state_mut().abandon_open_flows();
+    let sent = r.fake.sent();
+    assert!(sent.contains(&UiCommand::DiscardDraft), "{sent:?}");
+    assert_eq!(answers(&r), vec![PromptAnswer::Cancel]);
+}

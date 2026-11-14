@@ -140,6 +140,7 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/%{appid}.metai
 %{_datadir}/icons/hicolor/*/apps/%{appid}.png
 %{_datadir}/icons/hicolor/scalable/apps/%{appid}.svg
 %{_datadir}/icons/hicolor/symbolic/apps/%{appid}-symbolic.svg
+%{_datadir}/systemd/user/easyplay.service
 %{_mandir}/man1/easyplay*.1*
 %{bash_completions_dir}/easyplay
 %{zsh_completions_dir}/_easyplay

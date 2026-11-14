@@ -15,7 +15,7 @@ use easyplay_core::clock::Clock;
 use easyplay_core::config::Preferences;
 use easyplay_core::ids::{GameId, QueryId};
 use easyplay_core::launch::LaunchState;
-use easyplay_core::model::{SaveDataLocation, Tool, WorkingDir};
+use easyplay_core::model::{PromptAnswer, SaveDataLocation, Tool, WorkingDir};
 use egui::{Context, Ui};
 
 use crate::bridge::{OpenOrigin, QueryPayload, ToastLevel, UiBridge, UiCommand, UiEvent};
@@ -123,6 +123,8 @@ pub struct UiState {
     pub onboarding: OnboardingVm,
     /// Quick-launch window.
     pub quick: Option<QuickLaunchVm>,
+    /// Onboarding has a compact window of its own, which closes when it finishes.
+    pub onboarding_window: bool,
     /// Drag and drop.
     pub dnd: DndState,
     /// Pickers asked for this frame (opened by the app after painting).
@@ -176,6 +178,7 @@ impl UiState {
             settings: SettingsVm::default(),
             onboarding: OnboardingVm::default(),
             quick: None,
+            onboarding_window: false,
             dnd: DndState::default(),
             picks: Vec::new(),
             tag_text: String::new(),
@@ -356,19 +359,48 @@ impl EasyPlayApp {
     }
 
     /// Start in the compact quick-launch layout for `path` (SCREEN_SPECS §7).
-    pub fn quick_launch(mut self, path: PathBuf) -> Self {
+    pub fn quick_launch(self, path: PathBuf) -> Self {
         self.bridge.send(UiCommand::OpenPaths {
             paths: vec![path.clone()],
             origin: OpenOrigin::FileManager,
         });
+        self.follow_quick_launch(path)
+    }
+
+    /// Start in the compact quick-launch layout for `path`, which the resident service
+    /// already sent to the service before this window existed.
+    pub fn follow_quick_launch(mut self, path: PathBuf) -> Self {
         self.state.quick = Some(QuickLaunchVm {
             path,
             game: None,
             running_at: None,
             already_at: None,
             expanded: false,
+            grown: false,
         });
         self
+    }
+
+    /// The window is closing while the service may run on (the resident service): a setup
+    /// sheet still being edited is discarded and unanswered prompts are cancelled, so their
+    /// flows do not stay parked and the next program opened gets its own sheet.
+    pub fn abandon_open_flows(&mut self) {
+        if self
+            .state
+            .setup
+            .as_ref()
+            .is_some_and(|v| v.phase == SetupPhase::Editing)
+        {
+            self.bridge.send(UiCommand::DiscardDraft);
+            self.state.setup = None;
+        }
+        let prompts: Vec<_> = self.state.dialogs.prompts().map(|p| p.id).collect();
+        for prompt in prompts {
+            self.bridge.send(UiCommand::AnswerPrompt {
+                prompt,
+                answer: PromptAnswer::Cancel,
+            });
+        }
     }
 
     /// Follow the desktop's appearance preferences: `initial` now, updates from `rx`.
@@ -953,7 +985,8 @@ impl EasyPlayApp {
     }
 
     fn track_geometry(&mut self, ctx: &Context) {
-        if self.window_store.is_none() {
+        // The compact quick-launch window's size is not the library's.
+        if self.window_store.is_none() || self.state.quick.as_ref().is_some_and(|q| !q.expanded) {
             return;
         }
         let (inner, outer, maximized) = ctx.input(|i| {
@@ -1122,5 +1155,6 @@ impl eframe::App for EasyPlayApp {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.save_geometry();
+        self.abandon_open_flows();
     }
 }

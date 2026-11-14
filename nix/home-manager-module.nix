@@ -1,8 +1,8 @@
 # home-manager module for EasyPlay (exported as homeManagerModules.default and
 # homeManagerModules.easyplay).
 #
-# Installs the package for one user and can manage ~/.config/easyplay/config.toml
-# (CONFIGURATION §2). System-level requirements (32-bit graphics drivers, user namespaces)
+# Installs the package for one user, can manage ~/.config/easyplay/config.toml
+# (CONFIGURATION §2) and can run EasyPlay's background service (ADR-0022). System-level requirements (32-bit graphics drivers, user namespaces)
 # are not something home-manager can provide; on NixOS use the NixOS module for those.
 self:
 {
@@ -40,6 +40,12 @@ in
       '';
     };
 
+    backgroundService.enable = mkEnableOption ''
+      EasyPlay's background service (ADR-0022): the library stays loaded, so a Windows
+      program opened from the file manager starts at once and EasyPlay's window opens without
+      a cold start. It costs about 20 MiB while no window has been opened. Running games are
+      not stopped when the service stops or restarts'';
+
     settings = mkOption {
       inherit (tomlFormat) type;
       default = { };
@@ -68,6 +74,23 @@ in
 
   config = mkIf cfg.enable {
     home.packages = [ cfg.package ];
+
+    systemd.user.services.easyplay = mkIf cfg.backgroundService.enable {
+      Unit = {
+        Description = "EasyPlay in the background";
+        Documentation = [ "man:easyplay(1)" ];
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session.target" ];
+      };
+      Service = {
+        ExecStart = "${cfg.package}/bin/easyplay service";
+        Restart = "on-failure";
+        RestartSec = 5;
+        # Games run in the service's cgroup; stopping the service must not end them.
+        KillMode = "process";
+      };
+      Install.WantedBy = [ "graphical-session.target" ];
+    };
 
     xdg.configFile."easyplay/config.toml" = mkIf (cfg.settings != { }) {
       source = tomlFormat.generate "easyplay-config.toml" ({ schema_version = 1; } // cfg.settings);

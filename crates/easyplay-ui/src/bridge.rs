@@ -889,6 +889,50 @@ pub trait Backend: Send {
     }
 }
 
+/// A backend shared by several windows in turn (the resident service opens one window after
+/// another over the same application service).
+impl<B: Backend + Sync + ?Sized> Backend for Arc<B> {
+    fn send(&self, cmd: UiCommand) {
+        (**self).send(cmd);
+    }
+    fn try_event(&self) -> Option<UiEvent> {
+        (**self).try_event()
+    }
+    fn library(&self) -> Arc<LibrarySnapshot> {
+        (**self).library()
+    }
+    fn preferences(&self) -> Arc<Preferences> {
+        (**self).preferences()
+    }
+    fn host(&self) -> Arc<HostView> {
+        (**self).host()
+    }
+    fn runtimes(&self) -> Arc<RuntimesView> {
+        (**self).runtimes()
+    }
+    fn assess(
+        &self,
+        game: Option<GameId>,
+        name: &str,
+        root: Option<&std::path::Path>,
+        policy: &SandboxPolicy,
+    ) -> PolicyAssessment {
+        (**self).assess(game, name, root, policy)
+    }
+    fn preset_policy(&self, preset: BasePreset, policy: &SandboxPolicy) -> SandboxPolicy {
+        (**self).preset_policy(preset, policy)
+    }
+    fn set_waker(&self, waker: Arc<dyn Fn() + Send + Sync>) {
+        (**self).set_waker(waker);
+    }
+    fn is_preview(&self) -> bool {
+        (**self).is_preview()
+    }
+    fn diagnostics(&self) -> Arc<Diagnostics> {
+        (**self).diagnostics()
+    }
+}
+
 /// Maximum events drained per frame (ARCHITECTURE §5.1).
 pub const MAX_EVENTS_PER_FRAME: usize = 256;
 

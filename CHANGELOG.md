@@ -20,7 +20,11 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   date through umu, with integrity checks and recovery.
 - Installer flow for `setup.exe`-style installers; per-game folder permissions, devices and
   launch options; Doctor (`easyplay doctor`) for host problems.
-- Command line: `easyplay open|launch|stop|status|list|add|edit|remove|show|sandbox|export|import|doctor|runtimes`,
+- Optional background service (`systemctl --user enable --now easyplay.service`, or
+  `programs.easyplay.backgroundService.enable` on NixOS and home-manager): EasyPlay stays
+  loaded without a window, so a game opened from the file manager starts in about 20 ms
+  and windows open without a cold start. Running games are not affected when it stops.
+- Command line: `easyplay open|launch|stop|status|list|add|edit|remove|show|sandbox|export|import|doctor|runtimes|service`,
   with `--json` output, a man page and bash/zsh/fish completions.
 
 ### For packagers
@@ -36,6 +40,9 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 - The Debian/Ubuntu package installs `/etc/apparmor.d/easyplay` (user namespaces for
   EasyPlay, bwrap and pressure-vessel's srt-bwrap on systems with
   `kernel.apparmor_restrict_unprivileged_userns=1`).
+- `share/systemd/user/easyplay.service` is installed but must not be enabled by the
+  package; its `ExecStart` names `/usr/bin/easyplay` (the tarball installer and the Nix
+  package rewrite it).
 - Packaging files: `packaging/arch` (`easyplay`, `easyplay-bin`), `packaging/rpm`,
   `packaging/deb`, `packaging/apparmor`, `packaging/tarball`, and the Nix flake.
 

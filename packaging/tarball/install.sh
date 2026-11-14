@@ -126,6 +126,9 @@ while IFS= read -r rel; do
             sed -e "s|^Exec=easyplay |Exec=$desktop_exec |" \
                 -e "s|^TryExec=easyplay\$|TryExec=$exec_path|" "$to.new" >"$tmp/desktop"
             cat "$tmp/desktop" >"$to.new" ;;
+        share/systemd/user/*.service)
+            sed -e "s|^ExecStart=/usr/bin/easyplay |ExecStart=$exec_path |" "$to.new" >"$tmp/unit"
+            cat "$tmp/unit" >"$to.new" ;;
     esac
     mv -f "$to.new" "$to"
 done <"$src/FILES"

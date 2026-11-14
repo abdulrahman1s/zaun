@@ -229,6 +229,8 @@ pub struct QuickLaunchVm {
     pub already_at: Option<MonoInstant>,
     /// The window switched to the full layout.
     pub expanded: bool,
+    /// The window grew to fit the setup sheet.
+    pub grown: bool,
 }
 
 #[cfg(test)]

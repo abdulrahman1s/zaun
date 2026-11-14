@@ -39,7 +39,7 @@ use easyplay_core::desktop::notify::DesktopNotifier;
 
 use crate::cli::exit;
 use crate::display_libs;
-use crate::instance_gui::{GuiRequests, LateHandler, Raiser, UiWaker};
+use crate::instance_gui::{GuiRequests, LateHandler, UiWaker, Windows};
 use crate::notify_watch::NotifyWatch;
 use crate::wiring::{self, Wiring};
 
@@ -77,7 +77,7 @@ impl From<&WindowGeometry> for WindowFile {
 }
 
 /// Read saved geometry; missing or invalid → defaults.
-fn load_geometry(path: &Path) -> WindowGeometry {
+pub(crate) fn load_geometry(path: &Path) -> WindowGeometry {
     let parsed = RealFs::new()
         .read(path, 64 * 1024)
         .ok()
@@ -94,12 +94,12 @@ fn load_geometry(path: &Path) -> WindowGeometry {
 }
 
 /// Writes geometry on a background thread so the UI never touches the disk.
-struct FileWindowStore {
+pub(crate) struct FileWindowStore {
     tx: Sender<WindowGeometry>,
 }
 
 impl FileWindowStore {
-    fn spawn(path: PathBuf) -> Self {
+    pub(crate) fn spawn(path: PathBuf) -> Self {
         let (tx, rx) = channel::<WindowGeometry>();
         let _ = std::thread::Builder::new()
             .name("window-geometry".into())
@@ -132,7 +132,7 @@ impl WindowStore for FileWindowStore {
 }
 
 /// The local UTC offset now, for date formatting on the UI thread without I/O.
-fn utc_offset_seconds() -> i32 {
+pub(crate) fn utc_offset_seconds() -> i32 {
     jiff::Zoned::now().offset().seconds()
 }
 
@@ -142,7 +142,7 @@ enum Source {
     Preview,
 }
 
-fn art_factory(w: &Wiring) -> ArtFactory {
+pub(crate) fn art_factory(w: &Wiring) -> ArtFactory {
     let pool = Arc::clone(&w.jobs);
     let fs = Arc::clone(&w.fs);
     let codec = Arc::clone(&w.codec);
@@ -169,21 +169,31 @@ fn deps(
     store: Option<Box<dyn WindowStore>>,
     renderer: Renderer,
 ) -> UiDeps {
-    let clock: Arc<dyn Clock> = Arc::new(SystemClock::new());
-    let now = clock.now();
     let (backend, art): (Box<dyn Backend>, ArtFactory) = match source {
         Source::Service(b, w) => (b, art_factory(&w)),
         Source::Preview => (
-            Box::new(demo::DemoBackend::new(now)),
+            Box::new(demo::DemoBackend::new(SystemClock::new().now())),
             Box::new(|ctx| {
                 let ctx = ctx.clone();
                 Box::new(synthetic::Threaded::spawn(move || ctx.request_repaint()))
             }),
         ),
     };
+    ui_deps(backend, art, open, window, store, renderer)
+}
+
+/// The window's inputs over `backend`; the caller fills in activations, focus and wakers.
+pub(crate) fn ui_deps(
+    backend: Box<dyn Backend>,
+    art: ArtFactory,
+    open: Vec<PathBuf>,
+    window: WindowGeometry,
+    store: Option<Box<dyn WindowStore>>,
+    renderer: Renderer,
+) -> UiDeps {
     UiDeps {
         backend,
-        clock,
+        clock: Arc::new(SystemClock::new()),
         appearance: Appearance {
             ui_scale: window.ui_scale,
             ..Appearance::default()
@@ -194,6 +204,7 @@ fn deps(
         renderer,
         art: Some(art),
         open,
+        open_sent: false,
         add_game: false,
         activations: None,
         focus: None,
@@ -201,6 +212,7 @@ fn deps(
         display: easyplay_ui::DisplayBackend::Auto,
         system: easyplay_ui::theme::SystemPrefs::default(),
         system_changes: None,
+        on_close: None,
     }
 }
 
@@ -285,6 +297,38 @@ fn claim_instance(
     }
 }
 
+/// ERROR_HANDLING §4.11: after crashes, start with defaults and/or the GL renderer.
+pub(crate) fn crash_advice(paths: &AppPaths) -> crash::StartAdvice {
+    let fs = RealFs::new();
+    crash::prune(&fs, &paths.crash_dir, SystemClock::new().now());
+    let recent: Vec<_> = crash::unacknowledged(&fs, &paths.crash_dir)
+        .into_iter()
+        .map(|(_, r)| r)
+        .collect();
+    let advice = crash::start_advice(&recent);
+    if advice != crash::StartAdvice::default() {
+        tracing::warn!(
+            reset_geometry = advice.reset_geometry,
+            prefer_glow = advice.prefer_glow,
+            "starting with safe defaults after a crash"
+        );
+    }
+    advice
+}
+
+/// `wgpu`, or `glow` when `EASYPLAY_RENDERER=glow` or after a graphics crash.
+pub(crate) fn first_renderer(env: &PathEnv, advice: &crash::StartAdvice) -> Renderer {
+    let forced_glow = env
+        .get(ENV_RENDERER)
+        .and_then(|v| v.to_str())
+        .is_some_and(|v| v.eq_ignore_ascii_case("glow"));
+    if forced_glow || advice.prefer_glow {
+        Renderer::Glow
+    } else {
+        Renderer::Wgpu
+    }
+}
+
 /// Start the GUI (optionally with files to open, or the add-game picker); returns the exit
 /// code (another process may have become the GUI first).
 pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
@@ -322,27 +366,11 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
         }
         _ => None,
     };
-    // ERROR_HANDLING §4.11: after crashes, start with defaults and/or the GL renderer.
     let advice = paths
         .as_ref()
         .filter(|_| !preview)
-        .map(|p| {
-            let fs = RealFs::new();
-            crash::prune(&fs, &p.crash_dir, SystemClock::new().now());
-            let recent: Vec<_> = crash::unacknowledged(&fs, &p.crash_dir)
-                .into_iter()
-                .map(|(_, r)| r)
-                .collect();
-            crash::start_advice(&recent)
-        })
+        .map(crash_advice)
         .unwrap_or_default();
-    if advice != crash::StartAdvice::default() {
-        tracing::warn!(
-            reset_geometry = advice.reset_geometry,
-            prefer_glow = advice.prefer_glow,
-            "starting with safe defaults after a crash"
-        );
-    }
     let window_file = paths.as_ref().map(|p| p.window_state_file.clone());
     let window = window_file
         .as_deref()
@@ -354,21 +382,14 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
             .clone()
             .map(|p| Box::new(FileWindowStore::spawn(p)) as Box<dyn WindowStore>)
     };
-    let forced_glow = env
-        .get(ENV_RENDERER)
-        .and_then(|v| v.to_str())
-        .is_some_and(|v| v.eq_ignore_ascii_case("glow"));
-    let first = if forced_glow || advice.prefer_glow {
-        Renderer::Glow
-    } else {
-        Renderer::Wgpu
-    };
+    let first = first_renderer(&env, &advice);
 
     let focus = Arc::new(AtomicBool::new(true));
     let waker: UiWaker = Arc::new(Mutex::new(None));
+    let slot = Arc::new(Windows::new(Arc::clone(&waker)));
     let make = |renderer: Renderer| -> Result<(UiDeps, Option<NotifyWatch>), Error> {
         let (tx, rx) = channel();
-        let raiser = Raiser::new(tx, Arc::clone(&waker));
+        slot.opened(tx);
         let src = source(preview, &open)?;
         let mut watch = None;
         if let (Source::Service(b, _), Some(p)) = (&src, &paths) {
@@ -377,13 +398,13 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
                 l.attach(GuiRequests {
                     cmds: b.handle().sender(),
                     hub: Arc::clone(&hub),
-                    raiser: raiser.clone(),
+                    windows: Arc::clone(&slot),
                     db_file: p.db_file.clone(),
                 });
             }
-            let r2 = raiser.clone();
+            let w2 = Arc::clone(&slot);
             let notifier = Arc::new(DesktopNotifier::new(Some(Arc::new(move || {
-                r2.raise(None, false);
+                w2.raise(None, false);
             }))));
             watch = NotifyWatch::spawn(hub, p.db_file.clone(), Arc::clone(&focus), notifier);
         }
@@ -414,27 +435,42 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
         Ok((d, watch))
     };
 
-    let (d, watch) = make(first)?;
-    crate::panic::set_phase(CrashPhase::Graphics);
-    let result = easyplay_ui::run(StartMode::Library, d);
-    drop(watch);
-    match result {
+    // First launch runs onboarding in a compact window; once it is completed the library
+    // opens in a full one, with a fresh service that reads the saved preferences (the first
+    // service finishes its queued writes before it stops).
+    let windows = |renderer: Renderer| -> Result<_, Error> {
+        let (d, watch) = make(renderer)?;
+        let onboarding = easyplay_ui::opens_onboarding(&d);
+        crate::panic::set_phase(CrashPhase::Graphics);
+        let r = easyplay_ui::run(StartMode::Library, d);
+        drop(watch);
+        if !onboarding || r.is_err() {
+            return Ok(r);
+        }
+        let (d, watch) = make(renderer)?;
+        if easyplay_ui::opens_onboarding(&d) {
+            // Closed without finishing: the next start asks again.
+            return Ok(r);
+        }
+        let r = easyplay_ui::run(StartMode::Library, d);
+        drop(watch);
+        Ok(r)
+    };
+
+    match windows(first)? {
         Ok(()) => Ok(exit::OK),
         Err(e) if first == Renderer::Wgpu && !easyplay_ui::is_event_loop_error(&e) => {
             // V-301: fall back to GL on the same event loop (eframe keeps it per thread).
             tracing::warn!("wgpu renderer failed ({e}); retrying with glow");
-            let (d, watch) = make(Renderer::Glow)?;
-            crate::panic::set_phase(CrashPhase::Graphics);
-            let r = easyplay_ui::run(StartMode::Library, d);
-            drop(watch);
-            r.map(|()| exit::OK)
+            windows(Renderer::Glow)?
+                .map(|()| exit::OK)
                 .map_err(|e| Error::new(ErrorCode::HostNoDisplay).with("detail", e))
         }
         Err(e) => Err(Error::new(ErrorCode::HostNoDisplay).with("detail", e)),
     }
 }
 
-mod desktop_settings {
+pub(crate) mod desktop_settings {
     //! Desktop appearance preferences (task A11Y-004): colour scheme, high contrast, reduced
     //! motion and text scale, read from the XDG desktop portal's Settings interface on a
     //! background thread and followed live through its `SettingChanged` signal. Desktops whose

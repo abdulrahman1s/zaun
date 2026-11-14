@@ -2,7 +2,8 @@
 #
 # Installs the package, offers it as a handler for Windows executables without changing any
 # default application (DESKTOP_INTEGRATION §4), turns on 32-bit graphics drivers for games,
-# and checks that unprivileged user namespaces, which bubblewrap needs, are available.
+# checks that unprivileged user namespaces, which bubblewrap needs, are available, and can run
+# EasyPlay's background service (ADR-0022).
 self:
 {
   config,
@@ -88,6 +89,14 @@ in
       '';
     };
 
+    backgroundService.enable = mkEnableOption ''
+      EasyPlay's background service (ADR-0022) for every user with a graphical session: the
+      library stays loaded, so a Windows program opened from the file manager starts at
+      once and EasyPlay's window opens without a cold start. It costs about 20 MiB while no
+      window has been opened. Running games are not stopped when the service stops or
+      restarts. After upgrading the package, `systemctl --user restart easyplay` runs the
+      new version'';
+
     allowUnprivilegedUsernsClone = mkOption {
       type = types.bool;
       default = false;
@@ -150,6 +159,26 @@ in
               programs.easyplay.allowUnprivilegedUsernsClone = true.
             '';
     }
+
+    (mkIf cfg.backgroundService.enable {
+      systemd.user.services.easyplay = {
+        description = "EasyPlay in the background";
+        documentation = [ "man:easyplay(1)" ];
+        partOf = [ "graphical-session.target" ];
+        after = [ "graphical-session.target" ];
+        wantedBy = [ "graphical-session.target" ];
+        # The tools a session-started EasyPlay finds (xdg-open, xdg-mime, gio, …), not
+        # NixOS's minimal unit PATH; the package's wrapper adds bwrap and umu-run itself.
+        environment.PATH = lib.mkForce "/run/wrappers/bin:/etc/profiles/per-user/%u/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin";
+        serviceConfig = {
+          ExecStart = "${cfg.package}/bin/easyplay service";
+          Restart = "on-failure";
+          RestartSec = 5;
+          # Games run in the service's cgroup; stopping the service must not end them.
+          KillMode = "process";
+        };
+      };
+    })
 
     (mkIf cfg.allowUnprivilegedUsernsClone {
       boot.kernel.sysctl."kernel.unprivileged_userns_clone" = 1;

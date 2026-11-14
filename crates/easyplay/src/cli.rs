@@ -170,6 +170,11 @@ pub enum Command {
         #[command(subcommand)]
         command: RuntimesCommand,
     },
+    /// Keep EasyPlay running in the background so opened programs start at once.
+    ///
+    /// Usually started at login by the `easyplay.service` systemd user unit. Waits while an
+    /// EasyPlay window started on its own is open.
+    Service,
     /// Supervise one session (internal; started by EasyPlay itself).
     #[command(hide = true)]
     Supervise {

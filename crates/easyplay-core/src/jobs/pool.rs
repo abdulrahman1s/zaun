@@ -325,8 +325,13 @@ impl JobPool {
             (q.task)(Some(JobError::ShutDown));
         }
         let workers = std::mem::take(&mut *self.workers.lock());
+        let me = std::thread::current().id();
         for w in workers {
-            let _ = w.join();
+            // A job that drops the last owner of its own pool shuts it down from a worker;
+            // that worker cannot join itself and exits once its job returns.
+            if w.thread().id() != me {
+                let _ = w.join();
+            }
         }
     }
 }
@@ -546,6 +551,21 @@ mod tests {
         assert_eq!(late.try_take(), Some(Err(JobError::ShutDown)));
         assert_eq!(p.worker_count(), 0);
         p.shutdown();
+    }
+
+    #[test]
+    fn last_owner_dropped_inside_a_job() {
+        let p = Arc::new(pool(2));
+        let (go, wait) = mpsc::channel::<()>();
+        let owner = Arc::clone(&p);
+        let h = p.submit(JobPriority::Normal, L, move |_| {
+            wait.recv().unwrap();
+            drop(owner);
+            7
+        });
+        drop(p);
+        go.send(()).unwrap();
+        assert_eq!(h.wait_timeout(T), Some(Ok(7)));
     }
 
     #[test]

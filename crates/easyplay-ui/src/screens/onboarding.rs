@@ -21,6 +21,11 @@ use crate::vm::screens::OnboardingStep;
 use crate::widgets::button::{Button, Size, Variant};
 use crate::widgets::progress;
 
+/// The size of onboarding's own window on first launch. A compositor that marks windows
+/// tiled (niri with `prefer-no-csd`) ignores later resizes, so onboarding does not share
+/// the library's window.
+pub const WINDOW_SIZE: [f32; 2] = [720.0, 680.0];
+
 fn dots(ui: &mut Ui, step: OnboardingStep, total: usize) {
     let p = theme::theme(ui.ctx()).palette.clone();
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), space::S6), Sense::hover());
@@ -150,6 +155,10 @@ fn finish(state: &mut UiState, env: &mut Env<'_>, skipped: bool) {
     }
     state.onboarding = Default::default();
     state.nav.go_to(Route::Library);
+    if state.onboarding_window {
+        // The library opens in a full window of its own (`easyplay` binary, run_gui).
+        env.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
 }
 
 /// Show the screen.

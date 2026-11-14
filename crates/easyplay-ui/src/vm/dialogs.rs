@@ -155,6 +155,14 @@ impl DialogQueue {
         self.items.is_empty()
     }
 
+    /// The prompts waiting for an answer.
+    pub fn prompts(&self) -> impl Iterator<Item = &PromptRequest> {
+        self.items.iter().filter_map(|(_, d)| match d {
+            Dialog::Prompt(p) => Some(p),
+            _ => None,
+        })
+    }
+
     /// Drop prompts about `game` (the game was removed).
     pub fn forget_game(&mut self, game: GameId) {
         self.items

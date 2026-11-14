@@ -16,6 +16,7 @@ mod library_verbs;
 mod notify_watch;
 mod panic;
 mod run_gui;
+mod run_service;
 mod run_supervisor;
 mod runtime_verbs;
 mod sandbox_print;
@@ -39,7 +40,7 @@ fn role_of(cli: &Cli) -> ProcessRole {
     match cli.command {
         None => ProcessRole::Gui,
         Some(Command::GenerateAssets { .. }) => ProcessRole::Cli,
-        Some(Command::Open { .. }) => ProcessRole::Gui,
+        Some(Command::Open { .. } | Command::Service) => ProcessRole::Gui,
         Some(Command::Supervise { .. }) => ProcessRole::Supervisor,
         Some(_) => ProcessRole::Cli,
     }

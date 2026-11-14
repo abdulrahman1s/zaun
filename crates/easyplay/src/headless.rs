@@ -69,8 +69,9 @@ pub fn run(command: &Command) -> Result<u8, Error> {
         Command::Export { game, output } => library_verbs::export(game, output.as_deref()),
         Command::Import { file, exe } => library_verbs::import(file, exe),
         // Dispatched before reaching here.
-        Command::Open { .. } | Command::Supervise { .. } | Command::GenerateAssets { .. } => {
-            Err(Error::not_available("DESKTOP-002"))
-        }
+        Command::Open { .. }
+        | Command::Service
+        | Command::Supervise { .. }
+        | Command::GenerateAssets { .. } => Err(Error::not_available("DESKTOP-002")),
     }
 }

@@ -94,6 +94,39 @@ impl ServiceBackend {
         &self.handle
     }
 
+    /// While no window is open (the resident service): take the service's events, keep what
+    /// the next window must still show and drop the rest, so the queue stays small however
+    /// long the service runs unattended. See [`compact_unattended`].
+    pub fn settle_unattended(&self) -> Unattended {
+        let mut s = self.lock();
+        let mut queue = std::mem::take(&mut s.pending);
+        while let Ok(ev) = s.events.try_recv() {
+            drop(s);
+            let ui = self.map(ev);
+            s = self.lock();
+            queue.extend(ui);
+        }
+        let (kept, verdict) = compact_unattended(queue);
+        s.pending = kept;
+        verdict
+    }
+
+    /// No window can be opened: discard waiting setup sheets and cancel waiting prompts, so
+    /// their flows end instead of staying parked.
+    pub fn abandon_unattended(&self) {
+        let queue = std::mem::take(&mut self.lock().pending);
+        for ev in queue {
+            match ev {
+                UiEvent::SetupRequested { .. } => self.handle.send(Command::DiscardDraft),
+                UiEvent::Prompt(p) => self.handle.send(Command::AnswerPrompt {
+                    prompt: p.id,
+                    answer: easyplay_core::model::PromptAnswer::Cancel,
+                }),
+                _ => {}
+            }
+        }
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -733,9 +766,143 @@ impl Backend for ServiceBackend {
     }
 }
 
+/// What the events that arrived while no window was open ask for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Unattended {
+    /// A setup sheet or a prompt waits for an answer: a flow is parked until a window shows it.
+    pub needs_window: bool,
+    /// The service stopped.
+    pub quit: bool,
+}
+
+/// Toasts and failures kept for the next window (the newest ones).
+const UNATTENDED_KEEP: usize = 4;
+
+/// Reduce the events queued while no window is open to what a window opened later needs. A
+/// new window takes fresh snapshots, so snapshot notices go; nobody asked the answered
+/// queries; of a game's launch states only the latest counts, and a launch that ended
+/// normally needs nothing at all. Setup requests, prompts and the game to show stay; of
+/// toasts and failures the newest [`UNATTENDED_KEEP`] each.
+pub fn compact_unattended(queue: VecDeque<UiEvent>) -> (VecDeque<UiEvent>, Unattended) {
+    use easyplay_core::launch::LaunchState;
+    use easyplay_core::model::EndReason;
+
+    let mut verdict = Unattended::default();
+    let mut last_state: Vec<GameId> = Vec::new();
+    let mut toasts = 0;
+    let mut failures = 0;
+    let mut show_seen = false;
+    let mut kept: Vec<UiEvent> = Vec::new();
+    // Newest first, so "the latest" is the first one met.
+    for ev in queue.into_iter().rev() {
+        let keep = match &ev {
+            UiEvent::LibraryChanged
+            | UiEvent::PreferencesChanged
+            | UiEvent::HostChanged
+            | UiEvent::RuntimesChanged
+            | UiEvent::DiagnosticsChanged
+            | UiEvent::QueryResult { .. }
+            | UiEvent::ArtworkFailed { .. } => false,
+            UiEvent::QuitRequested => {
+                verdict.quit = true;
+                false
+            }
+            UiEvent::SetupRequested { .. } | UiEvent::Prompt(_) => {
+                verdict.needs_window = true;
+                true
+            }
+            UiEvent::LaunchProgress { game, state } => {
+                let first = !last_state.contains(game);
+                last_state.push(*game);
+                let quiet_end = matches!(
+                    state,
+                    LaunchState::Cancelled
+                        | LaunchState::Finished {
+                            reason: EndReason::Exited { .. } | EndReason::StoppedByUser,
+                        }
+                );
+                first && !quiet_end
+            }
+            UiEvent::ShowGame(_) => !std::mem::replace(&mut show_seen, true),
+            UiEvent::Toast(_) => {
+                toasts += 1;
+                toasts <= UNATTENDED_KEEP
+            }
+            UiEvent::Failure(_) => {
+                failures += 1;
+                failures <= UNATTENDED_KEEP
+            }
+        };
+        if keep {
+            kept.push(ev);
+        }
+    }
+    kept.reverse();
+    (kept.into(), verdict)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unattended_events_shrink_to_what_a_window_needs() {
+        use easyplay_core::ids::SessionId;
+        use easyplay_core::launch::LaunchState;
+        use easyplay_core::model::EndReason;
+
+        let (a, b) = (
+            GameId::from_uuid(uuid::Uuid::from_u128(1)),
+            GameId::from_uuid(uuid::Uuid::from_u128(2)),
+        );
+        let progress = |game, state| UiEvent::LaunchProgress { game, state };
+        let toast = |t: &str| {
+            UiEvent::Toast(ToastMsg {
+                text: t.to_owned(),
+                level: ToastLevel::Info,
+                undo: None,
+            })
+        };
+        let session = SessionId::from_uuid(uuid::Uuid::from_u128(3));
+        let mut q: VecDeque<UiEvent> = VecDeque::new();
+        q.push_back(UiEvent::LibraryChanged);
+        q.push_back(progress(a, LaunchState::Validating));
+        q.push_back(progress(b, LaunchState::Validating));
+        q.push_back(progress(a, LaunchState::Running { session }));
+        q.push_back(progress(
+            b,
+            LaunchState::Finished {
+                reason: EndReason::Exited { code: 0 },
+            },
+        ));
+        for i in 0..6 {
+            q.push_back(toast(&format!("t{i}")));
+        }
+        q.push_back(UiEvent::ShowGame(a));
+        q.push_back(UiEvent::ShowGame(b));
+        q.push_back(UiEvent::HostChanged);
+        let (kept, v) = compact_unattended(q);
+        assert_eq!(v, Unattended::default());
+        let expected: VecDeque<UiEvent> = [
+            progress(a, LaunchState::Running { session }),
+            toast("t2"),
+            toast("t3"),
+            toast("t4"),
+            toast("t5"),
+            UiEvent::ShowGame(b),
+        ]
+        .into();
+        assert_eq!(kept, expected);
+
+        // A parked flow needs a window; the service stopping ends the resident process.
+        let (_, v) = compact_unattended([UiEvent::QuitRequested].into());
+        assert!(v.quit && !v.needs_window);
+        let mut f = Error::new(ErrorCode::LibInvalidField);
+        f = f.with("detail", "x");
+        let (kept, v) = compact_unattended([UiEvent::Failure(describe(&f))].into());
+        assert_eq!(kept.len(), 1);
+        assert!(!v.needs_window);
+    }
 
     #[test]
     fn host_checks_name_problems_and_fixes() {

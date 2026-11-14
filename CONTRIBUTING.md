@@ -34,6 +34,35 @@ Without Nix: rustup (the toolchain file selects the version and targets), a C co
 | Update snapshots | `cargo insta review` |
 | Release build, checks and staged install tree | `scripts/build-release.sh` (`--tarball` for the release tarball) |
 
+## Checking a window on a real desktop
+
+Snapshot tests render the layout at a size the test chooses; they cannot show what size the
+compositor gives the window. A change to how a window opens (quick launch, onboarding, the
+library) is checked by running the binary on a real compositor, preferably a tiling one
+(ADR-0021):
+
+```sh
+R=/run/user/$(id -u)/ep-test         # short: the instance socket path must fit in 108 bytes
+S=$(mktemp -d)                        # throwaway library, settings and logs
+mkdir -p -m 700 "$R" "$S"/{cfg,data,cache,state}
+ln -s "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" "$R/"
+XDG_RUNTIME_DIR=$R EASYPLAY_CONFIG_DIR=$S/cfg EASYPLAY_DATA_DIR=$S/data \
+  EASYPLAY_CACHE_DIR=$S/cache EASYPLAY_STATE_DIR=$S/state \
+  target/debug/easyplay [open path/to/Game.exe] &
+niri msg --json windows               # is_floating and layout.window_size for that pid
+```
+
+- The private `XDG_RUNTIME_DIR` keeps the instance from handing over to an EasyPlay that is
+  already running; empty data folders start in onboarding. A runtime path that is too long
+  fails with a misleading `EP-FS-003` before any window opens.
+- Read the size from the compositor (`niri msg`, `swaymsg -t get_tree`, `hyprctl
+  clients`), not from a screenshot. `WAYLAND_DEBUG=1` shows the `configure` events and the
+  `set_min_size` / `set_max_size` requests, which is how ADR-0021 was found.
+- After closing a window, check `$S/state/crash` is empty: a crash during shutdown only
+  shows as a banner on the next start.
+- Sound checks fail in such an instance (no PipeWire socket in the private runtime
+  directory); that is expected.
+
 ## Rules enforced by the build
 
 - No `unsafe` outside `easyplay-init`, `core::session::sys` and `core::sandbox::fd`.

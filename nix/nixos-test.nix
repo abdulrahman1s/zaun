@@ -14,6 +14,7 @@ pkgs.testers.runNixOSTest {
     imports = [ self.nixosModules.default ];
 
     programs.easyplay.enable = true;
+    programs.easyplay.backgroundService.enable = true;
 
     users.users.alice = {
       isNormalUser = true;
@@ -60,6 +61,12 @@ pkgs.testers.runNixOSTest {
         assert "[Added Associations]" in mimeapps, mimeapps
         assert "application/x-ms-dos-executable=io.github.easyplay.EasyPlay.desktop" in mimeapps, mimeapps
         assert "[Default Applications]" not in mimeapps, mimeapps
+
+    with subtest("the background service is a user unit that leaves games running"):
+        unit = machine.succeed("cat /etc/systemd/user/easyplay.service")
+        assert "easyplay service" in unit, unit
+        assert "KillMode=process" in unit, unit
+        machine.succeed("test -e /etc/systemd/user/graphical-session.target.wants/easyplay.service")
 
     with subtest("32-bit graphics drivers are enabled"):
         machine.succeed("test -e /run/opengl-driver-32")

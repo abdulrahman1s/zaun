@@ -4,8 +4,10 @@
 //! *Open EasyPlay* grows the same window into the full layout. An unknown program opens the
 //! setup sheet, and the window grows to fit it.
 
+use std::path::Path;
 use std::time::Duration;
 
+use easyplay_core::library::LibrarySnapshot;
 use egui::{Align, CornerRadius, Key, Layout, Modifiers, Sense, Ui, ViewportCommand, vec2};
 
 use super::Env;
@@ -29,14 +31,37 @@ pub const ALREADY_CLOSE: Duration = Duration::from_secs(4);
 /// The size while the setup sheet is shown.
 pub const SETUP_SIZE: [f32; 2] = [720.0, 620.0];
 
+/// The size to open the window at for `path`: compact for a game in `library`, room for the
+/// setup sheet otherwise. A compositor that marks windows tiled (niri with `prefer-no-csd`)
+/// ignores a later resize, so the first size has to be right.
+pub fn window_size(library: &LibrarySnapshot, path: &Path) -> [f32; 2] {
+    if library.games.iter().any(|g| *g.primary_exe_path == *path) {
+        SIZE
+    } else {
+        SETUP_SIZE
+    }
+}
+
+/// Largest window the compact window may grow to; effectively unbounded.
+const MAX_SIZE: [f32; 2] = [16384.0, 16384.0];
+
+/// Lift the compact window's fixed size. Its minimum and maximum are both [`SIZE`], and on
+/// Wayland `Resizable(true)` alone leaves that maximum in place, so niri keeps the window
+/// at 420 × 150; the maximum is raised explicitly.
+fn unfix(env: &Env<'_>) {
+    env.ctx.send_viewport_cmd(ViewportCommand::Resizable(true));
+    env.ctx
+        .send_viewport_cmd(ViewportCommand::MaxInnerSize(MAX_SIZE.into()));
+    env.ctx
+        .send_viewport_cmd(ViewportCommand::MinInnerSize(layout::MIN_WINDOW.into()));
+}
+
 /// Switch to the full layout (same window, saved geometry).
 pub fn expand(state: &mut UiState, env: &Env<'_>) {
     if let Some(q) = &mut state.quick {
         q.expanded = true;
     }
-    env.ctx.send_viewport_cmd(ViewportCommand::Resizable(true));
-    env.ctx
-        .send_viewport_cmd(ViewportCommand::MinInnerSize(layout::MIN_WINDOW.into()));
+    unfix(env);
     env.ctx
         .send_viewport_cmd(ViewportCommand::InnerSize(layout::DEFAULT_WINDOW.into()));
     state.nav.go_to(Route::Library);
@@ -47,13 +72,17 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let theme = theme::theme(ui.ctx());
     let p = theme.palette.clone();
     let Some(q) = state.quick.clone() else { return };
-    // The setup sheet for an unknown program needs room.
-    if state.nav.top_overlay() == Some(Overlay::Setup) {
-        let size = ui.ctx().content_rect().size();
-        if size.x < SETUP_SIZE[0] {
-            env.ctx
-                .send_viewport_cmd(ViewportCommand::InnerSize(SETUP_SIZE.into()));
+    // The setup sheet for an unknown program needs room; grow once, not every frame.
+    if state.nav.top_overlay() == Some(Overlay::Setup)
+        && !q.grown
+        && ui.ctx().content_rect().width() < SETUP_SIZE[0]
+    {
+        if let Some(q) = &mut state.quick {
+            q.grown = true;
         }
+        unfix(env);
+        env.ctx
+            .send_viewport_cmd(ViewportCommand::InnerSize(SETUP_SIZE.into()));
     }
     let lib = env.bridge.library().clone();
     let game = q.game.and_then(|g| lib.get(g).cloned());

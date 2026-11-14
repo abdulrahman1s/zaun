@@ -95,6 +95,10 @@ pub type Waker = Arc<dyn Fn() + Send + Sync>;
 /// Receives the [`Waker`] once the window exists.
 pub type WakerSink = Box<dyn FnOnce(Waker) + Send>;
 
+/// Called as the window closes, with the activations it did not get to (the resident service
+/// opens a window for them later).
+pub type CloseSink = Box<dyn FnOnce(Vec<Activation>) + Send>;
+
 /// Everything the UI needs from the binary.
 pub struct UiDeps {
     /// The application service seam.
@@ -116,6 +120,9 @@ pub struct UiDeps {
     /// A program opened from the file manager: start in the quick-launch layout
     /// (SCREEN_SPECS §7). Empty for a normal start.
     pub open: Vec<std::path::PathBuf>,
+    /// The programs of [`UiDeps::open`] were already sent to the service (the resident
+    /// service does so before the window exists); the window only follows them.
+    pub open_sent: bool,
     /// Open the add-game picker once the window is up (`easyplay --add`).
     pub add_game: bool,
     /// Raise requests from other processes; the sender wakes the UI with the waker handed
@@ -132,6 +139,8 @@ pub struct UiDeps {
     /// Changes of [`UiDeps::system`]; the sender wakes the UI with the waker of
     /// [`UiDeps::on_waker`].
     pub system_changes: Option<Receiver<theme::SystemPrefs>>,
+    /// Called as the window closes.
+    pub on_close: Option<CloseSink>,
 }
 
 /// Whether `e` happened while creating winit's event loop (no display, client libraries
@@ -147,6 +156,7 @@ struct Shell {
     focus: Option<Arc<AtomicBool>>,
     /// When to ask for attention if focus did not arrive (seconds of `ctx` time).
     attention_at: Option<f64>,
+    on_close: Option<CloseSink>,
 }
 
 /// How long to wait for focus before requesting attention instead.
@@ -215,6 +225,14 @@ impl eframe::App for Shell {
 
     fn on_exit(&mut self, gl: Option<&eframe::glow::Context>) {
         eframe::App::on_exit(&mut self.app, gl);
+        if let Some(f) = self.on_close.take() {
+            let unread = self
+                .activations
+                .take()
+                .map(|rx| rx.try_iter().collect())
+                .unwrap_or_default();
+            f(unread);
+        }
     }
 }
 
@@ -260,8 +278,18 @@ pub fn native_options_on(
     }
 }
 
+/// Whether [`run`] shows onboarding in its own compact window: first launch, with nothing
+/// opened. The window closes when onboarding finishes; the caller then opens the library.
+pub fn opens_onboarding(deps: &UiDeps) -> bool {
+    deps.open.is_empty()
+        && !deps.add_game
+        && !deps.backend.is_preview()
+        && !deps.backend.preferences().onboarding.completed
+}
+
 /// Open the window and run until it closes.
 pub fn run(start: StartMode, deps: UiDeps) -> eframe::Result {
+    let onboarding = start == StartMode::Library && opens_onboarding(&deps);
     let UiDeps {
         backend,
         clock,
@@ -279,13 +307,25 @@ pub fn run(start: StartMode, deps: UiDeps) -> eframe::Result {
         display,
         system,
         system_changes,
+        open_sent,
+        on_close,
     } = deps;
     let mut options = native_options_on(&window, renderer, display);
-    if !open.is_empty() {
+    if let Some(path) = open.first() {
+        let size = screens::quick_launch::window_size(&backend.library(), path);
         options.viewport = options
             .viewport
-            .with_inner_size(screens::quick_launch::SIZE)
-            .with_min_inner_size(screens::quick_launch::SIZE)
+            .with_inner_size(size)
+            .with_min_inner_size(size)
+            .with_resizable(false)
+            .with_maximized(false)
+            .with_title(strings::APP_NAME);
+    } else if onboarding {
+        let size = screens::onboarding::WINDOW_SIZE;
+        options.viewport = options
+            .viewport
+            .with_inner_size(size)
+            .with_min_inner_size(size)
             .with_resizable(false)
             .with_maximized(false)
             .with_title(strings::APP_NAME);
@@ -306,11 +346,17 @@ pub fn run(start: StartMode, deps: UiDeps) -> eframe::Result {
                     c.request_repaint();
                 })))
             }));
-            if let Some(store) = window_store {
+            // The compact onboarding window's size is not the library's.
+            if let Some(store) = window_store.filter(|_| !onboarding) {
                 app = app.with_window_store(store, window);
             }
+            app.state.onboarding_window = onboarding;
             if let Some(path) = open.into_iter().next() {
-                app = app.quick_launch(path);
+                app = if open_sent {
+                    app.follow_quick_launch(path)
+                } else {
+                    app.quick_launch(path)
+                };
             }
             if add_game {
                 app.state.picks.push(input::picker::PickPurpose::AddGame);
@@ -332,6 +378,7 @@ pub fn run(start: StartMode, deps: UiDeps) -> eframe::Result {
                 activations,
                 focus,
                 attention_at: None,
+                on_close,
             }))
         }),
     )
