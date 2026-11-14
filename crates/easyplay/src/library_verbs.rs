@@ -61,6 +61,7 @@ fn print_user_error(u: &UserError) {
 }
 
 /// Pump the headless service until `done` says the flow ended; returns its exit code.
+#[allow(clippy::print_stderr)]
 fn drive(
     svc: &mut AppService,
     events: &std::sync::mpsc::Receiver<Event>,
@@ -75,6 +76,11 @@ fn drive(
             }
         }
         if clock.mono().saturating_duration_since(start) > FLOW_DEADLINE {
+            // Never a silent failure: the caller would have nothing to go on.
+            eprintln!(
+                "easyplay: gave up after {} s without an answer from the background work",
+                FLOW_DEADLINE.as_secs()
+            );
             return exit::FAILED;
         }
         svc.pump(Duration::from_millis(200));

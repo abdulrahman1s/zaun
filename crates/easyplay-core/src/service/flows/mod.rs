@@ -96,6 +96,5 @@ impl AppService {
             c @ Continuation::Locate { .. } => self.resume_locate(c, &answer),
             Continuation::Nothing => {}
         }
-        let _ = Event::LibraryChanged;
     }
 }

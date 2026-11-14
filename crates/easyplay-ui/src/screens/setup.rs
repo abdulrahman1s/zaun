@@ -517,14 +517,17 @@ pub fn show(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) {
             set_preset(v, env, BasePreset::ALL[k]);
         }
     }
-    // The running game closes the progress view on its own.
+    // The progress view closes on its own once the game runs, and when its launch is over
+    // with nothing to show here (cancelled, or the game already ended); a failure stays.
     if let Some(SetupPhase::Launching { game: Some(g) }) =
         state.setup.as_ref().map(|v| v.phase.clone())
-        && state
-            .launches
-            .games
-            .get(&g)
-            .is_some_and(|l| matches!(l.state, easyplay_core::launch::LaunchState::Running { .. }))
+        && state.launches.games.get(&g).is_some_and(|l| {
+            use easyplay_core::launch::LaunchState;
+            matches!(
+                l.state,
+                LaunchState::Running { .. } | LaunchState::Cancelled | LaunchState::Finished { .. }
+            )
+        })
     {
         crate::widgets::modal::closed(ctx, id);
         state.setup = None;

@@ -18,7 +18,9 @@ use easyplay_core::launch::LaunchState;
 use easyplay_core::model::{PromptAnswer, SaveDataLocation, Tool, WorkingDir};
 use egui::{Context, Ui};
 
-use crate::bridge::{OpenOrigin, QueryPayload, ToastLevel, UiBridge, UiCommand, UiEvent};
+use crate::bridge::{
+    MAX_EVENTS_PER_FRAME, OpenOrigin, QueryPayload, ToastLevel, UiBridge, UiCommand, UiEvent,
+};
 use crate::input::dnd::DndState;
 use crate::input::gamepad::{self, NavIntent, PadGate, PadInput, PadNav};
 use crate::input::picker::{NoPicker, PickPurpose, PickResult, Picker};
@@ -562,7 +564,12 @@ impl EasyPlayApp {
         {
             self.set_system_prefs(ctx, sp);
         }
-        for ev in self.bridge.drain() {
+        let events = self.bridge.drain();
+        if events.len() >= MAX_EVENTS_PER_FRAME {
+            // The rest waits in the backend, and nothing else would wake the UI for it.
+            ctx.request_repaint();
+        }
+        for ev in events {
             self.on_event(ctx, ev);
         }
         while let Some(r) = self.picker.as_ref().and_then(|p| p.try_result()) {
@@ -595,19 +602,25 @@ impl EasyPlayApp {
             }
             UiEvent::Prompt(p) => s.show_dialog(Dialog::Prompt(p)),
             UiEvent::LaunchProgress { game, state } => {
+                // The followed program is the game's main one, or another program in its
+                // folder (the snapshot lists only the main one).
                 if let Some(q) = &mut s.quick
                     && q.game.is_none()
-                    && self
-                        .bridge
-                        .library()
-                        .get(game)
-                        .is_some_and(|g| *g.primary_exe_path == *q.path)
+                    && self.bridge.library().get(game).is_some_and(|g| {
+                        *g.primary_exe_path == *q.path
+                            || g.root.as_deref().is_some_and(|r| q.path.starts_with(r))
+                    })
                 {
                     q.game = Some(game);
                 }
+                // Running, or already over without a failure (a program that ends at once
+                // never shows as running): the window has done its part and closes.
                 if let Some(q) = &mut s.quick
                     && q.game == Some(game)
-                    && matches!(state, LaunchState::Running { .. })
+                    && matches!(
+                        state,
+                        LaunchState::Running { .. } | LaunchState::Finished { .. }
+                    )
                 {
                     q.running_at = Some(mono);
                     ctx.request_repaint_after(Duration::from_millis(600));
@@ -763,21 +776,30 @@ impl EasyPlayApp {
                 d.activity.history.extend(h.rows);
                 d.activity.has_more = h.has_more;
                 d.activity.next_page += 1;
+            } else {
+                // Not asked again every frame: *Load more* tries again.
+                d.activity.history_failed = true;
+                d.activity.has_more = true;
             }
             return;
         }
         if d.size_q == Some(id) {
             d.size_q = None;
-            if let QueryPayload::PrefixSize(n) = payload {
-                d.prefix_size = AsyncValue::Ready(n);
+            match payload {
+                QueryPayload::PrefixSize(n) => d.prefix_size = AsyncValue::Ready(n),
+                QueryPayload::Failed(e) => d.prefix_size = AsyncValue::Failed(e.message),
+                _ => {}
             }
             return;
         }
         if d.fixes_q == Some(id) {
             d.fixes_q = None;
-            if let QueryPayload::Fixes(f) = payload {
-                d.fixes = AsyncValue::Ready(f);
-            }
+            // An answer either way: an unanswered search would be sent again every frame.
+            d.fixes = match payload {
+                QueryPayload::Fixes(f) => AsyncValue::Ready(f),
+                QueryPayload::Failed(e) => AsyncValue::Failed(e.message),
+                _ => AsyncValue::Ready(Vec::new()),
+            };
             return;
         }
         let st = &mut s.stats;
@@ -818,6 +840,9 @@ impl EasyPlayApp {
                 st.history.extend(h.rows);
                 st.history_more = h.has_more;
                 st.history_page += 1;
+            } else {
+                // The sheet asks again when it is opened next, not every frame.
+                st.history_more = false;
             }
             return;
         }

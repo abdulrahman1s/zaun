@@ -54,6 +54,45 @@ fn returning_to_statistics_shows_cached_results_in_the_first_frame() {
     )));
 }
 
+/// A failing overview is asked for once; *Retry* asks again.
+#[test]
+fn failed_statistics_wait_for_retry() {
+    use easyplay_core::stats::StatsRequest;
+    use easyplay_ui::bridge::{QueryPayload, UiEvent};
+    let lib = settled_library();
+    let game = lib.games[0].id;
+    let mut r = rig_with(lib, Route::Statistics, big(), ThemeChoice::Dark);
+    // Answer every query with a failure; count the overview requests.
+    let fail_all = |r: &mut Rig| -> usize {
+        let sent = r.fake.sent();
+        r.fake.clear_sent();
+        let mut overviews = 0;
+        for c in sent {
+            let UiCommand::QueryStats { request, reply_to } = c else {
+                continue;
+            };
+            if matches!(request, StatsRequest::LibraryOverview { .. }) {
+                overviews += 1;
+            }
+            r.fake.push_event(UiEvent::QueryResult {
+                id: reply_to,
+                payload: QueryPayload::Failed(demo::launch_failure(game, "X")),
+            });
+        }
+        overviews
+    };
+    let mut asked = 0;
+    for _ in 0..6 {
+        r.h.run_steps(2);
+        asked += fail_all(&mut r);
+    }
+    assert_eq!(asked, 1);
+    r.h.get_by_label("Couldn't load statistics");
+    r.h.get_by_role_and_label(Role::Button, "Retry").click();
+    r.h.run_steps(2);
+    assert_eq!(fail_all(&mut r), 1);
+}
+
 #[test]
 fn chart_bars_move_with_arrow_keys_and_the_table_toggles() {
     let mut r = at(Route::Statistics, big(), ThemeChoice::Dark);

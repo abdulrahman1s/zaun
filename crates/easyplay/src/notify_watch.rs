@@ -1,14 +1,12 @@
-//! Desktop notifications of the GUI process (DESKTOP_INTEGRATION §7): a thread watches the
-//! open sessions in the snapshot hub; when one ends, its row is read (read-only) and a crash,
-//! a failure to start or (when enabled) a normal end is announced while the window is not
-//! focused. The supervisor sends nothing.
+//! Desktop notifications of the GUI process (DESKTOP_INTEGRATION §7): a thread follows the
+//! open sessions in the snapshot hub, asleep until they are published again; when one ends,
+//! its row is read (read-only) and a crash, a failure to start or (when enabled) a normal
+//! end is announced while the window is not focused. The supervisor sends nothing.
 
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use std::time::Duration;
 
 use easyplay_core::desktop::notify::{self, Notifier, NotifyEvent};
 use easyplay_core::ids::SessionId;
@@ -36,6 +34,7 @@ pub fn event_for(s: &Session) -> Option<NotifyEvent> {
 /// The running watcher; stops when dropped.
 pub struct NotifyWatch {
     stop: Arc<AtomicBool>,
+    hub: Arc<SnapshotHub>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -48,19 +47,28 @@ impl NotifyWatch {
         notifier: Arc<dyn Notifier>,
     ) -> Option<Self> {
         let stop = Arc::new(AtomicBool::new(false));
-        let s2 = Arc::clone(&stop);
+        let (s2, h2) = (Arc::clone(&stop), Arc::clone(&hub));
         let thread = std::thread::Builder::new()
             .name("notify-watch".into())
             .spawn(move || {
-                let mut open: BTreeMap<SessionId, ()> = BTreeMap::new();
-                while !s2.load(Ordering::Relaxed) {
-                    let now = hub.sessions.load();
-                    let ended: Vec<SessionId> = open
-                        .keys()
-                        .filter(|id| now.get(**id).is_none())
-                        .copied()
+                let hub = h2;
+                let mut seen = hub.sessions.load();
+                loop {
+                    // Asleep until the service publishes sessions again (or the watcher is
+                    // dropped): nothing wakes up while nothing happens.
+                    let now = hub.sessions.wait_until(|current| {
+                        s2.load(Ordering::Relaxed) || !Arc::ptr_eq(current, &seen)
+                    });
+                    if s2.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let ended: Vec<SessionId> = seen
+                        .sessions
+                        .iter()
+                        .map(|s| s.id)
+                        .filter(|id| now.get(*id).is_none())
                         .collect();
-                    open = now.sessions.iter().map(|s| (s.id, ())).collect();
+                    seen = now;
                     if !ended.is_empty()
                         && let Ok(mut db) = Db::open_ro(&db_file)
                     {
@@ -77,12 +85,12 @@ impl NotifyWatch {
                             }
                         }
                     }
-                    std::thread::sleep(Duration::from_millis(500));
                 }
             })
             .ok()?;
         Some(Self {
             stop,
+            hub,
             thread: Some(thread),
         })
     }
@@ -91,6 +99,7 @@ impl NotifyWatch {
 impl Drop for NotifyWatch {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        self.hub.sessions.wake();
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }

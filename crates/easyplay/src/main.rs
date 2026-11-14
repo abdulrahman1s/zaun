@@ -38,9 +38,7 @@ use crate::cli::{Cli, Command};
 
 fn role_of(cli: &Cli) -> ProcessRole {
     match cli.command {
-        None => ProcessRole::Gui,
-        Some(Command::GenerateAssets { .. }) => ProcessRole::Cli,
-        Some(Command::Open { .. } | Command::Service) => ProcessRole::Gui,
+        None | Some(Command::Open { .. } | Command::Service) => ProcessRole::Gui,
         Some(Command::Supervise { .. }) => ProcessRole::Supervisor,
         Some(_) => ProcessRole::Cli,
     }

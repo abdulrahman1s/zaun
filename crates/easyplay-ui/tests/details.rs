@@ -417,6 +417,90 @@ fn compatibility_tab_measures_storage_and_offers_reset() {
     );
 }
 
+/// The searches sent since the last call, each answered as the service answers a query it
+/// cannot run.
+fn fail_fix_searches(r: &mut Rig, id: easyplay_core::ids::GameId) -> usize {
+    let sent = r.fake.sent();
+    r.fake.clear_sent();
+    let mut n = 0;
+    for c in sent {
+        if let UiCommand::SearchFixes { reply_to, .. } = c {
+            n += 1;
+            r.fake.push_event(UiEvent::QueryResult {
+                id: reply_to,
+                payload: QueryPayload::Failed(demo::launch_failure(id, "Lantern Keep")),
+            });
+        }
+    }
+    n
+}
+
+/// A search that cannot be answered is still an answer: it is shown, the field keeps what
+/// is typed, and the search is not sent again with the game's name on every frame.
+#[test]
+fn a_fix_search_that_fails_is_shown_and_not_repeated() {
+    let (mut r, id) = page(
+        "Lantern Keep",
+        DetailsTab::Compatibility,
+        tall(),
+        ThemeChoice::Dark,
+    );
+    r.h.state_mut()
+        .state
+        .nav
+        .open(easyplay_ui::route::Overlay::FixPicker(id));
+    r.h.run_steps(2);
+    assert_eq!(fail_fix_searches(&mut r, id), 1);
+    r.h.run_steps(4);
+    r.h.get_by_label_contains("that folder can't be found");
+    assert_eq!(fail_fix_searches(&mut r, id), 0);
+    let field = r.h.get_by_label("Search by title, store or ID");
+    field.focus();
+    field.type_text(" 2");
+    r.h.run_steps(2);
+    assert!(fail_fix_searches(&mut r, id) >= 1);
+    r.h.run_steps(4);
+    assert_eq!(r.h.state().state.details.fix_search, "Lantern Keep 2");
+    assert_eq!(fail_fix_searches(&mut r, id), 0);
+}
+
+/// A failed page of the session history is not asked for again on every frame.
+#[test]
+fn a_failed_history_page_is_not_requested_every_frame() {
+    let lib = settled_library();
+    let id = lib
+        .games
+        .iter()
+        .find(|g| g.session_count > 0)
+        .expect("a played sample game")
+        .id;
+    let mut r = rig_with(lib, Route::Game(id), big(), ThemeChoice::Dark);
+    r.h.state_mut().state.details.tab = DetailsTab::Activity;
+    let mut asked = 0;
+    for _ in 0..6 {
+        r.h.run_steps(2);
+        let sent = r.fake.sent();
+        r.fake.clear_sent();
+        for c in sent {
+            let UiCommand::QueryStats { request, reply_to } = c else {
+                continue;
+            };
+            if matches!(
+                request,
+                easyplay_core::stats::StatsRequest::SessionHistory { .. }
+            ) {
+                asked += 1;
+            }
+            r.fake.push_event(UiEvent::QueryResult {
+                id: reply_to,
+                payload: QueryPayload::Failed(demo::launch_failure(id, "X")),
+            });
+        }
+    }
+    assert_eq!(asked, 1);
+    assert!(r.h.state().state.details.activity.history_failed);
+}
+
 // ---- Snapshots ---------------------------------------------------------------------------
 
 fn snap(name: &str, game: &str, tab: DetailsTab, size: Vec2, choice: ThemeChoice) {

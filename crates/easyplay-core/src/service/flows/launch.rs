@@ -75,6 +75,18 @@ fn activity_of(s: &crate::model::Session) -> Activity {
 }
 
 impl AppService {
+    /// The launch stopped to ask a question. For the UI it is over: an answer that goes on
+    /// starts a new launch, and without this the game would show its last phase for good.
+    fn launch_parked(&mut self, game: GameId, launch: LaunchId) {
+        self.set_activity(game, Activity::Idle);
+        self.publish_library();
+        self.emit(Event::LaunchProgress {
+            game,
+            launch,
+            state: LaunchState::Cancelled,
+        });
+    }
+
     fn launch_failed(&mut self, game: GameId, launch: LaunchId, err: &Error) {
         tracing::info!(game = %game, code = err.code.as_str(), "launch failed: {err}");
         let u = self.describe(err, Some(game));
@@ -215,8 +227,7 @@ impl AppService {
                 self.launch_failed(d.game, d.launch, &not_installed(&need));
             }
             Err(LaunchError::Prompt(LaunchPrompt::ExeChanged { size, mtime_ns })) => {
-                self.set_activity(d.game, Activity::Idle);
-                self.publish_library();
+                self.launch_parked(d.game, d.launch);
                 let Ok(game) = self.lib.game(d.game) else {
                     return;
                 };
@@ -259,8 +270,7 @@ impl AppService {
                     ErrorCode::RtNoLongerInstalled | ErrorCode::RtUnresolvable
                 ) =>
             {
-                self.set_activity(d.game, Activity::Idle);
-                self.publish_library();
+                self.launch_parked(d.game, d.launch);
                 let reference = self
                     .lib
                     .game(d.game)

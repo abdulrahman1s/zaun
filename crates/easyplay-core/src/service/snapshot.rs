@@ -1,6 +1,6 @@
 //! Immutable snapshots shared by `Arc` between the AppService and the UI (ARCHITECTURE §6).
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 use crate::config::Preferences;
 use crate::host::HostFacts;
@@ -10,9 +10,11 @@ use crate::model::Session;
 use crate::runtime::RuntimeCatalog;
 
 /// `Mutex<Arc<T>>`: `load` copies the pointer, `store` replaces it. The lock is held for a
-/// pointer copy only, so the UI thread never waits on the service.
+/// pointer copy only, so the UI thread never waits on the service. A watcher thread can
+/// sleep until the value changes ([`Swap::wait_until`]) instead of polling it.
 pub struct Swap<T> {
     inner: Mutex<Arc<T>>,
+    changed: Condvar,
 }
 
 impl<T> Swap<T> {
@@ -20,6 +22,7 @@ impl<T> Swap<T> {
     pub fn new(value: T) -> Self {
         Self {
             inner: Mutex::new(Arc::new(value)),
+            changed: Condvar::new(),
         }
     }
 
@@ -31,6 +34,27 @@ impl<T> Swap<T> {
     /// Replace the value.
     pub fn store(&self, value: Arc<T>) {
         *self.inner.lock().unwrap_or_else(PoisonError::into_inner) = value;
+        self.changed.notify_all();
+    }
+
+    /// Block until `done` holds for the current value and return that value. `done` is
+    /// checked now, after every [`Swap::store`] and after every [`Swap::wake`]; it runs
+    /// under the cell's lock, so it must be quick. For watcher threads, never the UI thread.
+    pub fn wait_until(&self, mut done: impl FnMut(&Arc<T>) -> bool) -> Arc<T> {
+        let guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let guard = self
+            .changed
+            .wait_while(guard, |current| !done(current))
+            .unwrap_or_else(PoisonError::into_inner);
+        Arc::clone(&guard)
+    }
+
+    /// Make waiters check their condition again: something it reads besides the value
+    /// changed (a stop flag).
+    pub fn wake(&self) {
+        // Through the lock, so a waiter between its check and its sleep is not missed.
+        drop(self.inner.lock().unwrap_or_else(PoisonError::into_inner));
+        self.changed.notify_all();
     }
 }
 
@@ -69,6 +93,9 @@ impl ActiveSessions {
 
 /// Host facts once probed (`None` until the first probe finished).
 pub type HostSnapshot = Option<HostFacts>;
+
+/// Compatibility layers and runtimes as last scanned.
+pub type RuntimesSnapshot = RuntimeCatalog;
 
 /// Why the library is read-only (ERROR_HANDLING §5).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -119,7 +146,7 @@ pub struct SnapshotHub {
     /// Open sessions.
     pub sessions: Swap<ActiveSessions>,
     /// Compatibility layers and runtimes.
-    pub runtimes: Swap<RuntimeCatalog>,
+    pub runtimes: Swap<RuntimesSnapshot>,
     /// Preferences.
     pub prefs: Swap<Preferences>,
     /// Host facts.
@@ -156,5 +183,26 @@ mod tests {
         s.store(Arc::new(2));
         assert_eq!(*old, 1);
         assert_eq!(*s.load(), 2);
+    }
+
+    #[test]
+    fn waiters_sleep_until_a_store_or_a_wake() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let s = Arc::new(Swap::new(1));
+        // Already true: no waiting.
+        assert_eq!(*s.wait_until(|v| **v == 1), 1);
+        let (s2, seen) = (Arc::clone(&s), s.load());
+        let waiter = std::thread::spawn(move || *s2.wait_until(|v| !Arc::ptr_eq(v, &seen)));
+        s.store(Arc::new(2));
+        assert_eq!(waiter.join().unwrap(), 2);
+        // A condition outside the value needs `wake`.
+        let stop = Arc::new(AtomicBool::new(false));
+        let (s2, stop2) = (Arc::clone(&s), Arc::clone(&stop));
+        let waiter = std::thread::spawn(move || {
+            s2.wait_until(|_| stop2.load(Ordering::SeqCst));
+        });
+        stop.store(true, Ordering::SeqCst);
+        s.wake();
+        waiter.join().unwrap();
     }
 }

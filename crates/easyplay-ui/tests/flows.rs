@@ -427,6 +427,141 @@ fn quick_launch_opens_the_program_and_closes_after_running() {
     assert!(closed);
 }
 
+fn closes(r: &Rig) -> bool {
+    r.h.output()
+        .viewport_output
+        .values()
+        .any(|v| v.commands.contains(&egui::ViewportCommand::Close))
+}
+
+/// A game has more programs than its main one; the snapshot lists only that one.
+#[test]
+fn quick_launch_follows_another_program_in_the_game_folder() {
+    let lib = settled_library();
+    let g = lib
+        .games
+        .iter()
+        .find(|g| g.root.is_some())
+        .expect("a sample game with a folder")
+        .clone();
+    let other = g.root.as_deref().unwrap().join("bin/Launcher.exe");
+    assert_ne!(*other, *g.primary_exe_path);
+    let mut r = rig_app(
+        FakeBackend::new(lib),
+        Route::Library,
+        Vec2::new(420.0, 150.0),
+        ThemeChoice::Dark,
+        move |a| a.follow_quick_launch(other),
+    );
+    r.h.run_steps(2);
+    r.fake.push_event(UiEvent::LaunchProgress {
+        game: g.id,
+        state: LaunchState::Running {
+            session: easyplay_core::ids::SessionId::from_uuid(uuid::Uuid::from_u128(1)),
+        },
+    });
+    r.h.run_steps(2);
+    assert_eq!(r.h.state().state.quick.as_ref().unwrap().game, Some(g.id));
+    r.clock.advance(Duration::from_millis(700));
+    r.h.step();
+    assert!(closes(&r));
+}
+
+/// A program that ends at once never shows as running; the window still closes.
+#[test]
+fn quick_launch_closes_when_the_game_already_ended() {
+    let lib = settled_library();
+    let g = lib.games[0].clone();
+    let path = g.primary_exe_path.to_path_buf();
+    let mut r = rig_app(
+        FakeBackend::new(lib),
+        Route::Library,
+        Vec2::new(420.0, 150.0),
+        ThemeChoice::Dark,
+        move |a| a.follow_quick_launch(path),
+    );
+    r.fake.push_event(UiEvent::LaunchProgress {
+        game: g.id,
+        state: LaunchState::Finished {
+            reason: easyplay_core::model::EndReason::Exited { code: 0 },
+        },
+    });
+    r.h.run_steps(2);
+    r.clock.advance(Duration::from_millis(700));
+    r.h.step();
+    assert!(closes(&r));
+}
+
+/// Nothing is in progress after *Cancel* (or a launch that stopped to ask a question).
+#[test]
+fn a_cancelled_quick_launch_shows_no_progress() {
+    let lib = settled_library();
+    let g = lib.games[0].clone();
+    let path = g.primary_exe_path.to_path_buf();
+    let mut r = rig_app(
+        FakeBackend::new(lib),
+        Route::Library,
+        Vec2::new(420.0, 150.0),
+        ThemeChoice::Dark,
+        move |a| a.follow_quick_launch(path),
+    );
+    r.fake.push_event(UiEvent::LaunchProgress {
+        game: g.id,
+        state: LaunchState::Validating,
+    });
+    r.h.run_steps(3);
+    r.h.get_by_role_and_label(Role::ProgressIndicator, "Launch progress");
+    r.fake.push_event(UiEvent::LaunchProgress {
+        game: g.id,
+        state: LaunchState::Cancelled,
+    });
+    r.h.run_steps(3);
+    r.h.get_by_label("Cancelled");
+    assert!(
+        r.h.query_by_role_and_label(Role::ProgressIndicator, "Launch progress")
+            .is_none()
+    );
+    assert!(!closes(&r));
+}
+
+/// *Play* in the setup sheet shows the launch; a launch that is over without a failure
+/// leaves nothing to show, so the sheet closes instead of staying empty.
+#[test]
+fn the_setup_sheet_closes_when_its_launch_is_cancelled() {
+    let mut r = rig(Route::Library);
+    r.h.run();
+    request_setup(&r, EXE, SetupOrigin::FileManager);
+    r.h.run();
+    r.h.key_press(Key::Enter);
+    r.h.run();
+    let lib = r.h.state().bridge().library().clone();
+    let mut games = lib.games.clone();
+    let mut g = games[0].clone();
+    g.id = easyplay_core::ids::GameId::from_uuid(uuid::Uuid::from_u128(0xCE1E));
+    g.name = "Celeste".into();
+    g.primary_exe_path = std::sync::Arc::from(Path::new(EXE));
+    games.push(g.clone());
+    r.fake.publish_library(easyplay_ui::bridge::library_from(
+        games,
+        demo::sample_tags(),
+        1,
+        now(),
+    ));
+    r.fake.push_event(UiEvent::LaunchProgress {
+        game: g.id,
+        state: LaunchState::Validating,
+    });
+    r.h.run_steps(3);
+    assert!(r.h.state().state.setup.is_some());
+    r.fake.push_event(UiEvent::LaunchProgress {
+        game: g.id,
+        state: LaunchState::Cancelled,
+    });
+    r.h.run_steps(3);
+    assert!(r.h.state().state.setup.is_none());
+    assert!(r.h.state().state.nav.overlays().is_empty());
+}
+
 // ---- Snapshots ---------------------------------------------------------------------------
 
 #[test]

@@ -455,7 +455,8 @@ impl Drop for InstanceServer {
 pub trait InstanceTransport {
     /// Whether a primary instance answers `ping` within [`PING_TIMEOUT`].
     fn ping(&self) -> bool;
-    /// Send `request`; streamed events go to `on_event`. Errors mean "not delivered".
+    /// Send `request`; streamed events go to `on_event`. Errors mean "not delivered", or
+    /// that a stream broke before its final event (the instance went away).
     fn send(
         &self,
         request: &Request,
@@ -519,16 +520,14 @@ impl InstanceTransport for SocketTransport {
         if resp.ok && streams {
             // A game session may run for hours.
             let _ = s.set_read_timeout(None);
-            while let Ok(line) = read_line(&mut r) {
-                match serde_json::from_slice::<StreamEvent>(&line) {
-                    Ok(ev) => {
-                        let end = matches!(ev, StreamEvent::Ended { .. });
-                        on_event(&ev);
-                        if end {
-                            break;
-                        }
-                    }
-                    Err(e) => return Err(unresponsive(e)),
+            loop {
+                // The instance closing is not the session ending: the game runs on.
+                let line = read_line(&mut r).map_err(unresponsive)?;
+                let ev: StreamEvent = serde_json::from_slice(&line).map_err(unresponsive)?;
+                let end = matches!(ev, StreamEvent::Ended { .. });
+                on_event(&ev);
+                if end {
+                    break;
                 }
             }
         }

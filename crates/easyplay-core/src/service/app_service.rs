@@ -682,12 +682,9 @@ impl AppService {
 
     /// Post a message to the loop from a job.
     pub(super) fn poster(&self) -> impl Fn(Internal) + Send + Sync + 'static {
-        let tx = Mutex::new(self.tx.clone());
+        let tx = self.tx.clone();
         move |i| {
-            let _ = tx
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .send(Msg::Internal(i));
+            let _ = tx.send(Msg::Internal(i));
         }
     }
 

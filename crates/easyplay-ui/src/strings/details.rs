@@ -463,6 +463,8 @@ pub const PROTON_LOG_HINT: &str = "Large files; turn on only to report a problem
 pub const STORAGE: &str = "Private Windows storage";
 /// Size placeholder.
 pub const CALCULATING: &str = "Calculating…";
+/// The size could not be measured.
+pub const SIZE_UNKNOWN: &str = "Size unknown";
 /// Button.
 pub const OPEN_FOLDER: &str = "Open folder";
 /// Button.

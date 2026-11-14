@@ -67,6 +67,19 @@ pub(super) fn convert_metadata(md: &fs::Metadata) -> Metadata {
     }
 }
 
+/// The type of a listed entry, or `None` when the entry is gone again. A directory can
+/// change while it is listed; `/proc` lists a process that exits at that moment without a
+/// type, and looking it up then finds nothing. Such an entry is not in the directory any
+/// more: failing the whole listing for it would, for one, empty the supervisor's process
+/// lists whenever some unrelated process ends at the wrong time.
+pub(super) fn listed_type(looked_up: io::Result<fs::FileType>) -> io::Result<Option<fs::FileType>> {
+    match looked_up {
+        Ok(ft) => Ok(Some(ft)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 fn file_type_of(ft: fs::FileType) -> FileType {
     use std::os::unix::fs::FileTypeExt;
     if ft.is_symlink() {
@@ -172,9 +185,11 @@ impl Fs for RealFs {
         let mut out = Vec::new();
         for entry in iter {
             let entry = entry.map_err(|e| FsError::from_io(FsOp::ReadDir, path, e))?;
-            let ft = entry
-                .file_type()
-                .map_err(|e| FsError::from_io(FsOp::ReadDir, entry.path(), e))?;
+            let Some(ft) = listed_type(entry.file_type())
+                .map_err(|e| FsError::from_io(FsOp::ReadDir, entry.path(), e))?
+            else {
+                continue;
+            };
             out.push(DirEntry {
                 name: entry.file_name(),
                 path: entry.path(),

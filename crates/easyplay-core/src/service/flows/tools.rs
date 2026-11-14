@@ -190,6 +190,13 @@ impl AppService {
         }
         self.set_activity(game, crate::model::Activity::Idle);
         self.publish_library();
+        // "Stop and remove" of a game that was still starting; with a session, its end
+        // removes the game (`on_sessions`).
+        if result.is_none()
+            && let Some(options) = self.remove_after_stop.remove(&game)
+        {
+            self.remove_game(game, options);
+        }
         true
     }
 }

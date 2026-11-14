@@ -35,10 +35,10 @@ use easyplay_testkit::TestEnv;
 use easyplay_testkit::fakes::FakeLauncher;
 use easyplay_testkit::fixtures::{games, hosts, pe};
 
-/// A runtime service whose every resolution needs a provision.
-struct NeedsSlr(Arc<JobPool>);
+/// A runtime service with an empty catalogue whose every resolution is the same.
+struct FixedRuntimes(Arc<JobPool>, Resolution);
 
-impl RuntimeService for NeedsSlr {
+impl RuntimeService for FixedRuntimes {
     fn catalog(&self) -> Arc<RuntimeCatalog> {
         Arc::new(RuntimeCatalog::default())
     }
@@ -49,11 +49,16 @@ impl RuntimeService for NeedsSlr {
             })
     }
     fn resolve(&self, _r: &RuntimeRef, _g: Option<&Game>) -> Resolution {
-        Resolution::NeedsProvision(ProvisionNeed::Slr {
-            variant: SlrVariant::Steamrt3,
-            build: RuntimeName::new("UMU-Proton-10.0-4").unwrap(),
-        })
+        self.1.clone()
     }
+}
+
+/// Every resolution needs a provision.
+fn needs_slr() -> Resolution {
+    Resolution::NeedsProvision(ProvisionNeed::Slr {
+        variant: SlrVariant::Steamrt3,
+        build: RuntimeName::new("UMU-Proton-10.0-4").unwrap(),
+    })
 }
 
 struct World {
@@ -63,7 +68,7 @@ struct World {
     launcher: Arc<FakeLauncher>,
 }
 
-fn deps(env: &TestEnv, launcher: Arc<FakeLauncher>) -> ServiceDeps {
+fn deps(env: &TestEnv, launcher: Arc<FakeLauncher>, resolution: Resolution) -> ServiceDeps {
     let fs: Arc<dyn Fs> = Arc::new(RealFs::new());
     let clock: Arc<dyn Clock> = Arc::new(SystemClock::new());
     let jobs = Arc::new(JobPool::new(JobPoolConfig::default(), Arc::clone(&clock)).unwrap());
@@ -75,7 +80,7 @@ fn deps(env: &TestEnv, launcher: Arc<FakeLauncher>) -> ServiceDeps {
         proc: Arc::new(RealProc::new(Arc::clone(&fs))),
         launcher,
         locks: Arc::new(NoLocks),
-        runtimes: Arc::new(NeedsSlr(Arc::clone(&jobs))),
+        runtimes: Arc::new(FixedRuntimes(Arc::clone(&jobs), resolution)),
         host: Arc::new(StaticHostFacts(Arc::new(hosts::arch_mesa()))),
         pe: Arc::new(FsPeInspector::new(Arc::clone(&fs), Arc::clone(&clock))),
         icons: Arc::new(NoIcons),
@@ -107,9 +112,15 @@ fn deps(env: &TestEnv, launcher: Arc<FakeLauncher>) -> ServiceDeps {
 
 impl World {
     fn new() -> Self {
+        Self::resolving(needs_slr())
+    }
+
+    /// A service whose runtime resolutions are all `resolution`.
+    fn resolving(resolution: Resolution) -> Self {
         let env = TestEnv::new().unwrap();
         let launcher = Arc::new(FakeLauncher::new());
-        let (svc, events) = AppService::open_headless(deps(&env, Arc::clone(&launcher))).unwrap();
+        let (svc, events) =
+            AppService::open_headless(deps(&env, Arc::clone(&launcher), resolution)).unwrap();
         let mut w = Self {
             env,
             svc,
@@ -510,4 +521,86 @@ fn a_cancelled_launch_reports_cancelled_and_nothing_else() {
             ..
         }
     )));
+}
+
+fn prompt(evs: &[Event]) -> Option<easyplay_core::model::PromptRequest> {
+    evs.iter().find_map(|e| match e {
+        Event::Prompt(p) => Some(p.clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn a_launch_that_stops_to_ask_is_over_for_the_ui() {
+    use easyplay_core::model::Activity;
+    use easyplay_core::runtime::UnavailableReason;
+    // The game's compatibility layer is gone: the launch stops to ask which one to use.
+    let gone = UnavailableReason::UnknownPinned(RuntimeName::new("GE-Proton9-1").unwrap());
+    let mut w = World::resolving(Resolution::Unavailable(gone));
+    let id = w.add("Asked");
+    let evs = w.send(Command::Launch {
+        id,
+        exe: None,
+        origin: LaunchOrigin::Library,
+    });
+    let asked = prompt(&evs).unwrap_or_else(|| panic!("no prompt: {evs:?}"));
+    assert!(matches!(asked.kind, PromptKind::RuntimeUnavailable { .. }));
+    // Without a final state the game page would show "Checking…" behind the question, and
+    // for good after *Cancel*.
+    let last = evs
+        .iter()
+        .rev()
+        .find_map(|e| match e {
+            Event::LaunchProgress { game, state, .. } if *game == id => Some(state.clone()),
+            _ => None,
+        })
+        .expect("launch progress");
+    assert_eq!(last, LaunchState::Cancelled, "{evs:?}");
+    assert_eq!(
+        w.svc.hub().library.load().get(id).unwrap().activity,
+        Activity::Idle
+    );
+    let evs = w.send(Command::AnswerPrompt {
+        prompt: asked.id,
+        answer: PromptAnswer::Cancel,
+    });
+    assert!(evs.is_empty(), "{evs:?}");
+}
+
+#[test]
+fn stop_and_remove_cancels_a_launch_that_is_still_starting() {
+    let mut w = World::new();
+    let id = w.add("Starting");
+    w.svc.handle(Command::Launch {
+        id,
+        exe: None,
+        origin: LaunchOrigin::Library,
+    });
+    w.svc.handle(Command::RemoveGame {
+        id,
+        options: easyplay_core::library::RemoveOptions::default(),
+    });
+    let asked = prompt(&w.drain()).expect("RemoveRunningGame prompt");
+    assert!(matches!(asked.kind, PromptKind::RemoveRunningGame { .. }));
+    w.svc.handle(Command::AnswerPrompt {
+        prompt: asked.id,
+        answer: PromptAnswer::StopAndRemove,
+    });
+    // The cancelled launch job ends on its own time.
+    let mut evs = Vec::new();
+    for _ in 0..100 {
+        w.settle();
+        evs.extend(w.drain());
+        if w.svc.hub().library.load().get(id).is_none() {
+            break;
+        }
+    }
+    // Not asked again: the launch is cancelled and the game goes once its job has ended.
+    assert!(prompt(&evs).is_none(), "{evs:?}");
+    assert!(
+        evs.iter()
+            .any(|e| matches!(e, Event::Notice(Notice::GameRemoved { .. }))),
+        "{evs:?}"
+    );
+    assert!(w.svc.hub().library.load().get(id).is_none());
 }

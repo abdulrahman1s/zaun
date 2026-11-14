@@ -27,6 +27,7 @@ pub const PAGE: u32 = 50;
 fn load_page(state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
     let q = env.bridge.query_id();
     state.details.activity.history_q = Some(q);
+    state.details.activity.history_failed = false;
     env.bridge.send(UiCommand::QueryStats {
         request: StatsRequest::SessionHistory {
             game: Some(g.id),
@@ -50,6 +51,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
     if state.details.activity.history.is_empty()
         && state.details.activity.history_q.is_none()
         && state.details.activity.next_page == 0
+        && !state.details.activity.history_failed
     {
         load_page(state, env, g);
     }

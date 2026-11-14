@@ -122,6 +122,10 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let cancellable = launch
         .as_ref()
         .is_some_and(|l| l.state.kind().cancellable());
+    // Cancelled or ended: nothing is in progress any more.
+    let over = launch
+        .as_ref()
+        .is_some_and(|l| l.state.kind().is_terminal());
     if state.nav.overlays().is_empty()
         && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
     {
@@ -169,7 +173,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                     .wrap(),
                 );
                 crate::a11y::labelled(ui.ctx(), ph.id, egui::Role::Status, &phase);
-                if failure.is_none() && q.running_at.is_none() && !already {
+                if failure.is_none() && q.running_at.is_none() && !already && !over {
                     progress::linear(ui, None, strings::launch::PROGRESS);
                 }
             });

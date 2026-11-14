@@ -31,4 +31,7 @@ pub use command::{
     LogFile, OpenOrigin, StopMode,
 };
 pub use event::{Event, LogChunk, Notice, QueryResult, RecoveredHow, SetupContext};
-pub use snapshot::{ActiveSessions, Diagnostics, RecoveryReason, RecoveryState, SnapshotHub, Swap};
+pub use snapshot::{
+    ActiveSessions, Diagnostics, HostSnapshot, RecoveryReason, RecoveryState, RuntimesSnapshot,
+    SnapshotHub, Swap,
+};

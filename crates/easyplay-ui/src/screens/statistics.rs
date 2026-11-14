@@ -73,6 +73,11 @@ pub fn tile_grid(ui: &mut Ui, tiles: &[(&str, String, String)], cols: usize) {
 }
 
 fn request(state: &mut UiState, env: &mut Env<'_>) {
+    // After a failure the screen offers *Retry*; asking by itself would repeat the failing
+    // query on every frame.
+    if state.stats.failed.is_some() {
+        return;
+    }
     let rev = env.bridge.library().revision;
     let range = state.stats.range;
     if state.stats.cache.contains_key(&(range, rev))
@@ -147,6 +152,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                             if range_segments(ui, &mut r) {
                                 state.stats.range = r;
                                 state.stats.bar = None;
+                                state.stats.failed = None;
                             }
                         });
                     });

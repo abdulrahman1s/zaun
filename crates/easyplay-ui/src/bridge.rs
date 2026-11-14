@@ -13,7 +13,7 @@
 //! |---|---|---|
 //! | [`Backend::library`] | `Arc<`[`LibrarySnapshot`]`>` (core) | [`UiEvent::LibraryChanged`] |
 //! | [`Backend::preferences`] | `Arc<`[`Preferences`]`>` (core) | [`UiEvent::PreferencesChanged`] |
-//! | [`Backend::host`] | `Arc<`[`HostView`]`>` | [`UiEvent::HostChanged`] |
+//! | [`Backend::host`] | `Arc<`[`HostView`]`>` | [`UiEvent::HostChanged`]; its Doctor rows also by [`UiEvent::DiagnosticsChanged`] |
 //! | [`Backend::runtimes`] | `Arc<`[`RuntimesView`]`>` | [`UiEvent::RuntimesChanged`] |
 //! | [`Backend::diagnostics`] | `Arc<`[`Diagnostics`]`>` (core) | [`UiEvent::DiagnosticsChanged`] |
 //!
@@ -976,7 +976,8 @@ impl UiBridge {
     }
 
     /// Drain up to [`MAX_EVENTS_PER_FRAME`] events, refreshing snapshots as announced.
-    /// Returns every event (snapshot events too, so view-models can react).
+    /// Returns every event (snapshot events too, so view-models can react). A full batch
+    /// may have left events behind: the caller asks for another frame.
     pub fn drain(&mut self) -> Vec<UiEvent> {
         let mut out = Vec::new();
         for _ in 0..MAX_EVENTS_PER_FRAME {
@@ -988,7 +989,11 @@ impl UiBridge {
                 UiEvent::HostChanged => self.host = self.backend.host(),
                 UiEvent::PreferencesChanged => self.prefs = self.backend.preferences(),
                 UiEvent::RuntimesChanged => self.runtimes = self.backend.runtimes(),
-                UiEvent::DiagnosticsChanged => self.diagnostics = self.backend.diagnostics(),
+                UiEvent::DiagnosticsChanged => {
+                    self.diagnostics = self.backend.diagnostics();
+                    // The host view's checks are the Doctor report once there is one.
+                    self.host = self.backend.host();
+                }
                 _ => {}
             }
             out.push(ev);
@@ -1228,5 +1233,70 @@ mod tests {
         bridge.send(UiCommand::RescanMissing);
         assert_eq!(fake.sent(), vec![UiCommand::RescanMissing]);
         assert_ne!(bridge.query_id(), bridge.query_id());
+    }
+
+    /// A backend whose host view shows the Doctor report, as the service's does.
+    struct DoctorHost(FakeBackend);
+
+    impl Backend for DoctorHost {
+        fn send(&self, cmd: UiCommand) {
+            self.0.send(cmd);
+        }
+        fn try_event(&self) -> Option<UiEvent> {
+            self.0.try_event()
+        }
+        fn library(&self) -> Arc<LibrarySnapshot> {
+            self.0.library()
+        }
+        fn preferences(&self) -> Arc<Preferences> {
+            self.0.preferences()
+        }
+        fn host(&self) -> Arc<HostView> {
+            let mut h = (*self.0.host()).clone();
+            if let Some(report) = &self.0.diagnostics().doctor {
+                h.checks = crate::service_backend::doctor_checks(report);
+            }
+            Arc::new(h)
+        }
+        fn runtimes(&self) -> Arc<RuntimesView> {
+            self.0.runtimes()
+        }
+        fn assess(
+            &self,
+            game: Option<GameId>,
+            name: &str,
+            root: Option<&std::path::Path>,
+            policy: &SandboxPolicy,
+        ) -> PolicyAssessment {
+            self.0.assess(game, name, root, policy)
+        }
+        fn preset_policy(&self, preset: BasePreset, policy: &SandboxPolicy) -> SandboxPolicy {
+            self.0.preset_policy(preset, policy)
+        }
+        fn set_waker(&self, _waker: Arc<dyn Fn() + Send + Sync>) {}
+        fn diagnostics(&self) -> Arc<Diagnostics> {
+            self.0.diagnostics()
+        }
+    }
+
+    /// The Doctor report arrives after the host facts, announced as a diagnostics change
+    /// only: the host view's rows must follow it.
+    #[test]
+    fn a_new_doctor_report_refreshes_the_host_view() {
+        let fake = FakeBackend::default();
+        let mut bridge = UiBridge::new(Box::new(DoctorHost(fake.clone())));
+        assert!(!bridge.host().checks.is_empty());
+        fake.publish_diagnostics(Diagnostics {
+            doctor: Some(easyplay_core::host::DoctorReport {
+                format: 1,
+                version: String::new(),
+                checks: Vec::new(),
+                facts: easyplay_core::host::HostFacts::empty(Timestamp::from_millis(0)),
+            }),
+            ..Diagnostics::default()
+        });
+        assert_eq!(bridge.drain(), vec![UiEvent::DiagnosticsChanged]);
+        assert!(bridge.diagnostics().doctor.is_some());
+        assert!(bridge.host().checks.is_empty());
     }
 }

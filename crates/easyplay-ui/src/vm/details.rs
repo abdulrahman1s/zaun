@@ -238,6 +238,8 @@ pub struct ActivityVm {
     pub next_page: u32,
     /// A page is loading.
     pub history_q: Option<QueryId>,
+    /// The last page could not be loaded (*Load more* tries again).
+    pub history_failed: bool,
     /// Show the chart as a table.
     pub table: bool,
     /// The focused bar.

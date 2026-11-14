@@ -262,3 +262,21 @@ fn program_arguments_and_label_are_saved_through_the_service() {
     let (_, row) = db.executable_by_canonical_path(&exe).unwrap().unwrap();
     assert_eq!(row.label.as_deref(), Some("DX12 build"));
 }
+
+/// The Doctor's rows are the checks of the service's full report (the bridge test
+/// `a_new_doctor_report_refreshes_the_host_view` covers a report that arrives late).
+#[test]
+fn doctor_rows_are_the_reports_checks() {
+    let env = TestEnv::new().unwrap();
+    let (id, _) = add_game(&env, "Checkup");
+    let mut h = harness(&env, id);
+    pump(&mut h, "the Doctor report", |h| {
+        h.state().bridge().diagnostics().doctor.is_some()
+    });
+    let bridge = h.state().bridge();
+    let report = bridge.diagnostics().doctor.clone().unwrap();
+    let rows: Vec<&str> = bridge.host().checks.iter().map(|c| &*c.id).collect();
+    let checks: Vec<&str> = report.checks.iter().map(|c| &*c.id).collect();
+    assert!(checks.len() > 2, "{checks:?}");
+    assert_eq!(rows, checks);
+}

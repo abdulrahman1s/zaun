@@ -1,8 +1,14 @@
 //! The worker pool.
+//!
+//! A job may submit further jobs to its own pool and wait for them ([`JobHandle::wait`]):
+//! the host probe fans out its sub-probes, a launch waits for a runtime rescan. With every
+//! worker waiting like that nobody would be left to run what they wait for, so a worker that
+//! waits for a job still in the queue runs it itself.
 
+use std::cell::Cell;
 use std::collections::{HashMap, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -67,6 +73,11 @@ struct Shared {
     work: Condvar,
 }
 
+thread_local! {
+    /// The pool this thread is a worker of (null for every other thread).
+    static WORKER_OF: Cell<*const Shared> = const { Cell::new(std::ptr::null()) };
+}
+
 /// The result slot shared by a job and its handle.
 struct Slot<R> {
     value: Mutex<Option<Result<R, JobError>>>,
@@ -97,6 +108,8 @@ pub struct JobHandle<R> {
     label: JobLabel,
     token: CancelToken,
     slot: Arc<Slot<R>>,
+    /// Where the job was queued: its pool and queue sequence number (`None`: never queued).
+    queued: Option<(Weak<Shared>, u64)>,
 }
 
 impl<R> JobHandle<R> {
@@ -132,8 +145,28 @@ impl<R> JobHandle<R> {
         self.slot.value.lock().take()
     }
 
-    /// Block until the job finishes (headless CLI and tests only; never on the UI thread).
+    /// Called from a worker of the job's own pool while the job is still queued: run it on
+    /// this thread instead of waiting for a free worker (there may never be one).
+    fn run_here_if_queued(&self) {
+        let Some((pool, seq)) = &self.queued else {
+            return;
+        };
+        let Some(shared) = pool.upgrade() else {
+            return;
+        };
+        if WORKER_OF.get() != Arc::as_ptr(&shared) {
+            return;
+        }
+        let job = take_queued(&mut shared.state.lock(), *seq);
+        if let Some(job) = job {
+            (job.task)(None);
+        }
+    }
+
+    /// Block until the job finishes (jobs, the headless CLI and tests; never on the UI
+    /// thread). A job waiting for a job of its own pool never starves: see the module text.
     pub fn wait(self) -> Result<R, JobError> {
+        self.run_here_if_queued();
         let mut guard = self.slot.value.lock();
         loop {
             if let Some(v) = guard.take() {
@@ -254,11 +287,12 @@ impl JobPool {
     {
         let slot = Arc::new(Slot::new());
         let token = CancelToken::new();
-        let handle = JobHandle {
+        let mut handle = JobHandle {
             id: JobId::generate(&*self.clock),
             label,
             token: token.clone(),
             slot: Arc::clone(&slot),
+            queued: None,
         };
         let task: Task = Box::new(move |abandon: Option<JobError>| {
             let result = match abandon {
@@ -301,6 +335,7 @@ impl JobPool {
             }
             let seq = st.next_seq;
             st.next_seq += 1;
+            handle.queued = Some((Arc::downgrade(&self.shared), seq));
             st.queues[priority.index()].push_back(Queued { label, seq, task });
             *st.queued_per_label.entry(label).or_insert(0) += 1;
         }
@@ -359,7 +394,23 @@ fn remove_oldest(st: &mut State, label: JobLabel) -> Option<Queued> {
     Some(job)
 }
 
+/// Remove the queued job with sequence number `seq`, if it has not started yet.
+fn take_queued(st: &mut State, seq: u64) -> Option<Queued> {
+    let (qi, pos) = st.queues.iter().enumerate().find_map(|(qi, q)| {
+        // Sequence numbers grow along each queue.
+        q.binary_search_by_key(&seq, |j| j.seq)
+            .ok()
+            .map(|pos| (qi, pos))
+    })?;
+    let job = st.queues[qi].remove(pos)?;
+    if let Some(c) = st.queued_per_label.get_mut(&job.label) {
+        *c = c.saturating_sub(1);
+    }
+    Some(job)
+}
+
 fn worker_loop(shared: &Shared) {
+    WORKER_OF.set(std::ptr::from_ref(shared));
     loop {
         let job = {
             let mut st = shared.state.lock();
@@ -566,6 +617,27 @@ mod tests {
         drop(p);
         go.send(()).unwrap();
         assert_eq!(h.wait_timeout(T), Some(Ok(7)));
+    }
+
+    /// Every worker waits for a job it submitted to its own pool (the host probe and its
+    /// sub-probes, a runtime rescan): the queued jobs must still run.
+    #[test]
+    fn jobs_waiting_for_their_own_jobs_do_not_starve_the_pool() {
+        let p = Arc::new(pool(2));
+        let gate = Arc::new(std::sync::Barrier::new(2));
+        let outer: Vec<_> = (0..2)
+            .map(|i| {
+                let (inner, gate) = (Arc::clone(&p), Arc::clone(&gate));
+                p.submit(JobPriority::Normal, L, move |_| {
+                    // Both workers are inside an outer job before either submits.
+                    gate.wait();
+                    inner.submit(JobPriority::Normal, L, move |_| i * 10).wait()
+                })
+            })
+            .collect();
+        for (i, h) in outer.into_iter().enumerate() {
+            assert_eq!(h.wait_timeout(T), Some(Ok(Ok(i * 10))));
+        }
     }
 
     #[test]

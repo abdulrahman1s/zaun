@@ -83,6 +83,12 @@ impl AppService {
                     self.remove_after_stop.insert(game, options);
                     self.stop_session(s, StopMode::Graceful);
                 }
+                // Still starting: the removal follows once the cancelled launch has ended
+                // (`settle_cancelled`), or its session if one started anyway.
+                None if self.launching.contains_key(&game) => {
+                    self.remove_after_stop.insert(game, options);
+                    self.cancel_launch(game);
+                }
                 None => self.remove_game(game, options),
             }
         }

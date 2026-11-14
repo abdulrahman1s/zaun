@@ -890,6 +890,12 @@ impl Run<'_> {
                         self.running_reached = true;
                         self.set_state(SessionState::Running);
                         self.event("note", serde_json::json!({ "running_by": rule }));
+                        // The main program may have exited while the session was still
+                        // `Starting` (its check for `Lingering` found the wrong state):
+                        // look at what it left behind now.
+                        if self.main_exit.is_some() {
+                            self.linger_at = Some(now);
+                        }
                     }
                 }
             }

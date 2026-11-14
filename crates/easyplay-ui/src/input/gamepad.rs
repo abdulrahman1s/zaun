@@ -369,17 +369,40 @@ pub fn has_desktop_input(raw: &egui::RawInput) -> bool {
     })
 }
 
-/// Start the `gilrs` reader thread. Returns `None` when the thread cannot be started.
-/// `wake` is called after each forwarded event.
+/// Where the reader thread sends: the window that asked last, and its waker.
+#[cfg(feature = "gamepad")]
+type PadSink = (
+    std::sync::mpsc::Sender<PadInput>,
+    std::sync::Arc<dyn Fn() + Send + Sync>,
+);
+
+/// Read controller input for a window. Returns `None` when the reader thread cannot be
+/// started. `wake` is called after each forwarded event.
+///
+/// The process has one `gilrs` reader thread, started by the first call; a later call (the
+/// resident service opens windows in turn) only points it at the new window. A reader per
+/// window could not be stopped while it waits in `gilrs`, so each closed window would leave
+/// a thread and its device descriptors behind.
 #[cfg(feature = "gamepad")]
 pub fn spawn(
     wake: std::sync::Arc<dyn Fn() + Send + Sync>,
 ) -> Option<std::sync::mpsc::Receiver<PadInput>> {
+    use std::sync::{Arc, Mutex, PoisonError};
+
+    static READER: Mutex<Option<Arc<Mutex<Option<PadSink>>>>> = Mutex::new(None);
+
     let (tx, rx) = std::sync::mpsc::channel();
+    let mut reader = READER.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(sink) = reader.as_ref() {
+        *sink.lock().unwrap_or_else(PoisonError::into_inner) = Some((tx, wake));
+        return Some(rx);
+    }
+    let sink = Arc::new(Mutex::new(Some((tx, wake))));
+    let for_thread = Arc::clone(&sink);
     std::thread::Builder::new()
         .name("gamepad".into())
         .spawn(move || {
-            // Without a backend the thread ends and the receiver simply stays empty.
+            // Without a backend the thread ends and the receivers simply stay empty.
             let mut gilrs = match gilrs::Gilrs::new() {
                 Ok(g) => g,
                 Err(e) => {
@@ -394,13 +417,17 @@ pub fn spawn(
                 let Some(input) = from_gilrs(ev.event) else {
                     continue;
                 };
-                if tx.send(input).is_err() {
-                    return;
+                let mut sink = for_thread.lock().unwrap_or_else(PoisonError::into_inner);
+                match sink.as_ref() {
+                    Some((tx, wake)) if tx.send(input).is_ok() => wake(),
+                    // The window closed: let go of its waker until the next one opens.
+                    Some(_) => *sink = None,
+                    None => {}
                 }
-                wake();
             }
         })
         .ok()?;
+    *reader = Some(sink);
     Some(rx)
 }
 

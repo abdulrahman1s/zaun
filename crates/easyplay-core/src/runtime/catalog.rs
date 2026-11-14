@@ -31,6 +31,12 @@ pub struct RuntimeCatalog {
 }
 
 impl RuntimeCatalog {
+    /// The runtime variants umu installed for the user that the store lacks (Settings
+    /// offers to adopt them instead of downloading).
+    pub fn adoptable(&self) -> impl Iterator<Item = SlrVariant> + '_ {
+        super::adopt::adoptable(&self.foreign.slr, &self.slr).map(|s| s.variant)
+    }
+
     /// Build a snapshot from a discovery result.
     pub fn from_discovery(d: Discovery, at: Timestamp) -> Self {
         let mut builds = d.builds;

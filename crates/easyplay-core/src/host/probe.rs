@@ -438,6 +438,9 @@ pub trait HostProbe: Send + Sync {
 pub struct LiveHostProbe {
     deps: ProbeDeps,
     current: Mutex<Option<(Arc<HostFacts>, CacheKey)>>,
+    /// Held while the first facts are loaded or probed, so callers that arrive together
+    /// (the start-up probe and a launch) share one probe instead of each running their own.
+    first: Mutex<()>,
 }
 
 impl LiveHostProbe {
@@ -446,7 +449,12 @@ impl LiveHostProbe {
         Self {
             deps,
             current: Mutex::new(None),
+            first: Mutex::new(()),
         }
+    }
+
+    fn cached(&self) -> Option<Arc<HostFacts>> {
+        self.current.lock().as_ref().map(|(f, _)| Arc::clone(f))
     }
 
     fn store(&self, facts: HostFacts) -> Arc<HostFacts> {
@@ -468,8 +476,12 @@ impl LiveHostProbe {
 
 impl HostProbe for LiveHostProbe {
     fn facts(&self) -> Arc<HostFacts> {
-        if let Some((f, _)) = &*self.current.lock() {
-            return Arc::clone(f);
+        if let Some(f) = self.cached() {
+            return f;
+        }
+        let _first = self.first.lock();
+        if let Some(f) = self.cached() {
+            return f;
         }
         let fs = &*self.deps.fs;
         if let Some(facts) = load_cache(

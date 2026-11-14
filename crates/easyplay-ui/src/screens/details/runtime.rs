@@ -334,6 +334,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
     card(ui, s::STORAGE, |ui| {
         let size = match &state.details.prefix_size {
             AsyncValue::Ready(n) => crate::strings::fmt::bytes(*n),
+            AsyncValue::Failed(_) => s::SIZE_UNKNOWN.to_owned(),
             _ => s::CALCULATING.to_owned(),
         };
         let created = d
@@ -434,6 +435,9 @@ pub fn fix_picker(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>,
                             }
                         },
                     );
+                }
+                AsyncValue::Failed(why) => {
+                    ui.add(egui::Label::new(Type::Body.rich(why).color(p.text_secondary)).wrap());
                 }
                 _ => {}
             }

@@ -216,15 +216,14 @@ pub(crate) fn ui_deps(
     }
 }
 
-/// Start the service (or the preview) for one window.
-fn source(preview: bool, open: &[PathBuf]) -> Result<Source, Error> {
+/// Start the service (or the preview) for one window. Opened programs are not sent here:
+/// the UI's quick-launch layout does that (`UiDeps::open`).
+fn source(preview: bool) -> Result<Source, Error> {
     if preview {
         return Ok(Source::Preview);
     }
     let mut w = wiring::build()?;
     let deps = w.take_deps()?;
-    // Opened programs are sent by the UI's quick-launch layout (`UiDeps::open`).
-    let _ = open;
     let home = deps.launch_env.home.clone();
     let user_dirs = deps.launch_env.user_dirs.clone();
     let (handle, events) = AppService::start(deps)?;
@@ -390,7 +389,7 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
     let make = |renderer: Renderer| -> Result<(UiDeps, Option<NotifyWatch>), Error> {
         let (tx, rx) = channel();
         slot.opened(tx);
-        let src = source(preview, &open)?;
+        let src = source(preview)?;
         let mut watch = None;
         if let (Source::Service(b, _), Some(p)) = (&src, &paths) {
             let hub = Arc::clone(&b.handle().hub);

@@ -108,6 +108,26 @@ fn read_dir_is_sorted_and_reports_symlinks() {
     assert_eq!(entries[4].file_type, FileType::Dir);
 }
 
+/// An entry that vanished between the listing and the look at its type (a process that
+/// exited while `/proc` was read) is skipped; any other failure still fails the listing.
+#[test]
+fn read_dir_skips_entries_that_vanish_while_listing() {
+    use std::io::{Error, ErrorKind};
+    let dir = fs::metadata(".").unwrap().file_type();
+    assert_eq!(real::listed_type(Ok(dir)).unwrap(), Some(dir));
+    assert_eq!(
+        real::listed_type(Err(Error::from(ErrorKind::NotFound))).unwrap(),
+        None
+    );
+    let denied = real::listed_type(Err(Error::from(ErrorKind::PermissionDenied)));
+    assert_eq!(denied.unwrap_err().kind(), ErrorKind::PermissionDenied);
+    // The listing every process list starts from.
+    let fs = RealFs::new();
+    let me = std::process::id().to_string();
+    let proc = fs.read_dir(Path::new("/proc")).unwrap();
+    assert!(proc.iter().any(|e| e.name.to_str() == Some(me.as_str())));
+}
+
 #[test]
 fn write_create_rename_remove() {
     let t = tempfile::tempdir().unwrap();

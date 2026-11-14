@@ -25,8 +25,9 @@ use easyplay_core::ids::{GameId, QueryId};
 use easyplay_core::library::LibrarySnapshot;
 use easyplay_core::model::{Activity, BasePreset, RuntimeFamily, SandboxPolicy, UserDir};
 use easyplay_core::service::{
-    AfterCreate as SvcAfter, Command, Event, FolderRequest, GameEdit as SvcEdit, LaunchOrigin,
-    Notice, OpenOrigin as SvcOrigin, QueryResult, ServiceHandle, StopMode,
+    AfterCreate as SvcAfter, Command, Diagnostics, Event, FolderRequest, GameEdit as SvcEdit,
+    HostSnapshot, LaunchOrigin, Notice, OpenOrigin as SvcOrigin, QueryResult, RuntimesSnapshot,
+    ServiceHandle, StopMode,
 };
 
 use crate::bridge::{
@@ -40,8 +41,25 @@ use crate::strings::service as text;
 struct State {
     events: Receiver<Event>,
     pending: VecDeque<UiEvent>,
-    host: Option<(usize, Arc<HostView>)>,
-    runtimes: Option<(usize, u64, Arc<RuntimesView>)>,
+    host: Option<HostCache>,
+    runtimes: Option<RuntimesCache>,
+}
+
+/// The host view and the snapshots it was built from. The snapshots themselves are kept,
+/// not their addresses: a freed snapshot's address can be given to a newer one, and the
+/// view would then be taken for current.
+struct HostCache {
+    facts: Arc<HostSnapshot>,
+    integration: Arc<IntegrationState>,
+    diagnostics: Arc<Diagnostics>,
+    view: Arc<HostView>,
+}
+
+/// The runtimes view, the catalogue and the library revision it was built from.
+struct RuntimesCache {
+    catalog: Arc<RuntimesSnapshot>,
+    revision: u64,
+    view: Arc<RuntimesView>,
 }
 
 /// The production backend.
@@ -640,7 +658,7 @@ impl Backend for ServiceBackend {
         self.handle.hub.prefs.load()
     }
 
-    fn diagnostics(&self) -> Arc<easyplay_core::service::Diagnostics> {
+    fn diagnostics(&self) -> Arc<Diagnostics> {
         self.handle.hub.diagnostics.load()
     }
 
@@ -649,14 +667,13 @@ impl Backend for ServiceBackend {
         let integration = self.handle.hub.integration.load();
         let diag = self.handle.hub.diagnostics.load();
         // Any snapshot changing rebuilds the view.
-        let key = (Arc::as_ptr(&facts) as usize)
-            ^ (Arc::as_ptr(&integration) as usize).rotate_left(17)
-            ^ (Arc::as_ptr(&diag) as usize).rotate_left(31);
         let mut s = self.lock();
-        if let Some((k, v)) = &s.host
-            && *k == key
+        if let Some(c) = &s.host
+            && Arc::ptr_eq(&c.facts, &facts)
+            && Arc::ptr_eq(&c.integration, &integration)
+            && Arc::ptr_eq(&c.diagnostics, &diag)
         {
-            return Arc::clone(v);
+            return Arc::clone(&c.view);
         }
         let f = facts.as_ref().as_ref();
         let v = Arc::new(HostView {
@@ -684,20 +701,24 @@ impl Backend for ServiceBackend {
             home: self.home.clone(),
             user_dirs: self.user_dirs.clone(),
         });
-        s.host = Some((key, Arc::clone(&v)));
+        s.host = Some(HostCache {
+            facts,
+            integration,
+            diagnostics: diag,
+            view: Arc::clone(&v),
+        });
         v
     }
 
     fn runtimes(&self) -> Arc<RuntimesView> {
         let cat = self.handle.hub.runtimes.load();
         let lib = self.handle.hub.library.load();
-        let key = Arc::as_ptr(&cat) as usize;
         let mut s = self.lock();
-        if let Some((k, rev, v)) = &s.runtimes
-            && *k == key
-            && *rev == lib.revision
+        if let Some(c) = &s.runtimes
+            && Arc::ptr_eq(&c.catalog, &cat)
+            && c.revision == lib.revision
         {
-            return Arc::clone(v);
+            return Arc::clone(&c.view);
         }
         let layers = cat
             .builds
@@ -730,11 +751,13 @@ impl Backend for ServiceBackend {
                 .collect(),
             last_checked: cat.scanned_at,
             downloads: Vec::new(),
-            adoptable: easyplay_core::runtime::adoptable(&cat.foreign.slr, &cat.slr)
-                .map(|s| s.variant)
-                .collect(),
+            adoptable: cat.adoptable().collect(),
         });
-        s.runtimes = Some((key, lib.revision, Arc::clone(&v)));
+        s.runtimes = Some(RuntimesCache {
+            catalog: cat,
+            revision: lib.revision,
+            view: Arc::clone(&v),
+        });
         v
     }
 
