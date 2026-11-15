@@ -49,6 +49,7 @@
 //! | `RefreshHostFacts`, `SetDefaultHandler`, `CompleteOnboarding` | host and integration | `HostChanged`, `PreferencesChanged` |
 //! | `QueryStats` | `Command::QueryStats` | `QueryResult(Stats)` |
 //! | `LoadGame` | the full `Game` row plus storage facts | `QueryResult(Game)` |
+//! | `FindSteamApp` | Steam app ID on this computer and store search (job pool) | `QueryResult(SteamApps)` |
 //! | `MeasurePrefix`, `SearchFixes` | storage size (job pool), umu-database search (not yet) | `QueryResult(PrefixSize / Fixes)` |
 //! | `ClearStatistics`, `ResetGameStatistics`, `RemoveSession` | statistics edits | `LibraryChanged`, `Toast` |
 //! | `OpenFolder`, `ViewLog`, `CreateShortcut` | desktop actions done by the service | none / `Failure` |
@@ -70,6 +71,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use easyplay_core::artwork::{SearchCandidate, SteamAppIdSource};
 use easyplay_core::clock::Timestamp;
 use easyplay_core::config::{PreferencePatch, Preferences};
 use easyplay_core::error::UserError;
@@ -455,6 +457,13 @@ pub enum QueryPayload {
     PrefixSize(u64),
     /// Game-fix search results.
     Fixes(Vec<FixEntry>),
+    /// Which Steam app a game is.
+    SteamApps {
+        /// The app ID the computer gives, and from where.
+        detected: Option<(u32, SteamAppIdSource)>,
+        /// Store search results, closest name first.
+        candidates: Vec<SearchCandidate>,
+    },
     /// The launch inspector's data.
     Inspector(Box<InspectorData>),
     /// A game's recent sessions, newest first.
@@ -603,6 +612,15 @@ pub enum UiCommand {
         id: GameId,
         /// User-entered app ID.
         app_id: Option<u32>,
+    },
+    /// Which Steam app the game is (ADR-0024): answered with `QueryPayload::SteamApps`.
+    FindSteamApp {
+        /// Game.
+        id: GameId,
+        /// Words typed in the sheet; `None` = what the computer says, else the game name.
+        term: Option<String>,
+        /// Reply ID.
+        reply_to: QueryId,
     },
     /// Start a game.
     Launch {

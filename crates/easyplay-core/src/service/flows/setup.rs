@@ -27,6 +27,7 @@ impl AppService {
         let id = report.id;
         self.index_game_art(id);
         self.publish_library();
+        self.check_availability();
         self.notice(Notice::GameAdded {
             game: id,
             name: draft.name.clone(),

@@ -279,9 +279,52 @@ fn log_viewer_loads_filters_and_stays_plain() {
             .iter()
             .all(|x| !x.contains('\u{1b}') && !x.contains('\u{202e}'))
     );
+    has(&r, "2 errors · 0 warnings");
+    r.h.get_by_label_contains("The game crashed (signal 11, segmentation fault");
     r.h.state_mut().state.debug.logs.as_mut().unwrap().filter = "ERR:".into();
     r.h.run();
-    has(&r, "1 of 5 lines match");
+    has(&r, "1 of 5 lines shown");
+    // Errors only: Wine's `err:` channel and its crash report, whoever else printed.
+    {
+        let l = r.h.state_mut().state.debug.logs.as_mut().unwrap();
+        l.filter.clear();
+        l.level = easyplay_core::diagnostics::log_line::LineLevel::Error;
+    }
+    r.h.run();
+    has(&r, "2 of 5 lines shown");
+    // One program: umu's line only.
+    {
+        let l = r.h.state_mut().state.debug.logs.as_mut().unwrap();
+        l.level = easyplay_core::diagnostics::log_line::LineLevel::Debug;
+        l.source = Some(easyplay_core::diagnostics::log_line::LineSource::Umu);
+    }
+    r.h.run();
+    has(&r, "1 of 5 lines shown");
+}
+
+/// ADR-0025: every game page has a Logs tab, without Developer Mode, and it points to the
+/// Proton log for more detail from Wine.
+#[test]
+fn every_game_page_has_a_logs_tab() {
+    let mut r = rig(Route::Library);
+    let lib = settled_library();
+    let g = lib.games[0].id;
+    assert!(!r.h.state().bridge().prefs().advanced.developer_mode);
+    r.h.state_mut().state.nav.push(Route::Game(g));
+    settle(&mut r);
+    r.h.get_by_role_and_label(egui::accesskit::Role::Tab, "Logs")
+        .click();
+    settle(&mut r);
+    has(&r, "turn on “Proton log” in Compatibility");
+    // Below the fold at this size: reached by keyboard.
+    r.h.get_by_label("Open Compatibility").focus();
+    r.h.run();
+    r.h.key_press(egui::Key::Enter);
+    r.h.run();
+    assert_eq!(
+        r.h.state().state.details.tab,
+        easyplay_ui::vm::details::DetailsTab::Compatibility
+    );
 }
 
 /// UF-9 / LOGGING §3.3: *View log* on the problem panel opens the in-app viewer for the

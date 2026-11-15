@@ -33,7 +33,9 @@ pub use codec::{
 pub use icon_extract::{IconSource, NoIcons, PeIconSource};
 pub use import::{ImportDeps, ImportInput, Imported, Normalised, import, normalise};
 pub use placeholder::{Placeholder, placeholder_for};
-pub use steam::{FsAppIdFile, NoUmuDb, Resolution, SteamAppIdSource};
+pub use steam::{
+    FsAppIdFile, NoUmuDb, Resolution, SearchCandidate, SteamAppIdSource, parse_user_app_id,
+};
 pub use thumbs::{ArtIndex, ThumbKey, ThumbPixels, ThumbResult, ThumbService, ThumbSize};
 
 use crate::ids::ExecutableId;
@@ -44,11 +46,11 @@ use crate::model::ArtOrigin;
 pub enum ArtSource {
     /// A user-chosen image file.
     File(PathBuf),
-    /// The icon embedded in one of the game's executables.
-    ExecutableIcon(ExecutableId),
+    /// The icon embedded in one of the game's executables (`None`: the primary one).
+    ExecutableIcon(Option<ExecutableId>),
     /// The Steam CDN, for this app ID.
     SteamCdn(u32),
-    /// The generated placeholder.
+    /// The generated placeholder: the slot's artwork is removed.
     Generated,
 }
 

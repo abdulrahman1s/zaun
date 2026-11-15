@@ -153,14 +153,6 @@ impl ServiceBackend {
         self.lock().pending.push_back(ev);
     }
 
-    fn unsupported(&self) {
-        self.push(UiEvent::Toast(ToastMsg {
-            text: text::NOT_AVAILABLE.to_owned(),
-            level: ToastLevel::Warning,
-            undo: None,
-        }));
-    }
-
     fn query_unsupported(&self, id: QueryId) {
         let e = describe(&Error::new(ErrorCode::IntNotAvailable));
         self.push(UiEvent::QueryResult {
@@ -226,6 +218,13 @@ impl ServiceBackend {
                     QueryResult::Stats(s) => QueryPayload::Stats(s),
                     QueryResult::Folder(f) => QueryPayload::Folder(folder_scan(f)),
                     QueryResult::PrefixSize { bytes, .. } => QueryPayload::PrefixSize(bytes),
+                    QueryResult::SteamApps {
+                        detected,
+                        candidates,
+                    } => QueryPayload::SteamApps {
+                        detected,
+                        candidates,
+                    },
                     QueryResult::Inspector(d) => QueryPayload::Inspector(d),
                     QueryResult::Sessions(v) => QueryPayload::Sessions(v),
                     QueryResult::LogChunk(c) => QueryPayload::LogChunk(c),
@@ -521,7 +520,11 @@ impl Backend for ServiceBackend {
                     slot,
                     source: ArtSource::File(p),
                 }),
-                ArtworkSource::ProgramIcon => self.unsupported(),
+                ArtworkSource::ProgramIcon => h.send(Command::ImportArtwork {
+                    id,
+                    slot,
+                    source: ArtSource::ExecutableIcon(None),
+                }),
             },
             UiCommand::ClearArtwork { id, slot } => h.send(Command::ImportArtwork {
                 id,
@@ -536,6 +539,9 @@ impl Backend for ServiceBackend {
                     });
                 }
                 h.send(Command::FetchOnlineArtwork { id });
+            }
+            UiCommand::FindSteamApp { id, term, reply_to } => {
+                h.send(Command::FindSteamApp { id, term, reply_to });
             }
             UiCommand::Launch { id, exe } => h.send(Command::Launch {
                 id,
@@ -592,7 +598,7 @@ impl Backend for ServiceBackend {
             UiCommand::ClearStatistics => h.send(Command::ClearStatistics),
             UiCommand::ResetGameStatistics { id } => h.send(Command::ResetGameStatistics { id }),
             UiCommand::RemoveSession { id } => h.send(Command::RemoveSession { id }),
-            UiCommand::RescanMissing => self.unsupported(),
+            UiCommand::RescanMissing => h.send(Command::RescanMissing),
             UiCommand::SetDefaultHandler { enable } => {
                 h.send(Command::SetDefaultHandler { enable });
             }

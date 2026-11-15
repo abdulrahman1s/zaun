@@ -508,6 +508,7 @@ impl AppService {
         self.refresh_art_index();
         self.publish_library();
         self.refresh_accents(None);
+        self.check_availability();
         // Sessions open at start: watch them.
         if self.deps.watch_sessions {
             let tx = self.tx.clone();
@@ -596,6 +597,7 @@ impl AppService {
             Command::UpdateGame { id, edits } => self.update_game(id, edits),
             Command::LoadGame { id, reply_to } => self.load_game(id, reply_to),
             Command::QueryStats { request, reply_to } => self.query_stats(&request, reply_to),
+            Command::RescanMissing => self.check_availability(),
             Command::ClearStatistics => self.clear_statistics(None),
             Command::ResetGameStatistics { id } => self.clear_statistics(Some(id)),
             Command::RemoveSession { id } => self.remove_session(id),
@@ -609,6 +611,7 @@ impl AppService {
             Command::RunTool { id, tool } => self.run_tool(id, tool, None),
             Command::ImportArtwork { id, slot, source } => self.import_artwork(id, slot, source),
             Command::FetchOnlineArtwork { id } => self.fetch_online_artwork(id, true),
+            Command::FindSteamApp { id, term, reply_to } => self.find_steam_app(id, term, reply_to),
             Command::Launch { id, exe, origin } => self.start_launch(id, exe, origin),
             Command::StopSession { session, mode } => self.stop_session(session, mode),
             Command::AnswerPrompt { prompt, answer } => self.answer_prompt(prompt, answer),
@@ -1106,6 +1109,8 @@ impl AppService {
                 | Command::QueryStats { .. }
                 | Command::ScanFolder { .. }
                 | Command::MeasurePrefix { .. }
+                | Command::FindSteamApp { .. }
+                | Command::RescanMissing
                 | Command::StopSession { .. }
                 | Command::AnswerPrompt { .. }
                 | Command::RefreshRuntimes

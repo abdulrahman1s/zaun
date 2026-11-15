@@ -208,6 +208,13 @@ pub fn serve(r: &mut Rig) {
             UiCommand::ScanFolder { folder, reply_to } => {
                 (*reply_to, QueryPayload::Folder(demo::folder_scan(folder)))
             }
+            UiCommand::FindSteamApp { id, term, reply_to } => {
+                let name = lib.get(*id).map(|g| g.name.to_string()).unwrap_or_default();
+                (
+                    *reply_to,
+                    demo::steam_apps(term.as_deref().unwrap_or(&name)),
+                )
+            }
             _ => continue,
         };
         r.fake.push_event(UiEvent::QueryResult { id, payload });
@@ -220,6 +227,7 @@ pub fn serve(r: &mut Rig) {
                 | UiCommand::QueryStats { .. }
                 | UiCommand::MeasurePrefix { .. }
                 | UiCommand::ScanFolder { .. }
+                | UiCommand::FindSteamApp { .. }
         ) {
             r.fake.record(c);
         }

@@ -216,6 +216,10 @@ error_codes! {
     ArtUnreadable = "EP-ART-003", Error;
     /// Steam has no official artwork for this game (or its app ID is unknown).
     ArtNotFound = "EP-ART-004", Warning;
+    /// Steam could not be reached for artwork or a search.
+    ArtNoConnection = "EP-ART-005", Warning;
+    /// The program has no icon to use.
+    ArtNoIcon = "EP-ART-006", Warning;
 
     // ---- Integration and internal — EP-DSK, EP-INT ---------------------------------------
     /// Could not change the default application.

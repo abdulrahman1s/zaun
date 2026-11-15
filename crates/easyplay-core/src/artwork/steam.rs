@@ -36,7 +36,8 @@ pub const CANDIDATE_NAME_MAX_CHARS: usize = 120;
 pub enum SteamAppIdSource {
     /// Already stored on the game.
     Stored,
-    /// `steam_appid.txt` in the game folder.
+    /// A file in the game folder or beside its program (`steam_appid.txt`, an emulator's
+    /// settings, the Steam library's app manifest).
     AppIdFile,
     /// The umu-database entry of the game (store `steam`).
     UmuDb,
@@ -71,8 +72,8 @@ impl<F: Fn(&Game) -> Option<u32> + Send + Sync> UmuDbSteamId for F {
     }
 }
 
-/// The real step 3.2: `identity::hints::read_steam_appid` through [`Fs`] (a regular file of
-/// at most 64 bytes, symlinks ignored).
+/// The real step 3.2: `identity::hints::find_steam_appid` through [`Fs`] (`steam_appid.txt`,
+/// a Steam API replacement's settings, the Steam library's app manifest; regular files only).
 #[derive(Clone)]
 pub struct FsAppIdFile {
     fs: Arc<dyn Fs>,
@@ -93,7 +94,7 @@ impl std::fmt::Debug for FsAppIdFile {
 
 impl AppIdFile for FsAppIdFile {
     fn read_app_id(&self, game_root: &Path) -> Option<u32> {
-        crate::identity::hints::read_steam_appid(&*self.fs, game_root)
+        crate::identity::hints::find_steam_appid(&*self.fs, game_root)
     }
 }
 
@@ -148,30 +149,36 @@ pub fn online(prefs: &ArtworkPrefs) -> bool {
     prefs.online == ArtworkOnline::Steam
 }
 
-/// Steps 1–4 of the chain (step 5 is [`parse_user_app_id`] in the artwork dialog).
-pub fn resolve_app_id(prefs: &ArtworkPrefs, game: &Game, deps: &ResolveDeps<'_>) -> Resolution {
+/// Steps 1–3 of the chain, which need no network: the stored ID, a file in the game folder
+/// or beside its program, the umu-database.
+pub fn local_app_id(game: &Game, deps: &ResolveDeps<'_>) -> Option<(u32, SteamAppIdSource)> {
     if let Some(id) = game.steam_app_id.filter(|id| *id != 0) {
-        return Resolution::Found {
-            app_id: id,
-            source: SteamAppIdSource::Stored,
-        };
+        return Some((id, SteamAppIdSource::Stored));
     }
+    let exe_dir = game
+        .primary()
+        .and_then(|e| e.canonical_path.parent())
+        .filter(|d| Some(*d) != game.root.as_deref());
     if let Some(id) = game
         .root
         .as_deref()
-        .and_then(|r| deps.app_id_file.read_app_id(r))
+        .into_iter()
+        .chain(exe_dir)
+        .find_map(|d| deps.app_id_file.read_app_id(d))
         .filter(|id| *id != 0)
     {
-        return Resolution::Found {
-            app_id: id,
-            source: SteamAppIdSource::AppIdFile,
-        };
+        return Some((id, SteamAppIdSource::AppIdFile));
     }
-    if let Some(id) = deps.umu_db.steam_app_id(game).filter(|id| *id != 0) {
-        return Resolution::Found {
-            app_id: id,
-            source: SteamAppIdSource::UmuDb,
-        };
+    deps.umu_db
+        .steam_app_id(game)
+        .filter(|id| *id != 0)
+        .map(|id| (id, SteamAppIdSource::UmuDb))
+}
+
+/// Steps 1–4 of the chain (step 5 is [`parse_user_app_id`] in the artwork dialog).
+pub fn resolve_app_id(prefs: &ArtworkPrefs, game: &Game, deps: &ResolveDeps<'_>) -> Resolution {
+    if let Some((app_id, source)) = local_app_id(game, deps) {
+        return Resolution::Found { app_id, source };
     }
     if !(online(prefs) && prefs.name_search) {
         return Resolution::NotFound;
@@ -179,17 +186,61 @@ pub fn resolve_app_id(prefs: &ArtworkPrefs, game: &Game, deps: &ResolveDeps<'_>)
     let Some(http) = deps.http else {
         return Resolution::NotFound;
     };
-    match http.get_capped(&search_url(&game.name), SEARCH_MAX_BODY) {
-        Ok(r) if r.status == 200 => match parse_search(&r.body) {
-            Some(c) => decide_search(&game.name, c),
-            None => Resolution::NotFound,
-        },
-        Ok(_) => Resolution::NotFound,
+    match search(prefs, http, &game.name) {
+        Ok(c) => decide_search(&game.name, c),
         Err(e) => {
             tracing::info!(error = %e, "steam store search failed");
             Resolution::NotFound
         }
     }
+}
+
+/// Search the Steam store for `term` (ADR-0018 §3.4; the artwork sheet's search, ADR-0024
+/// §1). Only with `artwork.online = "steam"` and `artwork.name_search`; the results are in
+/// the store's order, at most [`SEARCH_MAX_CANDIDATES`].
+pub fn search(
+    prefs: &ArtworkPrefs,
+    http: &HttpClient,
+    term: &str,
+) -> std::result::Result<Vec<SearchCandidate>, HttpError> {
+    if !(online(prefs) && prefs.name_search) || term.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let r = http.get_capped(&search_url(term), SEARCH_MAX_BODY)?;
+    if r.status != 200 {
+        return Err(HttpError::Transport(format!("status {}", r.status)));
+    }
+    parse_search(&r.body).ok_or_else(|| HttpError::Transport("malformed search answer".into()))
+}
+
+/// `candidates` ordered by how closely their names match `name`: equal names first, then
+/// names that contain it or are contained in it, then by the words they share; the store's
+/// order breaks ties.
+pub fn rank(name: &str, mut candidates: Vec<SearchCandidate>) -> Vec<SearchCandidate> {
+    let want = normalise_name(name);
+    let words: HashSet<String> = name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+    let score = |c: &SearchCandidate| {
+        let have = normalise_name(&c.name);
+        let tier = if have == want {
+            0
+        } else if !want.is_empty() && (have.contains(&want) || want.contains(&have)) {
+            1
+        } else {
+            2
+        };
+        let shared = c
+            .name
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| words.contains(&w.to_lowercase()))
+            .count();
+        (tier, std::cmp::Reverse(shared))
+    };
+    candidates.sort_by_key(score);
+    candidates
 }
 
 /// A single candidate whose normalised name equals the game's is accepted; anything else
@@ -206,7 +257,7 @@ pub fn decide_search(game_name: &str, candidates: Vec<SearchCandidate>) -> Resol
             source: SteamAppIdSource::NameSearch,
         },
         _ if candidates.is_empty() => Resolution::NotFound,
-        _ => Resolution::Candidates(candidates),
+        _ => Resolution::Candidates(rank(game_name, candidates)),
     }
 }
 
@@ -612,6 +663,25 @@ mod tests {
             Resolution::Candidates(near)
         );
         assert_eq!(decide_search("Portal", vec![]), Resolution::NotFound);
+    }
+
+    #[test]
+    fn candidates_are_ranked_by_their_names() {
+        let c = |id, n: &str| SearchCandidate {
+            app_id: id,
+            name: n.into(),
+        };
+        let ranked = rank(
+            "Grand Theft Auto San Andreas",
+            vec![
+                c(1, "Grand Theft Auto V"),
+                c(2, "Grand Theft Auto: San Andreas – The Definitive Edition"),
+                c(3, "San Andreas Tractor Simulator"),
+                c(4, "Grand Theft Auto: San Andreas"),
+            ],
+        );
+        let ids: Vec<u32> = ranked.iter().map(|c| c.app_id).collect();
+        assert_eq!(ids, vec![4, 2, 1, 3]);
     }
 
     #[test]

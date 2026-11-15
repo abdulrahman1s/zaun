@@ -488,9 +488,7 @@ fn on_action(state: &mut UiState, env: &mut Env<'_>, route: Route, action: Actio
             let fwd = action == Action::NextTab;
             match route {
                 Route::Game(_) => {
-                    let tabs = crate::vm::details::DetailsTab::visible(
-                        env.bridge.prefs().advanced.developer_mode,
-                    );
+                    let tabs = crate::vm::details::DetailsTab::visible();
                     let n = tabs.len();
                     let i = state.details.tab.index().min(n - 1);
                     let j = if fwd { (i + 1) % n } else { (i + n - 1) % n };

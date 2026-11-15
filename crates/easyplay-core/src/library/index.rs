@@ -409,6 +409,7 @@ pub fn summarize(
         cover: art_key(rows.artwork, ArtSlot::Cover),
         icon: art_key(rows.artwork, ArtSlot::Icon),
         hero: art_key(rows.artwork, ArtSlot::Hero),
+        steam_app_id: r.steam_app_id,
         accent: overlays.accent_of(r.id),
         favorite: r.favorite,
         hidden: r.hidden,

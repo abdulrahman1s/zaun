@@ -140,15 +140,19 @@ pub enum LogFile {
     Events,
     /// `supervisor.log`.
     Supervisor,
+    /// The Proton log (`proton/steam-*.log`), written when the game's *Proton log* option was
+    /// on: Wine's debug output.
+    Proton,
 }
 
 impl LogFile {
-    /// The file name.
+    /// The file name (for [`LogFile::Proton`], the folder Proton writes its log into).
     pub const fn file_name(self) -> &'static str {
         match self {
             LogFile::Game => "game.log",
             LogFile::Events => "events.jsonl",
             LogFile::Supervisor => "supervisor.log",
+            LogFile::Proton => "proton",
         }
     }
 }
@@ -233,6 +237,8 @@ pub enum Command {
         /// Reply ID.
         reply_to: QueryId,
     },
+    /// Check again which games' main programs are there (LOGIC_SPECS §9).
+    RescanMissing,
     /// Delete all play history (STATISTICS §9).
     ClearStatistics,
     /// Delete one game's play history.
@@ -293,6 +299,17 @@ pub enum Command {
     FetchOnlineArtwork {
         /// The game.
         id: GameId,
+    },
+    /// The artwork sheet asks which Steam app the game is (ADR-0024 §1); answered with
+    /// `QueryResult::SteamApps`. Without `term`, what the computer says (no network) and,
+    /// when nothing does, a store search for the game name; with `term`, a store search.
+    FindSteamApp {
+        /// The game.
+        id: GameId,
+        /// Words typed in the sheet.
+        term: Option<String>,
+        /// Reply ID.
+        reply_to: QueryId,
     },
     // ---- launching
     /// Launch a game (LOGIC_SPECS §3).
@@ -462,6 +479,7 @@ impl Command {
             Command::UpdateGame { .. } => "update_game",
             Command::LoadGame { .. } => "load_game",
             Command::QueryStats { .. } => "query_stats",
+            Command::RescanMissing => "rescan_missing",
             Command::ClearStatistics => "clear_statistics",
             Command::ResetGameStatistics { .. } => "reset_game_statistics",
             Command::RemoveSession { .. } => "remove_session",
@@ -473,6 +491,7 @@ impl Command {
             Command::RunTool { .. } => "run_tool",
             Command::ImportArtwork { .. } => "import_artwork",
             Command::FetchOnlineArtwork { .. } => "fetch_online_artwork",
+            Command::FindSteamApp { .. } => "find_steam_app",
             Command::Launch { .. } => "launch",
             Command::StopSession { .. } => "stop_session",
             Command::AnswerPrompt { .. } => "answer_prompt",

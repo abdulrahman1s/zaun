@@ -409,6 +409,8 @@ pub struct GameSummary {
     pub icon: Option<ArtKey>,
     /// Banner image of the game page (SCREEN_SPECS §4), shown from its `Hero` thumbnail.
     pub hero: Option<ArtKey>,
+    /// The Steam app whose artwork the game uses (ADR-0018).
+    pub steam_app_id: Option<u32>,
     /// Dominant colour of the cover (the ambient tint), read from the cover's thumbnail
     /// header (`artwork::thumbs` `epCl` chunk); `None` until known.
     pub accent: Option<[u8; 3]>,

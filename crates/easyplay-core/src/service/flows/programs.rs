@@ -52,6 +52,7 @@ impl AppService {
         match r {
             Ok(RelinkOutcome::Relinked { game, .. }) => {
                 self.publish_library();
+                self.check_availability();
                 self.notice(Notice::ProgramLocated { game });
             }
             Ok(RelinkOutcome::NeedsConfirmation { game, .. }) => {

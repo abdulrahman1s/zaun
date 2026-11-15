@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use easyplay_core::artwork::{SearchCandidate, SteamAppIdSource};
 use easyplay_core::clock::MonoInstant;
 use easyplay_core::error::UserError;
 use easyplay_core::ids::{GameId, QueryId};
@@ -175,6 +176,15 @@ pub struct OnboardingVm {
     pub announced: Option<OnboardingStep>,
 }
 
+/// What the artwork sheet found out about the game's Steam app (ADR-0024).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SteamApps {
+    /// The app ID this computer gives, and from where.
+    pub detected: Option<(u32, SteamAppIdSource)>,
+    /// Store search results, closest name first.
+    pub candidates: Vec<SearchCandidate>,
+}
+
 /// The artwork sheet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArtworkVm {
@@ -184,34 +194,43 @@ pub struct ArtworkVm {
     pub busy: Vec<ArtSlot>,
     /// Inline errors per slot.
     pub errors: Vec<(ArtSlot, String)>,
-    /// Steam app ID field.
-    pub app_id: String,
-    /// The app ID field's error.
-    pub app_id_error: bool,
+    /// The search field: words, an app ID or a store link. Empty until the sheet fills it
+    /// with the game's name.
+    pub term: String,
+    /// What was looked up for the sheet (asked once when it opens, then on *Search*).
+    pub apps: AsyncValue<SteamApps>,
+    /// The pending lookup.
+    pub apps_q: Option<QueryId>,
+    /// The app whose artwork is being downloaded.
+    pub fetching: Option<u32>,
+    /// Why the last download from Steam failed, shown under the results.
+    pub fetch_error: Option<String>,
 }
 
 impl ArtworkVm {
-    /// A sheet for `game` with its stored app ID.
-    pub fn new(game: GameId, app_id: Option<u32>) -> Self {
+    /// A sheet for `game`; `term` is the search field's first text (the game's name).
+    pub fn new(game: GameId, term: Option<String>) -> Self {
         Self {
             game,
             busy: Vec::new(),
             errors: Vec::new(),
-            app_id: app_id.map(|a| a.to_string()).unwrap_or_default(),
-            app_id_error: false,
+            term: term.unwrap_or_default(),
+            apps: AsyncValue::Idle,
+            apps_q: None,
+            fetching: None,
+            fetch_error: None,
         }
     }
 
-    /// Parse the field: digits, or a store URL containing `/app/<id>`.
-    pub fn parsed_app_id(&self) -> Option<u32> {
-        let t = self.app_id.trim();
-        if let Ok(n) = t.parse::<u32>() {
-            return (n > 0).then_some(n);
-        }
-        let rest = t.split("/app/").nth(1)?;
-        rest.split(|c: char| !c.is_ascii_digit())
-            .next()
-            .and_then(|d| d.parse().ok())
+    /// The field as an app ID: digits, or a store link (`store.steampowered.com/app/<id>`).
+    pub fn typed_app_id(&self) -> Option<u32> {
+        easyplay_core::artwork::parse_user_app_id(&self.term)
+    }
+
+    /// A request finished either way: spinners stop.
+    pub fn settled(&mut self) {
+        self.busy.clear();
+        self.fetching = None;
     }
 }
 
@@ -255,13 +274,13 @@ mod tests {
     }
 
     #[test]
-    fn app_id_field_accepts_numbers_and_store_urls() {
+    fn the_search_field_takes_numbers_and_store_links() {
         let mut a = ArtworkVm::new(GameId::from_uuid(uuid::Uuid::from_u128(1)), None);
-        a.app_id = " 1145360 ".into();
-        assert_eq!(a.parsed_app_id(), Some(1_145_360));
-        a.app_id = "https://store.steampowered.com/app/70/HalfLife/".into();
-        assert_eq!(a.parsed_app_id(), Some(70));
-        a.app_id = "half life".into();
-        assert_eq!(a.parsed_app_id(), None);
+        a.term = " 1145360 ".into();
+        assert_eq!(a.typed_app_id(), Some(1_145_360));
+        a.term = "https://store.steampowered.com/app/70/HalfLife/".into();
+        assert_eq!(a.typed_app_id(), Some(70));
+        a.term = "half life".into();
+        assert_eq!(a.typed_app_id(), None);
     }
 }

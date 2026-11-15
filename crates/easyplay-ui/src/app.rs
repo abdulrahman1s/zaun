@@ -594,9 +594,15 @@ impl EasyPlayApp {
                 s.toast(t.text, kind, t.undo.map(|b| *b), mono);
             }
             UiEvent::Failure(e) => {
-                // A failed artwork request arrives as a plain failure; stop its spinners.
+                // A failed artwork request arrives as a plain failure: a Steam download that
+                // failed is said under its results; anything else stops the spinners.
                 if let Some(a) = &mut s.artwork {
-                    a.busy.clear();
+                    if a.fetching.is_some() && e.code.area() == "ART" {
+                        a.settled();
+                        a.fetch_error = Some(e.message);
+                        return;
+                    }
+                    a.settled();
                 }
                 s.show_dialog(Dialog::Error(e));
             }
@@ -676,6 +682,7 @@ impl EasyPlayApp {
                     && a.game == game
                 {
                     a.busy.retain(|x| *x != slot);
+                    a.fetching = None;
                     a.errors.retain(|(x, _)| *x != slot);
                     a.errors.push((slot, error.message.clone()));
                 } else {
@@ -685,7 +692,7 @@ impl EasyPlayApp {
             UiEvent::LibraryChanged => {
                 let lib = self.bridge.library().clone();
                 if let Some(a) = &mut s.artwork {
-                    a.busy.clear();
+                    a.settled();
                     a.errors.clear();
                 }
                 if let Route::Game(id) = s.nav.current()
@@ -726,6 +733,23 @@ impl EasyPlayApp {
             return;
         };
         let s = &mut self.state;
+        if let Some(a) = &mut s.artwork
+            && a.apps_q == Some(id)
+        {
+            a.apps_q = None;
+            a.apps = match payload {
+                QueryPayload::SteamApps {
+                    detected,
+                    candidates,
+                } => AsyncValue::Ready(crate::vm::screens::SteamApps {
+                    detected,
+                    candidates,
+                }),
+                QueryPayload::Failed(e) => AsyncValue::Failed(e.message),
+                _ => AsyncValue::Failed(String::new()),
+            };
+            return;
+        }
         let d = &mut s.details;
         if d.detail_q == Some(id) {
             d.detail_q = None;

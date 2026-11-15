@@ -194,8 +194,12 @@ impl AppService {
         reply_to: QueryId,
     ) {
         let fs = Arc::clone(&self.deps.fs);
-        let path = self.deps.paths.session_dir(session).join(file.file_name());
+        let at = self.deps.paths.session_dir(session).join(file.file_name());
         self.answer_on_pool("read-log", reply_to, move |_| {
+            let path = match file {
+                LogFile::Proton => proton_log(&*fs, &at).unwrap_or(at),
+                _ => at,
+            };
             let Ok(md) = fs.metadata(&path) else {
                 return QueryResult::LogChunk(LogChunk {
                     session,
@@ -378,4 +382,17 @@ impl AppService {
         }
         self.update_diagnostics(|d| d.crash = None);
     }
+}
+
+/// The Proton log in `dir`: the largest `*.log` regular file (Proton names it after the game
+/// ID it was given, `steam-<id>.log`).
+fn proton_log(fs: &dyn crate::fsx::Fs, dir: &std::path::Path) -> Option<PathBuf> {
+    fs.read_dir(dir)
+        .ok()?
+        .into_iter()
+        .filter(|e| e.file_type == crate::fsx::FileType::File)
+        .filter(|e| e.name.to_str().is_some_and(|n| n.ends_with(".log")))
+        .filter_map(|e| Some((fs.metadata(&e.path).ok()?.size, e.path)))
+        .max()
+        .map(|(_, p)| p)
 }

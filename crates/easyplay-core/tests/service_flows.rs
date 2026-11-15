@@ -24,7 +24,7 @@ use easyplay_core::launch::{LaunchState, NoLocks};
 use easyplay_core::library::RemoveOptions;
 use easyplay_core::library::draft::NoUmuTitles;
 use easyplay_core::library::service::NoPolicyCheck;
-use easyplay_core::model::{Game, PromptAnswer, PromptKind, RuntimeRef, SlrVariant};
+use easyplay_core::model::{Availability, Game, PromptAnswer, PromptKind, RuntimeRef, SlrVariant};
 use easyplay_core::procfs::RealProc;
 use easyplay_core::runtime::{ProvisionNeed, Resolution, RuntimeCatalog, RuntimeService};
 use easyplay_core::service::session_watch::{self, SessionWatcher, WatchMsg};
@@ -109,9 +109,15 @@ fn deps(env: &TestEnv, launcher: Arc<FakeLauncher>) -> ServiceDeps {
 
 impl World {
     fn new() -> Self {
+        Self::with(|_| {})
+    }
+
+    fn with(adjust: impl FnOnce(&mut ServiceDeps)) -> Self {
         let env = TestEnv::new().unwrap();
         let launcher = Arc::new(FakeLauncher::new());
-        let (svc, events) = AppService::open_headless(deps(&env, Arc::clone(&launcher))).unwrap();
+        let mut d = deps(&env, Arc::clone(&launcher));
+        adjust(&mut d);
+        let (svc, events) = AppService::open_headless(d).unwrap();
         let mut w = Self {
             env,
             svc,
@@ -278,6 +284,18 @@ fn launch_without_runtime_runs_a_trusted_session_first() {
             Some(easyplay_core::model::NetworkAccess::Full)
         );
     }
+}
+
+#[test]
+fn games_are_checked_for_their_program_after_adding_and_on_rescan() {
+    let mut w = World::new();
+    let id = w.add("Qux");
+    let availability = |w: &World| w.svc.hub().library.load().get(id).unwrap().availability;
+    assert_eq!(availability(&w), Availability::Present);
+    assert_eq!(w.svc.hub().library.load().totals.installed, 1);
+    std::fs::remove_file(w.env.home().join("Games/Qux/Qux.exe")).unwrap();
+    w.send(Command::RescanMissing);
+    assert_eq!(availability(&w), Availability::Missing);
 }
 
 #[test]
@@ -448,4 +466,127 @@ fn update_load_and_query_stats_answer_the_game_page() {
             ..
         }
     )));
+}
+
+/// The largest icon of every program is one PNG.
+struct OneIcon(Vec<u8>);
+
+impl easyplay_core::artwork::IconSource for OneIcon {
+    fn largest_icon(&self, _exe: &std::path::Path) -> easyplay_core::Result<Option<Vec<u8>>> {
+        Ok(Some(self.0.clone()))
+    }
+}
+
+#[test]
+fn the_program_icon_can_be_used_again_and_artwork_removed() {
+    use easyplay_core::artwork::{ArtSource, ImageCodec, ImageCrateCodec, RgbaImage};
+    use easyplay_core::model::{ArtOrigin, ArtSlot};
+    use easyplay_core::storage::ArtworkRepo;
+    let png = ImageCrateCodec
+        .encode_png(&RgbaImage::filled(64, 64, [200, 40, 40, 255]))
+        .unwrap();
+    let mut w = World::with(|d| {
+        d.codec = Some(Arc::new(ImageCrateCodec));
+        d.icons = Arc::new(OneIcon(png));
+    });
+    let id = w.add("Icony");
+    w.send(Command::ImportArtwork {
+        id,
+        slot: ArtSlot::Icon,
+        source: ArtSource::Generated,
+    });
+    let icon_rows = |w: &mut World| {
+        w.svc
+            .library()
+            .db_mut()
+            .artwork_of(id)
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.slot == ArtSlot::Icon)
+            .collect::<Vec<_>>()
+    };
+    assert!(icon_rows(&mut w).is_empty(), "removed");
+    let evs = w.send(Command::ImportArtwork {
+        id,
+        slot: ArtSlot::Icon,
+        source: ArtSource::ExecutableIcon(None),
+    });
+    assert!(
+        !evs.iter().any(|e| matches!(e, Event::Failure(_))),
+        "{evs:?}"
+    );
+    let rows = icon_rows(&mut w);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].source, ArtOrigin::ExecutableIcon);
+}
+
+#[test]
+fn the_artwork_sheet_learns_the_steam_app_from_the_game_folder_without_the_network() {
+    use easyplay_core::artwork::steam::SteamAppIdSource;
+    use easyplay_core::ids::QueryId;
+    use easyplay_core::service::QueryResult;
+    let mut w = World::new();
+    let id = w.add("Steamy");
+    let q = QueryId::from_uuid(uuid::Uuid::from_u128(7));
+    let ask = |w: &mut World| {
+        w.send(Command::FindSteamApp {
+            id,
+            term: None,
+            reply_to: q,
+        })
+        .into_iter()
+        .find_map(|e| match e {
+            Event::QueryResult {
+                result:
+                    QueryResult::SteamApps {
+                        detected,
+                        candidates,
+                    },
+                ..
+            } => Some((detected, candidates)),
+            _ => None,
+        })
+        .expect("answered")
+    };
+    // Online artwork is off and there is no client: nothing is known, nothing is sent.
+    assert_eq!(ask(&mut w), (None, vec![]));
+    let dir = w.env.home().join("Games/Steamy");
+    std::fs::write(dir.join("steam_emu.ini"), "[Settings]\nAppId=367520\n").unwrap();
+    assert_eq!(
+        ask(&mut w),
+        (Some((367_520, SteamAppIdSource::AppIdFile)), vec![])
+    );
+}
+
+#[test]
+fn the_proton_log_of_a_session_is_read_from_its_proton_folder() {
+    use easyplay_core::ids::{QueryId, SessionId};
+    use easyplay_core::service::{LogFile, QueryResult};
+    let mut w = World::new();
+    let sid = SessionId::from_uuid(uuid::Uuid::from_u128(42));
+    let read = |w: &mut World| {
+        w.send(Command::ReadLog {
+            session: sid,
+            file: LogFile::Proton,
+            offset: 0,
+            reply_to: QueryId::from_uuid(uuid::Uuid::from_u128(5)),
+        })
+        .into_iter()
+        .find_map(|e| match e {
+            Event::QueryResult {
+                result: QueryResult::LogChunk(c),
+                ..
+            } => Some(c),
+            _ => None,
+        })
+        .expect("answered")
+    };
+    assert!(read(&mut w).missing, "no Proton log recorded");
+    let dir = w.env.paths().session_dir(sid).join("proton");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("notes.txt"), "not a log").unwrap();
+    std::fs::write(dir.join("steam-umu-default.log"), "0024:err:module:x y\n").unwrap();
+    let c = read(&mut w);
+    assert!(!c.missing);
+    assert_eq!(c.bytes, b"0024:err:module:x y\n");
 }

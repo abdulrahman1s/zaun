@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use easyplay_core::artwork::SearchCandidate;
 use easyplay_core::clock::Timestamp;
 use easyplay_core::config::Preferences;
 use easyplay_core::error::{ErrorCode, RecoveryAction, Severity, UserError};
@@ -234,6 +235,7 @@ fn summary(i: usize, s: Spec, now: Timestamp) -> GameSummary {
         cover: s.art.then(|| art_key(i as u64 + 1)),
         icon: None,
         hero: None,
+        steam_app_id: None,
         accent: None,
         favorite: s.favorite,
         hidden: false,
@@ -870,6 +872,28 @@ pub fn draft(path: &Path, now: Timestamp) -> GameDraft {
         umu_id: None,
         tags: Vec::new(),
         issues: Vec::new(),
+    }
+}
+
+/// Store search results for `term` (none for a term containing "nothing").
+pub fn steam_apps(term: &str) -> QueryPayload {
+    let candidates = if term.to_lowercase().contains("nothing") {
+        Vec::new()
+    } else {
+        vec![
+            SearchCandidate {
+                app_id: 1_547_000,
+                name: format!("{term}: The Definitive Edition"),
+            },
+            SearchCandidate {
+                app_id: 1_546_990,
+                name: format!("{term} Trilogy"),
+            },
+        ]
+    };
+    QueryPayload::SteamApps {
+        detected: None,
+        candidates,
     }
 }
 
@@ -1564,6 +1588,13 @@ impl DemoBackend {
                 s.events.push_back(UiEvent::QueryResult {
                     id: reply_to,
                     payload: QueryPayload::PrefixSize(2_254_857_830),
+                });
+            }
+            UiCommand::FindSteamApp { id, term, reply_to } => {
+                let name = term.unwrap_or_else(|| name_of(s, id));
+                s.events.push_back(UiEvent::QueryResult {
+                    id: reply_to,
+                    payload: steam_apps(&name),
                 });
             }
             UiCommand::SearchFixes { text, reply_to } => {

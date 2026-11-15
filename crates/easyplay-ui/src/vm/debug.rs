@@ -5,6 +5,7 @@
 use std::time::Duration;
 
 use easyplay_core::clock::MonoInstant;
+use easyplay_core::diagnostics::log_line::{self, LineKind, LineLevel, LineSource};
 use easyplay_core::error::UserError;
 use easyplay_core::ids::{GameId, QueryId, SessionId};
 use easyplay_core::session::ProcessRole;
@@ -274,6 +275,12 @@ pub struct LogViewerVm {
     pub file: Option<LogFile>,
     /// Lines loaded (sanitised).
     pub lines: Vec<String>,
+    /// Who wrote each line and how serious it is (`kinds[i]` is `lines[i]`'s).
+    pub kinds: Vec<LineKind>,
+    /// The least serious level shown (and everything more serious).
+    pub level: LineLevel,
+    /// Only this program's lines; `None` = all.
+    pub source: Option<LineSource>,
     /// Bytes after the last newline.
     pub partial: Vec<u8>,
     /// Next offset to read.
@@ -307,6 +314,7 @@ impl LogViewerVm {
             self.listed,
             self.filter.clone(),
             self.wrap,
+            (self.level, self.source),
         );
         *self = Self {
             game: keep.0,
@@ -314,6 +322,8 @@ impl LogViewerVm {
             listed: keep.2,
             filter: keep.3,
             wrap: keep.4,
+            level: keep.5.0,
+            source: keep.5.1,
             session: Some(session),
             file: Some(file),
             follow: true,
@@ -341,7 +351,7 @@ impl LogViewerVm {
         let mut start = 0;
         for (i, b) in buf.iter().enumerate() {
             if *b == b'\n' {
-                self.lines.push(sanitize(&buf[start..i]));
+                self.push(sanitize(&buf[start..i]));
                 start = i + 1;
             }
         }
@@ -349,28 +359,48 @@ impl LogViewerVm {
         let at_end = self.offset >= self.size;
         if at_end && !self.partial.is_empty() && !self.running() {
             let rest = std::mem::take(&mut self.partial);
-            self.lines.push(sanitize(&rest));
+            self.push(sanitize(&rest));
         }
         if self.lines.len() > MAX_LINES {
             let n = self.lines.len() - MAX_LINES;
             self.lines.drain(..n);
+            self.kinds.drain(..n);
             self.dropped += n;
         }
         !at_end && !c.bytes.is_empty()
     }
 
-    /// Indices of the lines matching the filter.
+    fn push(&mut self, line: String) {
+        self.kinds.push(log_line::classify(&line));
+        self.lines.push(line);
+    }
+
+    /// Indices of the lines shown: at the chosen level or more serious, of the chosen
+    /// program, containing the filter text.
     pub fn visible(&self) -> Vec<usize> {
-        if self.filter.is_empty() {
-            return (0..self.lines.len()).collect();
-        }
         let needle = self.filter.to_lowercase();
-        self.lines
-            .iter()
-            .enumerate()
-            .filter(|(_, l)| l.to_lowercase().contains(&needle))
-            .map(|(i, _)| i)
+        (0..self.lines.len())
+            .filter(|&i| {
+                let k = self.kinds.get(i).copied().unwrap_or_default();
+                k.level <= self.level
+                    && self.source.is_none_or(|s| s == k.source)
+                    && (needle.is_empty() || self.lines[i].to_lowercase().contains(&needle))
+            })
             .collect()
+    }
+
+    /// Errors and warnings loaded, whatever is shown.
+    pub fn counts(&self) -> (usize, usize) {
+        self.kinds.iter().fold((0, 0), |(e, w), k| match k.level {
+            LineLevel::Error => (e + 1, w),
+            LineLevel::Warning => (e, w + 1),
+            _ => (e, w),
+        })
+    }
+
+    /// Whether lines are hidden by the level or the program (not by the filter text).
+    pub fn narrowed(&self) -> bool {
+        self.level != LineLevel::Debug || self.source.is_some()
     }
 
     /// Whether a poll of the followed file is due at `now`.

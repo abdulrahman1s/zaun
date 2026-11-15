@@ -8,6 +8,7 @@
 pub mod crash;
 pub mod doctor;
 pub mod evidence;
+pub mod log_line;
 pub mod report;
 
 pub use doctor::{

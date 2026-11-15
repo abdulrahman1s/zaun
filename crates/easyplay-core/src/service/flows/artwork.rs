@@ -9,6 +9,8 @@ use std::sync::Arc;
 
 use super::super::app_service::{AppService, Internal};
 use super::super::event::Notice;
+use super::super::event::QueryResult;
+use crate::artwork::icon_extract::ICON_LIMITS;
 use crate::artwork::import::{Normalised, normalise, store_and_commit};
 use crate::artwork::steam::{
     self, Resolution, ResolveDeps, SteamAppIdSource, apply_app_id, cdn_candidates, fetch_slot,
@@ -16,7 +18,7 @@ use crate::artwork::steam::{
 };
 use crate::artwork::{ArtSource, ImageLimits};
 use crate::error::{Error, ErrorCode};
-use crate::ids::GameId;
+use crate::ids::{ExecutableId, GameId, QueryId};
 use crate::jobs::{JobLabel, JobPriority};
 use crate::model::{ArtOrigin, ArtSlot};
 use crate::storage::{ArtworkRepo, GamePatch};
@@ -102,7 +104,8 @@ impl AppService {
                         }
                         steam::FetchOutcome::Failed(e) => {
                             out.error = Some(
-                                Error::new(ErrorCode::ArtUnreadable).with("reason", e.to_string()),
+                                Error::new(ErrorCode::ArtNoConnection)
+                                    .with("reason", e.to_string()),
                             );
                             break;
                         }
@@ -152,10 +155,122 @@ impl AppService {
                     },
                 );
             }
-            ArtSource::ExecutableIcon(_) | ArtSource::Generated => {
-                self.fail(Error::not_available("ART-005 icon re-import"));
-            }
+            ArtSource::ExecutableIcon(exe) => self.import_program_icon(id, slot, exe),
+            ArtSource::Generated => self.clear_artwork(id, slot),
         }
+    }
+
+    /// *Remove*: the slot falls back to the icon or the generated placeholder. The stored
+    /// file stays until maintenance collects it.
+    fn clear_artwork(&mut self, id: GameId, slot: ArtSlot) {
+        let rows = self.lib.db_mut().artwork_of(id).unwrap_or_default();
+        let Some(row) = rows.into_iter().find(|r| r.slot == slot) else {
+            return;
+        };
+        if let Err(e) = self.lib.db_mut().delete_artwork(id, slot) {
+            return self.fail(Error::new(e.code()).with_source(e));
+        }
+        self.deps.art_index.remove(&row.hash);
+        self.index_game_art(id);
+        if let Err(e) = self.lib.refresh_game(id) {
+            tracing::debug!(error = %e, "refresh after artwork removal failed");
+        }
+        self.publish_library();
+    }
+
+    /// *Use program icon*: the largest icon embedded in one of the game's programs.
+    fn import_program_icon(&mut self, id: GameId, slot: ArtSlot, exe: Option<ExecutableId>) {
+        let Some(codec) = self.deps.codec.clone() else {
+            return self.fail(Error::not_available("artwork codec"));
+        };
+        let path = match self.lib.game(id) {
+            Ok(g) => g
+                .executables
+                .iter()
+                .find(|e| Some(e.id) == exe)
+                .or_else(|| g.primary())
+                .map(|e| e.canonical_path.clone()),
+            Err(e) => return self.fail(e),
+        };
+        let icons = Arc::clone(&self.deps.icons);
+        let post = self.poster();
+        let _ = self.deps.jobs.submit(
+            JobPriority::Interactive,
+            JobLabel("artwork-icon"),
+            move |_| {
+                let mut out = ArtFetched {
+                    game: id,
+                    user_asked: true,
+                    app_id: None,
+                    images: Vec::new(),
+                    error: None,
+                };
+                let bytes = path.map(|p| icons.largest_icon(&p));
+                match bytes {
+                    Some(Ok(Some(b))) => match normalise(&*codec, slot, &b, &ICON_LIMITS) {
+                        Ok(n) => out.images.push((n, ArtOrigin::ExecutableIcon)),
+                        Err(e) => {
+                            out.error = Some(
+                                Error::new(ErrorCode::ArtUnreadable).with("reason", e.to_string()),
+                            );
+                        }
+                    },
+                    Some(Err(e)) => out.error = Some(e),
+                    Some(Ok(None)) | None => {
+                        out.error = Some(Error::new(ErrorCode::ArtNoIcon));
+                    }
+                }
+                post(Internal::Art(Box::new(out)));
+            },
+        );
+    }
+
+    /// `FindSteamApp` (ADR-0024 §1): the ID the computer gives and store search results.
+    pub(crate) fn find_steam_app(&mut self, id: GameId, term: Option<String>, reply_to: QueryId) {
+        let game = match self.lib.game(id) {
+            Ok(g) => g,
+            Err(e) => {
+                let describe = self.describer(Some(id));
+                return self.answer_on_pool("find-steam-app", reply_to, move |_| {
+                    QueryResult::Failed(Box::new(describe(&e)))
+                });
+            }
+        };
+        let prefs = self.prefs.artwork.clone();
+        let http = self.deps.http.clone();
+        let app_id_file = Arc::clone(&self.deps.app_id_file);
+        let umu_db = super::runtime::CatalogUmuDb::new(
+            Arc::clone(&self.deps.fs),
+            Arc::clone(&self.deps.runtimes),
+        );
+        let describe = self.describer(Some(id));
+        self.answer_on_pool("find-steam-app", reply_to, move |_| {
+            let deps = ResolveDeps {
+                app_id_file: &*app_id_file,
+                umu_db: &umu_db,
+                http: http.as_deref(),
+            };
+            let detected = match term {
+                Some(_) => None,
+                None => steam::local_app_id(&game, &deps),
+            };
+            let words = term.unwrap_or_else(|| game.name.clone());
+            let candidates = match (&detected, http.as_deref()) {
+                (None, Some(http)) => match steam::search(&prefs, http, &words) {
+                    Ok(c) => steam::rank(&words, c),
+                    Err(e) => {
+                        let err =
+                            Error::new(ErrorCode::ArtNoConnection).with("reason", e.to_string());
+                        return QueryResult::Failed(Box::new(describe(&err)));
+                    }
+                },
+                _ => Vec::new(),
+            };
+            QueryResult::SteamApps {
+                detected,
+                candidates,
+            }
+        });
     }
 
     pub(crate) fn on_art_fetched(&mut self, a: ArtFetched) {

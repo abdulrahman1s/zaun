@@ -31,7 +31,7 @@ pub enum DetailsTab {
     LaunchOptions,
     /// Activity.
     Activity,
-    /// Logs (Developer Mode, SCREEN_SPECS_2 §15).
+    /// Logs (SCREEN_SPECS_2 §15, ADR-0025).
     Logs,
 }
 
@@ -46,13 +46,9 @@ impl DetailsTab {
         DetailsTab::Logs,
     ];
 
-    /// The tabs shown: Logs only in Developer Mode.
-    pub fn visible(developer: bool) -> &'static [DetailsTab] {
-        if developer {
-            &Self::ALL
-        } else {
-            &Self::ALL[..5]
-        }
+    /// The tabs shown: all of them (Logs is on every game page, ADR-0025).
+    pub fn visible() -> &'static [DetailsTab] {
+        &Self::ALL
     }
 
     /// Index in [`Self::ALL`].

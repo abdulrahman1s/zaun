@@ -31,7 +31,7 @@ use crate::theme::{self, Icon, Type, icons};
 use crate::vm::AsyncValue;
 use crate::vm::details::{DetailsTab, DetailsVm, range_for};
 use crate::vm::toasts::ToastKind;
-use crate::widgets::button::{Button, PillSize, Variant, play_pill};
+use crate::widgets::button::{Button, PillSize, Size, Variant, play_pill};
 use crate::widgets::card::play_state;
 use crate::widgets::chip::{ChipKind, chip};
 use crate::widgets::context_menu::item;
@@ -192,9 +192,26 @@ fn hero_cover(
     };
     let corner = CornerRadius::same(radius::POP);
     paint_cover(ui.painter(), rect, corner, src, &g.name, &theme);
-    // Pointing at the cover dims it and shows what a click offers.
+    // Pointing at the cover dims it and shows what a click offers; an empty cover says so
+    // without pointing.
     let hot = crate::widgets::hover_t(&resp, &theme);
-    if hot > 0.0 {
+    if g.cover.is_none() {
+        let at = rect.center() - vec2(0.0, space::S6);
+        ui.painter().text(
+            at,
+            egui::Align2::CENTER_BOTTOM,
+            icons::GRID.text(false),
+            icons::font(icon_size::NAV),
+            fade(p.on_art, 0.55 + 0.45 * hot),
+        );
+        ui.painter().text(
+            at + vec2(0.0, space::S2),
+            egui::Align2::CENTER_TOP,
+            s::ADD_COVER,
+            Type::Caption.font_id(),
+            fade(p.on_art, 0.7 + 0.3 * hot),
+        );
+    } else if hot > 0.0 {
         ui.painter()
             .rect_filled(rect, corner, fade(p.scrim, 0.35 * hot));
         ui.painter().text(
@@ -359,10 +376,18 @@ fn meta_line(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummar
                 );
             }
         }
-        if ui
-            .add(IconButton::new(icons::PLUS, strings::menu::NEW_TAG).shortcut("T"))
-            .clicked()
-        {
+        // Labelled while there is nothing beside it to say what it adds to.
+        let add = if g.tags.is_empty() {
+            ui.add(
+                Button::ghost(s::ADD_TAG)
+                    .icon(icons::PLUS)
+                    .size(Size::Sm)
+                    .shortcut("T"),
+            )
+        } else {
+            ui.add(IconButton::new(icons::PLUS, strings::menu::NEW_TAG).shortcut("T"))
+        };
+        if add.clicked() {
             actions::apply(state, env, g.id, GameAction::EditTags);
         }
     });
@@ -618,14 +643,7 @@ fn column_body(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSumm
     hero(ui, state, env, g);
     ui.add_space(space::S4);
     launch_panel::state_area(ui, state, env, g);
-    let developer = env.bridge.prefs().advanced.developer_mode;
-    if !developer && state.details.tab == DetailsTab::Logs {
-        state.details.tab = DetailsTab::Overview;
-    }
-    let names: Vec<&str> = DetailsTab::visible(developer)
-        .iter()
-        .map(|t| s::tab(*t))
-        .collect();
+    let names: Vec<&str> = DetailsTab::visible().iter().map(|t| s::tab(*t)).collect();
     let mut sel = state.details.tab.index();
     if tabs(ui, s::TABS, &mut sel, &names).changed() {
         state.navigate(crate::vm::dialogs::AfterDiscard::Tab(sel));

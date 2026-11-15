@@ -480,6 +480,16 @@ pub const fn entry(code: ErrorCode) -> Entry {
             "Steam has no artwork for this game, or EasyPlay could not tell which Steam game it is. Enter its Steam app ID or store link and try again.",
             &[A::Dismiss],
         ),
+        C::ArtNoConnection => e(
+            "Steam could not be reached",
+            "Check the internet connection and try again.",
+            &[A::Dismiss],
+        ),
+        C::ArtNoIcon => e(
+            "This program has no icon",
+            "Choose an image instead.",
+            &[A::Dismiss],
+        ),
 
         // ---- Integration and internal ----
         C::DskDefaultHandlerFailed => e(

@@ -29,6 +29,10 @@ pub fn tab(t: DetailsTab) -> &'static str {
 
 /// Cover button.
 pub const CHANGE_PICTURE: &str = "Cover: change picture";
+/// On a cover that has no picture yet.
+pub const ADD_COVER: &str = "Add cover";
+/// Beside the protection, while the game has no tags.
+pub const ADD_TAG: &str = "Add tag";
 /// Title tooltip.
 pub const RENAME_TOOLTIP: &str = "Click or press F2 to rename";
 /// Rename field.
@@ -208,8 +212,10 @@ pub fn fix_problems(n: usize) -> String {
 
 // ---- Protection ----------------------------------------------------------------------------
 
-/// Heading and radio group.
+/// Overview row.
 pub const PROTECTION: &str = "Protection";
+/// Heading and radio group of the Protection tab (the tab itself is called Protection).
+pub const PROTECTION_LEVEL: &str = "Protection level";
 /// Link.
 pub const RESET_TO_PRESET: &str = "Reset to preset";
 /// Inline confirm button.

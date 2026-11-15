@@ -4,6 +4,7 @@
 
 pub mod accent;
 pub mod artwork;
+pub mod availability;
 pub mod debug;
 pub mod desktop;
 pub mod launch;
@@ -49,6 +50,8 @@ pub(crate) enum FlowDone {
     },
     /// Dominant cover colours worked out.
     Accents(Vec<(crate::ids::GameId, Option<[u8; 3]>)>),
+    /// Whether each game's main program is there.
+    Availability(Vec<(crate::ids::GameId, crate::model::Availability)>),
     /// The start-up maintenance finished.
     Maintenance(maintenance::MaintenanceReport),
 }
@@ -71,6 +74,10 @@ impl AppService {
             FlowDone::Tool { game, result } => self.on_tool_started(game, result),
             FlowDone::Query { id, result } => self.emit(Event::QueryResult { id, result }),
             FlowDone::Maintenance(r) => self.on_maintenance(r),
+            FlowDone::Availability(a) => {
+                self.lib.set_availability(&a);
+                self.publish_library();
+            }
             FlowDone::Accents(a) => {
                 self.lib.set_accents(&a);
                 self.publish_library();

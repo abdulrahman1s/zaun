@@ -220,6 +220,133 @@ pub fn parse_steam_appid(bytes: &[u8]) -> Option<u32> {
     s.parse::<u32>().ok().filter(|n| *n > 0)
 }
 
+/// What a game folder says its Steam app ID is (ADR-0024 §2), in order: `steam_appid.txt`,
+/// `steam_settings/steam_appid.txt`, the settings file of a Steam API replacement
+/// ([`EMULATOR_SETTINGS`]), and the app manifest of the Steam library the folder is
+/// installed in. Only regular files of at most [`STEAM_HINT_MAX_BYTES`] are read.
+pub fn find_steam_appid(fs: &dyn Fs, dir: &Path) -> Option<u32> {
+    read_steam_appid(fs, dir)
+        .or_else(|| read_steam_appid(fs, &dir.join("steam_settings")))
+        .or_else(|| emulator_appid(fs, dir))
+        .or_else(|| library_appid(fs, dir))
+}
+
+/// Largest emulator settings file or Steam app manifest read.
+pub const STEAM_HINT_MAX_BYTES: u64 = 64 * 1024;
+/// Most entries of a Steam library's `steamapps` folder looked at.
+pub const MAX_LIBRARY_ENTRIES: usize = 4096;
+/// Settings files of Steam API replacements that name the app ID (`AppId=`), lower-case.
+pub const EMULATOR_SETTINGS: &[&str] = &[
+    "steam_emu.ini",
+    "smartsteamemu.ini",
+    "cream_api.ini",
+    "ali213.ini",
+    "onlinefix.ini",
+    "cpy.ini",
+];
+
+fn small_text(fs: &dyn Fs, path: &Path) -> Option<String> {
+    let md = fs.metadata(path).ok()?;
+    if md.file_type != FileType::File || md.size > STEAM_HINT_MAX_BYTES {
+        return None;
+    }
+    let bytes = fs.read(path, STEAM_HINT_MAX_BYTES).ok()?;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn sorted_entries(fs: &dyn Fs, dir: &Path, max: usize) -> Vec<crate::fsx::DirEntry> {
+    let mut entries: Vec<_> = fs
+        .read_dir(dir)
+        .unwrap_or_default()
+        .into_iter()
+        .take(max)
+        .filter(|e| e.file_type == FileType::File)
+        .collect();
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    entries
+}
+
+fn emulator_appid(fs: &dyn Fs, dir: &Path) -> Option<u32> {
+    sorted_entries(fs, dir, MAX_SIBLINGS)
+        .iter()
+        .filter(|e| {
+            e.name
+                .to_str()
+                .is_some_and(|n| EMULATOR_SETTINGS.contains(&n.to_ascii_lowercase().as_str()))
+        })
+        .find_map(|e| parse_ini_appid(&small_text(fs, &e.path)?))
+}
+
+/// `AppId = 123` in an INI file (any section, key case ignored). `RealAppId` wins over
+/// `AppId`: OnlineFix names its stand-in ID `FakeAppId` and the game's `RealAppId`.
+pub fn parse_ini_appid(text: &str) -> Option<u32> {
+    let mut found = None;
+    for line in text.lines() {
+        let line = line.trim().trim_start_matches('\u{FEFF}');
+        if line.starts_with([';', '#']) {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let value = value
+            .trim()
+            .split(|c: char| c == ';' || c == '#' || c.is_whitespace())
+            .next()
+            .unwrap_or_default();
+        let id = parse_steam_appid(value.as_bytes());
+        match key.trim().to_ascii_lowercase().as_str() {
+            "realappid" if id.is_some() => return id,
+            "appid" if found.is_none() => found = id,
+            _ => {}
+        }
+    }
+    found
+}
+
+/// A quoted value of a Steam `.acf` file: the line `"key"  "value"`, key case ignored.
+pub fn acf_value<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    text.lines().find_map(|line| {
+        let parts: Vec<&str> = line.trim().split('"').collect();
+        match parts.as_slice() {
+            ["", k, gap, v, ..] if k.eq_ignore_ascii_case(key) && gap.trim().is_empty() => Some(*v),
+            _ => None,
+        }
+    })
+}
+
+/// A folder inside `<library>/steamapps/common/<installdir>`: the `appmanifest_<id>.acf`
+/// of that library whose `installdir` is the folder's.
+fn library_appid(fs: &dyn Fs, dir: &Path) -> Option<u32> {
+    use std::path::Component;
+    let parts: Vec<Component<'_>> = dir.components().collect();
+    let named = |c: &Component<'_>, n: &str| {
+        c.as_os_str()
+            .to_str()
+            .is_some_and(|s| s.eq_ignore_ascii_case(n))
+    };
+    let at = parts
+        .windows(2)
+        .rposition(|w| named(&w[0], "steamapps") && named(&w[1], "common"))?;
+    let installdir = parts.get(at + 2)?.as_os_str().to_str()?;
+    let steamapps: std::path::PathBuf = parts[..=at].iter().collect();
+    sorted_entries(fs, &steamapps, MAX_LIBRARY_ENTRIES)
+        .iter()
+        .find_map(|e| {
+            let name = e.name.to_str()?;
+            let digits = name.strip_prefix("appmanifest_")?.strip_suffix(".acf")?;
+            let from_name = parse_steam_appid(digits.as_bytes())?;
+            let text = small_text(fs, &e.path)?;
+            acf_value(&text, "installdir")
+                .is_some_and(|d| d.eq_ignore_ascii_case(installdir))
+                .then(|| {
+                    acf_value(&text, "appid")
+                        .and_then(|v| parse_steam_appid(v.as_bytes()))
+                        .unwrap_or(from_name)
+                })
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

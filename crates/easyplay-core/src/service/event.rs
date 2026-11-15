@@ -176,6 +176,13 @@ pub enum QueryResult {
         /// The walk was complete.
         complete: bool,
     },
+    /// `Command::FindSteamApp`.
+    SteamApps {
+        /// The app ID the computer gives (stored, a file, the umu-database).
+        detected: Option<(u32, crate::artwork::steam::SteamAppIdSource)>,
+        /// Store search results, closest name first.
+        candidates: Vec<crate::artwork::steam::SearchCandidate>,
+    },
     /// `Command::Inspect`.
     Inspector(Box<crate::launch::InspectorData>),
     /// `Command::ListSessions`.

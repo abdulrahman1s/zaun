@@ -341,10 +341,7 @@ fn artwork_sheet_shows_import_errors_inline_and_keeps_the_old_art() {
     r.h.state_mut().state.nav.open(Overlay::Artwork(g));
     r.picker.answer(vec!["/home/sam/Pictures/huge.png".into()]);
     r.h.run();
-    r.h.get_all_by_label("Choose image…")
-        .next()
-        .unwrap()
-        .click();
+    r.h.get_all_by_label("Choose…").next().unwrap().click();
     r.h.run_steps(3);
     assert!(r.fake.sent().iter().any(|c| matches!(
         c,
@@ -369,6 +366,84 @@ fn artwork_sheet_shows_import_errors_inline_and_keeps_the_old_art() {
     });
     r.h.run_steps(3);
     r.h.get_by_label("This image is too large (max 64 megapixels).");
+}
+
+fn artwork_sheet_online(name: &str) -> (Rig, easyplay_core::ids::GameId) {
+    let mut r = rig(Route::Library);
+    r.h.run();
+    let g = game_id(&settled_library(), name);
+    let mut prefs = demo::preferences();
+    prefs.artwork.online = easyplay_core::config::schema::ArtworkOnline::Steam;
+    r.fake.publish_prefs(prefs);
+    r.h.state_mut().state.artwork = Some(easyplay_ui::vm::screens::ArtworkVm::new(g, None));
+    r.h.state_mut().state.nav.open(Overlay::Artwork(g));
+    settle(&mut r);
+    (r, g)
+}
+
+#[test]
+fn artwork_sheet_looks_the_game_up_on_steam_and_downloads_the_chosen_app() {
+    let (mut r, g) = artwork_sheet_online("Lantern Keep");
+    // Asked once, by the game's name, when the sheet opened.
+    let name = "Lantern Keep: The Definitive Edition, Steam app 1547000: download its artwork";
+    r.h.get_by_label(name).click();
+    r.h.run_steps(2);
+    assert!(r.fake.sent().contains(&UiCommand::FetchSteamArtwork {
+        id: g,
+        app_id: Some(1_547_000),
+    }));
+    // The download ended (the library changed): the spinners stop.
+    r.fake.push_event(UiEvent::LibraryChanged);
+    r.h.run_steps(2);
+    // Other words are searched for on Search; an app ID or link is a row of its own.
+    r.h.state_mut().state.artwork.as_mut().unwrap().term = "nothing at all".into();
+    r.h.get_by_label("Search").click();
+    settle(&mut r);
+    r.h.get_by_label_contains("Nothing found on Steam");
+    r.h.state_mut().state.artwork.as_mut().unwrap().term =
+        "https://store.steampowered.com/app/12120/".into();
+    r.h.run_steps(2);
+    r.h.get_by_label("Steam app 12120, Steam app 12120: download its artwork");
+}
+
+#[test]
+fn a_failed_steam_download_is_said_in_the_sheet() {
+    let (mut r, g) = artwork_sheet_online("Lantern Keep");
+    r.h.get_by_label("Lantern Keep Trilogy, Steam app 1546990: download its artwork")
+        .click();
+    r.h.run_steps(2);
+    r.fake
+        .push_event(UiEvent::Failure(easyplay_core::error::UserError {
+            code: easyplay_core::error::ErrorCode::ArtNotFound,
+            severity: easyplay_core::error::Severity::Warning,
+            title: "No official artwork found".into(),
+            message: "Steam has no artwork for this game.".into(),
+            actions: vec![],
+            details: None,
+            game: Some(g),
+            session: None,
+        }));
+    r.h.run_steps(3);
+    r.h.get_by_label("Steam has no artwork for this game.");
+    assert!(r.h.query_by_role(Role::AlertDialog).is_none());
+}
+
+#[test]
+fn artwork_sheet_offers_to_turn_online_artwork_on() {
+    let mut r = rig(Route::Library);
+    r.h.run();
+    let g = game_id(&settled_library(), "Lantern Keep");
+    r.h.state_mut().state.artwork = Some(easyplay_ui::vm::screens::ArtworkVm::new(g, None));
+    r.h.state_mut().state.nav.open(Overlay::Artwork(g));
+    r.h.run_steps(4);
+    r.h.get_by_label("Turn on").click();
+    r.h.run_steps(2);
+    assert!(
+        r.fake
+            .sent()
+            .iter()
+            .any(|c| matches!(c, UiCommand::SetPreference { .. }))
+    );
 }
 
 #[test]
@@ -703,6 +778,7 @@ fn snapshot_artwork_sheet_dark() {
     r.fake.publish_prefs(prefs);
     r.h.state_mut().state.artwork = Some(easyplay_ui::vm::screens::ArtworkVm::new(g, None));
     r.h.state_mut().state.nav.open(Overlay::Artwork(g));
+    settle(&mut r);
     r.h.run_steps(6);
     r.h.snapshot("artwork_dark_1280x800");
 }

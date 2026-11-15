@@ -928,6 +928,61 @@ fn malformed_shortcuts_fail_cleanly() {
 // ---- Hints --------------------------------------------------------------------------------
 
 #[test]
+fn the_steam_app_id_is_found_in_emulator_settings_and_steam_libraries() {
+    let fs = MemFs::new();
+    fs.file("/g/A/steam_settings/steam_appid.txt", b"70")
+        .file("/g/B/Steam_Emu.ini", b"[Settings]\r\n; AppId=1\r\nAppId=12120 ; GTA\r\n")
+        .file("/g/C/OnlineFix.ini", b"[Main]\nFakeAppId=480\nAppId=480\nRealAppId=1145360\n")
+        .file("/g/D/readme.ini", b"AppId=5")
+        .file(
+            "/lib/steamapps/appmanifest_367520.acf",
+            b"\"AppState\"\n{\n\t\"appid\"\t\t\"367520\"\n\t\"installdir\"\t\t\"Hollow Knight\"\n}\n",
+        )
+        .file(
+            "/lib/steamapps/appmanifest_70.acf",
+            b"\"AppState\"\n{\n\t\"installdir\"\t\t\"Half-Life\"\n}\n",
+        )
+        .file("/lib/steamapps/common/Hollow Knight/hollow_knight.exe", b"x")
+        .file("/lib/steamapps/common/Other/game.exe", b"x");
+    let find = |d: &str| hints::find_steam_appid(&fs, Path::new(d));
+    assert_eq!(find("/g/A"), Some(70), "steam_settings");
+    assert_eq!(
+        find("/g/B"),
+        Some(12120),
+        "comment lines and trailing comments skipped"
+    );
+    assert_eq!(
+        find("/g/C"),
+        Some(1_145_360),
+        "RealAppId wins over the stand-in"
+    );
+    assert_eq!(find("/g/D"), None, "only known settings files");
+    assert_eq!(find("/lib/steamapps/common/Hollow Knight"), Some(367_520));
+    assert_eq!(
+        find("/lib/steamapps/common/hollow knight/bin"),
+        Some(367_520)
+    );
+    assert_eq!(find("/lib/steamapps/common/Other"), None);
+    assert_eq!(find("/lib/steamapps"), None);
+}
+
+#[test]
+fn ini_and_acf_values_are_read_strictly() {
+    assert_eq!(hints::parse_ini_appid("appid = 42"), Some(42));
+    assert_eq!(hints::parse_ini_appid("AppId=abc\nAppId=7"), Some(7));
+    assert_eq!(hints::parse_ini_appid("AppIdX=7"), None);
+    assert_eq!(hints::parse_ini_appid("AppId=0"), None);
+    assert_eq!(
+        hints::acf_value("\t\"InstallDir\"\t\"Game\"", "installdir"),
+        Some("Game")
+    );
+    assert_eq!(
+        hints::acf_value("\"installdir\" x \"Game\"", "installdir"),
+        None
+    );
+}
+
+#[test]
 fn folder_hints_and_steam_appid() {
     let fs = MemFs::new();
     fs.file("/g/Game/game.exe", sample_game())

@@ -794,8 +794,12 @@ fn decide(state: &mut UiState, env: &mut Env<'_>, game: GameId, perm: Perm, pick
 fn preset(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let p = theme::theme(ui.ctx()).palette.clone();
     let Some(e) = editor(state) else { return };
-    let h = ui.label(Type::Heading.rich(s::PROTECTION).color(p.text_primary));
-    crate::a11y::labelled(ui.ctx(), h.id, egui::Role::Heading, s::PROTECTION);
+    let h = ui.label(
+        Type::Heading
+            .rich(s::PROTECTION_LEVEL)
+            .color(p.text_primary),
+    );
+    crate::a11y::labelled(ui.ctx(), h.id, egui::Role::Heading, s::PROTECTION_LEVEL);
     ui.add_space(space::S1);
     let base = e.draft.preset.base();
     let options: Vec<Segment<'_>> = BasePreset::ALL
@@ -809,7 +813,7 @@ fn preset(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let mut chosen = BasePreset::ALL.iter().position(|b| *b == base).unwrap_or(0);
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = space::S3;
-        if segmented_with_hints(ui, s::PROTECTION, &mut chosen, &options, &hints).changed() {
+        if segmented_with_hints(ui, s::PROTECTION_LEVEL, &mut chosen, &options, &hints).changed() {
             let b = BasePreset::ALL[chosen];
             if e.draft.preset.is_custom() {
                 e.confirm_preset = Some(b);

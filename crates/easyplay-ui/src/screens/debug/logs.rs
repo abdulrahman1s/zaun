@@ -4,9 +4,15 @@
 //! time) and are treated as untrusted plain text (`vm::debug::sanitize`): no links, no
 //! markup, control characters as `·`, lines capped at 4 096 bytes, at most 200 000 lines.
 //!
-//! Shown as the game page's **Logs** tab in Developer Mode, and as a sheet from *View log*
-//! (problem panel, Activity) in a simplified form without the inspector and process tree.
+//! Every line is classified by the program that wrote it and how serious it is
+//! (`diagnostics::log_line`, ADR-0025): a level control shows that level and anything more
+//! serious, a program selector one program's lines, and lines are coloured by level. Above
+//! the log, how the session ended, in a sentence.
+//!
+//! Shown as the game page's **Logs** tab, and as a sheet from *View log* (problem panel,
+//! Activity); Developer Mode adds the other files, the inspector and the process tree.
 
+use easyplay_core::diagnostics::log_line::{LineLevel, LineSource};
 use easyplay_core::ids::GameId;
 use egui::{Context, Id, Key, Modifiers, ScrollArea, Ui};
 
@@ -16,14 +22,66 @@ use crate::bridge::{FolderTarget, InspectTarget, LogFile, UiCommand};
 use crate::route::Overlay;
 use crate::strings::debug as s;
 use crate::theme::tokens::space;
-use crate::theme::{self, Type};
+use crate::theme::{self, Palette, Type, icons};
 use crate::vm::debug::LogViewerVm;
 use crate::vm::toasts::ToastKind;
 use crate::widgets::button::Button;
+use crate::widgets::segmented::{Segment, segmented_with_hints};
 use crate::widgets::select::select;
 use crate::widgets::sheet::sheet;
+use crate::widgets::text_field::TextField;
 
-const FILES: [LogFile; 3] = [LogFile::Game, LogFile::Events, LogFile::Supervisor];
+const FILES: [LogFile; 4] = [
+    LogFile::Game,
+    LogFile::Events,
+    LogFile::Supervisor,
+    LogFile::Proton,
+];
+const PLAIN_FILES: [LogFile; 2] = [LogFile::Game, LogFile::Proton];
+const SOURCES: [Option<LineSource>; 5] = [
+    None,
+    Some(LineSource::Wine),
+    Some(LineSource::Proton),
+    Some(LineSource::Umu),
+    Some(LineSource::Game),
+];
+
+/// How the shown session ended, and when it started.
+fn ending(ui: &mut Ui, l: &LogViewerVm, env: &Env<'_>) {
+    let Some(x) = l
+        .session
+        .and_then(|sid| l.sessions.iter().find(|x| x.id == sid))
+    else {
+        return;
+    };
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let (text, bad) = s::how_it_ended(x.end_reason, x.is_open());
+    ui.horizontal_wrapped(|ui| {
+        let (icon, colour) = if bad {
+            (icons::WARNING, p.danger)
+        } else {
+            (icons::INFO, p.text_secondary)
+        };
+        ui.label(icons::icon(icon, theme::tokens::icon::INLINE).color(colour));
+        ui.label(Type::BodyStrong.rich(text).color(p.text_primary));
+    });
+    let started = crate::strings::fmt::relative_date(x.started_at, env.now, env.utc_offset_s);
+    let took = x.duration_ms.map(crate::strings::fmt::duration);
+    ui.label(
+        Type::Caption
+            .rich(s::ran(&started, took.as_deref()))
+            .color(p.text_secondary),
+    );
+}
+
+fn level_colour(level: LineLevel, p: &Palette) -> egui::Color32 {
+    match level {
+        LineLevel::Error => p.danger,
+        LineLevel::Warning => p.warning,
+        LineLevel::Info => p.text_primary,
+        LineLevel::Debug => p.text_muted,
+    }
+}
 
 /// Load what is due: the first chunk, the rest of a file, the tail of a followed one.
 fn tick(l: &mut LogViewerVm, env: &mut Env<'_>) {
@@ -61,7 +119,7 @@ pub fn viewer(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, developer: bo
                     &crate::strings::fmt::relative_date(x.started_at, env.now, env.utc_offset_s),
                     x.kind.as_str(),
                     &x.end_reason
-                        .map(|r| r.as_str().to_owned())
+                        .map(|r| crate::strings::launch::ended(r).to_lowercase())
                         .unwrap_or_else(|| {
                             if x.is_open() {
                                 s::RUNNING.to_owned()
@@ -93,28 +151,47 @@ pub fn viewer(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, developer: bo
             let f = l.file.unwrap_or(LogFile::Game);
             l.open(x.id, f);
         }
-        if developer {
-            let mut fsel = FILES.iter().position(|f| Some(*f) == l.file).unwrap_or(0);
-            if select(
-                ui,
-                s::LOG_FILE,
-                Some(s::LOG_FILE),
-                None,
-                &mut fsel,
-                &s::LOG_FILES,
-                true,
-            )
-            .changed()
-                && let Some(sid) = l.session
-            {
-                l.open(sid, FILES[fsel]);
-            }
+        let (files, names): (&[LogFile], &[&str]) = if developer {
+            (&FILES, &s::LOG_FILES)
+        } else {
+            (&PLAIN_FILES, &s::PLAIN_LOG_FILES)
+        };
+        let mut fsel = files.iter().position(|f| Some(*f) == l.file).unwrap_or(0);
+        if select(
+            ui,
+            s::LOG_FILE,
+            Some(s::LOG_FILE),
+            None,
+            &mut fsel,
+            names,
+            true,
+        )
+        .changed()
+            && let Some(sid) = l.session
+        {
+            l.open(sid, files[fsel]);
         }
-        let filter = ui.add(
-            egui::TextEdit::singleline(&mut l.filter)
-                .hint_text(s::FILTER)
-                .desired_width(200.0),
-        );
+        let mut src = SOURCES.iter().position(|x| *x == l.source).unwrap_or(0);
+        if select(
+            ui,
+            s::SOURCE,
+            Some(s::SOURCE),
+            None,
+            &mut src,
+            &s::SOURCES,
+            true,
+        )
+        .changed()
+        {
+            l.source = SOURCES[src];
+        }
+        let filter = TextField::new(&mut l.filter, "log.filter")
+            .accessible_name(s::FILTER)
+            .hint(s::FILTER)
+            .search()
+            .width(200.0)
+            .show(ui)
+            .response;
         if ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::F)) {
             filter.request_focus();
         }
@@ -127,8 +204,24 @@ pub fn viewer(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, developer: bo
         }
     });
     ui.add_space(space::S2);
+    let mut lvl = LineLevel::ALL
+        .iter()
+        .position(|x| *x == l.level)
+        .unwrap_or(2);
+    let levels: Vec<Segment<'_>> = s::LEVELS
+        .iter()
+        .map(|label| Segment { icon: None, label })
+        .collect();
+    if segmented_with_hints(ui, s::LEVEL, &mut lvl, &levels, &s::LEVEL_HINTS).changed() {
+        l.level = LineLevel::ALL[lvl];
+    }
+    ui.add_space(space::S2);
+    ending(ui, &l, env);
+    ui.add_space(space::S2);
     if let Some(e) = &l.error {
         ui.label(Type::Body.rich(&e.message).color(p.text_secondary));
+    } else if l.missing && l.file == Some(LogFile::Proton) {
+        ui.label(Type::Body.rich(s::NO_PROTON_LOG).color(p.text_secondary));
     } else if l.missing {
         ui.label(Type::Body.rich(s::LOG_REMOVED).color(p.text_secondary));
     } else if l.lines.is_empty() && l.query.is_none() && l.polled.is_some() {
@@ -153,30 +246,37 @@ pub fn viewer(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, developer: bo
         if l.wrap {
             area.show(ui, |ui| {
                 for i in &visible {
+                    let colour = level_colour(l.kinds[*i].level, &p);
                     ui.add(
-                        egui::Label::new(
-                            Type::Mono.rich(l.lines[*i].as_str()).color(p.text_primary),
-                        )
-                        .selectable(true)
-                        .wrap(),
+                        egui::Label::new(Type::Mono.rich(l.lines[*i].as_str()).color(colour))
+                            .selectable(true)
+                            .wrap(),
                     );
                 }
             });
         } else {
             area.show_rows(ui, row_h, visible.len(), |ui, range| {
                 for i in &visible[range] {
+                    let colour = level_colour(l.kinds[*i].level, &p);
                     ui.add(
-                        egui::Label::new(
-                            Type::Mono.rich(l.lines[*i].as_str()).color(p.text_primary),
-                        )
-                        .selectable(true)
-                        .extend(),
+                        egui::Label::new(Type::Mono.rich(l.lines[*i].as_str()).color(colour))
+                            .selectable(true)
+                            .extend(),
                     );
                 }
             });
         }
     });
-    let mut status = s::line_count(l.lines.len(), visible.len(), !l.filter.is_empty());
+    let (errors, warnings) = l.counts();
+    let mut status = format!(
+        "{} · {}",
+        s::line_count(
+            l.lines.len(),
+            visible.len(),
+            !l.filter.is_empty() || l.narrowed()
+        ),
+        s::counts(errors, warnings)
+    );
     if l.query.is_some() {
         status = format!("{status} · {}", s::LOADING);
     }
@@ -219,11 +319,31 @@ pub fn viewer(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, developer: bo
     }
 }
 
-/// The Logs tab of the game page (Developer Mode).
+/// The Logs tab of the game page.
 pub fn tab(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, game: GameId) {
     super::prepare_logs(state, env, game, None);
-    let h = (ui.available_height() - 120.0).max(320.0);
-    viewer(ui, state, env, true, h);
+    let developer = env.bridge.prefs().advanced.developer_mode;
+    let h = (ui.available_height() - 200.0).max(320.0);
+    viewer(ui, state, env, developer, h);
+    let proton_log = state
+        .details
+        .record()
+        .is_some_and(|d| d.game.launch.compat.proton_log);
+    if !proton_log {
+        let p = theme::theme(ui.ctx()).palette.clone();
+        ui.add_space(space::S2);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(Type::Caption.rich(s::MORE_DETAIL).color(p.text_secondary));
+            if ui
+                .add(Button::ghost(s::TO_COMPATIBILITY).size(crate::widgets::button::Size::Sm))
+                .clicked()
+            {
+                state.navigate(crate::vm::dialogs::AfterDiscard::Tab(
+                    crate::vm::details::DetailsTab::Compatibility.index(),
+                ));
+            }
+        });
+    }
 }
 
 /// The sheet of *View log* (overlay `Logs`).

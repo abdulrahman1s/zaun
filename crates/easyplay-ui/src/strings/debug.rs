@@ -1,6 +1,8 @@
 //! Developer Mode views, the diagnostics report, the Doctor and recovery mode
 //! (DEVELOPER_MODE, SCREEN_SPECS_2 §15–16, ERROR_HANDLING §4.11–4.13, §5–7).
 
+use easyplay_core::model::EndReason;
+
 /// Inspector sheet title.
 pub const INSPECTOR: &str = "Launch inspector";
 /// Inspector title for the dry run.
@@ -171,8 +173,93 @@ pub fn logs_of(game: &str) -> String {
 }
 /// Session selector.
 pub const SESSION: &str = "Session";
+/// File selector names (Developer Mode).
+pub const LOG_FILES: [&str; 4] = ["game.log", "events.jsonl", "supervisor.log", "Proton log"];
 /// File selector names.
-pub const LOG_FILES: [&str; 3] = ["game.log", "events.jsonl", "supervisor.log"];
+pub const PLAIN_LOG_FILES: [&str; 2] = ["Game output", "Proton log"];
+/// Level control.
+pub const LEVEL: &str = "Show";
+/// Levels, most serious first.
+pub const LEVELS: [&str; 4] = ["Errors", "Warnings", "Info", "Debug"];
+/// What each level shows.
+pub const LEVEL_HINTS: [&str; 4] = [
+    "Only errors",
+    "Errors and warnings",
+    "Everything but debugging detail",
+    "Everything, with Wine's fixme and trace lines",
+];
+/// Program selector.
+pub const SOURCE: &str = "From";
+/// Programs; `All` first.
+pub const SOURCES: [&str; 5] = ["All programs", "Wine", "Proton", "umu", "Game"];
+/// No Proton log was recorded for the session.
+pub const NO_PROTON_LOG: &str = "No Proton log was recorded for this session. Turn on “Proton log” in Compatibility to record Wine's debug output the next time the game starts.";
+/// Leads to the Compatibility tab.
+pub const TO_COMPATIBILITY: &str = "Open Compatibility";
+/// Hint under the viewer when the Proton log is off.
+pub const MORE_DETAIL: &str = "For more detail from Wine, turn on “Proton log” in Compatibility; it is recorded the next time the game starts.";
+/// "2 errors · 70 warnings".
+pub fn counts(errors: usize, warnings: usize) -> String {
+    let e = if errors == 1 { "error" } else { "errors" };
+    let w = if warnings == 1 { "warning" } else { "warnings" };
+    format!("{errors} {e} · {warnings} {w}")
+}
+/// The usual name of a signal a game died from.
+pub fn signal_name(signal: i32) -> Option<&'static str> {
+    Some(match signal {
+        4 => "illegal instruction",
+        6 => "it aborted itself",
+        7 => "bus error",
+        8 => "arithmetic error",
+        9 => "it was killed",
+        11 => "segmentation fault: it read or wrote memory it should not have",
+        15 => "it was asked to end",
+        _ => return None,
+    })
+}
+/// How a session ended, in a sentence, and whether that is bad.
+pub fn how_it_ended(reason: Option<EndReason>, running: bool) -> (String, bool) {
+    let Some(r) = reason else {
+        return if running {
+            ("Running now.".to_owned(), false)
+        } else {
+            ("How it ended was not recorded.".to_owned(), false)
+        };
+    };
+    match r {
+        EndReason::Exited { code: 0 } => ("The game exited normally (exit code 0).".to_owned(), false),
+        EndReason::Exited { code } => (
+            format!("The game exited with code {code}. A code other than 0 usually means it reported a problem; the last lines of the log often say which."),
+            true,
+        ),
+        EndReason::Crashed { signal } => (
+            match signal_name(signal) {
+                Some(n) => format!("The game crashed (signal {signal}, {n})."),
+                None => format!("The game crashed (signal {signal})."),
+            },
+            true,
+        ),
+        EndReason::StoppedByUser => ("You stopped it.".to_owned(), false),
+        EndReason::Killed => ("It did not close when asked, so it was forced to stop.".to_owned(), true),
+        EndReason::SystemShutdown => ("It ended when the computer shut down.".to_owned(), false),
+        EndReason::LauncherTerminated => ("Its launcher closed it.".to_owned(), false),
+        EndReason::Interrupted => (
+            "EasyPlay was interrupted while it ran; the session was closed at its last sign of life.".to_owned(),
+            true,
+        ),
+        EndReason::FailedToStart { code } => (
+            format!("It did not start ({}).", code.as_str()),
+            true,
+        ),
+    }
+}
+/// "Started today 21:04 · ran 5 min 6 s".
+pub fn ran(started: &str, duration: Option<&str>) -> String {
+    match duration {
+        Some(d) => format!("Started {started} · ran {d}"),
+        None => format!("Started {started}"),
+    }
+}
 /// File selector label.
 pub const LOG_FILE: &str = "File";
 /// Toggle.
@@ -198,7 +285,7 @@ pub fn dropped(n: usize) -> String {
 /// "3,412 lines · 12 match".
 pub fn line_count(total: usize, shown: usize, filtering: bool) -> String {
     if filtering {
-        format!("{shown} of {total} lines match")
+        format!("{shown} of {total} lines shown")
     } else {
         format!("{total} {}", super::plural(total as u64, "line", "lines"))
     }
