@@ -17,7 +17,7 @@ pub mod icon_button;
 pub mod key_hint;
 pub mod link_row;
 pub mod modal;
-pub mod path_row;
+pub mod permission_row;
 pub mod progress;
 pub mod segmented;
 pub mod select;

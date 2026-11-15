@@ -38,8 +38,8 @@ pub use launch_config::{
 pub use policy::{
     AudioAccess, BasePreset, ControllerAccess, DeviceAccess, DisplayAccess, DisplayIsolation,
     FolderAccess, FolderGrant, GameDirAccess, GrantOrigin, Hardening, IpcAccess, NetworkAccess,
-    PolicyException, Preset, RemovableAccess, RuntimeIsolation, SandboxPolicy, SaveDataLocation,
-    SeccompMode, SessionBusAccess, SocketAccess, UserDir, is_valid_drive_letter,
+    Permissions, PolicyException, Preset, RemovableAccess, RuntimeIsolation, SandboxPolicy,
+    SaveDataLocation, SeccompMode, SessionBusAccess, SocketAccess, UserDir, is_valid_drive_letter,
 };
 pub use prompt::{ProgramCandidate, PromptAnswer, PromptKind, PromptRequest};
 pub use runtime::{

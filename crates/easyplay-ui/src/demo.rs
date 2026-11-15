@@ -446,7 +446,8 @@ fn statement(
     }
 }
 
-fn grant_name(g: &easyplay_core::model::FolderGrant) -> String {
+/// English name of a shared folder: the well-known folder's, else the folder's own.
+pub fn grant_name(g: &easyplay_core::model::FolderGrant) -> String {
     match g.origin {
         GrantOrigin::WellKnown(d) => user_dir_name(d).to_owned(),
         GrantOrigin::UserChosen => g.path.file_name().map_or_else(

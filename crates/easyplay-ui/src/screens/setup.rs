@@ -4,14 +4,14 @@
 //! button has initial focus so `Enter` alone completes the common case.
 
 use easyplay_core::model::{
-    AudioAccess, BasePreset, ControllerAccess, EntryKind, GameDirAccess, GrantOrigin,
+    AudioAccess, BasePreset, ControllerAccess, EntryKind, GameDirAccess, GrantOrigin, Preset,
     SaveDataLocation,
 };
 use egui::{Align, Context, CornerRadius, Id, Key, Layout, Modifiers, Popup, Sense, Ui, vec2};
 
 use super::Env;
 use super::details::launch_panel;
-use super::details::permissions::{USER_DIRS, issue_line, issue_text, preset_cards, section};
+use super::details::permissions::{USER_DIRS, issue_line, issue_text, section};
 use super::details::statement_row;
 use crate::app::UiState;
 use crate::bridge::{AfterCreate, UiCommand};
@@ -20,7 +20,8 @@ use crate::input::picker::PickPurpose;
 use crate::route::Overlay;
 use crate::strings;
 use crate::strings::setup as s;
-use crate::theme::tokens::{icon as icon_size, radius, space};
+use crate::theme::palette::fade;
+use crate::theme::tokens::{alpha, icon as icon_size, radius, space, stroke};
 use crate::theme::{self, Type, icons};
 use crate::vm::setup::{SetupPhase, SetupVm};
 use crate::widgets::button::{Button, Size, Variant};
@@ -46,6 +47,100 @@ fn set_preset(v: &mut SetupVm, env: &Env<'_>, b: BasePreset) {
         s::announce_preset(b, v.assessment.statements.first().map(|x| x.text.as_str())),
         crate::a11y::Politeness::Polite,
     );
+}
+
+/// The three preset option cards. Returns the chosen preset.
+fn preset_cards(ui: &mut Ui, current: Preset) -> Option<BasePreset> {
+    let theme = theme::theme(ui.ctx());
+    let p = theme.palette.clone();
+    let mut out = None;
+    let narrow = ui.available_width() < 560.0;
+    let n = BasePreset::ALL.len() as f32;
+    let gap = space::S3;
+    let w = if narrow {
+        ui.available_width()
+    } else {
+        (ui.available_width() - gap * (n - 1.0)) / n
+    };
+    let group = ui.scope(|ui| {
+        let layout = if narrow {
+            Layout::top_down(Align::Min)
+        } else {
+            Layout::left_to_right(Align::Min)
+        };
+        ui.with_layout(layout, |ui| {
+            ui.spacing_mut().item_spacing = vec2(gap, gap);
+            for b in BasePreset::ALL {
+                let selected = current.base() == b;
+                let h = if narrow { 64.0 } else { 92.0 };
+                let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
+                let fill = if selected {
+                    fade(p.accent, alpha::BANNER_FILL)
+                } else if resp.hovered() {
+                    p.bg_raised
+                } else {
+                    p.bg_surface
+                };
+                let border = if selected { p.accent } else { p.border_subtle };
+                ui.painter()
+                    .rect_filled(rect, CornerRadius::same(radius::MD), fill);
+                ui.painter().rect_stroke(
+                    rect,
+                    CornerRadius::same(radius::MD),
+                    egui::Stroke::new(if selected { 2.0 } else { stroke::BORDER }, border),
+                    egui::StrokeKind::Inside,
+                );
+                let inner = rect.shrink(space::S3);
+                crate::widgets::shield::paint(
+                    ui.painter(),
+                    egui::pos2(inner.left() + 10.0, inner.top() + 10.0),
+                    icon_size::BUTTON,
+                    b.into(),
+                    false,
+                    if selected { p.accent } else { p.text_secondary },
+                );
+                ui.painter().text(
+                    egui::pos2(inner.left() + 28.0, inner.top() + 10.0),
+                    egui::Align2::LEFT_CENTER,
+                    strings::shield::preset_name(b.into()),
+                    Type::BodyStrong.font_id(),
+                    p.text_primary,
+                );
+                let galley = ui.painter().layout(
+                    strings::shield::base_description(b).to_owned(),
+                    Type::Caption.font_id(),
+                    p.text_secondary,
+                    inner.width(),
+                );
+                ui.painter().galley(
+                    egui::pos2(inner.left(), inner.top() + 24.0),
+                    galley,
+                    p.text_secondary,
+                );
+                if resp.has_focus() {
+                    crate::widgets::focus_ring(
+                        ui.painter(),
+                        rect,
+                        CornerRadius::same(radius::MD),
+                        &theme,
+                    );
+                }
+                let name = strings::shield::preset_name(b.into());
+                crate::a11y::option(&resp, egui::Role::RadioButton, name, selected);
+                crate::a11y::describe(&resp, strings::shield::base_description(b));
+                if resp.clicked() && !selected {
+                    out = Some(b);
+                }
+            }
+        });
+    });
+    crate::a11y::labelled(
+        ui.ctx(),
+        group.response.id,
+        egui::Role::RadioGroup,
+        strings::details::PROTECTION,
+    );
+    out
 }
 
 fn folder_label(v: &SetupVm, home: &std::path::Path) -> String {

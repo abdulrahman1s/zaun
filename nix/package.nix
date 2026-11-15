@@ -211,7 +211,11 @@ rustPlatform.buildRustPackage {
     # the whole toolchain (about 1.2 GiB) into the runtime closure.
     remove-references-to -t ${rustToolchain} $out/bin/easyplay
 
+    # A session-wide `MANGOHUD=1` would load the overlay into EasyPlay's own window, where
+    # its sampling thread runs as long as the service does. Games are unaffected: they get
+    # their environment from the launch plan, never from this process.
     wrapProgram $out/bin/easyplay \
+      --set DISABLE_MANGOHUD 1 \
       --prefix PATH : ${lib.makeBinPath hostTools} \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath runtimeLibs}
   '';

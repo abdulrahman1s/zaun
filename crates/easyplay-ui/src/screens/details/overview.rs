@@ -79,7 +79,8 @@ fn heading(ui: &mut Ui, title: &str) {
     ui.add_space(space::S1);
 }
 
-fn tone(severity: StatementSeverity) -> Tone {
+/// The weight of a statement of this severity.
+pub(super) fn tone(severity: StatementSeverity) -> Tone {
     match severity {
         StatementSeverity::Warning => Tone::Warning,
         StatementSeverity::Danger => Tone::Danger,

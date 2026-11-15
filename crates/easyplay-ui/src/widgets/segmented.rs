@@ -32,6 +32,29 @@ pub fn segmented(
     options: &[Segment<'_>],
     icon_only: bool,
 ) -> Response {
+    segmented_impl(ui, group_label, selected, options, icon_only, &[])
+}
+
+/// [`segmented`] whose options say what they do: `hints[i]` is the tooltip and the
+/// accessible description of option `i` (the protection presets).
+pub fn segmented_with_hints(
+    ui: &mut Ui,
+    group_label: &str,
+    selected: &mut usize,
+    options: &[Segment<'_>],
+    hints: &[&str],
+) -> Response {
+    segmented_impl(ui, group_label, selected, options, false, hints)
+}
+
+fn segmented_impl(
+    ui: &mut Ui,
+    group_label: &str,
+    selected: &mut usize,
+    options: &[Segment<'_>],
+    icon_only: bool,
+    hints: &[&str],
+) -> Response {
     let theme = theme::theme(ui.ctx());
     let p = &theme.palette;
     let h = control::MD;
@@ -129,6 +152,9 @@ pub fn segmented(
             }
             if icon_only {
                 tooltip::attach(resp, opt.label)
+            } else if let Some(hint) = hints.get(i) {
+                a11y::describe(&resp, hint);
+                tooltip::attach(resp, hint)
             } else {
                 resp
             }

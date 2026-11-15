@@ -17,7 +17,7 @@ use easyplay_ui::{EasyPlayApp, demo};
 use egui::accesskit::Role;
 use egui::{Id, Key, Vec2};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 
 fn setup(ctx: &egui::Context) {
     theme::install(
@@ -128,6 +128,102 @@ fn link_rows_are_buttons_that_report_the_row_and_list_their_points() {
     h.key_press(Key::Space);
     h.run();
     assert_eq!(*h.state(), vec![0, 1, 0]);
+}
+
+#[test]
+fn permission_rows_flip_open_their_degrees_and_report_what_was_done() {
+    use easyplay_ui::theme::icons;
+    use easyplay_ui::widgets::permission_row::{
+        Choice, Degree, Line, PermissionRow, Picked, Press, permission_rows,
+    };
+    let mut h = Harness::builder()
+        .with_size(Vec2::new(900.0, 400.0))
+        .with_context_setup(setup)
+        .build_ui_state(
+            |ui, done: &mut Vec<(usize, Picked)>| {
+                let access = [
+                    Choice::new("Can read"),
+                    Choice {
+                        label: "Can read and change",
+                        unavailable: Some("The folder cannot be written to."),
+                    },
+                    Choice::new("Locate…"),
+                ];
+                let mut folder = PermissionRow::new(Id::unique("music"), icons::FOLDER, "Music");
+                folder.lines = vec![Line::new("in Home")];
+                folder.mark = Some("changed");
+                folder.switch = Some(true);
+                folder.delete = true;
+                folder.degree = Some(Degree {
+                    choices: &access,
+                    chosen: 0,
+                    value: "Can read".into(),
+                    name: "Music: Can read".into(),
+                });
+                let kept = [
+                    Choice::new("Private storage"),
+                    Choice::new("A folder I choose…"),
+                ];
+                let mut save = PermissionRow::new(Id::unique("save"), icons::FLOPPY, "Save data");
+                save.degree = Some(Degree {
+                    choices: &kept,
+                    chosen: 0,
+                    value: "Private storage".into(),
+                    name: "Save data: Private storage".into(),
+                });
+                let mut screen = PermissionRow::new(Id::unique("screen"), icons::MONITOR, "Screen");
+                screen.lines = vec![Line::new("Shows its windows on your desktop")];
+                let mut add =
+                    PermissionRow::new(Id::unique("add"), icons::FOLDER_PLUS, "Add folder…");
+                add.press = Press::Action;
+                if let Some(picked) = permission_rows(ui, &[folder, save, screen, add]) {
+                    done.push(picked);
+                }
+            },
+            Vec::new(),
+        );
+    h.run();
+    // A fact is not a control; a switch says whether it is on and what it means.
+    h.get_by_role_and_label(Role::ListItem, "Screen");
+    let folder = h.get_by_role_and_label(Role::Switch, "Music");
+    assert_eq!(
+        folder.accesskit_node().description().as_deref(),
+        Some("in Home. changed")
+    );
+    // The degree beside a switch is a control of its own: pressing it does not flip the row.
+    h.get_by_role_and_label(Role::ComboBox, "Music: Can read")
+        .click();
+    h.run();
+    let no = h.get_by_role_and_label(Role::MenuItem, "Can read and change");
+    assert!(no.accesskit_node().is_disabled());
+    h.get_by_label("The folder cannot be written to.");
+    h.get_by_role_and_label(Role::MenuItem, "Locate…").click();
+    h.run();
+    // Without a switch the whole row opens the degrees.
+    h.get_by_role_and_label(Role::ComboBox, "Save data: Private storage")
+        .click();
+    h.run();
+    h.get_by_role_and_label(Role::MenuItem, "A folder I choose…")
+        .click();
+    h.run();
+    h.get_by_role_and_label(Role::Switch, "Music").click();
+    h.run();
+    h.get_by_role_and_label(Role::Button, "Add folder…").click();
+    h.run();
+    h.get_by_role_and_label(Role::Switch, "Music").focus();
+    h.run();
+    h.key_press(Key::Delete);
+    h.run();
+    assert_eq!(
+        *h.state(),
+        vec![
+            (0, Picked::Degree(2)),
+            (1, Picked::Degree(1)),
+            (0, Picked::Switched(false)),
+            (3, Picked::Pressed),
+            (0, Picked::Delete)
+        ]
+    );
 }
 
 #[test]

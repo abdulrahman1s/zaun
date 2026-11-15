@@ -4,7 +4,9 @@
 //! against `fake-bwrap` and `fake-umu-run` with the real `easyplay-init`, so the suite needs
 //! no user namespaces. The launcher tests start the real `easyplay supervise` detached.
 //! Tests marked `e2e_` repeat the namespace-dependent rows under real `bwrap` and run only
-//! with `EASYPLAY_E2E=1`. Tests run one at a time (they look at the whole process table).
+//! with `EASYPLAY_E2E=1`. Within a test process the tests run one at a time; the ones that
+//! start helper processes, which are counted by name in the whole process table, also take
+//! turns across test processes (`helpers_turn`).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::disallowed_methods)]
 
@@ -43,6 +45,16 @@ static SERIAL: Mutex<()> = Mutex::new(());
 
 fn serial() -> MutexGuard<'static, ()> {
     SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The turn of a test that starts `fake-child` or `fake-detached` processes. They are
+/// counted by name in the whole process table and nextest runs every test in a process of
+/// its own, so the in-process lock does not keep such tests apart: a lock file does.
+fn helpers_turn() -> std::fs::File {
+    let path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("session-helpers.lock");
+    let file = std::fs::File::create(path).unwrap();
+    file.lock().unwrap();
+    file
 }
 
 fn e2e() -> bool {
@@ -431,6 +443,7 @@ fn umu_traceback_is_failed_to_start() {
 #[test]
 fn detached_child_keeps_the_session_open() {
     let _s = serial();
+    let _turn = helpers_turn();
     let w = World::new();
     let r = start(
         &w,
@@ -464,6 +477,7 @@ fn detached_child_keeps_the_session_open() {
 #[test]
 fn force_stop_leaves_no_process_behind() {
     let _s = serial();
+    let _turn = helpers_turn();
     let w = World::new();
     let r = start(
         &w,
@@ -1133,6 +1147,7 @@ fn e2e_detached_child_under_real_bwrap() {
         return;
     }
     let _s = serial();
+    let _turn = helpers_turn();
     let w = World::new();
     let r = start(
         &w,
@@ -1166,6 +1181,7 @@ fn e2e_graceful_stop_reaches_setsid_grandchildren_under_real_bwrap() {
         return;
     }
     let _s = serial();
+    let _turn = helpers_turn();
     let w = World::new();
     let r = start(
         &w,
@@ -1208,6 +1224,7 @@ fn e2e_killed_supervisor_takes_the_sandbox_down() {
         return;
     }
     let _s = serial();
+    let _turn = helpers_turn();
     let w = World::new();
     let l = launcher(&w);
     let p = plan(

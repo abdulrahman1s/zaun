@@ -41,6 +41,28 @@ fn page_in(
     (r, id)
 }
 
+/// Flip a permission's switch on the Protection tab.
+fn flip(r: &mut Rig, permission: &str) {
+    r.h.get_by_role_and_label(Role::Switch, permission).click();
+    r.h.run();
+}
+
+/// Open the degrees of a permission and take one.
+fn degree(r: &mut Rig, control: &str, choice: &str) {
+    r.h.get_by_role_and_label(Role::ComboBox, control).click();
+    r.h.run();
+    r.h.get_by_role_and_label(Role::MenuItem, choice).click();
+    r.h.run();
+}
+
+/// What a control says after its name.
+fn described(r: &Rig, label: &str) -> String {
+    r.h.get_by_label(label)
+        .accesskit_node()
+        .description()
+        .unwrap_or_default()
+}
+
 fn big() -> Vec2 {
     Vec2::new(1280.0, 900.0)
 }
@@ -253,11 +275,12 @@ fn protection_edit_shows_the_widening_sentence_and_saves() {
         tall(),
         ThemeChoice::Dark,
     );
-    r.h.get_by_label("Share Music").click();
-    r.h.run();
+    flip(&mut r, "Music");
     r.h.get_by_label_contains("Custom (based on Offline)");
     r.h.get_by_label_contains("will get this access");
-    r.h.get_all_by_label("added").next().unwrap();
+    // The switch is on and marked until it is saved; the folder may be read.
+    assert_eq!(described(&r, "Music"), "changed");
+    r.h.get_by_role_and_label(Role::ComboBox, "Music: Can read");
     r.h.get_by_role_and_label(Role::Button, "Save").click();
     r.h.run();
     let saved = r.fake.sent().into_iter().find_map(|c| match c {
@@ -292,9 +315,157 @@ fn a_denied_folder_never_enters_the_list() {
     r.h.run();
     let draft = &r.h.state().state.details.protection.as_ref().unwrap().draft;
     assert_eq!(draft.folders.len(), 1);
-    r.h.get_all_by_label_contains("Mods, in Home, can read")
-        .next()
-        .unwrap();
+    assert_eq!(described(&r, "Mods"), "in Home. changed");
+}
+
+#[test]
+fn every_permission_is_a_switch_and_some_have_degrees() {
+    use easyplay_core::model::{ControllerAccess, GameDirAccess, Permissions, RemovableAccess};
+    let (mut r, _) = page(
+        "Lantern Keep",
+        DetailsTab::Protection,
+        tall(),
+        ThemeChoice::Dark,
+    );
+    let draft = |r: &Rig| {
+        let e = r.h.state().state.details.protection.as_ref().unwrap();
+        (e.draft.clone(), e.dirty())
+    };
+    let offline = Permissions::SOUND | Permissions::CONTROLLERS;
+    assert_eq!(draft(&r).0.permissions(), offline);
+    flip(&mut r, "Internet and local network");
+    flip(&mut r, "Camera");
+    flip(&mut r, "Sound (speakers and microphone)");
+    flip(&mut r, "Removable drives");
+    let (d, dirty) = draft(&r);
+    assert!(dirty);
+    assert_eq!(
+        d.permissions(),
+        Permissions::INTERNET
+            | Permissions::CAMERA
+            | Permissions::CONTROLLERS
+            | Permissions::REMOVABLE
+    );
+    // A switch that is on shows how far it goes; the degree is a choice of its own.
+    degree(&mut r, "Removable drives: Can read", "Can read and change");
+    degree(
+        &mut r,
+        "Game controllers: Connected when the game starts",
+        "All input devices",
+    );
+    degree(&mut r, "Game folder: Can read and change", "Can read");
+    let (d, _) = draft(&r);
+    assert_eq!(d.removable, RemovableAccess::ReadWrite);
+    assert_eq!(d.devices.controllers, ControllerAccess::AllInput);
+    assert_eq!(d.game_dir, GameDirAccess::ReadOnly);
+    r.h.get_by_role_and_label(Role::ComboBox, "Game controllers: All input devices");
+    // Switched off and on again, a permission comes back at the degree that is saved.
+    flip(&mut r, "Game controllers");
+    assert_eq!(draft(&r).0.devices.controllers, ControllerAccess::None);
+    flip(&mut r, "Game controllers");
+    assert_eq!(draft(&r).0.devices.controllers, ControllerAccess::Detected);
+    // Taking everything back leaves nothing to save.
+    flip(&mut r, "Internet and local network");
+    flip(&mut r, "Camera");
+    flip(&mut r, "Sound (speakers and microphone)");
+    flip(&mut r, "Removable drives");
+    degree(&mut r, "Game folder: Can read", "Can read and change");
+    let (d, dirty) = draft(&r);
+    assert_eq!(d.permissions(), offline);
+    assert!(!dirty);
+}
+
+#[test]
+fn a_folder_that_is_switched_off_keeps_its_row_until_saved() {
+    let (mut r, _) = page(
+        "Hollow Bell",
+        DetailsTab::Protection,
+        tall(),
+        ThemeChoice::Dark,
+    );
+    let dirty = |r: &Rig| r.h.state().state.details.dirty();
+    // Hollow Bell shares Music. Its switch goes off where it stands, marked.
+    flip(&mut r, "Music");
+    assert!(dirty(&r));
+    assert_eq!(described(&r, "Music"), "changed");
+    // On again, it is as it was saved: no change at all.
+    flip(&mut r, "Music");
+    assert!(!dirty(&r));
+    // A folder of the user's choosing has a row only while it is shared; switched off, the
+    // row waits until the change is saved.
+    r.picker.answer(vec!["/home/sam/Mods".into()]);
+    r.h.get_by_label("Add folder…").click();
+    r.h.run();
+    r.h.run();
+    degree(&mut r, "Mods: Can read", "Can read and change");
+    r.h.get_by_role_and_label(Role::Button, "Save").click();
+    r.h.run();
+    assert!(!dirty(&r));
+    r.h.get_by_role_and_label(Role::Switch, "Mods").focus();
+    r.h.run();
+    r.h.key_press(Key::Delete);
+    r.h.run();
+    assert!(dirty(&r));
+    flip(&mut r, "Mods");
+    assert!(!dirty(&r));
+    r.h.get_by_role_and_label(Role::ComboBox, "Mods: Can read and change");
+}
+
+#[test]
+fn what_advanced_opens_up_is_listed_and_leads_there() {
+    let (mut r, _) = page(
+        "Lantern Keep",
+        DetailsTab::Protection,
+        tall(),
+        ThemeChoice::Dark,
+    );
+    r.h.get_by_role_and_label(Role::RadioButton, "Standard")
+        .click();
+    r.h.run();
+    let advanced = |r: &Rig| {
+        let e = r.h.state().state.details.protection.as_ref().unwrap();
+        e.advanced
+    };
+    assert!(!advanced(&r));
+    // Standard shows the computer's identity: said among the allowed things, in the
+    // statement's own words, and decided under Advanced.
+    r.h.get_by_role_and_label(Role::Button, "Can see this computer's name and ID")
+        .click();
+    r.h.run();
+    assert!(advanced(&r));
+    r.h.get_by_label("Hide the machine ID");
+}
+
+#[test]
+fn a_choice_that_cannot_be_made_says_why() {
+    let (mut r, _) = page(
+        "Lantern Keep",
+        DetailsTab::Protection,
+        tall(),
+        ThemeChoice::Dark,
+    );
+    let mut host = demo::host_view();
+    host.input_readable = true;
+    host.x11 = true;
+    r.fake.publish_host(host);
+    settle(&mut r);
+    // On an X11 desktop the page says what that means for every game.
+    assert!(described(&r, "Screen").contains("not isolated"));
+    r.h.get_by_role_and_label(
+        Role::ComboBox,
+        "Game controllers: Connected when the game starts",
+    )
+    .click();
+    r.h.run();
+    let all =
+        r.h.get_by_role_and_label(Role::MenuItem, "All input devices");
+    assert!(all.accesskit_node().is_disabled());
+    assert!(
+        all.accesskit_node()
+            .description()
+            .unwrap_or_default()
+            .contains("can read keyboards directly")
+    );
 }
 
 #[test]
@@ -326,8 +497,7 @@ fn leaving_with_unsaved_changes_asks_and_keeps_editing_by_default() {
         tall(),
         ThemeChoice::Dark,
     );
-    r.h.get_by_label("Share Music").click();
-    r.h.run();
+    flip(&mut r, "Music");
     r.h.key_press_modifiers(Modifiers::ALT, Key::ArrowLeft);
     r.h.run();
     r.h.get_by_role_and_label(Role::Dialog, "Discard your changes?");
@@ -550,7 +720,7 @@ fn snapshot_page_protection_dark() {
         Vec2::new(1280.0, 1400.0),
         ThemeChoice::Dark,
     );
-    r.h.get_by_label("Share Pictures").click();
+    flip(&mut r, "Pictures");
     r.h.run_steps(4);
     r.h.snapshot("game_protection_dark_1280x1400");
 }

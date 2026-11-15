@@ -61,6 +61,25 @@ pub fn danger_item(ui: &mut Ui, icon: Option<Icon>, label: &str) -> Response {
     item_impl(ui, icon, label, None, false, true, true)
 }
 
+/// An item that cannot be chosen here, with the reason beneath it in line with its label.
+pub fn unavailable_item(ui: &mut Ui, label: &str, why: &str) {
+    ui.add_enabled_ui(false, |ui| {
+        let r = item_impl(ui, None, label, None, false, false, false);
+        a11y::describe(&r, why);
+    });
+    let muted = theme::theme(ui.ctx()).palette.text_muted;
+    ui.horizontal(|ui| {
+        ui.add_space(PAD + LEAD);
+        ui.add(egui::Label::new(Type::Caption.rich(why).color(muted)).wrap());
+    });
+    ui.add_space(space::S1);
+}
+
+/// Space between an item's edge and its content.
+const PAD: f32 = space::S2 + 2.0;
+/// From an item's content edge to its label: the icon and the gap after it.
+const LEAD: f32 = icon_size::INLINE + space::S2 + 2.0;
+
 fn item_impl(
     ui: &mut Ui,
     icon: Option<Icon>,
@@ -86,8 +105,7 @@ fn item_impl(
             Type::Caption.font_id(),
         )
     });
-    let lead = icon_size::INLINE + space::S2 + 2.0;
-    let pad = space::S2 + 2.0;
+    let (lead, pad) = (LEAD, PAD);
     let min_w = pad * 2.0 + lead + g.size().x + sg.as_ref().map_or(0.0, |s| s.size().x + space::S6);
     let w = ui.available_width().max(min_w);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, control::MENU_ITEM), Sense::click());

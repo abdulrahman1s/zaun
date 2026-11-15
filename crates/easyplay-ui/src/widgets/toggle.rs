@@ -61,42 +61,56 @@ pub fn toggle(ui: &mut Ui, on: &mut bool, label: &str, description: Option<&str>
             pos2(rect.right() - control::TOGGLE_W / 2.0, rect.center().y),
             vec2(control::TOGGLE_W, control::TOGGLE_H),
         );
-        let t = ui.ctx().animate_bool_with_time(
-            resp.id.with("knob"),
-            state,
-            theme.motion.movement(Dur::Fast),
-        );
-        let hover = hover_t(&resp, &theme);
-        let off_fill = mix(p.bg_raised, p.text_primary, 0.08 + 0.06 * hover);
-        let fill = dim(mix(off_fill, p.accent, t));
-        let corner = CornerRadius::same(radius::PILL);
-        painter.rect_filled(track, corner, fill);
-        if t < 1.0 || !p.allows_translucency() {
-            painter.rect_stroke(
-                track,
-                corner,
-                Stroke::new(stroke::BORDER, dim(fade(p.border_strong, 1.0 - t * 0.5))),
-                StrokeKind::Inside,
-            );
-        }
-        let knob_r = control::TOGGLE_H / 2.0 - 3.0;
-        let x = egui::lerp(
-            track.left() + 3.0 + knob_r..=track.right() - 3.0 - knob_r,
-            t,
-        );
-        let knob = if state {
-            p.text_on_accent
-        } else {
-            p.text_secondary
-        };
-        painter.circle_filled(
-            pos2(x, track.center().y),
-            knob_r,
-            dim(mix(p.text_secondary, knob, t)),
-        );
+        paint_track(ui, &resp, track, state);
         if resp.has_focus() {
-            focus_ring(painter, track, corner, &theme);
+            focus_ring(
+                ui.painter(),
+                track,
+                CornerRadius::same(radius::PILL),
+                &theme,
+            );
         }
     }
     resp
+}
+
+/// Paint a switch in `track` for the control `resp`: the track fills with the accent and the
+/// knob crosses it when `on` changes (`dur.fast`).
+pub(super) fn paint_track(ui: &Ui, resp: &Response, track: egui::Rect, on: bool) {
+    let theme = theme::theme(ui.ctx());
+    let p = &theme.palette;
+    let painter = ui.painter();
+    let enabled = ui.is_enabled();
+    let dim = |c| if enabled { c } else { fade(c, alpha::DISABLED) };
+    let t =
+        ui.ctx()
+            .animate_bool_with_time(resp.id.with("knob"), on, theme.motion.movement(Dur::Fast));
+    let hover = hover_t(resp, &theme);
+    let off_fill = mix(p.bg_raised, p.text_primary, 0.08 + 0.06 * hover);
+    let fill = dim(mix(off_fill, p.accent, t));
+    let corner = CornerRadius::same(radius::PILL);
+    painter.rect_filled(track, corner, fill);
+    if t < 1.0 || !p.allows_translucency() {
+        painter.rect_stroke(
+            track,
+            corner,
+            Stroke::new(stroke::BORDER, dim(fade(p.border_strong, 1.0 - t * 0.5))),
+            StrokeKind::Inside,
+        );
+    }
+    let knob_r = control::TOGGLE_H / 2.0 - 3.0;
+    let x = egui::lerp(
+        track.left() + 3.0 + knob_r..=track.right() - 3.0 - knob_r,
+        t,
+    );
+    let knob = if on {
+        p.text_on_accent
+    } else {
+        p.text_secondary
+    };
+    painter.circle_filled(
+        pos2(x, track.center().y),
+        knob_r,
+        dim(mix(p.text_secondary, knob, t)),
+    );
 }

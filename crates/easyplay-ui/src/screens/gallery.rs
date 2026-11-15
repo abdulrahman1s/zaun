@@ -21,7 +21,9 @@ use crate::widgets::empty_state::empty_state;
 use crate::widgets::icon_button::IconButton;
 use crate::widgets::key_hint::key_hint;
 use crate::widgets::link_row::{LinkRow, Point, Points, Tone, control_row, link_rows};
-use crate::widgets::path_row::path_row;
+use crate::widgets::permission_row::{
+    Choice, Degree, Line, PermissionRow, Picked, Press, permission_rows,
+};
 use crate::widgets::progress;
 use crate::widgets::segmented::{Segment, segmented};
 use crate::widgets::select::select;
@@ -43,7 +45,8 @@ pub struct GalleryState {
     select: usize,
     tab: usize,
     chip: bool,
-    access: usize,
+    /// The sample permission starts on, to show its degree.
+    permission_off: bool,
 }
 
 fn section(ui: &mut Ui, title: &str) {
@@ -333,17 +336,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                             strings::gallery::TAB_COMPAT,
                         ],
                     );
-                    path_row(
-                        ui,
-                        icons::FOLDER,
-                        strings::gallery::PATH_NAME,
-                        strings::gallery::PATH_LOCATION,
-                        strings::gallery::PATH_FULL,
-                        strings::gallery::PATH_NAME,
-                        &mut g.access,
-                        [strings::gallery::SEG_READ, strings::gallery::SEG_WRITE],
-                        strings::gallery::REMOVE,
-                    );
+                    permissions(ui, g);
 
                     section(ui, strings::gallery::DISPLAY);
                     ui.horizontal(|ui| {
@@ -518,6 +511,59 @@ fn facts_and_rows(ui: &mut Ui) {
     control_row(ui, icons::FILE_EXE, g::ROW_PROGRAMS, false, |ui| {
         ui.add(Button::new(g::ROW_TOOL).size(Size::Sm).icon(icons::PLAY));
     });
+    ui.add_space(space::S3);
+}
+
+/// Permission rows: a switch with a degree, one that is off, a degree alone, a fact and an
+/// action.
+fn permissions(ui: &mut Ui, g: &mut GalleryState) {
+    use strings::details as d;
+    use strings::gallery as t;
+    let access = [
+        Choice::new(d::CAN_READ),
+        Choice {
+            label: d::CAN_READ_CHANGE,
+            unavailable: Some(t::CHOICE_UNAVAILABLE),
+        },
+    ];
+    let id = |part: &str| egui::Id::unique("gallery.permission").with(part);
+    let on = !g.permission_off;
+    let mut folder = PermissionRow::new(id("folder"), icons::FOLDER, t::PATH_NAME);
+    folder.lines = vec![Line::new(t::PATH_LOCATION)];
+    folder.switch = Some(on);
+    folder.quiet = !on;
+    folder.mark = on.then_some(d::CHANGED_MARK);
+    folder.degree = on.then(|| Degree {
+        choices: &access,
+        chosen: 0,
+        value: d::CAN_READ.into(),
+        name: d::permission(t::PATH_NAME, d::CAN_READ).into(),
+    });
+    folder.hint = Some(t::PATH_FULL.into());
+    let mut camera = PermissionRow::new(id("camera"), icons::CAMERA, d::CAMERA);
+    camera.switch = Some(false);
+    camera.quiet = true;
+    let kept = [
+        Choice::new(d::PRIVATE_STORAGE),
+        Choice::new(d::CHOOSE_FOLDER),
+    ];
+    let mut save = PermissionRow::new(id("save"), icons::FLOPPY, d::SAVE_DATA);
+    save.degree = Some(Degree {
+        choices: &kept,
+        chosen: 0,
+        value: d::PRIVATE_STORAGE.into(),
+        name: d::permission(d::SAVE_DATA, d::PRIVATE_STORAGE).into(),
+    });
+    let mut screen = PermissionRow::new(id("screen"), icons::MONITOR, d::SCREEN);
+    screen.lines = vec![Line::toned(d::X11_NOTICE, Tone::Warning)];
+    screen.tone = Tone::Warning;
+    let mut add = PermissionRow::new(id("add"), icons::FOLDER_PLUS, d::ADD_FOLDER);
+    add.press = Press::Action;
+    if let Some((0, Picked::Switched(on))) =
+        permission_rows(ui, &[folder, camera, save, screen, add])
+    {
+        g.permission_off = !on;
+    }
     ui.add_space(space::S3);
 }
 

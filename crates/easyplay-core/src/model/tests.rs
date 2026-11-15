@@ -241,6 +241,56 @@ fn policy_round_trips() {
 }
 
 #[test]
+fn permissions_are_the_policys_bits_and_write_back_exactly() {
+    use Permissions as P;
+    // The example grants what Offline and Online grant by default, and the internet.
+    let example = example_policy();
+    assert_eq!(
+        example.permissions(),
+        P::INTERNET | P::SOUND | P::CONTROLLERS
+    );
+    assert_eq!(offline_policy().permissions(), P::SOUND | P::CONTROLLERS);
+
+    // Every set of bits writes to a policy that reads back as the same set, and touches
+    // nothing a bit does not stand for.
+    for bits in 0..=P::all().bits() {
+        let granted = P::from_bits_retain(bits);
+        let mut p = example.clone();
+        p.set_permissions(granted);
+        assert_eq!(p.permissions(), granted.normalized(), "{granted:?}");
+        let mut rest = p.clone();
+        rest.set_permissions(example.permissions());
+        assert_eq!(rest, example, "{granted:?}");
+    }
+
+    // A degree grants nothing without its permission, and is the wider grant with it.
+    assert_eq!(P::ALL_INPUT.normalized(), P::empty());
+    assert_eq!((P::REMOVABLE_WRITE | P::CAMERA).normalized(), P::CAMERA);
+    assert_eq!(
+        (P::CONTROLLERS | P::REMOVABLE).degrees(),
+        P::ALL_INPUT | P::REMOVABLE_WRITE
+    );
+    assert_eq!(P::INTERNET.degrees(), P::empty());
+    let mut p = example.clone();
+    p.set_permissions(P::CONTROLLERS | P::ALL_INPUT | P::REMOVABLE | P::REMOVABLE_WRITE);
+    assert_eq!(p.devices.controllers, ControllerAccess::AllInput);
+    assert_eq!(p.removable, RemovableAccess::ReadWrite);
+    assert_eq!(p.network, NetworkAccess::None);
+    assert_eq!(p.devices.audio, AudioAccess::None);
+
+    // The protections are permissions seen from the other side.
+    let mut p = example.clone();
+    p.set_permissions(P::MACHINE_ID | P::UNFILTERED_SYSCALLS);
+    assert!(p.hardening.mask_hostname && p.hardening.mask_hardware_ids);
+    assert!(!p.hardening.mask_machine_id);
+    assert_eq!(p.hardening.seccomp, SeccompMode::Off);
+    // What is more than yes or no stays as it was.
+    assert_eq!(p.folders, example.folders);
+    assert_eq!(p.game_dir, example.game_dir);
+    assert_eq!(p.preset, example.preset);
+}
+
+#[test]
 fn policy_validation_table() {
     let cases: Vec<(&str, Box<dyn Fn(&mut SandboxPolicy)>)> = vec![
         ("policy.schema_version", Box::new(|p| p.schema_version = 2)),

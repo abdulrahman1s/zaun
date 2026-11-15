@@ -832,12 +832,12 @@ pub mod gallery {
     pub const SEG_ACCESS: &str = "Access";
     /// Select sample.
     pub const SELECT_LABEL: &str = "Sort";
-    /// Path row sample.
+    /// Folder sample.
     pub const PATH_NAME: &str = "Music";
-    /// Path row sample.
+    /// Folder sample.
     pub const PATH_LOCATION: &str = "in Home";
-    /// Path row sample.
-    pub const REMOVE: &str = "Remove";
+    /// Permission row sample: why a degree cannot be chosen.
+    pub const CHOICE_UNAVAILABLE: &str = "A choice that cannot be made says why.";
     /// Key hint sample.
     pub const SHORTCUT_PLAY: &str = "Play the selected game";
     /// Tab sample.

@@ -131,6 +131,145 @@ impl SandboxPolicy {
     }
 }
 
+bitflags::bitflags! {
+    /// The permissions of a policy that are either granted or not, as a bit field: one bit
+    /// for each permission the Protection tab shows as a switch, and one for the wider of
+    /// the two degrees of a permission that has degrees (ADR-0023).
+    ///
+    /// It is a view of [`SandboxPolicy`], read with [`SandboxPolicy::permissions`] and
+    /// written back with [`SandboxPolicy::set_permissions`]; the stored document keeps its
+    /// fields. What carries more than yes or no is not in it: a folder grant (a path, a
+    /// drive letter, a date), the game folder's access, the save data location, exceptions.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    pub struct Permissions: u32 {
+        /// The internet and the local network (`network`).
+        const INTERNET = 1 << 0;
+        /// Speakers and microphone (`devices.audio`).
+        const SOUND = 1 << 1;
+        /// Game controllers (`devices.controllers`).
+        const CONTROLLERS = 1 << 2;
+        /// Degree of [`Self::CONTROLLERS`]: every input device, not only the controllers
+        /// connected when the game starts.
+        const ALL_INPUT = 1 << 3;
+        /// Cameras (`devices.camera`).
+        const CAMERA = 1 << 4;
+        /// Removable drives (`removable`).
+        const REMOVABLE = 1 << 5;
+        /// Degree of [`Self::REMOVABLE`]: changing what is on them.
+        const REMOVABLE_WRITE = 1 << 6;
+        /// Sound devices directly (`devices.alsa_devices`).
+        const DIRECT_SOUND = 1 << 7;
+        /// This computer's name (`hardening.mask_hostname` off).
+        const COMPUTER_NAME = 1 << 8;
+        /// This computer's machine ID (`hardening.mask_machine_id` off).
+        const MACHINE_ID = 1 << 9;
+        /// Hardware identifiers (`hardening.mask_hardware_ids` off).
+        const HARDWARE_IDS = 1 << 10;
+        /// System calls the filter refuses (`hardening.seccomp` off).
+        const UNFILTERED_SYSCALLS = 1 << 11;
+    }
+}
+
+impl Permissions {
+    /// The degree bits that belong to the permissions in `self`: [`Self::ALL_INPUT`] for
+    /// [`Self::CONTROLLERS`], [`Self::REMOVABLE_WRITE`] for [`Self::REMOVABLE`].
+    pub const fn degrees(self) -> Self {
+        let mut out = Self::empty();
+        if self.contains(Self::CONTROLLERS) {
+            out = out.union(Self::ALL_INPUT);
+        }
+        if self.contains(Self::REMOVABLE) {
+            out = out.union(Self::REMOVABLE_WRITE);
+        }
+        out
+    }
+
+    /// `self` without the degrees of permissions that are not granted: a degree says how
+    /// far a permission goes and grants nothing by itself.
+    pub const fn normalized(self) -> Self {
+        let orphans = Self::ALL_INPUT
+            .union(Self::REMOVABLE_WRITE)
+            .difference(self.degrees());
+        self.difference(orphans)
+    }
+}
+
+impl SandboxPolicy {
+    /// What this policy grants of the permissions that are granted or not.
+    pub fn permissions(&self) -> Permissions {
+        let mut p = Permissions::empty();
+        p.set(Permissions::INTERNET, self.network == NetworkAccess::Full);
+        p.set(Permissions::SOUND, self.devices.audio == AudioAccess::Full);
+        p.set(
+            Permissions::CONTROLLERS,
+            self.devices.controllers != ControllerAccess::None,
+        );
+        p.set(
+            Permissions::ALL_INPUT,
+            self.devices.controllers == ControllerAccess::AllInput,
+        );
+        p.set(Permissions::CAMERA, self.devices.camera);
+        p.set(
+            Permissions::REMOVABLE,
+            self.removable != RemovableAccess::None,
+        );
+        p.set(
+            Permissions::REMOVABLE_WRITE,
+            self.removable == RemovableAccess::ReadWrite,
+        );
+        p.set(Permissions::DIRECT_SOUND, self.devices.alsa_devices);
+        p.set(Permissions::COMPUTER_NAME, !self.hardening.mask_hostname);
+        p.set(Permissions::MACHINE_ID, !self.hardening.mask_machine_id);
+        p.set(Permissions::HARDWARE_IDS, !self.hardening.mask_hardware_ids);
+        p.set(
+            Permissions::UNFILTERED_SYSCALLS,
+            self.hardening.seccomp == SeccompMode::Off,
+        );
+        p
+    }
+
+    /// Grant exactly `granted` of the permissions that are granted or not (after
+    /// [`Permissions::normalized`]); every other field keeps its value. `preset` is not
+    /// recomputed: that is `sandbox::presets::classify`.
+    pub fn set_permissions(&mut self, granted: Permissions) {
+        let p = granted.normalized();
+        self.network = if p.contains(Permissions::INTERNET) {
+            NetworkAccess::Full
+        } else {
+            NetworkAccess::None
+        };
+        self.devices.audio = if p.contains(Permissions::SOUND) {
+            AudioAccess::Full
+        } else {
+            AudioAccess::None
+        };
+        self.devices.controllers = if p.contains(Permissions::ALL_INPUT) {
+            ControllerAccess::AllInput
+        } else if p.contains(Permissions::CONTROLLERS) {
+            ControllerAccess::Detected
+        } else {
+            ControllerAccess::None
+        };
+        self.devices.camera = p.contains(Permissions::CAMERA);
+        self.removable = if p.contains(Permissions::REMOVABLE_WRITE) {
+            RemovableAccess::ReadWrite
+        } else if p.contains(Permissions::REMOVABLE) {
+            RemovableAccess::ReadOnly
+        } else {
+            RemovableAccess::None
+        };
+        self.devices.alsa_devices = p.contains(Permissions::DIRECT_SOUND);
+        self.hardening.mask_hostname = !p.contains(Permissions::COMPUTER_NAME);
+        self.hardening.mask_machine_id = !p.contains(Permissions::MACHINE_ID);
+        self.hardening.mask_hardware_ids = !p.contains(Permissions::HARDWARE_IDS);
+        self.hardening.seccomp = if p.contains(Permissions::UNFILTERED_SYSCALLS) {
+            SeccompMode::Off
+        } else {
+            SeccompMode::Default
+        };
+    }
+}
+
 fn require_absolute(field: &'static str, path: &Path) -> Result<(), ValidationError> {
     if path.is_absolute() {
         Ok(())

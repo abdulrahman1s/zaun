@@ -190,11 +190,12 @@ fn protection_tab_explains_the_real_policy() {
     pump(&mut h, "the record", |h| {
         h.state().state.details.record().is_some()
     });
-    pump(&mut h, "the explanation", |h| {
-        has_label(h, "No internet or local network")
+    pump(&mut h, "the permissions", |h| {
+        has_label(h, "Internet and local network")
     });
+    assert!(has_label(&h, "Game folder: Can read and change"));
+    assert!(has_label(&h, "Save data: Private storage"));
     // Statements of the real planner: the private storage and the hardware masks.
-    assert!(has_label(&h, "Has its own private storage"));
     let a = &h
         .state()
         .state
@@ -203,13 +204,16 @@ fn protection_tab_explains_the_real_policy() {
         .as_ref()
         .unwrap()
         .assessment;
-    assert!(
-        a.statements
-            .iter()
-            .any(|s| s.key == "access.identity.hardware_masked"),
-        "{:?}",
-        a.statements.iter().map(|s| &s.key).collect::<Vec<_>>()
-    );
+    for key in [
+        "access.own.private_storage",
+        "access.identity.hardware_masked",
+    ] {
+        assert!(
+            a.statements.iter().any(|s| s.key == key),
+            "{key}: {:?}",
+            a.statements.iter().map(|s| &s.key).collect::<Vec<_>>()
+        );
+    }
 }
 
 #[test]

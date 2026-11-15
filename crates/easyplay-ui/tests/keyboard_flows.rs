@@ -270,6 +270,38 @@ fn uf7_add_folder_opens_the_picker_by_keyboard() {
     assert!(picks(&r).contains(&PickPurpose::FolderGrant(Some(id))));
 }
 
+#[test]
+fn uf7_a_permission_is_changed_by_keyboard() {
+    use easyplay_core::model::FolderAccess;
+    let mut r = rig(Route::Library);
+    r.h.run();
+    open_game(&mut r, "Lantern Keep");
+    while r.h.state().state.details.tab != easyplay_ui::vm::details::DetailsTab::Protection {
+        key_mod(&mut r, Modifiers::COMMAND, Key::Tab);
+    }
+    settle(&mut r);
+    let access = |r: &Rig| {
+        let draft = &r.h.state().state.details.protection.as_ref().unwrap().draft;
+        draft.folders.first().map(|f| f.access)
+    };
+    // Space flips the switch; the row keeps its place and the focus.
+    tab_to(&mut r, "Music");
+    key(&mut r, Key::Space);
+    assert_eq!(access(&r), Some(FolderAccess::ReadOnly));
+    assert_eq!(focused(&r).as_deref(), Some("Music"));
+    // Its degree is the next stop: Enter opens the choices, the arrows move among them,
+    // Enter takes one and the focus returns to the control.
+    key(&mut r, Key::Tab);
+    assert_eq!(focused(&r).as_deref(), Some("Music: Can read"));
+    key(&mut r, Key::Enter);
+    key(&mut r, Key::ArrowDown);
+    key(&mut r, Key::ArrowDown);
+    assert_eq!(focused(&r).as_deref(), Some("Can read and change"));
+    key(&mut r, Key::Enter);
+    assert_eq!(access(&r), Some(FolderAccess::ReadWrite));
+    assert_eq!(focused(&r).as_deref(), Some("Music: Can read and change"));
+}
+
 // ---- UF-9 Problem panel ----------------------------------------------------------------
 
 #[test]

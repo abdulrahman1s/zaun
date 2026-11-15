@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use easyplay_core::clock::Timestamp;
-use easyplay_core::model::{Availability, BasePreset, SandboxPolicy};
+use easyplay_core::model::{Availability, BasePreset, Permissions, SandboxPolicy};
 
 use crate::vm::details::DetailsTab;
 
@@ -219,64 +219,57 @@ pub const APPLIES_NEXT_TIME: &str = "Changes apply the next time you start the g
 /// Policy of a newer version.
 pub const POLICY_TOO_NEW: &str =
     "These settings were saved by a newer version of EasyPlay and can't be shown here.";
-/// Summary marker.
-pub const ADDED_MARK: &str = "added";
-/// Summary marker.
-pub const REMOVED_MARK: &str = "removed";
-/// Section.
-pub const INTERNET: &str = "Internet";
-/// Option.
-pub const NO_INTERNET: &str = "No internet";
-/// Option.
+/// On a row while it differs from what is saved.
+pub const CHANGED_MARK: &str = "changed";
+/// Permission.
 pub const INTERNET_ON: &str = "Internet and local network";
-/// Section.
+/// List of permissions, and a section of the setup sheet.
 pub const FILES: &str = "Files and folders";
-/// Row.
-pub const OWN_FOLDER: &str = "Its own folder";
-/// Row.
-pub const YOUR_FOLDERS: &str = "Your folders";
-/// Empty list.
-pub const NO_FOLDERS: &str =
-    "This game can't see any of your folders. Add one if it needs your music, mods or screenshots.";
-/// Access.
+/// Degree of access.
 pub const CAN_READ: &str = "Can read";
-/// Access.
+/// Degree of access.
+pub const CAN_READ_CHANGE: &str = "Can read and change";
+/// Degree of access to the game folder.
+pub const CHANGES_KEPT_APART: &str = "Changes kept separately";
+/// Access (setup sheet).
 pub const CAN_CHANGE: &str = "Can change";
-/// Access.
-pub const NOT_SHARED: &str = "Not shared";
-/// Button.
+/// Row.
 pub const ADD_FOLDER: &str = "Add folder…";
 /// Drop hint.
 pub const DROP_FOLDER: &str = "Drop a folder here to share it";
-/// Row.
+/// Permission.
 pub const REMOVABLE: &str = "Removable drives";
 /// Note.
 pub const WRITABLE_WITH_INTERNET: &str =
     "With internet access, a program can upload or alter these files.";
 /// Option.
 pub const CHOOSE_FOLDER: &str = "A folder I choose…";
-/// Section.
+/// List of permissions.
+pub const INTERNET_AND_DEVICES: &str = "Internet and devices";
+/// Section of the setup sheet.
 pub const DEVICES: &str = "Devices";
-/// Toggle.
+/// Permission.
 pub const SOUND: &str = "Sound (speakers and microphone)";
-/// Row.
+/// Under the sound permission.
+pub const SOUND_TOGETHER: &str = "Playback and recording cannot be separated";
+/// Toggle (setup sheet).
 pub const CONTROLLERS: &str = "Controllers";
-/// Option.
-pub const CTRL_NONE: &str = "None";
-/// Option.
-pub const CTRL_CONNECTED: &str = "Connected";
-/// Option.
-pub const CTRL_ALL: &str = "All input devices";
+/// Permission.
+pub const GAME_CONTROLLERS: &str = "Game controllers";
+/// Degree of the controllers permission.
+pub const CONNECTED_ONLY: &str = "Connected when the game starts";
+/// Degree of the controllers permission.
+pub const ALL_INPUT: &str = "All input devices";
 /// Disabled reason.
 pub const ALL_INPUT_UNAVAILABLE: &str =
     "All input devices is unavailable because your account can read keyboards directly.";
-/// Toggle.
+/// Permission.
 pub const CAMERA: &str = "Camera";
-/// Section.
-pub const DISPLAY: &str = "Display";
+/// Row: where the game draws.
+pub const SCREEN: &str = "Screen";
 /// X11 notice.
 pub const X11_NOTICE: &str = "Shows windows through X11 — other X11 apps are not isolated from it.";
-/// Advanced.
+/// Setup sheet.
 pub const GAME_FOLDER_ACCESS: &str = "Game folder access";
 /// Option.
 pub const READ_ONLY: &str = "Read only";
@@ -358,17 +351,17 @@ pub fn folder_location(path: &Path, home: &Path) -> String {
     }
 }
 
-/// "Music, in Home, can read. Press left or right to change access, Delete to remove."
-pub fn folder_row_name(name: &str, loc: &str, writable: bool) -> String {
-    format!(
-        "{name}, {loc}, {}. Press left or right to change access, Delete to remove.",
-        if writable { "can change" } else { "can read" }
-    )
+/// A permission and its degree: "Music: Can read".
+pub fn permission(title: &str, value: &str) -> String {
+    format!("{title}: {value}")
 }
 
-/// "Remove Music".
-pub fn remove_folder(name: &str) -> String {
-    format!("Remove {name}")
+/// "Hollow Knight in Games".
+pub fn place(name: &str, parent: Option<&str>) -> String {
+    match parent {
+        Some(parent) => format!("{name} {parent}"),
+        None => name.to_owned(),
+    }
 }
 
 /// "Advanced · 1 changed".
@@ -382,13 +375,14 @@ pub fn advanced(changed: usize) -> String {
 
 /// How many advanced fields differ.
 pub fn advanced_changes(a: &SandboxPolicy, b: &SandboxPolicy) -> usize {
-    usize::from(a.game_dir != b.game_dir)
-        + usize::from(a.hardening.mask_hostname != b.hardening.mask_hostname)
-        + usize::from(a.hardening.mask_machine_id != b.hardening.mask_machine_id)
-        + usize::from(a.hardening.mask_hardware_ids != b.hardening.mask_hardware_ids)
-        + usize::from(a.hardening.seccomp != b.hardening.seccomp)
+    let advanced = Permissions::COMPUTER_NAME
+        | Permissions::MACHINE_ID
+        | Permissions::HARDWARE_IDS
+        | Permissions::UNFILTERED_SYSCALLS
+        | Permissions::DIRECT_SOUND;
+    let flags = (a.permissions() ^ b.permissions()) & advanced;
+    flags.bits().count_ones() as usize
         + usize::from(a.hardening.runtime_isolation != b.hardening.runtime_isolation)
-        + usize::from(a.devices.alsa_devices != b.devices.alsa_devices)
 }
 
 // ---- Compatibility ------------------------------------------------------------------------

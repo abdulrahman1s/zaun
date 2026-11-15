@@ -70,8 +70,6 @@ pub struct PolicyEditor {
     pub draft: SandboxPolicy,
     /// Assessment of the draft.
     pub assessment: PolicyAssessment,
-    /// Statement texts of the saved policy (for "added"/"removed" markers).
-    pub saved_texts: Vec<String>,
     /// Advanced disclosure.
     pub advanced: bool,
     /// The last rejected folder, explained.
@@ -84,11 +82,6 @@ impl PolicyEditor {
     /// Start from `saved` with its assessment.
     pub fn new(saved: SandboxPolicy, assessment: PolicyAssessment) -> Self {
         Self {
-            saved_texts: assessment
-                .statements
-                .iter()
-                .map(|s| s.text.clone())
-                .collect(),
             draft: saved.clone(),
             saved,
             assessment,
@@ -120,23 +113,6 @@ impl PolicyEditor {
     /// How the draft widens the saved policy.
     pub fn widenings(&self) -> Vec<Widening> {
         widening(&self.saved, &self.draft)
-    }
-
-    /// Whether a statement is new relative to the saved policy.
-    pub fn is_added(&self, text: &str) -> bool {
-        self.dirty() && !self.saved_texts.iter().any(|t| t == text)
-    }
-
-    /// Statements of the saved policy that the draft no longer has.
-    pub fn removed(&self) -> Vec<&str> {
-        if !self.dirty() {
-            return Vec::new();
-        }
-        self.saved_texts
-            .iter()
-            .filter(|t| !self.assessment.statements.iter().any(|s| &s.text == *t))
-            .map(String::as_str)
-            .collect()
     }
 
     /// Toggle a well-known folder (read-only grant).
@@ -461,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn dirty_tracking_and_markers() {
+    fn dirty_tracking() {
         let mut e = editor();
         assert!(!e.dirty());
         e.toggle_user_dir(
@@ -471,9 +447,6 @@ mod tests {
         );
         assert!(e.dirty());
         assert!(matches!(e.draft.preset, Preset::Custom { .. }));
-        e.assessment = demo::assess("X", None, &e.draft);
-        assert!(e.is_added("Can read Music"));
-        assert!(e.removed().iter().any(|t| t.contains("personal files")));
         assert_eq!(e.widenings().len(), 1);
         e.toggle_user_dir(
             UserDir::Music,

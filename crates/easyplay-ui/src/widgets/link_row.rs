@@ -19,8 +19,8 @@ use crate::theme::palette::{fade, mix};
 use crate::theme::tokens::{icon as icon_size, layout, radius, space, stroke};
 use crate::theme::{self, Dur, Icon, Palette, Type, icons};
 
-/// How a piece of a row is weighted.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// How a piece of a row is weighted, lightest first.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Tone {
     /// As usual.
     #[default]
@@ -32,7 +32,8 @@ pub enum Tone {
 }
 
 impl Tone {
-    fn color(self, normal: Color32, p: &Palette) -> Color32 {
+    /// `normal`, or the colour of the weight.
+    pub(super) fn color(self, normal: Color32, p: &Palette) -> Color32 {
         match self {
             Tone::Normal => normal,
             Tone::Warning => p.warning,

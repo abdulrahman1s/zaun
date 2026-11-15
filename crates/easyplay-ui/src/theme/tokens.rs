@@ -217,6 +217,12 @@ pub mod layout {
     pub const POINT_H: f32 = 26.0;
     /// Narrowest column of points; two columns need room for two of these.
     pub const POINT_MIN_W: f32 = 264.0;
+    /// Height of a permission row that is a title alone.
+    pub const PERMISSION_ROW_H: f32 = 44.0;
+    /// Narrowest menu of a permission's degrees.
+    pub const PERMISSION_MENU_W: f32 = 200.0;
+    /// Widest the Protection tab sets its rows: a title and its switch stay in one glance.
+    pub const PERMISSIONS_MAX_W: f32 = 720.0;
     /// A bar of the week strip.
     pub const SPARK_BAR_W: f32 = 6.0;
     /// Space between the bars of the week strip.
