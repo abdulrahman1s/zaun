@@ -230,6 +230,13 @@ pub enum Command {
         /// Reply ID.
         reply_to: QueryId,
     },
+    /// What a game's files tell (ADR-0028); answered with `QueryResult::About`.
+    AboutGame {
+        /// Game.
+        id: GameId,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
     /// A statistics query; answered with `Event::QueryResult`.
     QueryStats {
         /// Request.
@@ -478,6 +485,7 @@ impl Command {
             Command::SetHidden { .. } => "set_hidden",
             Command::UpdateGame { .. } => "update_game",
             Command::LoadGame { .. } => "load_game",
+            Command::AboutGame { .. } => "about_game",
             Command::QueryStats { .. } => "query_stats",
             Command::RescanMissing => "rescan_missing",
             Command::ClearStatistics => "clear_statistics",

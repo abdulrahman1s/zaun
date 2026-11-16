@@ -596,6 +596,7 @@ impl AppService {
             }
             Command::UpdateGame { id, edits } => self.update_game(id, edits),
             Command::LoadGame { id, reply_to } => self.load_game(id, reply_to),
+            Command::AboutGame { id, reply_to } => self.about_game(id, reply_to),
             Command::QueryStats { request, reply_to } => self.query_stats(&request, reply_to),
             Command::RescanMissing => self.check_availability(),
             Command::ClearStatistics => self.clear_statistics(None),
@@ -1106,6 +1107,7 @@ impl AppService {
         let allowed = matches!(
             cmd,
             Command::LoadGame { .. }
+                | Command::AboutGame { .. }
                 | Command::QueryStats { .. }
                 | Command::ScanFolder { .. }
                 | Command::MeasurePrefix { .. }

@@ -12,8 +12,8 @@ use crate::model::{NetworkAccess, SandboxPolicy};
 use crate::paths::normalize;
 use crate::sandbox::context::SandboxContext;
 use crate::sandbox::plan::{
-    EnvOrigin, FD_INIT_STATUS, INIT_PATH, Mount, MountKind, MountMode, PolicyField, SandboxPlan,
-    Section,
+    EnvOrigin, FD_INIT_STATUS, HostAction, INIT_PATH, Mount, MountKind, MountMode, PolicyField,
+    SandboxPlan, Section, sound_socket,
 };
 use crate::sandbox::sections::tmp_run::XAUTH_NAME;
 use crate::sandbox::sections::{Effective, SandboxDirs};
@@ -256,6 +256,15 @@ fn sockets(
         .x11_bindable()
         .map(|x| Path::new("/tmp/.X11-unix").join(format!("X{}", x.number)));
     let host_xrd = host.display.xdg_runtime_dir.clone();
+    // The socket of the session's own sound server, which the plan starts (ADR-0026).
+    let sound: Vec<PathBuf> = plan
+        .host_actions
+        .iter()
+        .filter_map(|a| match a {
+            HostAction::StartSoundServer { dir, .. } => Some(sound_socket(dir)),
+            _ => None,
+        })
+        .collect();
     for m in &plan.mounts {
         let dst = m.kind.dst();
         if m.kind.is_host_bind() && dst.starts_with(xrd) && !allowed_dst.iter().any(|a| a == dst) {
@@ -281,6 +290,7 @@ fn sockets(
             let known = host.display.wayland.as_ref().is_some_and(|w| w.path == src)
                 || host.audio.pulse_socket.as_deref() == Some(src)
                 || host.audio.pipewire_socket.as_deref() == Some(src)
+                || sound.iter().any(|s| s == src)
                 || host
                     .display
                     .x11

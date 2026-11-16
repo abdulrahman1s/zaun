@@ -4,21 +4,85 @@
 //! would be hidden by it), and it is always the filesystem socket `/tmp/.X11-unix/X<n>`: the
 //! abstract socket `@/tmp/.X11-unix/X<n>` belongs to the host network namespace and is
 //! unreachable under `--unshare-net` (TECHNICAL_RESEARCH F-221). Nothing else from `$XRD`
-//! is ever bound.
+//! is ever bound, except the socket of the session's own sound server (ADR-0026).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{Effective, SandboxDirs, etc_files, mk};
 use crate::host::HostFacts;
 use crate::model::{AudioAccess, ControllerAccess};
 use crate::sandbox::context::SandboxContext;
 use crate::sandbox::plan::{
-    EnvOrigin, HostAction, PROTON_LOG_PATH, PlanBuilder, PolicyField, RUN_EASYPLAY, SMALL_TMP_BYTES,
+    EnvOrigin, HostAction, PROTON_LOG_PATH, PlanBuilder, PolicyField, RUN_EASYPLAY,
+    SMALL_TMP_BYTES, sound_socket,
 };
 use crate::sandbox::validate::{IssueCode, PolicyIssue};
 
 /// File name of the X authority copy inside the private runtime directory.
 pub const XAUTH_NAME: &str = "easyplay-xauth";
+
+/// Longest path a Unix socket address holds (`sun_path` less its terminating zero).
+const SOCKET_PATH_MAX: usize = 107;
+
+/// Bind `socket` as the PulseAudio socket of the private runtime directory.
+fn pulse_socket(
+    b: &mut PlanBuilder,
+    xrd: &Path,
+    socket: &Path,
+    what: &'static str,
+    field: PolicyField,
+) {
+    let dst = xrd.join("pulse/native");
+    b.mount(
+        mk::dir(xrd.join("pulse")),
+        "PulseAudio directory",
+        Some(PolicyField::Audio),
+    );
+    b.mount(mk::ro(socket, &dst), what, Some(field));
+    b.env(
+        "PULSE_SERVER",
+        format!("unix:{}", dst.display()),
+        EnvOrigin::Fixed,
+    );
+}
+
+/// The session's own sound server, when this host can run one: the `pipewire` program, the
+/// host's PipeWire socket to play through, and a socket path short enough to bind.
+pub fn sound_server(ctx: &SandboxContext<'_>, host: &HostFacts) -> Option<HostAction> {
+    let program = host.audio.pipewire_program.clone()?;
+    let remote = host.audio.pipewire_socket.clone()?;
+    let dir: PathBuf = ctx.session.run_dir.join("sound");
+    if sound_socket(&dir).as_os_str().len() > SOCKET_PATH_MAX {
+        return None;
+    }
+    Some(HostAction::StartSoundServer {
+        program,
+        dir,
+        remote,
+        log: ctx.session.log_dir.join("sound-server.log"),
+    })
+}
+
+/// Sound without the microphone: the session's own sound server, which refuses to record,
+/// and not the host's PipeWire socket, which records whatever its server is told to.
+/// `Effective` has already turned sound off where there can be no such server.
+fn playback_only(ctx: &SandboxContext<'_>, host: &HostFacts, xrd: &Path, b: &mut PlanBuilder) {
+    let Some(action) = sound_server(ctx, host) else {
+        return;
+    };
+    let socket = match &action {
+        HostAction::StartSoundServer { dir, .. } => sound_socket(dir),
+        _ => return,
+    };
+    b.action(action);
+    pulse_socket(
+        b,
+        xrd,
+        &socket,
+        "sound server that refuses recording",
+        PolicyField::Audio,
+    );
+}
 
 /// §4.7.
 pub fn emit(ctx: &SandboxContext<'_>, host: &HostFacts, eff: &Effective, b: &mut PlanBuilder) {
@@ -78,22 +142,21 @@ pub fn emit(ctx: &SandboxContext<'_>, host: &HostFacts, eff: &Effective, b: &mut
         );
         b.env("WAYLAND_DISPLAY", w.name.clone(), EnvOrigin::Fixed);
     }
+    if eff.audio == AudioAccess::Playback {
+        playback_only(ctx, host, xrd, b);
+    }
+    if eff.playback_unavailable {
+        b.note(
+            "note.audio.no_playback_only",
+            "This computer cannot give sound without the microphone; the game has no sound",
+        );
+    }
     if eff.audio == AudioAccess::Full {
-        let field = Some(PolicyField::Audio);
+        // The host's sockets play and record alike.
+        let field = Some(PolicyField::Microphone);
         match &host.audio.pulse_socket {
             Some(pulse) => {
-                let dst = xrd.join("pulse/native");
-                b.mount(
-                    mk::dir(xrd.join("pulse")),
-                    "PulseAudio directory",
-                    field.clone(),
-                );
-                b.mount(mk::ro(pulse, &dst), "PulseAudio socket", field.clone());
-                b.env(
-                    "PULSE_SERVER",
-                    format!("unix:{}", dst.display()),
-                    EnvOrigin::Fixed,
-                );
+                pulse_socket(b, xrd, pulse, "PulseAudio socket", PolicyField::Microphone)
             }
             None => b.note(
                 "note.audio.no_pulse",

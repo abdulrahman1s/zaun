@@ -93,7 +93,7 @@ fn offline_policy() -> SandboxPolicy {
         save_data: SaveDataLocation::Internal,
         removable: RemovableAccess::None,
         devices: DeviceAccess {
-            audio: AudioAccess::Full,
+            audio: AudioAccess::Playback,
             alsa_devices: false,
             controllers: ControllerAccess::Detected,
             camera: false,
@@ -243,11 +243,12 @@ fn policy_round_trips() {
 #[test]
 fn permissions_are_the_policys_bits_and_write_back_exactly() {
     use Permissions as P;
-    // The example grants what Offline and Online grant by default, and the internet.
+    // The example grants what Offline and Online grant by default, the internet and the
+    // microphone.
     let example = example_policy();
     assert_eq!(
         example.permissions(),
-        P::INTERNET | P::SOUND | P::CONTROLLERS
+        P::INTERNET | P::SOUND | P::MICROPHONE | P::CONTROLLERS
     );
     assert_eq!(offline_policy().permissions(), P::SOUND | P::CONTROLLERS);
 
@@ -266,11 +267,25 @@ fn permissions_are_the_policys_bits_and_write_back_exactly() {
     // A degree grants nothing without its permission, and is the wider grant with it.
     assert_eq!(P::ALL_INPUT.normalized(), P::empty());
     assert_eq!((P::REMOVABLE_WRITE | P::CAMERA).normalized(), P::CAMERA);
+    assert_eq!(P::MICROPHONE.normalized(), P::empty());
     assert_eq!(
-        (P::CONTROLLERS | P::REMOVABLE).degrees(),
-        P::ALL_INPUT | P::REMOVABLE_WRITE
+        (P::CONTROLLERS | P::REMOVABLE | P::SOUND).degrees(),
+        P::ALL_INPUT | P::REMOVABLE_WRITE | P::MICROPHONE
     );
     assert_eq!(P::INTERNET.degrees(), P::empty());
+    // Each degree brings the permission it widens.
+    assert_eq!(
+        (P::ALL_INPUT | P::REMOVABLE_WRITE | P::MICROPHONE).prerequisites(),
+        P::CONTROLLERS | P::REMOVABLE | P::SOUND
+    );
+    for degree in [P::ALL_INPUT, P::REMOVABLE_WRITE, P::MICROPHONE] {
+        assert!(degree.prerequisites().degrees().contains(degree));
+    }
+    let mut p = example.clone();
+    p.set_permissions(P::SOUND);
+    assert_eq!(p.devices.audio, AudioAccess::Playback);
+    p.set_permissions(P::SOUND | P::MICROPHONE);
+    assert_eq!(p.devices.audio, AudioAccess::Full);
     let mut p = example.clone();
     p.set_permissions(P::CONTROLLERS | P::ALL_INPUT | P::REMOVABLE | P::REMOVABLE_WRITE);
     assert_eq!(p.devices.controllers, ControllerAccess::AllInput);

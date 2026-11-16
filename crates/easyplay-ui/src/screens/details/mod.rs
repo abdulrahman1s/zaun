@@ -164,6 +164,12 @@ pub(super) fn load(state: &mut UiState, env: &mut Env<'_>, id: GameId) {
         state.details.detail = AsyncValue::Loading { since: env.mono };
     }
     env.bridge.send(UiCommand::LoadGame { id, reply_to: q });
+    let q = env.bridge.query_id();
+    state.details.about_q = Some(q);
+    if !matches!(state.details.about, AsyncValue::Ready(_)) {
+        state.details.about = AsyncValue::Loading { since: env.mono };
+    }
+    env.bridge.send(UiCommand::AboutGame { id, reply_to: q });
 }
 
 fn hero_cover(

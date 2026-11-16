@@ -26,7 +26,7 @@ fn base(
         save_data: SaveDataLocation::Internal,
         removable: RemovableAccess::None,
         devices: DeviceAccess {
-            audio: AudioAccess::Full,
+            audio: AudioAccess::Playback,
             alsa_devices: false,
             controllers,
             camera: false,
@@ -91,7 +91,8 @@ pub fn preset_policy(preset: BasePreset, host: &HostFacts) -> SandboxPolicy {
 
 /// Whether `policy` equals preset `p` in every field except `preset`. `game_dir` may be
 /// `ReadWrite` or `FileOnly` (forced for loose executables); Standard's controllers may be
-/// `AllInput` or `Detected` (the host-dependent downgrade).
+/// `AllInput` or `Detected` (the host-dependent downgrade); the microphone may be on or off
+/// (no preset decides it, ADR-0026).
 fn matches(policy: &SandboxPolicy, p: BasePreset) -> bool {
     let reference = match p {
         BasePreset::Offline => offline(),
@@ -108,6 +109,9 @@ fn matches(policy: &SandboxPolicy, p: BasePreset) -> bool {
     candidate.schema_version = reference.schema_version;
     if candidate.game_dir == GameDirAccess::FileOnly {
         candidate.game_dir = GameDirAccess::ReadWrite;
+    }
+    if candidate.devices.audio == AudioAccess::Full {
+        candidate.devices.audio = AudioAccess::Playback;
     }
     if p == BasePreset::Standard && candidate.devices.controllers == ControllerAccess::Detected {
         candidate.devices.controllers = ControllerAccess::AllInput;
@@ -127,10 +131,13 @@ pub fn classify(policy: &SandboxPolicy) -> Preset {
         .map_or(Preset::Custom { base: own }, Preset::from)
 }
 
-/// Switch `policy` to `preset`, keeping the game-folder kind, folder grants and the save
-/// location.
+/// Switch `policy` to `preset`, keeping the game-folder kind, folder grants, the save
+/// location and the microphone.
 pub fn apply_preset(policy: &SandboxPolicy, preset: BasePreset, host: &HostFacts) -> SandboxPolicy {
     let mut out = preset_policy(preset, host);
+    if policy.devices.audio == AudioAccess::Full && out.devices.audio != AudioAccess::None {
+        out.devices.audio = AudioAccess::Full;
+    }
     out.game_dir = policy.game_dir;
     out.folders = policy.folders.clone();
     out.save_data = policy.save_data.clone();
@@ -159,6 +166,8 @@ pub enum Widening {
     Removable,
     /// Sound turned on.
     Audio,
+    /// The microphone turned on.
+    Microphone,
     /// Raw ALSA devices turned on.
     AlsaDevices,
     /// Controllers widened (to `Detected` or `AllInput`).
@@ -212,8 +221,11 @@ pub fn widening(old: &SandboxPolicy, new: &SandboxPolicy) -> Vec<Widening> {
     if rank_removable(new.removable) > rank_removable(old.removable) {
         w.push(Widening::Removable);
     }
-    if old.devices.audio == AudioAccess::None && new.devices.audio == AudioAccess::Full {
+    if old.devices.audio == AudioAccess::None && new.devices.audio != AudioAccess::None {
         w.push(Widening::Audio);
+    }
+    if old.devices.audio != AudioAccess::Full && new.devices.audio == AudioAccess::Full {
+        w.push(Widening::Microphone);
     }
     if !old.devices.alsa_devices && new.devices.alsa_devices {
         w.push(Widening::AlsaDevices);

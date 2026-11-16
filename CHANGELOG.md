@@ -24,6 +24,17 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   `programs.easyplay.backgroundService.enable` on NixOS and home-manager): EasyPlay stays
   loaded without a window, so a game opened from the file manager starts in about 20 ms
   and windows open without a cold start. Running games are not affected when it stops.
+- The microphone is a permission of its own, off by default: games get sound through a
+  sound server of their own that refuses to record. Games added before keep the
+  microphone until it is switched off. Needs PipeWire; on a computer without it, sound
+  without the microphone is silence, and the Protection tab says so.
+- Launch options suggest Proton's options as a variable's name is typed, each with what it
+  does: frame-rate caps, WoW64 mode, older Direct3D, upscaler upgrades on GE-Proton and
+  CachyOS builds, and more.
+- A game's Overview starts with what the game is: the engine it is made with (Unity,
+  Unreal, Godot, GameMaker, Ren'Py, RPG Maker and more), what kind of program it is and its
+  version, who made it, and whether it has anti-cheat or Steam DRM, which often stop games
+  under Proton.
 - Command line: `easyplay open|launch|stop|status|list|add|edit|remove|show|sandbox|export|import|doctor|runtimes|service`,
   with `--json` output, a man page and bash/zsh/fish completions.
 

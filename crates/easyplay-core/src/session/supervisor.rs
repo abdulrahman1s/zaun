@@ -31,6 +31,7 @@ use crate::model::{
     SupervisorIdent,
 };
 use crate::procfs::{ProcEntry, ProcSource, parse_ns_link};
+use crate::sandbox::{HostAction, sound_socket};
 use crate::stats::CountRule;
 use crate::stats::recorder::{SessionEnd, close_for};
 use crate::storage::{
@@ -43,7 +44,10 @@ use super::heartbeat::Heartbeat;
 use super::lock::{LockError, PrefixLock};
 use super::log_pump::{LogPump, PumpConfig, PumpEvent, PumpReport};
 use super::registry::SandboxView;
-use super::spawn::{HostActionCtx, SandboxChild, SandboxIo, SandboxSpawner, run_host_actions};
+use super::spawn::{
+    HostActionCtx, SandboxChild, SandboxIo, SandboxSpawner, SoundServer, run_host_actions,
+    write_sound_config,
+};
 use super::status::{BwrapStatus, BwrapStatusParser, InitStatus, InitStatusParser};
 use super::stop::{StopAction, StopMode, Stopper, take_stop_request};
 use super::sys::{self, Sig};
@@ -472,6 +476,8 @@ struct Run<'a> {
     next_scan: MonoInstant,
     own_ns: Option<u64>,
     child: Option<Box<dyn SandboxChild>>,
+    /// The session's sound server (ADR-0026), stopped at cleanup.
+    sound: Option<Box<dyn SandboxChild>>,
     locks: Vec<PrefixLock>,
     row: Session,
 }
@@ -696,6 +702,7 @@ pub fn run(
         next_scan: now,
         own_ns,
         child: None,
+        sound: None,
         locks,
         row,
     };
@@ -741,6 +748,32 @@ impl Run<'_> {
         };
         if let Err(e) = host_result {
             return self.spawn_failure(&e);
+        }
+        for a in &plan.host_actions {
+            if let HostAction::StartSoundServer {
+                program,
+                dir,
+                remote,
+                log,
+            } = a
+            {
+                let config = match write_sound_config(&*self.deps.fs, self.cfg.uid, dir) {
+                    Ok(c) => c,
+                    Err(e) => return self.spawn_failure(&e),
+                };
+                let socket = sound_socket(dir);
+                let server = SoundServer {
+                    program,
+                    config: &config,
+                    socket: &socket,
+                    remote,
+                    log,
+                };
+                match self.deps.spawner.start_sound_server(server) {
+                    Ok(s) => self.sound = Some(s),
+                    Err(e) => return self.spawn_failure(&e),
+                }
+            }
         }
 
         let pipes =
@@ -1080,6 +1113,18 @@ impl Run<'_> {
     }
 
     fn cleanup(&mut self) {
+        if let Some(mut s) = self.sound.take() {
+            if let Err(e) = s.kill_monitor() {
+                tracing::warn!("sound server not stopped: {e}");
+            }
+            // Reap it: `SIGKILL` ends it at once.
+            for _ in 0..100 {
+                if !matches!(s.try_wait(), Ok(None)) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
         let fs = &*self.deps.fs;
         let paths = &self.plan.paths;
         if let Some(sv) = &paths.session_var

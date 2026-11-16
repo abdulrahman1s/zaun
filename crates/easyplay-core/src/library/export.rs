@@ -124,7 +124,7 @@ pub struct ExFolder {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExDevices {
-    /// `full` or `none`.
+    /// `full` (with the microphone), `playback` or `none`.
     pub audio: String,
     /// `none`, `detected` or `all-input`.
     pub controllers: String,
@@ -299,6 +299,7 @@ pub fn export(game: &Game, tags: &[TagName], now: Timestamp) -> Result<String> {
             devices: ExDevices {
                 audio: match policy.devices.audio {
                     AudioAccess::Full => "full".into(),
+                    AudioAccess::Playback => "playback".into(),
                     AudioAccess::None => "none".into(),
                 },
                 controllers: match policy.devices.controllers {
@@ -575,6 +576,7 @@ pub fn import(file: &ExportFile, ctx: &ImportContext<'_>) -> Result<ImportedSett
     }
     policy.devices.audio = match p.devices.audio.as_str() {
         "full" => AudioAccess::Full,
+        "playback" => AudioAccess::Playback,
         "none" => AudioAccess::None,
         _ => return Err(bad("protection.devices.audio")),
     };

@@ -21,7 +21,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 
 use super::plan_file::{FdKind, LaunchPlan, group_args};
-use crate::sandbox::{HostAction, seccomp};
+use crate::sandbox::{HostAction, seccomp, sound, sound_socket};
 
 /// Quote one argument for a POSIX shell.
 pub fn quote(a: &OsStr) -> String {
@@ -75,6 +75,40 @@ pub fn render_shell(plan: &LaunchPlan, generated_at: &str) -> String {
                 let _ = writeln!(out, "# skipped: mark the prefix of game {game} as used");
             }
             HostAction::WriteMemfd { .. } => {}
+            HostAction::StartSoundServer {
+                program,
+                dir,
+                remote,
+                log,
+            } => {
+                let conf = dir.join(sound::SOUND_CONFIG);
+                let socket = sound_socket(dir);
+                let _ = writeln!(out, "# the sound server that refuses recording (ADR-0026)");
+                let _ = writeln!(out, "mkdir -p -m 0700 {}", q(dir));
+                let _ = writeln!(
+                    out,
+                    "_ep_secret=$(od -An -tx1 -N{} /dev/urandom | tr -d ' \\n')",
+                    sound::SECRET_BYTES
+                );
+                // The configuration holds no `$` but the secret's.
+                let text = sound::config(&socket, "${_ep_secret}");
+                let _ = write!(
+                    out,
+                    "cat > {} <<EOF_EASYPLAY_SOUND\n{text}EOF_EASYPLAY_SOUND\n",
+                    q(&conf)
+                );
+                let _ = writeln!(
+                    out,
+                    "env -i XDG_RUNTIME_DIR=\"$XDG_RUNTIME_DIR\" PIPEWIRE_REMOTE={} PIPEWIRE_CONFIG_DIR={} {} -c {} >>{} 2>&1 &",
+                    q(remote),
+                    q(dir),
+                    q(program),
+                    q(&conf),
+                    q(log)
+                );
+                let _ = writeln!(out, "while [ ! -S {} ]; do sleep 0.05; done", q(&socket));
+                let _ = writeln!(out, "# stop it afterwards: kill $!");
+            }
         }
     }
 

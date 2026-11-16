@@ -392,6 +392,8 @@ pub enum PolicyField {
     Removable,
     /// `devices.audio`.
     Audio,
+    /// `devices.audio` `Full`: what records.
+    Microphone,
     /// `devices.alsa_devices`.
     AlsaDevices,
     /// `devices.controllers`.
@@ -551,6 +553,28 @@ pub enum HostAction {
         /// The game.
         game: GameId,
     },
+    /// Start the session's sound server, which plays and refuses recording (ADR-0026), and
+    /// wait for its socket, [`sound_socket`]`(dir)`. The supervisor stops it when the
+    /// session ends.
+    StartSoundServer {
+        /// The `pipewire` program.
+        #[serde(with = "codec::path")]
+        program: PathBuf,
+        /// Its directory, created first: the configuration and the socket.
+        #[serde(with = "codec::path")]
+        dir: PathBuf,
+        /// The host's PipeWire socket it plays through.
+        #[serde(with = "codec::path")]
+        remote: PathBuf,
+        /// Where its output goes (in the session's log directory).
+        #[serde(with = "codec::path")]
+        log: PathBuf,
+    },
+}
+
+/// The socket of the sound server started in `dir` ([`HostAction::StartSoundServer`]).
+pub fn sound_socket(dir: &Path) -> PathBuf {
+    dir.join("native")
 }
 
 /// A human-readable planner remark.

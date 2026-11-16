@@ -165,6 +165,8 @@ pub struct LogChunk {
 pub enum QueryResult {
     /// `Command::LoadGame`.
     Game(Box<Game>),
+    /// `Command::AboutGame`.
+    About(Box<crate::identity::GameAbout>),
     /// `Command::QueryStats`.
     Stats(StatsResult),
     /// `Command::ScanFolder`.

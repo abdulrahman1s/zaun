@@ -22,7 +22,7 @@ use crate::error::ErrorCode;
 
 /// Version of the serialised [`HostFacts`] document. Bump on any incompatible change; the
 /// cache is then simply re-probed.
-pub const HOST_FACTS_FORMAT: u32 = 1;
+pub const HOST_FACTS_FORMAT: u32 = 2;
 
 /// Everything known about the host.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -690,6 +690,28 @@ pub struct AudioFacts {
     pub pipewire_socket: Option<PathBuf>,
     /// `/dev/snd` exists.
     pub alsa_devices: bool,
+    /// The `pipewire` program, which serves a session's sound server that refuses
+    /// recording (ADR-0026).
+    #[serde(default)]
+    pub pipewire_program: Option<PathBuf>,
+    /// The character devices directly under `/dev/snd`, sorted.
+    #[serde(default)]
+    pub snd_nodes: Vec<PathBuf>,
+}
+
+impl AudioFacts {
+    /// Whether sound can be given without the microphone: the session's own sound server
+    /// needs the `pipewire` program and the host's PipeWire socket to play through.
+    pub fn playback_only(&self) -> bool {
+        self.pipewire_program.is_some() && self.pipewire_socket.is_some()
+    }
+}
+
+/// Whether `node` (a `/dev/snd` entry) records: ALSA names capture PCMs `pcmC<card>D<dev>c`.
+pub fn is_capture_node(node: &Path) -> bool {
+    node.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.starts_with("pcmC") && n.ends_with('c'))
 }
 
 // ---- input ----------------------------------------------------------------------------------

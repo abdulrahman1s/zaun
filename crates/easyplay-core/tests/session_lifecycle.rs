@@ -440,6 +440,96 @@ fn umu_traceback_is_failed_to_start() {
     assert_eq!(stats.sessions, 0);
 }
 
+/// The session's sound server (ADR-0026) runs before the sandbox, from a configuration with a
+/// secret and only the three variables it needs, and is gone when the session ends.
+#[test]
+fn sound_server_runs_for_the_session_and_stops_with_it() {
+    use easyplay_core::sandbox::HostAction;
+    let _s = serial();
+    let _turn = helpers_turn();
+    let w = World::new();
+    let mut p = plan(
+        &w,
+        &PlanOpts {
+            fake: "umu,game,sleep:300,exit:0",
+            ..PlanOpts::default()
+        },
+    );
+    let dir = p.paths.runtime_dir.join("sound");
+    let log = p.paths.log_dir.join("sound-server.log");
+    p.host_actions.push(HostAction::StartSoundServer {
+        program: workspace_bin("fake-pipewire"),
+        dir: dir.clone(),
+        remote: "/run/user/1000/pipewire-0".into(),
+        log: log.clone(),
+    });
+    let r = start_with(
+        &w,
+        p,
+        cfg(&w),
+        Box::new(w.db()),
+        Arc::new(SystemClock::new()),
+    );
+    let (out, _) = r.join();
+    assert!(
+        matches!(
+            out,
+            SupervisorOutcome::Ended {
+                reason: EndReason::Exited { code: 0 },
+                ..
+            }
+        ),
+        "{out:?}"
+    );
+    let text = String::from_utf8(RealFs::new().read(&log, 1 << 16).unwrap()).unwrap();
+    assert!(text.contains("listening on "), "{text}");
+    let env = text
+        .lines()
+        .find_map(|l| l.strip_prefix("env: "))
+        .unwrap_or_default();
+    let mut expected = vec!["PIPEWIRE_CONFIG_DIR", "PIPEWIRE_REMOTE"];
+    if std::env::var_os("XDG_RUNTIME_DIR").is_some() {
+        expected.push("XDG_RUNTIME_DIR");
+    }
+    assert_eq!(env.split(' ').collect::<Vec<_>>(), expected);
+    assert!(text.contains("secret: 32 hex digits"), "{text}");
+    assert!(text.contains("config mode: 600"), "{text}");
+    assert!(helpers_alive(&["fake-pipewire"]).is_empty());
+    assert!(!dir.exists());
+}
+
+#[test]
+fn a_sound_server_that_does_not_start_fails_the_launch() {
+    use easyplay_core::sandbox::HostAction;
+    let _s = serial();
+    let w = World::new();
+    let mut p = plan(&w, &PlanOpts::default());
+    p.host_actions.push(HostAction::StartSoundServer {
+        program: "/nonexistent/pipewire".into(),
+        dir: p.paths.runtime_dir.join("sound"),
+        remote: "/run/user/1000/pipewire-0".into(),
+        log: p.paths.log_dir.join("sound-server.log"),
+    });
+    let r = start_with(
+        &w,
+        p,
+        cfg(&w),
+        Box::new(w.db()),
+        Arc::new(SystemClock::new()),
+    );
+    let (out, _) = r.join();
+    assert!(
+        matches!(
+            out,
+            SupervisorOutcome::Ended {
+                spawn_failed: true,
+                ..
+            }
+        ),
+        "{out:?}"
+    );
+}
+
 #[test]
 fn detached_child_keeps_the_session_open() {
     let _s = serial();

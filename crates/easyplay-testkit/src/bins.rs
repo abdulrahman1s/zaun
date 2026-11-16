@@ -1,5 +1,6 @@
 //! Locate (and if needed build) the workspace's binaries for tests in other packages:
-//! `fake-bwrap`, `fake-umu-run`, `probe-payload`, `easyplay-init` and `easyplay`.
+//! `fake-bwrap`, `fake-umu-run`, `fake-pipewire`, `probe-payload`, `easyplay-init` and
+//! `easyplay`.
 //!
 //! Cargo provides `CARGO_BIN_EXE_*` only to a package's own tests, so the lifecycle tests in
 //! `easyplay-core` find the binaries in the target directory of the running test and run
@@ -13,7 +14,7 @@ static BUILT: Mutex<BTreeSet<&'static str>> = Mutex::new(BTreeSet::new());
 
 fn package_of(name: &str) -> &'static str {
     match name {
-        "fake-bwrap" | "fake-umu-run" | "probe-payload" => "easyplay-testkit",
+        "fake-bwrap" | "fake-umu-run" | "fake-pipewire" | "probe-payload" => "easyplay-testkit",
         "easyplay-init" => "easyplay-init",
         "easyplay" => "easyplay",
         other => panic!("unknown workspace binary {other}"),

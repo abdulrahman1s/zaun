@@ -322,6 +322,7 @@ pub fn host_view() -> HostView {
         input_readable: false,
         mangohud: false,
         x11: false,
+        sound_includes_microphone: false,
         version: "0.1.0".into(),
         home: PathBuf::from(HOME),
         user_dirs: [
@@ -596,12 +597,20 @@ pub fn assess_in(
             S::Warning,
         )),
     }
-    if policy.devices.audio == easyplay_core::model::AudioAccess::Full {
+    if policy.devices.audio != easyplay_core::model::AudioAccess::None {
         out.push(statement(
             C::Devices,
             "access.devices.sound",
-            "Can use speakers and microphone",
+            "Can play sound",
             S::Info,
+        ));
+    }
+    if policy.devices.audio == easyplay_core::model::AudioAccess::Full {
+        out.push(statement(
+            C::Devices,
+            "access.devices.microphone",
+            "Can use your microphone",
+            S::Warning,
         ));
     }
     if policy.devices.camera {
@@ -730,17 +739,61 @@ fn executable(
     }
 }
 
+/// What a sample game's files tell: Lantern Keep is a Unity game on Steam, Hollow Bell an
+/// Unreal game with anti-cheat; the others take an engine by their name.
+pub fn game_about(name: &str) -> easyplay_core::identity::GameAbout {
+    use easyplay_core::identity::{AntiCheat, Engine, EngineGuess, ExeHints, GameAbout, Variant};
+    let guess = |engine, variant| Some(EngineGuess { engine, variant });
+    match name {
+        "Lantern Keep" => GameAbout {
+            engine: guess(Engine::Unity, Some(Variant::Il2Cpp)),
+            hints: ExeHints {
+                steam_api: true,
+                ..ExeHints::default()
+            },
+        },
+        "Hollow Bell" => GameAbout {
+            engine: guess(Engine::Unreal, None),
+            hints: ExeHints {
+                anti_cheat: vec![AntiCheat::EasyAntiCheat],
+                steam_api: true,
+                ..ExeHints::default()
+            },
+        },
+        _ => {
+            let engines = [
+                guess(Engine::Godot, None),
+                guess(Engine::GameMaker, None),
+                None,
+                guess(Engine::RpgMaker, Some(Variant::Mz)),
+                guess(Engine::RenPy, None),
+            ];
+            GameAbout {
+                engine: engines[name.len() % engines.len()],
+                hints: ExeHints::default(),
+            }
+        }
+    }
+}
+
 /// The full record of a sample game.
 pub fn game_detail(g: &GameSummary, _now: Timestamp) -> GameDetail {
     let root = g.root.as_deref().map(Path::to_path_buf);
     let seed = g.id.as_uuid().as_u128();
-    let mut exes = vec![executable(
+    let mut primary = executable(
         seed ^ 0xE0,
         ExeRole::Primary,
         g.primary_exe_path.to_path_buf(),
         None,
         g.added_at,
-    )];
+    );
+    primary.pe.machine = easyplay_core::model::PeMachine::X86_64;
+    if &*g.name == "Lantern Keep" {
+        primary.pe.company = Some("Ember & Ash".into());
+        primary.pe.product_name = Some("Lantern Keep".into());
+        primary.pe.file_version = Some("1.4.2.0".into());
+    }
+    let mut exes = vec![primary];
     if let Some(r) = &root {
         exes.push(executable(
             seed ^ 0xC0FF,
@@ -1582,6 +1635,13 @@ impl DemoBackend {
                 s.events.push_back(UiEvent::QueryResult {
                     id: reply_to,
                     payload,
+                });
+            }
+            UiCommand::AboutGame { id, reply_to } => {
+                let name = name_of(s, id);
+                s.events.push_back(UiEvent::QueryResult {
+                    id: reply_to,
+                    payload: QueryPayload::About(Box::new(game_about(&name))),
                 });
             }
             UiCommand::MeasurePrefix { reply_to, .. } => {

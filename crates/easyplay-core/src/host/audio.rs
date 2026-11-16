@@ -1,8 +1,10 @@
-//! PulseAudio and PipeWire sockets and ALSA devices (BUBBLEWRAP_SANDBOX §4.7; D-13).
+//! PulseAudio and PipeWire sockets, the `pipewire` program and ALSA devices
+//! (BUBBLEWRAP_SANDBOX §4.7; D-13; ADR-0026).
 
 use std::path::{Path, PathBuf};
 
 use super::display::xdg_runtime_dir;
+use super::exec::{find_in, path_dirs};
 use super::facts::AudioFacts;
 use crate::fsx::{FileType, Fs};
 use crate::paths::PathEnv;
@@ -34,9 +36,26 @@ pub fn probe_audio(fs: &dyn Fs, env: &PathEnv, notes: &mut Vec<String>) -> Audio
     if pipewire_socket.is_none() {
         notes.push("PipeWire socket not found; sound through PulseAudio only".into());
     }
+    let pipewire_program = find_in(fs, &path_dirs(env.get("PATH")), "pipewire");
+    if pipewire_program.is_none() {
+        notes.push("pipewire program not found; sound always includes the microphone".into());
+    }
+    let snd = Path::new("/dev/snd");
+    let snd_nodes = fs
+        .read_dir(snd)
+        .map(|entries| {
+            entries
+                .into_iter()
+                .filter(|e| e.file_type == FileType::CharDevice)
+                .map(|e| e.path)
+                .collect()
+        })
+        .unwrap_or_default();
     AudioFacts {
         pulse_socket,
         pipewire_socket,
-        alsa_devices: fs.exists(Path::new("/dev/snd")),
+        alsa_devices: fs.exists(snd),
+        pipewire_program,
+        snd_nodes,
     }
 }

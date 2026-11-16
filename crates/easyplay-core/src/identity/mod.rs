@@ -12,9 +12,13 @@
 //! | [`naming`] | display and sort names (§7) |
 //! | [`hints`] | setup hints, folder findings, `steam_appid.txt` (§8, §10) |
 //! | [`lnk`] | Windows shortcut targets for the installer flow (LOGIC_SPECS §13) |
+//! | [`engine`] | the engine a game is made with, by file names (ADR-0028) |
+//! | [`about`] | what a game's files tell the game page: engine and hints (ADR-0028) |
 //!
 //! Nothing here writes to the database, modifies files or executes anything.
 
+pub mod about;
+pub mod engine;
 pub mod fingerprint;
 pub mod game_root;
 pub mod hints;
@@ -24,6 +28,8 @@ pub mod naming;
 pub mod pe;
 pub mod sensitive;
 
+pub use about::{GameAbout, about};
+pub use engine::{Engine, EngineGuess, Variant};
 pub use game_root::{GameRootProposal, RootKind, RootReason};
 pub use hints::{AntiCheat, ExeHints, SetupHints, read_steam_appid};
 pub use matcher::{Change, IndexedExe, LibraryIndex, MatchOutcome, PathProbe, UnknownHint};

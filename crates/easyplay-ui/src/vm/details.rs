@@ -229,6 +229,10 @@ pub struct DetailsVm {
     pub detail: AsyncValue<Box<GameDetail>, UserError>,
     /// Its query.
     pub detail_q: Option<QueryId>,
+    /// What the game's files tell (ADR-0028).
+    pub about: AsyncValue<Box<easyplay_core::identity::GameAbout>, UserError>,
+    /// Its query.
+    pub about_q: Option<QueryId>,
     /// The library revision the record was loaded for.
     pub loaded_rev: u64,
     /// Inline rename text.

@@ -29,7 +29,7 @@ pub use facts::{
     HOST_FACTS_FORMAT, HostEntry, HostFacts, HostHint, HostProblem, InputClass, InputFacts,
     InputNode, InputNodeKind, KernelFacts, LayoutKind, OsRelease, ResolverStrategy, SessionType,
     StoreFsFacts, SysfsFacts, ToolVersion, UMU_MIN_VERSION, UMU_VERIFIED_VERSION, UmuFacts,
-    UmuWrapper, WaylandSocket, X11Display,
+    UmuWrapper, WaylandSocket, X11Display, is_capture_node,
 };
 pub use probe::{HostProbe, LiveHostProbe, ProbeDeps, Revalidation, StaticHostFacts, probe_all};
 pub use runner::{CommandOutput, CommandRunner, CommandSpec, RealRunner, RunError};

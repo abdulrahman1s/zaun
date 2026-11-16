@@ -31,8 +31,6 @@ expression: run_cell(c)
 --symlink ../usr/lib/os-release /etc/os-release
 --symlink ../usr/share/zoneinfo/Europe/Berlin /etc/localtime
 --ro-bind-try /etc/vulkan /etc/vulkan
---ro-bind-try /etc/pulse /etc/pulse
---ro-bind-try /etc/alsa /etc/alsa
 --perms 0444 --ro-bind-data 8 /etc/passwd
 --perms 0444 --ro-bind-data 9 /etc/group
 --perms 0444 --ro-bind-data 10 /etc/nsswitch.conf
@@ -63,8 +61,6 @@ expression: run_cell(c)
 --ro-bind /tmp/.X11-unix/X0 /tmp/.X11-unix/X0
 --ro-bind /run/user/1000/.mutter-Xwaylandauth.A1B2C3 /run/user/1000/easyplay-xauth
 --ro-bind /run/user/1000/wayland-0 /run/user/1000/wayland-0
---dir /run/user/1000/pulse
---ro-bind /run/user/1000/pulse/native /run/user/1000/pulse/native
 --ro-bind /run/udev /run/udev
 --bind D/games/G/home /home/sam
 --ro-bind-try /home/sam/.local/share/fonts /home/sam/.local/share/fonts
@@ -100,7 +96,6 @@ expression: run_cell(c)
 --setenv PRESSURE_VESSEL_SHARE_HOME 1
 --setenv PRESSURE_VESSEL_VARIABLE_DIR /run/easyplay/pv-var
 --setenv PROTONPATH /home/sam/.local/share/Steam/compatibilitytools.d/GE-Proton10-25
---setenv PULSE_SERVER unix:/run/user/1000/pulse/native
 --setenv UMU_RUNTIME_UPDATE 0
 --setenv USER sam
 --setenv WAYLAND_DISPLAY wayland-0
@@ -136,6 +131,6 @@ expression: run_cell(c)
 
 # notes
 note.ipc.shared: Shared memory is shared with the display server so X11 rendering works
-note.audio.no_pipewire: PipeWire socket not found; sound through PulseAudio only
+note.audio.no_playback_only: This computer cannot give sound without the microphone; the game has no sound
 
 # issues

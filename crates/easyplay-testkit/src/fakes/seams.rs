@@ -39,7 +39,7 @@ use easyplay_core::host::{HostFacts, HostProbe, Revalidation};
 use easyplay_core::identity::pe::{IconBytes, PeError, PeInspector, PeLimits};
 use easyplay_core::launch::PlanSandbox;
 use easyplay_core::model::PeInfo;
-use easyplay_core::session::{SandboxChild, SandboxIo, SandboxSpawner};
+use easyplay_core::session::{SandboxChild, SandboxIo, SandboxSpawner, SoundServer};
 use parking_lot::Mutex;
 
 // ---- HostProbe ---------------------------------------------------------------------------
@@ -365,6 +365,7 @@ pub type SpawnCalls = Arc<Mutex<Vec<(PathBuf, Vec<String>)>>>;
 pub struct ScriptedSpawner {
     scripts: VecDeque<SpawnScript>,
     calls: SpawnCalls,
+    sound: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 impl ScriptedSpawner {
@@ -373,7 +374,13 @@ impl ScriptedSpawner {
         Self {
             scripts: scripts.into_iter().collect(),
             calls: Arc::new(Mutex::new(Vec::new())),
+            sound: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    /// The socket of every sound server started, shared with clones of the handle.
+    pub fn sound_servers(&self) -> Arc<Mutex<Vec<PathBuf>>> {
+        Arc::clone(&self.sound)
     }
 
     /// `(bwrap path, rendered arguments)` of every spawn, shared with clones of the handle.
@@ -444,6 +451,19 @@ impl SandboxSpawner for ScriptedSpawner {
                 }))
             }
         }
+    }
+
+    fn start_sound_server(
+        &mut self,
+        server: SoundServer<'_>,
+    ) -> Result<Box<dyn SandboxChild>, Error> {
+        self.sound.lock().push(server.socket.to_owned());
+        // Runs until the session stops it.
+        Ok(Box::new(ScriptedChild {
+            code: 0,
+            polls: u32::MAX,
+            killed: false,
+        }))
     }
 }
 

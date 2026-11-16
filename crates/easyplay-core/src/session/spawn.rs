@@ -6,12 +6,16 @@
 //! `--json-status-fd`; 5 `--sync-fd`; 6 the init shim's status; 7 seccomp; 8… data),
 //! closes all others at `exec`, and runs `bwrap --args 3 -- <command>` with the fixed
 //! environment `PATH=/usr/bin:/bin LANG=C.UTF-8` (`session::sys` holds the `unsafe` part).
+//! It also starts the session's sound server (ADR-0026) before the sandbox.
 
 use std::ffi::OsString;
+use std::fs::OpenOptions;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+use std::os::unix::fs::{FileTypeExt as _, OpenOptionsExt as _};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::time::Duration;
 
 use crate::error::{Error, ErrorCode};
 use crate::fsx::{Fs, FsErrorKind};
@@ -19,8 +23,8 @@ use crate::ids::GameId;
 use crate::launch::{FdKind, PlanSandbox};
 use crate::sandbox::HostAction;
 use crate::sandbox::fd::sealed_memfd;
-use crate::sandbox::plan::{FD_ARGS, FD_INIT_STATUS, FD_JSON_STATUS, FD_SYNC};
-use crate::sandbox::seccomp;
+use crate::sandbox::plan::{FD_ARGS, FD_INIT_STATUS, FD_JSON_STATUS, FD_SYNC, sound_socket};
+use crate::sandbox::{seccomp, sound};
 
 use super::lock::PrefixLock;
 use super::sys;
@@ -49,6 +53,22 @@ pub trait SandboxChild: Send {
     fn kill_monitor(&mut self) -> Result<(), Error>;
 }
 
+/// What [`HostAction::StartSoundServer`] starts, once [`write_sound_config`] has written its
+/// configuration.
+#[derive(Clone, Copy, Debug)]
+pub struct SoundServer<'a> {
+    /// The `pipewire` program.
+    pub program: &'a Path,
+    /// Its configuration.
+    pub config: &'a Path,
+    /// The socket it listens on.
+    pub socket: &'a Path,
+    /// The host's PipeWire socket.
+    pub remote: &'a Path,
+    /// Its output.
+    pub log: &'a Path,
+}
+
 /// Starts sandboxes.
 pub trait SandboxSpawner: Send {
     /// Start `bwrap` at `bwrap` with the rendered `sandbox`.
@@ -58,6 +78,46 @@ pub trait SandboxSpawner: Send {
         sandbox: &PlanSandbox,
         io: SandboxIo,
     ) -> Result<Box<dyn SandboxChild>, Error>;
+
+    /// Start the session's sound server and return once its socket exists. The handle's
+    /// `kill_monitor` stops it.
+    fn start_sound_server(
+        &mut self,
+        server: SoundServer<'_>,
+    ) -> Result<Box<dyn SandboxChild>, Error>;
+}
+
+/// How long the sound server has to create its socket.
+const SOUND_SERVER_TIMEOUT: Duration = Duration::from_secs(5);
+/// How often its socket is looked for.
+const SOUND_SERVER_POLL: Duration = Duration::from_millis(20);
+
+fn sound_err(detail: &str, e: Option<std::io::Error>) -> Error {
+    let err = Error::new(ErrorCode::SbxSetupFailed)
+        .with("step", "sound server")
+        .with("detail", detail);
+    match e {
+        Some(e) => err.with_source(e),
+        None => err,
+    }
+}
+
+/// Create the sound server's directory `dir` (0700, the user's) and write its configuration
+/// with a fresh secret read from the kernel (ADR-0026). Returns the configuration's path.
+pub fn write_sound_config(fs: &dyn Fs, uid: u32, dir: &Path) -> Result<PathBuf, Error> {
+    create_dir(fs, uid, dir, 0o700)?;
+    let bytes = fs.read_range(Path::new("/dev/urandom"), 0, sound::SECRET_BYTES)?;
+    if bytes.len() != sound::SECRET_BYTES {
+        return Err(sound_err("too few random bytes", None));
+    }
+    let secret = crate::model::to_hex(&bytes);
+    let config = dir.join(sound::SOUND_CONFIG);
+    fs.atomic_write(
+        &config,
+        sound::config(&sound_socket(dir), &secret).as_bytes(),
+        0o600,
+    )?;
+    Ok(config)
 }
 
 /// The environment of `bwrap` itself (BUBBLEWRAP_SANDBOX §3).
@@ -209,6 +269,57 @@ impl SandboxSpawner for RealSpawner {
         drop(io.init_status);
         Ok(Box::new(RealChild { child }))
     }
+
+    // session::spawn is one of the two places that spawn; it also opens the server's log.
+    #[allow(clippy::disallowed_methods)]
+    fn start_sound_server(
+        &mut self,
+        server: SoundServer<'_>,
+    ) -> Result<Box<dyn SandboxChild>, Error> {
+        crate::ui_thread::assert_not_ui_thread("SandboxSpawner::start_sound_server");
+        let log = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(server.log)
+            .map_err(|e| sound_err("log", Some(e)))?;
+        let log_err = log.try_clone().map_err(|e| sound_err("log", Some(e)))?;
+        let dir = server.config.parent().unwrap_or(Path::new("/"));
+        let mut cmd = Command::new(server.program);
+        // No user or system configuration: the file is the whole of it.
+        cmd.arg("-c")
+            .arg(server.config)
+            .env_clear()
+            .env("PIPEWIRE_REMOTE", server.remote)
+            .env("PIPEWIRE_CONFIG_DIR", dir)
+            .current_dir("/")
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log))
+            .stderr(Stdio::from(log_err));
+        if let Some(xrd) = std::env::var_os("XDG_RUNTIME_DIR") {
+            cmd.env("XDG_RUNTIME_DIR", xrd);
+        }
+        sys::configure_sandbox_child(&mut cmd, Vec::new());
+        let child = cmd.spawn().map_err(|e| sound_err("start", Some(e)))?;
+        let mut child = RealChild { child };
+        let polls = SOUND_SERVER_TIMEOUT.as_millis() / SOUND_SERVER_POLL.as_millis();
+        for _ in 0..polls {
+            if std::fs::symlink_metadata(server.socket).is_ok_and(|m| m.file_type().is_socket()) {
+                return Ok(Box::new(child));
+            }
+            if let Some(code) = child.try_wait()? {
+                return Err(sound_err(
+                    &format!("exited with status {code} before listening"),
+                    None,
+                ));
+            }
+            std::thread::sleep(SOUND_SERVER_POLL);
+        }
+        let _ = child.kill_monitor();
+        let _ = child.child.wait();
+        Err(sound_err("its socket did not appear", None))
+    }
 }
 
 // ---- host actions ---------------------------------------------------------------------------
@@ -278,6 +389,8 @@ pub fn run_host_actions(actions: &[HostAction], ctx: &mut HostActionCtx<'_>) -> 
                 dos_devices(ctx.fs, ctx.uid, prefix, links)?;
             }
             HostAction::MarkTainted { game } => (ctx.mark_tainted)(*game)?,
+            // Started by the supervisor through the spawner, which owns processes.
+            HostAction::StartSoundServer { .. } => {}
         }
     }
     Ok(())

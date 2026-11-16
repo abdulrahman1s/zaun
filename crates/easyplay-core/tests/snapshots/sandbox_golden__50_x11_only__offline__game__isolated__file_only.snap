@@ -63,8 +63,7 @@ expression: run_cell(c)
 --ro-bind /tmp/.X11-unix/X1 /tmp/.X11-unix/X1
 --ro-bind /home/sam/.Xauthority /run/user/1000/easyplay-xauth
 --dir /run/user/1000/pulse
---ro-bind /run/user/1000/pulse/native /run/user/1000/pulse/native
---ro-bind /run/user/1000/pipewire-0 /run/user/1000/pipewire-0
+--ro-bind /run/user/1000/easyplay/sessions/S/sound/native /run/user/1000/pulse/native
 --ro-bind /run/udev /run/udev
 --bind D/games/G/home /home/sam
 --ro-bind-try /home/sam/.local/share/fonts /home/sam/.local/share/fonts
@@ -120,6 +119,7 @@ expression: run_cell(c)
 12 /home/sam/.local/share/umu/steamrt3/.installed.ok ok\n
 
 # host actions
+{"start_sound_server":{"program":"/usr/bin/pipewire","dir":"/run/user/1000/easyplay/sessions/S/sound","remote":"/run/user/1000/pipewire-0","log":"/home/sam/.local/state/easyplay/logs/sessions/S/sound-server.log"}}
 {"create_dir":{"path":"D/games/G/home","mode":448}}
 {"create_dir":{"path":"D/runtimes/session-var/S","mode":448}}
 {"create_dir":{"path":"D/games/G/prefix","mode":448}}

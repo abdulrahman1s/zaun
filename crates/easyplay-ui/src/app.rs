@@ -769,6 +769,15 @@ impl EasyPlayApp {
             }
             return;
         }
+        if d.about_q == Some(id) {
+            d.about_q = None;
+            d.about = match payload {
+                QueryPayload::About(a) => AsyncValue::Ready(a),
+                QueryPayload::Failed(e) => AsyncValue::Failed(e),
+                _ => AsyncValue::Idle,
+            };
+            return;
+        }
         if d.activity.overview_q == Some(id) {
             d.activity.overview_q = None;
             d.activity.overview = match payload {

@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use easyplay_core::clock::SystemClock;
-use easyplay_core::fsx::RealFs;
+use easyplay_core::fsx::{Fs as _, RealFs};
 use easyplay_core::host::{LayoutKind, ProbeDeps, RealAccess, RealRunner, probe_all};
 use easyplay_core::paths::{AppPaths, PathEnv};
 use easyplay_core::runtime::discovery::DiscoveryInput;
@@ -79,4 +79,46 @@ fn real_runtime_discovery() {
     for r in &d.rejected {
         eprintln!("rejected {}: {}", r.path.display(), r.reason);
     }
+}
+
+/// The session's sound server (ADR-0026) starts from the probed `pipewire` program, listens
+/// on its socket, and stops when told to. Nothing plays and nothing records.
+#[test]
+fn real_sound_server_starts_and_stops() {
+    use easyplay_core::host::audio::probe_audio;
+    use easyplay_core::sandbox::sound_socket;
+    use easyplay_core::session::{RealSpawner, SandboxSpawner, SoundServer, write_sound_config};
+
+    if !enabled() {
+        return;
+    }
+    let env = PathEnv::from_process();
+    let audio = probe_audio(&RealFs::new(), &env, &mut Vec::new());
+    let (Some(program), Some(remote)) = (&audio.pipewire_program, &audio.pipewire_socket) else {
+        eprintln!("no PipeWire here: {audio:?}");
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("sound");
+    let log = tmp.path().join("sound-server.log");
+    let uid = rustix::process::getuid().as_raw();
+    let config = write_sound_config(&RealFs::new(), uid, &dir).unwrap();
+    let socket = sound_socket(&dir);
+    let mut server = RealSpawner
+        .start_sound_server(SoundServer {
+            program,
+            config: &config,
+            socket: &socket,
+            remote,
+            log: &log,
+        })
+        .unwrap_or_else(|e| {
+            panic!(
+                "{e}\n{}",
+                String::from_utf8_lossy(&RealFs::new().read(&log, 1 << 20).unwrap_or_default())
+            )
+        });
+    assert!(socket.exists());
+    assert_eq!(server.try_wait().unwrap(), None, "still running");
+    server.kill_monitor().unwrap();
 }

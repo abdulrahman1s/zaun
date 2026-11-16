@@ -36,8 +36,11 @@ pub struct Effective {
     pub trusted_network: bool,
     /// Untrusted kind (policy device and folder fields apply).
     pub untrusted: bool,
-    /// Sound sockets.
+    /// Sound sockets. `None` when sound without the microphone was asked for and the host
+    /// cannot provide it ([`Self::playback_unavailable`]).
     pub audio: AudioAccess,
+    /// `Playback` was asked for and cannot be provided: no sound (ADR-0026).
+    pub playback_unavailable: bool,
     /// Controller access after the `AllInput` safety downgrade.
     pub controllers: ControllerAccess,
     /// `AllInput` was requested but downgraded to `Detected`.
@@ -92,15 +95,23 @@ impl Effective {
         let x11 = policy.display.x11 == SocketAccess::Auto && host.display.x11_bindable().is_some();
         let seccomp_requested =
             provision || trusted_network || policy.hardening.seccomp == SeccompMode::Default;
+        let audio = if untrusted {
+            policy.devices.audio
+        } else {
+            AudioAccess::None
+        };
+        let playback_unavailable =
+            audio == AudioAccess::Playback && tmp_run::sound_server(ctx, host).is_none();
         Self {
             network,
             trusted_network,
             untrusted,
-            audio: if untrusted {
-                policy.devices.audio
-            } else {
+            audio: if playback_unavailable {
                 AudioAccess::None
+            } else {
+                audio
             },
+            playback_unavailable,
             controllers,
             all_input_downgraded: downgraded,
             alsa: untrusted && policy.devices.alsa_devices,

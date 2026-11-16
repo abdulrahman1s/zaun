@@ -1,5 +1,5 @@
-//! Queries answered on the job pool (folder scan, prefix size) and statistics edits
-//! (STATISTICS §9).
+//! Queries answered on the job pool (folder scan, prefix size, what a game's files tell)
+//! and statistics edits (STATISTICS §9).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -56,6 +56,24 @@ impl AppService {
                 },
                 Err(e) => QueryResult::Failed(Box::new(describe(&e))),
             }
+        });
+    }
+
+    /// `AboutGame` (ADR-0028): the engine and hints from the game's files.
+    pub(crate) fn about_game(&mut self, id: GameId, reply_to: QueryId) {
+        let game = match self.lib.game(id) {
+            Ok(g) => g,
+            Err(e) => {
+                let describe = self.describer(Some(id));
+                return self.answer_on_pool("about-game", reply_to, move |_| {
+                    QueryResult::Failed(Box::new(describe(&e)))
+                });
+            }
+        };
+        let fs = Arc::clone(&self.deps.fs);
+        let clock = Arc::clone(&self.deps.clock);
+        self.answer_on_pool("about-game", reply_to, move |_| {
+            QueryResult::About(Box::new(crate::identity::about(&*fs, &*clock, &game)))
         });
     }
 

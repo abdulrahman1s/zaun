@@ -137,6 +137,8 @@ pub struct SessionDirs {
     pub log_dir: PathBuf,
     /// Pressure-vessel variable directory (`<store>/session-var/<sid>`).
     pub var_dir: PathBuf,
+    /// Session runtime directory (`<run>/sessions/<sid>`), removed when the session ends.
+    pub run_dir: PathBuf,
 }
 
 impl SessionDirs {
@@ -146,6 +148,7 @@ impl SessionDirs {
             id,
             log_dir: paths.session_dir(id),
             var_dir: paths.session_var_dir(id),
+            run_dir: paths.run_session_dir(id),
         }
     }
 }

@@ -144,7 +144,7 @@ bitflags::bitflags! {
     pub struct Permissions: u32 {
         /// The internet and the local network (`network`).
         const INTERNET = 1 << 0;
-        /// Speakers and microphone (`devices.audio`).
+        /// Sound through the speakers (`devices.audio` not `None`).
         const SOUND = 1 << 1;
         /// Game controllers (`devices.controllers`).
         const CONTROLLERS = 1 << 2;
@@ -167,12 +167,16 @@ bitflags::bitflags! {
         const HARDWARE_IDS = 1 << 10;
         /// System calls the filter refuses (`hardening.seccomp` off).
         const UNFILTERED_SYSCALLS = 1 << 11;
+        /// Degree of [`Self::SOUND`]: the microphone too (`devices.audio` `Full`). The
+        /// Protection tab shows it as a row of its own (ADR-0026).
+        const MICROPHONE = 1 << 12;
     }
 }
 
 impl Permissions {
     /// The degree bits that belong to the permissions in `self`: [`Self::ALL_INPUT`] for
-    /// [`Self::CONTROLLERS`], [`Self::REMOVABLE_WRITE`] for [`Self::REMOVABLE`].
+    /// [`Self::CONTROLLERS`], [`Self::REMOVABLE_WRITE`] for [`Self::REMOVABLE`],
+    /// [`Self::MICROPHONE`] for [`Self::SOUND`].
     pub const fn degrees(self) -> Self {
         let mut out = Self::empty();
         if self.contains(Self::CONTROLLERS) {
@@ -180,6 +184,24 @@ impl Permissions {
         }
         if self.contains(Self::REMOVABLE) {
             out = out.union(Self::REMOVABLE_WRITE);
+        }
+        if self.contains(Self::SOUND) {
+            out = out.union(Self::MICROPHONE);
+        }
+        out
+    }
+
+    /// The permissions the degrees in `self` widen: granting a degree grants them too.
+    pub const fn prerequisites(self) -> Self {
+        let mut out = Self::empty();
+        if self.contains(Self::ALL_INPUT) {
+            out = out.union(Self::CONTROLLERS);
+        }
+        if self.contains(Self::REMOVABLE_WRITE) {
+            out = out.union(Self::REMOVABLE);
+        }
+        if self.contains(Self::MICROPHONE) {
+            out = out.union(Self::SOUND);
         }
         out
     }
@@ -189,6 +211,7 @@ impl Permissions {
     pub const fn normalized(self) -> Self {
         let orphans = Self::ALL_INPUT
             .union(Self::REMOVABLE_WRITE)
+            .union(Self::MICROPHONE)
             .difference(self.degrees());
         self.difference(orphans)
     }
@@ -199,7 +222,11 @@ impl SandboxPolicy {
     pub fn permissions(&self) -> Permissions {
         let mut p = Permissions::empty();
         p.set(Permissions::INTERNET, self.network == NetworkAccess::Full);
-        p.set(Permissions::SOUND, self.devices.audio == AudioAccess::Full);
+        p.set(Permissions::SOUND, self.devices.audio != AudioAccess::None);
+        p.set(
+            Permissions::MICROPHONE,
+            self.devices.audio == AudioAccess::Full,
+        );
         p.set(
             Permissions::CONTROLLERS,
             self.devices.controllers != ControllerAccess::None,
@@ -238,8 +265,10 @@ impl SandboxPolicy {
         } else {
             NetworkAccess::None
         };
-        self.devices.audio = if p.contains(Permissions::SOUND) {
+        self.devices.audio = if p.contains(Permissions::MICROPHONE) {
             AudioAccess::Full
+        } else if p.contains(Permissions::SOUND) {
+            AudioAccess::Playback
         } else {
             AudioAccess::None
         };
@@ -498,7 +527,7 @@ pub enum RemovableAccess {
 /// Device access (SECURITY_MODEL §5.3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DeviceAccess {
-    /// Sound server sockets (playback and capture are not separable).
+    /// Sound, with or without the microphone.
     pub audio: AudioAccess,
     /// Raw ALSA devices (`/dev/snd`).
     pub alsa_devices: bool,
@@ -514,7 +543,10 @@ pub struct DeviceAccess {
 pub enum AudioAccess {
     /// No sound.
     None,
-    /// Sound server sockets.
+    /// Playback only: a sound server of the session's own that refuses recording
+    /// (ADR-0026). Where the host cannot provide one, no sound.
+    Playback,
+    /// The host's sound server sockets: playback and the microphone.
     Full,
 }
 

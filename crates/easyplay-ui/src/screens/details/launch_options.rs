@@ -1,11 +1,15 @@
 //! Launch options tab (SCREEN_SPECS_2 §11, UI-020): programs with roles and a run button,
 //! arguments with a live split preview, working folder, stop grace, and environment
 //! variables whose names are checked against EasyPlay's rules (reserved names name the
-//! setting that controls them).
+//! setting that controls them). A variable's name field suggests Proton's options as it is
+//! typed, each with what it does (ADR-0027).
 
 use easyplay_core::model::{EnvVar, ExeRole, GameSummary, WorkingDir};
 use easyplay_core::umu::env::{EnvRule, classify};
-use egui::{Align, Layout, Popup, Ui};
+use easyplay_core::umu::flags::{self, Builds, Flag};
+use egui::{
+    Align, CornerRadius, Key, Layout, Modifiers, Popup, Response, Sense, Ui, WidgetText, vec2,
+};
 
 use super::card;
 use super::permissions::{issue_line, section};
@@ -15,7 +19,7 @@ use crate::input::picker::PickPurpose;
 use crate::screens::Env;
 use crate::strings;
 use crate::strings::details as s;
-use crate::theme::tokens::{icon as icon_size, space};
+use crate::theme::tokens::{icon as icon_size, radius, space};
 use crate::theme::{self, Type, icons};
 use crate::vm::details::{LaunchDraft, ProgramEdit, ProgramField};
 use crate::vm::toasts::ToastKind;
@@ -28,6 +32,130 @@ use crate::widgets::text_field::TextField;
 
 /// Stop grace choices in seconds.
 pub const GRACE: [u8; 5] = [5, 10, 20, 30, 60];
+
+/// Proton options offered at once under a name field.
+const SUGGESTIONS: usize = 6;
+/// Width of the list of suggestions.
+const SUGGESTIONS_W: f32 = 420.0;
+
+/// Whether this game's compatibility layer (by its name) may read `f`: every build reads
+/// the common options; the others are read by GE-Proton and CachyOS builds, and a layer
+/// whose name says neither (*Default* not yet resolved, a custom folder) gets the benefit of
+/// the doubt.
+fn layer_reads(f: &Flag, layer: &str) -> bool {
+    let layer = layer.to_ascii_lowercase();
+    let valve = layer.contains("proton") && !layer.contains("ge-proton");
+    f.builds == Builds::Every || layer.contains("cachyos") || !valve
+}
+
+/// One suggestion: the name, and beneath it what the option does.
+fn suggestion(ui: &mut Ui, f: &Flag, lit: bool) -> Response {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let w = ui.available_width();
+    let pad = space::S3;
+    let name = WidgetText::from(Type::Mono.rich(f.name).color(p.text_primary)).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Truncate),
+        w - pad * 2.0,
+        Type::Mono.font_id(),
+    );
+    let what = WidgetText::from(Type::Caption.rich(f.summary).color(p.text_secondary)).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Wrap),
+        w - pad * 2.0,
+        Type::Caption.font_id(),
+    );
+    let h = space::S2 * 2.0 + name.size().y + space::S0 + what.size().y;
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
+    let label = format!("{}: {}", f.name, f.summary);
+    crate::a11y::option(&resp, egui::accesskit::Role::ListBoxOption, &label, lit);
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        if lit || resp.hovered() {
+            painter.rect_filled(rect, CornerRadius::same(radius::ROW), p.fill_selected);
+        }
+        let x = rect.left() + pad;
+        let top = rect.top() + space::S2;
+        painter.galley(egui::pos2(x, top), name.clone(), p.text_primary);
+        painter.galley(
+            egui::pos2(x, top + name.size().y + space::S0),
+            what,
+            p.text_secondary,
+        );
+    }
+    resp
+}
+
+/// The Proton options matching a variable's name, under its field (ADR-0027). The arrow
+/// keys move through them and Enter takes one, as does a click; the option's usual value
+/// fills an empty value. Returns whether one was taken.
+fn suggestions(ui: &mut Ui, field: &Response, v: &mut EnvVar, taken: &[&str]) -> bool {
+    let ctx = ui.ctx().clone();
+    let at_id = field.id.with("suggestion");
+    let hover_id = field.id.with("suggestions.hovered");
+    let hovered = ctx.data(|d| d.get_temp::<bool>(hover_id)).unwrap_or(false);
+    let list = flags::suggest(&v.name, taken, SUGGESTIONS);
+    let enter = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+    let open = (field.has_focus() || hovered || enter) && !list.is_empty();
+    if !open {
+        ctx.data_mut(|d| {
+            d.remove_temp::<usize>(at_id);
+            d.remove_temp::<bool>(hover_id);
+        });
+        return false;
+    }
+    let last = list.len() - 1;
+    let mut at = ctx
+        .data(|d| d.get_temp::<usize>(at_id))
+        .unwrap_or(0)
+        .min(last);
+    if field.has_focus() {
+        ui.input_mut(|i| {
+            if i.consume_key(Modifiers::NONE, Key::ArrowDown) {
+                at = (at + 1).min(last);
+            }
+            if i.consume_key(Modifiers::NONE, Key::ArrowUp) {
+                at = at.saturating_sub(1);
+            }
+        });
+    }
+    if field.changed() {
+        at = 0;
+    }
+    let mut picked = enter.then_some(at);
+    let shown = Popup::from_response(field)
+        .open(true)
+        .accessible_name(s::PROTON_OPTIONS)
+        .width(SUGGESTIONS_W)
+        .frame(egui::Frame::NONE)
+        .show(|ui| {
+            crate::widgets::context_menu::frame(ui, |ui| {
+                ui.set_width(SUGGESTIONS_W);
+                for (i, f) in list.iter().enumerate() {
+                    if suggestion(ui, f, i == at).clicked() {
+                        picked = Some(i);
+                    }
+                }
+            })
+        });
+    let over = shown.is_some_and(|r| r.response.contains_pointer());
+    ctx.data_mut(|d| {
+        d.insert_temp(at_id, at);
+        d.insert_temp(hover_id, over);
+    });
+    let Some(f) = picked.and_then(|i| list.get(i)) else {
+        return false;
+    };
+    v.name = f.name.to_owned();
+    if v.value.is_empty() {
+        v.value = f.value.to_owned();
+    }
+    ctx.data_mut(|d| {
+        d.remove_temp::<usize>(at_id);
+        d.remove_temp::<bool>(hover_id);
+    });
+    true
+}
 
 /// The message for a variable name, if it cannot be saved.
 pub fn env_problem(v: &EnvVar, developer: bool) -> Option<String> {
@@ -92,8 +220,8 @@ fn program_editor(ui: &mut Ui, pe: &mut ProgramEdit) -> Option<Option<GameEdit>>
     if pe.field == ProgramField::Args && split.is_err() {
         issue_line(ui, s::ARGS_UNBALANCED, true);
     }
-    let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-    let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+    let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+    let escape = ui.input(|i| i.key_pressed(Key::Escape));
     ui.horizontal(|ui| {
         let save = ui.add_enabled(valid, Button::new(s::SAVE_PROGRAM).size(Size::Sm));
         if (save.clicked() || (enter && valid)) && out.is_none() {
@@ -351,25 +479,37 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
     }
     let mut remove = None;
     let count = l.config.env.len();
+    let focus_id = egui::Id::unique("launch.env.focus");
+    let focus = ui.ctx().data_mut(|d| d.remove_temp::<usize>(focus_id));
     for i in 0..count {
         let name_salt = format!("env.name.{i}");
         let value_salt = format!("env.value.{i}");
         let name_label = s::var_name(i + 1);
         let value_label = s::var_value(i + 1);
-        let problem = env_problem(&l.config.env[i], developer);
+        let taken: Vec<String> = l.config.env.iter().map(|v| v.name.clone()).collect();
+        let taken: Vec<&str> = taken.iter().map(String::as_str).collect();
         ui.horizontal(|ui| {
             let v = &mut l.config.env[i];
-            TextField::new(&mut v.name, &name_salt)
+            let name = TextField::new(&mut v.name, &name_salt)
                 .accessible_name(&name_label)
+                .hint(s::FIND_PROTON_OPTION)
                 .mono()
                 .width(200.0)
-                .show(ui);
+                .show(ui)
+                .response;
+            if focus == Some(i) {
+                name.request_focus();
+            }
             ui.label(Type::Mono.rich("=").color(p.text_muted));
-            TextField::new(&mut v.value, &value_salt)
+            let value = TextField::new(&mut v.value, &value_salt)
                 .accessible_name(&value_label)
                 .mono()
                 .width(260.0)
-                .show(ui);
+                .show(ui)
+                .response;
+            if suggestions(ui, &name, v, &taken) {
+                value.request_focus();
+            }
             if ui
                 .add(IconButton::new(icons::CLOSE, &s::remove_var(i + 1)))
                 .clicked()
@@ -377,8 +517,23 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
                 remove = Some(i);
             }
         });
-        if let Some(pr) = problem {
+        let v = &l.config.env[i];
+        let layer = d.runtime_resolved.as_deref().unwrap_or(&g.runtime_label);
+        if let Some(pr) = env_problem(v, developer) {
             issue_line(ui, &pr, true);
+        } else if let Some(f) = flags::find(&v.name) {
+            // What a known option does, said once, under its row.
+            let line = if layer_reads(f, layer) {
+                f.summary.to_owned()
+            } else {
+                s::not_read_by(f.summary, layer)
+            };
+            let tone = if layer_reads(f, layer) {
+                p.text_secondary
+            } else {
+                p.warning
+            };
+            ui.label(Type::Caption.rich(line).color(tone));
         }
     }
     if let Some(i) = remove {
@@ -392,5 +547,26 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
             name: String::new(),
             value: String::new(),
         });
+        // Straight into the new name, where the options are offered.
+        let at = l.config.env.len() - 1;
+        ui.ctx().data_mut(|d| d.insert_temp(focus_id, at));
+        ui.ctx().request_repaint();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn community_options_are_doubted_only_on_a_build_that_names_itself() {
+        let fsr4 = flags::find("PROTON_FSR4_UPGRADE").unwrap();
+        let cap = flags::find("DXVK_FRAME_RATE").unwrap();
+        assert!(!layer_reads(fsr4, "UMU-Proton 10.0-4"));
+        assert!(!layer_reads(fsr4, "Proton 9.0"));
+        assert!(layer_reads(fsr4, "GE-Proton10-25"));
+        assert!(layer_reads(fsr4, "proton-cachyos-11.0-slr"));
+        assert!(layer_reads(fsr4, "Default"));
+        assert!(layer_reads(cap, "UMU-Proton 10.0-4"));
     }
 }

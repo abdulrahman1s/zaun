@@ -35,7 +35,9 @@ pub use launcher::{RealLauncher, SessionHandle, SessionLauncher};
 pub use lock::{FlockLocks, LockError, PrefixLock};
 pub use recovery::{RecoveredSession, RecoveryOptions, recover};
 pub use registry::{ActiveSession, ProcessInfo, ProcessRole, Registry, process_list};
-pub use spawn::{RealSpawner, SandboxChild, SandboxIo, SandboxSpawner};
+pub use spawn::{
+    RealSpawner, SandboxChild, SandboxIo, SandboxSpawner, SoundServer, write_sound_config,
+};
 pub use status::{BwrapStatus, BwrapStatusParser, InitStatus, InitStatusParser};
 pub use stop::{StopMode, StopOutcome, request_stop};
 pub use supervisor::{

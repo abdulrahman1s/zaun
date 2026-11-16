@@ -497,12 +497,19 @@ pub fn host_checks(facts: &HostFacts, ctx: &DoctorContext<'_>) -> Vec<Check> {
             "D-13",
             CheckStatus::Pass,
             format!(
-                "{}{}",
-                if p.is_some() { "PulseAudio " } else { "" },
-                if w.is_some() { "PipeWire" } else { "" }
-            )
-            .trim()
-            .to_owned(),
+                "{}; {}",
+                format!(
+                    "{}{}",
+                    if p.is_some() { "PulseAudio " } else { "" },
+                    if w.is_some() { "PipeWire" } else { "" }
+                )
+                .trim(),
+                if a.playback_only() {
+                    "the microphone can be withheld"
+                } else {
+                    "sound always includes the microphone"
+                }
+            ),
         ),
     });
 

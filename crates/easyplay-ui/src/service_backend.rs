@@ -215,6 +215,7 @@ impl ServiceBackend {
                         d.has_shortcut = self.handle.hub.integration.load().has_shortcut(d.game.id);
                         QueryPayload::Game(Box::new(d))
                     }
+                    QueryResult::About(a) => QueryPayload::About(a),
                     QueryResult::Stats(s) => QueryPayload::Stats(s),
                     QueryResult::Folder(f) => QueryPayload::Folder(folder_scan(f)),
                     QueryResult::PrefixSize { bytes, .. } => QueryPayload::PrefixSize(bytes),
@@ -579,6 +580,7 @@ impl Backend for ServiceBackend {
                 h.send(Command::QueryStats { request, reply_to });
             }
             UiCommand::LoadGame { id, reply_to } => h.send(Command::LoadGame { id, reply_to }),
+            UiCommand::AboutGame { id, reply_to } => h.send(Command::AboutGame { id, reply_to }),
             UiCommand::ScanFolder { folder, reply_to } => {
                 h.send(Command::ScanFolder { folder, reply_to });
             }
@@ -703,6 +705,7 @@ impl Backend for ServiceBackend {
             input_readable: false,
             mangohud: false,
             x11: false,
+            sound_includes_microphone: f.is_some_and(|f| !f.audio.playback_only()),
             version: env!("CARGO_PKG_VERSION").to_owned(),
             home: self.home.clone(),
             user_dirs: self.user_dirs.clone(),

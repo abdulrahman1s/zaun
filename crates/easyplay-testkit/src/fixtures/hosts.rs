@@ -203,6 +203,10 @@ pub fn arch_mesa() -> HostFacts {
     h.audio.pulse_socket = Some("/run/user/1000/pulse/native".into());
     h.audio.pipewire_socket = Some("/run/user/1000/pipewire-0".into());
     h.audio.alsa_devices = true;
+    h.audio.pipewire_program = Some("/usr/bin/pipewire".into());
+    h.audio.snd_nodes = ["controlC0", "pcmC0D0c", "pcmC0D0p", "seq", "timer"]
+        .map(|n| PathBuf::from("/dev/snd").join(n))
+        .to_vec();
     h.input.nodes = vec![
         node(
             "/dev/hidraw0",

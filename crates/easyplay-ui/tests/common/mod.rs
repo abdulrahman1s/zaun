@@ -202,6 +202,13 @@ pub fn serve(r: &mut Rig) {
                 *reply_to,
                 QueryPayload::Stats(demo::stats(request, &lib, now())),
             ),
+            UiCommand::AboutGame { id, reply_to } => {
+                let name = lib.get(*id).map(|g| g.name.to_string()).unwrap_or_default();
+                (
+                    *reply_to,
+                    QueryPayload::About(Box::new(demo::game_about(&name))),
+                )
+            }
             UiCommand::MeasurePrefix { reply_to, .. } => {
                 (*reply_to, QueryPayload::PrefixSize(2_254_857_830))
             }
@@ -224,6 +231,7 @@ pub fn serve(r: &mut Rig) {
         if !matches!(
             c,
             UiCommand::LoadGame { .. }
+                | UiCommand::AboutGame { .. }
                 | UiCommand::QueryStats { .. }
                 | UiCommand::MeasurePrefix { .. }
                 | UiCommand::ScanFolder { .. }

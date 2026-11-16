@@ -1027,3 +1027,41 @@ fn folder_hints_and_steam_appid() {
     );
     assert_eq!(hints::read_steam_appid(&fs, Path::new("/g/None")), None);
 }
+
+// ---- what a game's files tell (ADR-0028) ------------------------------------------------
+
+#[test]
+fn about_reads_the_engine_and_the_hints_from_names() {
+    use easyplay_core::identity::{Engine, Variant, about};
+    let clock = SystemClock::new();
+    let fs = MemFs::new();
+    let mut game = easyplay_testkit::fixtures::games::game(1, 1);
+    // A Unity game with IL2CPP, Steam's API and Easy Anti-Cheat beside it.
+    fs.file("/games/0001/game.exe", b"MZ");
+    fs.file("/games/0001/UnityPlayer.dll", b"");
+    fs.file("/games/0001/GameAssembly.dll", b"");
+    fs.dir("/games/0001/game_Data");
+    fs.file("/games/0001/steam_api64.dll", b"");
+    fs.dir("/games/0001/EasyAntiCheat");
+    let a = about(&fs, &clock, &game);
+    let e = a.engine.expect("an engine");
+    assert_eq!(
+        (e.engine, e.variant),
+        (Engine::Unity, Some(Variant::Il2Cpp))
+    );
+    assert!(a.hints.steam_api);
+    assert_eq!(a.hints.anti_cheat, vec![AntiCheat::EasyAntiCheat]);
+
+    // An Unreal game whose program is in the project's Binaries folder: the game folder's
+    // `Engine` tells.
+    let fs = MemFs::new();
+    fs.dir("/games/0001/Engine/Binaries");
+    fs.file("/games/0001/Hollow/Binaries/Win64/Hollow.exe", b"MZ");
+    game.executables[0].path = "/games/0001/Hollow/Binaries/Win64/Hollow.exe".into();
+    let a = about(&fs, &clock, &game);
+    assert_eq!(a.engine.map(|e| e.engine), Some(Engine::Unreal));
+
+    // A folder that cannot be read tells nothing, and nothing fails.
+    let fs = MemFs::new();
+    assert_eq!(about(&fs, &clock, &game), Default::default());
+}

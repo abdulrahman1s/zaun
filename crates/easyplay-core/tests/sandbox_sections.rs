@@ -130,6 +130,16 @@ fn any_single_field_change_is_custom() {
             Preset::from(base),
             "FileOnly is preset-neutral"
         );
+        // No preset decides the microphone (ADR-0026); switching presets keeps it.
+        let mut mic = p.clone();
+        mic.devices.audio = AudioAccess::Full;
+        assert_eq!(classify(&mic), Preset::from(base), "the microphone");
+        for other in BasePreset::ALL {
+            assert_eq!(
+                apply_preset(&mic, other, &host).devices.audio,
+                AudioAccess::Full
+            );
+        }
     }
 }
 
@@ -170,8 +180,10 @@ fn widening_detection() {
         .push(grant("/home/sam/Music", FolderAccess::ReadWrite, None));
     new.hardening.seccomp = SeccompMode::Off;
     new.devices.camera = true;
+    new.devices.audio = AudioAccess::Full;
     let w = widening(&old, &new);
     for expected in [
+        Widening::Microphone,
         Widening::Network,
         Widening::NewGrant("/home/sam/Music".into()),
         Widening::Controllers,
@@ -1126,4 +1138,112 @@ fn host_actions_are_listed_in_plans() {
     let before = w.fs.paths();
     let _ = ok(&w, &offline());
     assert_eq!(w.fs.paths(), before);
+}
+
+// ---- sound and the microphone (ADR-0026) ------------------------------------------------
+
+fn statement_keys(w: &SandboxWorld, p: &SandboxPolicy) -> Vec<String> {
+    explain(&ok(w, p), p).into_iter().map(|s| s.key).collect()
+}
+
+#[test]
+fn sound_without_the_microphone_is_the_sessions_own_server() {
+    let w = SandboxWorld::worked_example();
+    let p = offline();
+    assert_eq!(p.devices.audio, AudioAccess::Playback);
+    let g = ok(&w, &p);
+    let dir = w.ctx().session.run_dir.join("sound");
+    assert!(g.host_actions.iter().any(|a| matches!(
+        a,
+        HostAction::StartSoundServer { dir: d, remote, .. }
+            if *d == dir && remote == Path::new("/run/user/1000/pipewire-0")
+    )));
+    let pulse = &g.mounts[index_of(&g, "/run/user/1000/pulse/native")];
+    assert_eq!(pulse.kind.src(), Some(dir.join("native").as_path()));
+    // The host's sockets record whatever their server is asked to: neither is bound.
+    for m in &g.mounts {
+        let src = m.kind.src().map(Path::to_owned).unwrap_or_default();
+        assert!(!src.ends_with("pipewire-0"), "{m:?}");
+        assert_ne!(src, Path::new("/run/user/1000/pulse/native"), "{m:?}");
+    }
+    assert!(plan_invariants(&g, &p, &w.ctx(), &w.host).is_empty());
+    let keys = statement_keys(&w, &p);
+    assert!(keys.contains(&"access.devices.sound".to_owned()));
+    assert!(!keys.iter().any(|k| k.contains("microphone")), "{keys:?}");
+}
+
+#[test]
+fn the_microphone_is_the_hosts_sockets_and_is_said() {
+    let w = SandboxWorld::worked_example();
+    let mut p = offline();
+    p.devices.audio = AudioAccess::Full;
+    let g = ok(&w, &p);
+    assert!(
+        !g.host_actions
+            .iter()
+            .any(|a| matches!(a, HostAction::StartSoundServer { .. }))
+    );
+    let pulse = &g.mounts[index_of(&g, "/run/user/1000/pulse/native")];
+    assert_eq!(
+        pulse.kind.src(),
+        Some(Path::new("/run/user/1000/pulse/native"))
+    );
+    assert_eq!(pulse.origin.policy_field, Some(PolicyField::Microphone));
+    index_of(&g, "/run/user/1000/pipewire-0");
+    let keys = statement_keys(&w, &p);
+    assert!(keys.contains(&"access.devices.sound".to_owned()));
+    assert!(keys.contains(&"access.devices.microphone".to_owned()));
+}
+
+#[test]
+fn a_host_that_cannot_withhold_the_microphone_gives_no_sound() {
+    for host in [hosts::no_pipewire(), {
+        let mut h = hosts::arch_mesa();
+        h.audio.pipewire_program = None;
+        h
+    }] {
+        let w = SandboxWorld::new(host);
+        let g = ok(&w, &offline());
+        assert!(
+            g.notes
+                .iter()
+                .any(|n| n.key == "note.audio.no_playback_only")
+        );
+        assert!(
+            !g.mounts
+                .iter()
+                .any(|m| m.kind.dst().starts_with("/run/user/1000/pulse"))
+        );
+        assert_eq!(g.env.get("PULSE_SERVER"), None);
+        assert!(
+            !statement_keys(&w, &offline())
+                .iter()
+                .any(|k| k.contains("sound"))
+        );
+    }
+}
+
+#[test]
+fn direct_sound_leaves_out_capture_devices_without_the_microphone() {
+    let w = SandboxWorld::worked_example();
+    let mut p = offline();
+    p.devices.alsa_devices = true;
+    let g = ok(&w, &p);
+    let snd: Vec<&Path> = g
+        .mounts
+        .iter()
+        .map(|m| m.kind.dst())
+        .filter(|d| d.starts_with("/dev/snd"))
+        .collect();
+    assert_eq!(
+        snd,
+        ["controlC0", "pcmC0D0p", "seq", "timer"]
+            .map(|n| Path::new("/dev/snd").join(n))
+            .iter()
+            .map(PathBuf::as_path)
+            .collect::<Vec<_>>()
+    );
+    p.devices.audio = AudioAccess::Full;
+    let g = ok(&w, &p);
+    index_of(&g, "/dev/snd");
 }

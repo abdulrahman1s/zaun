@@ -436,7 +436,12 @@ fn flag_row(
 ) -> Row {
     let (was, now) = (e.saved.permissions(), e.draft.permissions());
     let on = now.contains(bit);
-    let wider = bit.degrees();
+    // A degree shown as a row of its own (the microphone) is that row's change.
+    let wider = if degrees.is_some() {
+        bit.degrees()
+    } else {
+        Permissions::empty()
+    };
     let mut row = Row::new(What::Perm(Perm::Flag(bit)), bit.bits(), icon, title).switch(on);
     if let (true, Some(degrees)) = (on, degrees) {
         row = row.degree(&degrees, usize::from(now.contains(wider)));
@@ -661,6 +666,18 @@ fn rows(e: &PolicyEditor, env: &Env<'_>, g: &GameSummary) -> Rows {
     if let (true, Some((choices, ..))) = (host.input_readable, &mut controllers.degree) {
         choices[1].unavailable = Some(s::ALL_INPUT_UNAVAILABLE);
     }
+    let mut microphone = flag_row(
+        e,
+        Permissions::MICROPHONE,
+        icons::MIC,
+        s::MICROPHONE,
+        None,
+        &["microphone"],
+    );
+    let sound = e.draft.permissions().contains(Permissions::SOUND);
+    if host.sound_includes_microphone && sound && microphone.switch != Some(true) {
+        microphone = microphone.line(s::MICROPHONE_INSEPARABLE, Tone::Warning);
+    }
     let mut devices = vec![
         flag_row(e, Permissions::INTERNET, globe, s::INTERNET_ON, None, &[]),
         flag_row(
@@ -670,8 +687,8 @@ fn rows(e: &PolicyEditor, env: &Env<'_>, g: &GameSummary) -> Rows {
             s::SOUND,
             None,
             &["sound"],
-        )
-        .line(s::SOUND_TOGETHER, Tone::Normal),
+        ),
+        microphone,
         controllers,
         flag_row(
             e,
@@ -739,9 +756,10 @@ fn decide(state: &mut UiState, env: &mut Env<'_>, game: GameId, perm: Perm, pick
     match (perm, picked) {
         (Perm::Flag(bit), Picked::Switched(on)) => {
             granted.set(bit, on);
-            // A permission with degrees comes back on at the degree that is saved.
+            // A permission with degrees comes back on at the degree that is saved; a degree
+            // switched on brings the permission it widens.
             if on {
-                granted |= was & bit.degrees();
+                granted |= bit.prerequisites() | (was & bit.degrees());
             }
             e.draft.set_permissions(granted);
         }

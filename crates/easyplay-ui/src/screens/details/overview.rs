@@ -1,8 +1,10 @@
-//! Overview tab (SCREEN_SPECS §4): one sheet read from the top. *How it runs*: protection
-//! with what the game can reach, the compatibility layer, the launch options, each row a way
-//! into its tab, and the game's other programs to run. *Where it lives*: the game folder and
-//! the save data, each row opening its folder. Then the notes (autosaved 800 ms after the
-//! last keystroke). Playtime is beside Play, in the hero.
+//! Overview tab (SCREEN_SPECS §4): one sheet read from the top. *What it is* (ADR-0028):
+//! what EasyPlay knows of the game from its files: the engine, the main program, who made
+//! it, anti-cheat, online services, Proton's fixes; only what is known has a row. *How it
+//! runs*: protection with what the game can reach, the compatibility layer, the launch
+//! options, each row a way into its tab, and the game's other programs to run. *Where it
+//! lives*: the game folder and the save data, each row opening its folder. Then the notes
+//! (autosaved 800 ms after the last keystroke). Playtime is beside Play, in the hero.
 
 use std::time::Duration;
 
@@ -86,6 +88,134 @@ pub(super) fn tone(severity: StatementSeverity) -> Tone {
         StatementSeverity::Danger => Tone::Danger,
         _ => Tone::Normal,
     }
+}
+
+/// One fact of *What it is*: its icon, its name, what is known, and how heavily it weighs.
+struct Fact {
+    icon: theme::Icon,
+    title: &'static str,
+    value: String,
+    tone: Tone,
+}
+
+/// The facts the game's files and its record give, in reading order.
+fn facts(state: &UiState, g: &GameSummary) -> Vec<Fact> {
+    let mut out = Vec::new();
+    let fact = |icon, title, value: String, tone| Fact {
+        icon,
+        title,
+        value,
+        tone,
+    };
+    let about = state.details.about.ready();
+    let record = state.details.record();
+    if let Some(e) = about.and_then(|a| a.engine) {
+        out.push(fact(
+            icons::GEAR,
+            s::ENGINE,
+            s::engine_name(e),
+            Tone::Normal,
+        ));
+    }
+    let primary = record.and_then(|d| {
+        d.game
+            .executables
+            .iter()
+            .find(|e| e.role == ExeRole::Primary)
+    });
+    if let Some(kind) = primary.and_then(|e| s::program_kind(&e.pe)) {
+        out.push(fact(icons::FILE_EXE, s::PROGRAM, kind, Tone::Normal));
+    }
+    if let Some(pe) = primary.map(|e| &e.pe)
+        && let Some(company) = pe.company.as_deref().filter(|c| !c.trim().is_empty())
+    {
+        let product = pe
+            .product_name
+            .as_deref()
+            .filter(|p| !p.trim().is_empty() && !p.eq_ignore_ascii_case(&g.name));
+        let value = s::made_by(company, product);
+        out.push(fact(icons::INFO, s::MADE_BY, value, Tone::Normal));
+    }
+    if let Some(h) = about.map(|a| &a.hints) {
+        if !h.anti_cheat.is_empty() {
+            let value = s::anti_cheat(&h.anti_cheat);
+            out.push(fact(
+                icons::SHIELD_ALERT,
+                s::ANTI_CHEAT,
+                value,
+                Tone::Warning,
+            ));
+        }
+        let mut services: Vec<String> = Vec::new();
+        if h.steam_drm {
+            services.push(s::NEEDS_STEAM.to_owned());
+        } else if h.steam_api {
+            services.push(s::USES_STEAM_API.to_owned());
+        }
+        if h.store_sdk {
+            services.push(s::STORE_SDK.to_owned());
+        }
+        if !services.is_empty() {
+            let tone = if h.steam_drm {
+                Tone::Warning
+            } else {
+                Tone::Normal
+            };
+            out.push(fact(
+                icons::GLOBE,
+                s::STORE_SERVICES,
+                s::joined(&services),
+                tone,
+            ));
+        }
+    }
+    if let Some(d) = record {
+        // Only a title: technical identifiers have no place on the sheet (SCREEN_SPECS §4).
+        let known = d.fix_title.clone();
+        if let Some(known) = known {
+            let (value, tone) = if d.runtime_without_fixes {
+                (s::fixes_not_applied(&known), Tone::Warning)
+            } else {
+                (s::fixes_for(&known), Tone::Normal)
+            };
+            out.push(fact(icons::WRENCH, s::GAME_FIXES, value, tone));
+        }
+    }
+    out
+}
+
+/// *What it is*: what EasyPlay knows of the game, a row a fact. Rows for what is not known
+/// are left out; while the files are read and nothing is known yet, the section keeps its
+/// room.
+fn what_it_is(ui: &mut Ui, state: &UiState, env: &Env<'_>, g: &GameSummary) {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let rows = facts(state, g);
+    if rows.is_empty() {
+        let pending = state.details.about.is_loading() || state.details.detail.is_loading();
+        if pending && state.details.about.show_skeleton(env.mono) {
+            heading(ui, s::WHAT_IT_IS);
+            super::skeleton_lines(ui, 2);
+            ui.add_space(space::S6);
+        }
+        return;
+    }
+    heading(ui, s::WHAT_IT_IS);
+    for (i, f) in rows.iter().enumerate() {
+        let color = match f.tone {
+            Tone::Warning => p.warning,
+            Tone::Danger => p.danger,
+            _ => p.text_primary,
+        };
+        control_row(ui, f.icon, f.title, i == 0, |ui| {
+            let r = ui.add(egui::Label::new(Type::Body.rich(&f.value).color(color)).truncate());
+            crate::a11y::item(
+                &r,
+                egui::accesskit::Role::Label,
+                &format!("{}: {}", f.title, f.value),
+            );
+        });
+    }
+    ui.add_space(space::S6);
 }
 
 /// *How it runs*: the three settings tabs as rows, and the other programs.
@@ -356,6 +486,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
         ui.set_width(w);
         crate::screens::debug::advanced_note(ui, state, env);
         ui.spacing_mut().item_spacing.y = space::S1;
+        what_it_is(ui, state, env, g);
         runs(ui, state, env, g);
         ui.add_space(space::S6);
         lives(ui, state, env, g);

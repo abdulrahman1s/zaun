@@ -78,12 +78,19 @@ fn required_wording_is_present() {
     assert!(settings::ISOLATION_SHARED.contains("checked after each game"));
 }
 
-/// SECURITY_MODEL §10, "Sound toggle: mentions the microphone" (label from §5.3).
+/// SECURITY_MODEL §10, "The microphone is named wherever it is granted" (§5.3, ADR-0026):
+/// it has a switch of its own, and the sound switch does not claim it.
 #[test]
-fn sound_toggle_mentions_the_microphone() {
+fn the_microphone_is_named_where_it_is_granted() {
     assert!(
-        details::SOUND.to_lowercase().contains("microphone"),
+        details::MICROPHONE.to_lowercase().contains("microphone"),
         "{}",
-        details::SOUND
+        details::MICROPHONE
+    );
+    assert!(!details::SOUND.to_lowercase().contains("microphone"));
+    assert!(
+        details::MICROPHONE_INSEPARABLE
+            .to_lowercase()
+            .contains("microphone")
     );
 }

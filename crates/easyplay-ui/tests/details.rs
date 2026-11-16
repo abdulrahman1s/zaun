@@ -173,7 +173,7 @@ fn overview_rows_lead_to_their_tabs() {
         let (mut r, _) = page(
             "Lantern Keep",
             DetailsTab::Overview,
-            big(),
+            tall(),
             ThemeChoice::Dark,
         );
         r.h.get_by_role_and_label(Role::Button, row).click();
@@ -199,7 +199,7 @@ fn overview_rows_open_the_folders_and_run_the_other_programs() {
     let (mut r, id) = page(
         "Lantern Keep",
         DetailsTab::Overview,
-        Vec2::new(1280.0, 1100.0),
+        tall(),
         ThemeChoice::Dark,
     );
     r.h.get_by_label("Game folder: Lantern Keep, in Games")
@@ -319,6 +319,36 @@ fn a_denied_folder_never_enters_the_list() {
 }
 
 #[test]
+fn the_microphone_is_a_switch_of_its_own_that_needs_sound() {
+    use easyplay_core::model::{AudioAccess, Permissions};
+    let (mut r, _) = page(
+        "Lantern Keep",
+        DetailsTab::Protection,
+        tall(),
+        ThemeChoice::Dark,
+    );
+    let audio = |r: &Rig| {
+        let e = r.h.state().state.details.protection.as_ref().unwrap();
+        e.draft.devices.audio
+    };
+    // Sound is on and the microphone off by default.
+    assert_eq!(audio(&r), AudioAccess::Playback);
+    flip(&mut r, "Microphone");
+    assert_eq!(audio(&r), AudioAccess::Full);
+    // Sound off takes the microphone with it; the microphone on brings sound back.
+    flip(&mut r, "Sound");
+    assert_eq!(audio(&r), AudioAccess::None);
+    flip(&mut r, "Microphone");
+    assert_eq!(audio(&r), AudioAccess::Full);
+    let e = r.h.state().state.details.protection.as_ref().unwrap();
+    assert!(
+        e.draft
+            .permissions()
+            .contains(Permissions::SOUND | Permissions::MICROPHONE)
+    );
+}
+
+#[test]
 fn every_permission_is_a_switch_and_some_have_degrees() {
     use easyplay_core::model::{ControllerAccess, GameDirAccess, Permissions, RemovableAccess};
     let (mut r, _) = page(
@@ -335,7 +365,7 @@ fn every_permission_is_a_switch_and_some_have_degrees() {
     assert_eq!(draft(&r).0.permissions(), offline);
     flip(&mut r, "Internet and local network");
     flip(&mut r, "Camera");
-    flip(&mut r, "Sound (speakers and microphone)");
+    flip(&mut r, "Sound");
     flip(&mut r, "Removable drives");
     let (d, dirty) = draft(&r);
     assert!(dirty);
@@ -367,7 +397,7 @@ fn every_permission_is_a_switch_and_some_have_degrees() {
     // Taking everything back leaves nothing to save.
     flip(&mut r, "Internet and local network");
     flip(&mut r, "Camera");
-    flip(&mut r, "Sound (speakers and microphone)");
+    flip(&mut r, "Sound");
     flip(&mut r, "Removable drives");
     degree(&mut r, "Game folder: Can read", "Can read and change");
     let (d, dirty) = draft(&r);
@@ -528,6 +558,54 @@ fn reserved_variables_cannot_be_saved() {
             .accesskit_node()
             .is_disabled()
     );
+}
+
+#[test]
+fn the_overview_says_what_the_files_tell() {
+    let (r, _) = page(
+        "Hollow Bell",
+        DetailsTab::Overview,
+        tall(),
+        ThemeChoice::Dark,
+    );
+    r.h.get_by_label("Engine: Unreal Engine");
+    r.h.get_by_label_contains("Anti-cheat: Easy Anti-Cheat: often refuses to run");
+    r.h.get_by_label("Online services: Uses Steam's services");
+    r.h.get_by_label("Program: 64-bit Windows program");
+}
+
+#[test]
+fn a_variable_name_suggests_proton_options_with_what_they_do() {
+    let (mut r, _) = page(
+        "Lantern Keep",
+        DetailsTab::LaunchOptions,
+        tall(),
+        ThemeChoice::Dark,
+    );
+    r.h.get_by_label_contains("Advanced").click();
+    r.h.run();
+    r.h.get_by_label("Add variable").click();
+    r.h.run_steps(2);
+    // The new name has the focus, and the options are offered at once.
+    r.h.get_by_label("Variable name, row 2").type_text("frame");
+    r.h.run_steps(2);
+    r.h.get_by_role_and_label(
+        Role::ListBoxOption,
+        "DXVK_FRAME_RATE: Cap the frame rate of Direct3D 9–11 games",
+    );
+    // Down to the second, and Enter takes it with its usual value.
+    r.h.key_press(Key::ArrowDown);
+    r.h.run();
+    r.h.key_press(Key::Enter);
+    r.h.run_steps(2);
+    let l = r.h.state().state.details.launch.as_ref().unwrap();
+    let v = l.config.env.last().unwrap();
+    assert_eq!(
+        (v.name.as_str(), v.value.as_str()),
+        ("VKD3D_FRAME_RATE", "60")
+    );
+    // What it does is said under its row.
+    r.h.get_by_label("Cap the frame rate of Direct3D 12 games");
 }
 
 #[test]
@@ -758,6 +836,24 @@ fn snapshot_page_launch_options_dark() {
     r.h.get_by_label_contains("Advanced").click();
     r.h.run_steps(4);
     r.h.snapshot("game_launch_dark_1280x1000");
+}
+
+#[test]
+fn snapshot_launch_options_suggestions_dark() {
+    let (mut r, _) = page(
+        "Lantern Keep",
+        DetailsTab::LaunchOptions,
+        tall(),
+        ThemeChoice::Dark,
+    );
+    r.h.get_by_label_contains("Advanced").click();
+    r.h.run();
+    r.h.get_by_label("Add variable").click();
+    r.h.run_steps(2);
+    r.h.get_by_label("Variable name, row 2")
+        .type_text("PROTON_");
+    r.h.run_steps(4);
+    r.h.snapshot("game_launch_suggestions_dark_1280x1600");
 }
 
 #[test]

@@ -604,3 +604,29 @@ fn stop_and_remove_cancels_a_launch_that_is_still_starting() {
     );
     assert!(w.svc.hub().library.load().get(id).is_none());
 }
+
+#[test]
+fn what_a_games_files_tell_is_answered_off_the_service_thread() {
+    use easyplay_core::identity::Engine;
+    use easyplay_core::ids::QueryId;
+    use easyplay_core::service::QueryResult;
+    let mut w = World::new();
+    let id = w.add("About");
+    let game = w
+        .svc
+        .hub()
+        .library
+        .load()
+        .get(id)
+        .unwrap()
+        .primary_exe_path
+        .clone();
+    let dir = game.parent().unwrap();
+    std::fs::write(dir.join("data.win"), b"").unwrap();
+    let q = QueryId::from_uuid(uuid::Uuid::from_u128(4));
+    let evs = w.send(Command::AboutGame { id, reply_to: q });
+    let QueryResult::About(a) = query(&evs, q) else {
+        panic!("no answer")
+    };
+    assert_eq!(a.engine.map(|e| e.engine), Some(Engine::GameMaker));
+}

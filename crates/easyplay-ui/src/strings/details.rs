@@ -100,6 +100,119 @@ pub fn fact_name(label: &str, value: &str) -> String {
     format!("{label}: {value}")
 }
 
+/// Section: what the game's files tell (ADR-0028).
+pub const WHAT_IT_IS: &str = "What it is";
+/// Fact.
+pub const ENGINE: &str = "Engine";
+/// Fact: the main program.
+pub const PROGRAM: &str = "Program";
+/// Fact: the company in the program's version resource.
+pub const MADE_BY: &str = "Made by";
+/// Fact.
+pub const ANTI_CHEAT: &str = "Anti-cheat";
+/// After the anti-cheat systems found.
+pub const ANTI_CHEAT_RISK: &str = "often refuses to run under Proton or in a sandbox";
+/// Fact: Steam and other stores' services.
+pub const STORE_SERVICES: &str = "Online services";
+/// A finding.
+pub const USES_STEAM_API: &str = "Uses Steam's services";
+/// A finding.
+pub const NEEDS_STEAM: &str = "Needs Steam running to start (Steam DRM)";
+/// A finding.
+pub const STORE_SDK: &str = "Uses Epic or GOG online services";
+/// Fact: Proton's per-game fixes.
+pub const GAME_FIXES: &str = "Game fixes";
+/// When the layer applies none.
+pub const NO_FIXES_HERE: &str = "this compatibility layer applies none";
+
+/// The game Proton's fixes are for (a title, or a umu-database ID).
+pub fn fixes_for(known: &str) -> String {
+    format!("Proton applies the fixes for {known}")
+}
+
+/// Findings joined on one line.
+pub fn joined(parts: &[String]) -> String {
+    parts.join(" · ")
+}
+
+/// Who made the game, and the product's name when it is not the game's.
+pub fn made_by(company: &str, product: Option<&str>) -> String {
+    match product {
+        Some(p) => format!("{company} · {p}"),
+        None => company.to_owned(),
+    }
+}
+
+/// The anti-cheat systems found, and what they mean here.
+pub fn anti_cheat(found: &[easyplay_core::identity::AntiCheat]) -> String {
+    use easyplay_core::identity::AntiCheat as A;
+    let names: Vec<&str> = found
+        .iter()
+        .map(|a| match a {
+            A::EasyAntiCheat => "Easy Anti-Cheat",
+            A::BattlEye => "BattlEye",
+        })
+        .collect();
+    format!("{}: {ANTI_CHEAT_RISK}", names.join(", "))
+}
+
+/// Proton's fixes for the game, under a layer that applies none.
+pub fn fixes_not_applied(known: &str) -> String {
+    format!("Fixes for {known}: {NO_FIXES_HERE}")
+}
+
+/// What an engine is called, with its variant.
+pub fn engine_name(g: easyplay_core::identity::EngineGuess) -> String {
+    use easyplay_core::identity::{Engine as E, Variant as V};
+    let name = match g.engine {
+        E::Unity => "Unity",
+        E::Unreal => "Unreal Engine",
+        E::Godot => "Godot",
+        E::GameMaker => "GameMaker",
+        E::RenPy => "Ren'Py",
+        E::RpgMaker => "RPG Maker",
+        E::Source => "Source",
+        E::Source2 => "Source 2",
+        E::CryEngine => "CryEngine",
+        E::Fna => "FNA",
+        E::MonoGame => "MonoGame",
+        E::Xna => "XNA",
+        E::Love => "LÖVE",
+        E::Cocos => "Cocos2d-x",
+        E::Electron => "Electron",
+        E::NwJs => "NW.js",
+    };
+    match g.variant {
+        None => name.to_owned(),
+        Some(V::Il2Cpp) => format!("{name} (IL2CPP)"),
+        Some(V::Mono) => format!("{name} (Mono)"),
+        Some(V::Xp) => format!("{name} XP"),
+        Some(V::Vx) => format!("{name} VX"),
+        Some(V::VxAce) => format!("{name} VX Ace"),
+        Some(V::Mv) => format!("{name} MV"),
+        Some(V::Mz) => format!("{name} MZ"),
+    }
+}
+
+/// What kind of program the main program is, and its version.
+pub fn program_kind(pe: &easyplay_core::model::PeInfo) -> Option<String> {
+    use easyplay_core::model::PeMachine as M;
+    let kind = if pe.is_dotnet {
+        ".NET program"
+    } else {
+        match pe.machine {
+            M::X86_64 => "64-bit Windows program",
+            M::X86 => "32-bit Windows program",
+            M::Arm64 => "ARM64 Windows program",
+            _ => return pe.file_version.as_ref().map(|v| format!("version {v}")),
+        }
+    };
+    Some(match &pe.file_version {
+        Some(v) => format!("{kind} · version {v}"),
+        None => kind.to_owned(),
+    })
+}
+
 /// Section: protection, compatibility, launch options.
 pub const RUNS: &str = "How it runs";
 /// Section: the folders.
@@ -255,9 +368,13 @@ pub const INTERNET_AND_DEVICES: &str = "Internet and devices";
 /// Section of the setup sheet.
 pub const DEVICES: &str = "Devices";
 /// Permission.
-pub const SOUND: &str = "Sound (speakers and microphone)";
-/// Under the sound permission.
-pub const SOUND_TOGETHER: &str = "Playback and recording cannot be separated";
+pub const SOUND: &str = "Sound";
+/// Permission.
+pub const MICROPHONE: &str = "Microphone";
+/// Under the microphone permission while it is off, on a computer that cannot keep it out
+/// of the sound server (ADR-0026).
+pub const MICROPHONE_INSEPARABLE: &str =
+    "This computer can't give sound without the microphone: with it off, the game is silent";
 /// Toggle (setup sheet).
 pub const CONTROLLERS: &str = "Controllers";
 /// Permission.
@@ -605,6 +722,16 @@ pub fn seconds(n: u8) -> String {
 /// "PATH is managed by EasyPlay".
 pub fn reserved_var(name: &str) -> String {
     format!("{name} is managed by EasyPlay (Compatibility and Protection settings)")
+}
+
+/// Placeholder of a variable's name field.
+pub const FIND_PROTON_OPTION: &str = "Type to find an option";
+/// Accessible name of the list of suggested options.
+pub const PROTON_OPTIONS: &str = "Proton options";
+
+/// Under an option the game's compatibility layer does not read.
+pub fn not_read_by(summary: &str, layer: &str) -> String {
+    format!("{summary}. Only GE-Proton and CachyOS builds read it, not {layer}")
 }
 
 /// "Variable name, row 1".

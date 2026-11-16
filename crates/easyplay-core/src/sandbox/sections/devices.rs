@@ -7,8 +7,8 @@
 use std::path::PathBuf;
 
 use super::{Effective, mk};
-use crate::host::{HostFacts, InputNodeKind};
-use crate::model::{ControllerAccess, PolicyException, SandboxPolicy};
+use crate::host::{HostFacts, InputNodeKind, is_capture_node};
+use crate::model::{AudioAccess, ControllerAccess, PolicyException, SandboxPolicy};
 use crate::sandbox::plan::{MountKind, PlanBuilder, PolicyField};
 use crate::sandbox::validate::{IssueCode, PolicyIssue};
 
@@ -95,11 +95,22 @@ pub fn emit(
         }
     }
     if eff.alsa && host.audio.alsa_devices {
-        b.mount(
-            mk::dev("/dev/snd", false),
-            "raw sound devices",
-            Some(PolicyField::AlsaDevices),
-        );
+        if eff.audio == AudioAccess::Full {
+            b.mount(
+                mk::dev("/dev/snd", false),
+                "raw sound devices",
+                Some(PolicyField::AlsaDevices),
+            );
+        } else {
+            // Without the microphone: every node but the capture PCMs (ADR-0026).
+            for n in host.audio.snd_nodes.iter().filter(|n| !is_capture_node(n)) {
+                b.mount(
+                    mk::dev(n, false),
+                    "raw sound device (playback)",
+                    Some(PolicyField::AlsaDevices),
+                );
+            }
+        }
     }
     if eff.camera {
         let mut video = host.video_nodes.clone();

@@ -49,6 +49,7 @@
 //! | `RefreshHostFacts`, `SetDefaultHandler`, `CompleteOnboarding` | host and integration | `HostChanged`, `PreferencesChanged` |
 //! | `QueryStats` | `Command::QueryStats` | `QueryResult(Stats)` |
 //! | `LoadGame` | the full `Game` row plus storage facts | `QueryResult(Game)` |
+//! | `AboutGame` | engine and hints from the game's files (job pool, ADR-0028) | `QueryResult(About)` |
 //! | `FindSteamApp` | Steam app ID on this computer and store search (job pool) | `QueryResult(SteamApps)` |
 //! | `MeasurePrefix`, `SearchFixes` | storage size (job pool), umu-database search (not yet) | `QueryResult(PrefixSize / Fixes)` |
 //! | `ClearStatistics`, `ResetGameStatistics`, `RemoveSession` | statistics edits | `LibraryChanged`, `Toast` |
@@ -216,6 +217,9 @@ pub struct HostView {
     pub mangohud: bool,
     /// The desktop uses X11.
     pub x11: bool,
+    /// Sound cannot be given without the microphone here (no `pipewire` program or no
+    /// PipeWire socket, ADR-0026).
+    pub sound_includes_microphone: bool,
     /// EasyPlay version.
     pub version: String,
     /// The home folder (locations are shown relative to it, "in Home").
@@ -451,6 +455,8 @@ pub enum QueryPayload {
     Stats(StatsResult),
     /// A game's full record.
     Game(Box<GameDetail>),
+    /// What a game's files tell.
+    About(Box<easyplay_core::identity::GameAbout>),
     /// Programs in a folder.
     Folder(FolderScan),
     /// Private-storage size in bytes.
@@ -709,6 +715,13 @@ pub enum UiCommand {
     },
     /// Load a game's full record.
     LoadGame {
+        /// Game.
+        id: GameId,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// What a game's files tell (ADR-0028).
+    AboutGame {
         /// Game.
         id: GameId,
         /// Reply ID.

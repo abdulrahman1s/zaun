@@ -312,16 +312,28 @@ pub fn explain(plan: &SandboxPlan, policy: &SandboxPolicy) -> Vec<AccessStatemen
     }
 
     // Devices.
-    if let Some(m) = groups.remove(&PolicyField::Audio) {
+    let sound = groups.remove(&PolicyField::Audio);
+    let microphone = groups.remove(&PolicyField::Microphone);
+    if sound.is_some() || microphone.is_some() {
         out.push(
             AccessStatement::new(
                 C::Devices,
                 "access.devices.sound",
-                "Sound (speakers and microphone)",
-                S::Notice,
+                "Can play sound",
+                S::Info,
             )
-            .mounts(m)
-            .detail("Playback and recording cannot be separated"),
+            .mounts(sound.unwrap_or_default()),
+        );
+    }
+    if let Some(m) = microphone {
+        out.push(
+            AccessStatement::new(
+                C::Devices,
+                "access.devices.microphone",
+                "Can use your microphone",
+                S::Warning,
+            )
+            .mounts(m),
         );
     }
     if let Some(m) = groups.remove(&PolicyField::Controllers) {

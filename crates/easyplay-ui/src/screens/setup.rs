@@ -397,12 +397,22 @@ fn more_options(ui: &mut Ui, v: &mut SetupVm, picks: &mut Vec<PickPurpose>, env:
         }
     }
     section(ui, strings::details::DEVICES, None);
-    let mut sound = v.draft.policy.devices.audio == AudioAccess::Full;
-    if toggle(ui, &mut sound, strings::details::SOUND, None).changed() {
-        v.draft.policy.devices.audio = if sound {
+    let audio = &mut v.draft.policy.devices.audio;
+    let mut sound = *audio != AudioAccess::None;
+    let mut microphone = *audio == AudioAccess::Full;
+    let sound_changed = toggle(ui, &mut sound, strings::details::SOUND, None).changed();
+    let microphone_changed =
+        toggle(ui, &mut microphone, strings::details::MICROPHONE, None).changed();
+    if sound_changed || microphone_changed {
+        // The microphone needs sound; sound switched off takes the microphone with it.
+        *audio = if microphone_changed && microphone {
+            AudioAccess::Full
+        } else if !sound {
+            AudioAccess::None
+        } else if microphone {
             AudioAccess::Full
         } else {
-            AudioAccess::None
+            AudioAccess::Playback
         };
         changed = true;
     }

@@ -17,6 +17,7 @@ pub mod planner;
 pub mod presets;
 pub mod seccomp;
 pub mod sections;
+pub mod sound;
 pub mod validate;
 pub mod wayland_ctx;
 
@@ -25,7 +26,7 @@ pub use context::{GameContext, GamePaths, LaunchInputs, SandboxContext, SessionD
 pub use explain::{AccessCategory, AccessStatement, StatementSeverity, explain};
 pub use plan::{
     EnvPlan, FdPayload, HostAction, Mount, MountKind, MountMode, MountOrigin, Namespaces,
-    PlanBuilder, PolicyField, SandboxPlan, Section,
+    PlanBuilder, PolicyField, SandboxPlan, Section, sound_socket,
 };
 pub use planner::plan;
 pub use presets::{Widening, apply_preset, classify, offline, online, standard, widening};
