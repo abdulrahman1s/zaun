@@ -20,12 +20,6 @@ pub mod setup;
 pub mod steam;
 pub mod tools;
 
-use super::app_service::AppService;
-use super::event::Event;
-use super::prompts::Continuation;
-use crate::ids::PromptId;
-use crate::model::PromptAnswer;
-
 pub use launch::not_installed;
 
 /// Completions of the jobs started by the flows in this module, re-entering the loop as
@@ -78,48 +72,4 @@ pub(crate) struct FlowState {
     pub chat: chat::ChatState,
     /// Chat's web services (GIFs, link check).
     pub services: chat_services::ServicesState,
-}
-
-impl AppService {
-    /// A job of these flows finished.
-    pub(crate) fn on_flow_done(&mut self, done: FlowDone) {
-        match done {
-            FlowDone::Removed { job, files } => self.on_removed(&job, files),
-            FlowDone::Reset { game, result } => self.on_reset(game, result),
-            FlowDone::Tool { game, result } => self.on_tool_started(game, result),
-            FlowDone::Query { id, result } => self.emit(Event::QueryResult { id, result }),
-            FlowDone::Maintenance(r) => self.on_maintenance(r),
-            FlowDone::Availability(a) => {
-                self.lib.set_availability(&a);
-                self.publish_library();
-            }
-            FlowDone::Accents(a) => {
-                self.lib.set_accents(&a);
-                self.publish_library();
-            }
-            FlowDone::Steam(d) => self.on_steam_done(d),
-            FlowDone::Chat(d) => self.on_chat_done(d),
-            FlowDone::ChatServices(d) => self.on_services_done(d),
-        }
-    }
-
-    /// `AnswerPrompt`: resume the parked flow (a stale or foreign answer is ignored).
-    pub(crate) fn answer_prompt(&mut self, prompt: PromptId, answer: PromptAnswer) {
-        let Some(parked) = self.prompts.take(prompt, &answer) else {
-            tracing::info!(%prompt, "answer for an unknown prompt or not one of its choices");
-            return;
-        };
-        match parked.then {
-            c @ (Continuation::OpenChanged { .. } | Continuation::OpenAttach { .. }) => {
-                self.resume_open(c, &answer);
-            }
-            c @ (Continuation::LaunchExeChanged { .. } | Continuation::LaunchRuntime { .. }) => {
-                self.resume_launch(c, &answer);
-            }
-            c @ Continuation::RemoveRunning { .. } => self.resume_remove(c, &answer),
-            c @ Continuation::ToolNetwork { .. } => self.resume_tool(c, &answer),
-            c @ Continuation::Locate { .. } => self.resume_locate(c, &answer),
-            Continuation::Nothing => {}
-        }
-    }
 }

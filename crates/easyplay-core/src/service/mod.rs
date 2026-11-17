@@ -15,9 +15,11 @@
 
 pub mod app_service;
 pub mod command;
+mod dispatch;
 pub mod event;
 pub mod explainer;
 pub mod flows;
+pub(crate) mod prelude;
 pub mod prompts;
 pub mod recovery;
 pub mod session_watch;
@@ -27,8 +29,8 @@ pub use app_service::{
     AppService, CommandSender, LaunchEnv, ServiceDeps, ServiceHandle, Waker, open_db,
 };
 pub use command::{
-    AfterCreate, ChatCommand, ClipKind, Command, DatabaseChoice, FolderRequest, GameEdit, InspectTarget,
-    LaunchOrigin, LogFile, OpenOrigin, SteamCommand, StopMode,
+    AfterCreate, ChatCommand, ClipKind, Command, DatabaseChoice, FolderRequest, GameEdit,
+    InspectTarget, LaunchOrigin, LogFile, OpenOrigin, SteamCommand, StopMode,
 };
 pub use event::{
     ChatPage, Event, LogChunk, Notice, QueryResult, RecoveredHow, SetupContext, SteamDetail,

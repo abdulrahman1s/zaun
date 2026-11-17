@@ -7,6 +7,12 @@ decision record in [docs/adr](docs/adr/README.md). Work is organised as tasks in
 [docs/tasks](docs/tasks/README.md), with progress in
 [docs/tasks/STATUS.md](docs/tasks/STATUS.md).
 
+## Code shape
+
+How code is written here (one verb per file, handlers that return `Result`, `err!`, macros
+for tables, terse comments) is in [AGENTS.md](AGENTS.md) and ADR-0034. It is written for
+coding agents and people alike.
+
 ## Development environment
 
 The toolchain (Rust from `rust-toolchain.toml`, with the musl target), `bubblewrap`,
@@ -93,7 +99,8 @@ The interface's text lives in `crates/easyplay-ui/locales/<code>.yml` (ADR-0032)
 
 ## Rules enforced by the build
 
-- No `unsafe` outside `easyplay-init`, `core::session::sys` and `core::sandbox::fd`.
+- No `unsafe` outside `easyplay-init`, `easyplay-chat` (the engine's C interface),
+  `core::session::sys` and `core::sandbox::fd`.
 - Time only through `easyplay_core::clock::Clock`; files in core only through
   `easyplay_core::fsx::Fs`; processes only through `host::runner` and `session::spawn`
   (`clippy.toml`), plus the supervisor start in `session::launcher` and the detached

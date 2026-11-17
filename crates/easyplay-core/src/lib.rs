@@ -15,6 +15,9 @@
 //! `unsafe` is denied crate-wide; only `session::sys` and `sandbox::fd` may allow it
 //! (ARCHITECTURE §3 rule 5), each block with a `// SAFETY:` comment.
 
+#[macro_use]
+mod macros;
+
 // Layer 1 — vocabulary
 pub mod clock;
 pub mod consts;

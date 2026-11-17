@@ -90,6 +90,8 @@ pelite = "0.10"
 # Search normalisation (GAME_LIBRARY §4: NFKD, combining marks removed).
 unicode-normalization = "0.1.24"
 bitflags = "2.9"
+# Enum names for logs and tables (`#[derive(strum::IntoStaticStr)]`, ADR-0034); derive only.
+strum = { version = "0.28", default-features = false, features = ["derive"] }
 smallvec = { version = "1.15", features = ["serde", "union"] }
 base64 = "0.23"
 # The diagnostics report archive (`diagnostics::report`); already in the tree through `png`.
@@ -125,7 +127,6 @@ clap = { version = "4.5", default-features = false, features = [
     "error-context",
     "color",
 ] }
-anyhow = "1.0"
 signal-hook = "0.4"
 clap_mangen = "0.2"
 clap_complete = "4.5"

@@ -25,7 +25,6 @@ dev-inspection = ["easyplay-ui/dev-inspection"]
 easyplay-core.workspace = true
 easyplay-ui = { workspace = true, default-features = false }
 clap.workspace = true
-anyhow.workspace = true
 signal-hook.workspace = true
 tracing.workspace = true
 serde.workspace = true

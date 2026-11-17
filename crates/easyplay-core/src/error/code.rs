@@ -146,6 +146,8 @@ error_codes! {
     SesSignalDenied = "EP-SES-021", Error;
     /// A previous session was interrupted and has been closed.
     SesInterrupted = "EP-SES-030", Warning;
+    /// No such session (anymore).
+    SesSessionNotFound = "EP-SES-040", Warning;
 
     // ---- Game — EP-GAME ------------------------------------------------------------------
     /// The game closed right after starting.
@@ -168,6 +170,10 @@ error_codes! {
     LibBusy = "EP-LIB-020", Info;
     /// Name, tag or note not valid.
     LibInvalidField = "EP-LIB-030", Error;
+    /// No such game (anymore).
+    LibGameNotFound = "EP-LIB-040", Warning;
+    /// No such tag (anymore).
+    LibTagNotFound = "EP-LIB-041", Warning;
     /// Not a Windows program EasyPlay can run.
     IdNotWindowsProgram = "EP-ID-001", Error;
     /// The program's information could not be read; using the file name.

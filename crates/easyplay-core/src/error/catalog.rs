@@ -320,6 +320,11 @@ pub const fn entry(code: ErrorCode) -> Entry {
             "EasyPlay closed it using the last time it was known to be running; nothing else needs to be done.",
             &[],
         ),
+        C::SesSessionNotFound => e(
+            "This session is no longer there",
+            "It was removed from the history or cleaned up after it ended.",
+            &[A::Dismiss],
+        ),
 
         // ---- Game ----
         C::GameClosedEarly => e(
@@ -368,6 +373,16 @@ pub const fn entry(code: ErrorCode) -> Entry {
             "This value cannot be used",
             "Check the highlighted field; it says what is allowed.",
             &[],
+        ),
+        C::LibGameNotFound => e(
+            "This game is no longer in the library",
+            "It was removed, perhaps from another window. The list has been updated.",
+            &[A::Dismiss],
+        ),
+        C::LibTagNotFound => e(
+            "This tag no longer exists",
+            "It was renamed or deleted. The list has been updated.",
+            &[A::Dismiss],
         ),
         C::IdNotWindowsProgram => e(
             "This file is not a Windows program",

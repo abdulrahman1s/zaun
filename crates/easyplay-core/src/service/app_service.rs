@@ -334,7 +334,7 @@ pub struct AppService {
     /// State of the tool, query, maintenance and cancellation flows.
     pub(super) flow: super::flows::FlowState,
     sessions_rev: u64,
-    stopping: bool,
+    pub(super) stopping: bool,
     headless_rx: Option<Receiver<Msg>>,
     /// The salvaged library waiting for "Use the repaired library" (recovery mode).
     pub(super) repaired_db: Option<PathBuf>,
@@ -576,127 +576,6 @@ impl AppService {
         self.emit(Event::QuitRequested);
     }
 
-    /// Handle one command (also used by tests and the headless CLI through
-    /// [`AppService::open_headless`]).
-    pub fn handle(&mut self, cmd: Command) {
-        if self.refuse_in_recovery(&cmd) {
-            return;
-        }
-        // Steam commands and commands addressed to a Steam game (ADR-0031).
-        let Some(cmd) = self.steam_route(cmd) else {
-            return;
-        };
-        match cmd {
-            Command::OpenPaths { paths, origin } => self.open_paths(paths, origin),
-            Command::CreateGame { draft, then } => self.create_game(*draft, then),
-            Command::DiscardDraft => self.setup_closed(),
-            Command::RemoveGame { id, options } => self.remove_game(id, options),
-            Command::SetFavorite { id, favorite } => {
-                let r = self.lib.set_favorite(&[id], favorite).map(|_| ());
-                self.after_library_edit(r);
-            }
-            Command::SetHidden { id, hidden } => {
-                let r = self.lib.set_hidden(&[id], hidden).map(|_| ());
-                self.after_library_edit(r);
-            }
-            Command::SetTags { id, tags } => {
-                let r = self.lib.set_tags(id, &tags).map(|_| ());
-                self.after_library_edit(r);
-            }
-            Command::UpdateGame { id, edits } => self.update_game(id, edits),
-            Command::LoadGame { id, reply_to } => self.load_game(id, reply_to),
-            Command::AboutGame { id, reply_to } => self.about_game(id, reply_to),
-            Command::QueryStats { request, reply_to } => self.query_stats(&request, reply_to),
-            Command::RescanMissing => self.check_availability(),
-            Command::ClearStatistics => self.clear_statistics(None),
-            Command::ResetGameStatistics { id } => self.clear_statistics(Some(id)),
-            Command::RemoveSession { id } => self.remove_session(id),
-            Command::AddExecutable { id, path, role } => self.add_program(id, &path, role),
-            Command::LocateExecutable { id, exe, new_path } => {
-                self.locate_program(id, exe, &new_path);
-            }
-            Command::ScanFolder { folder, reply_to } => self.scan_folder(folder, reply_to),
-            Command::MeasurePrefix { id, reply_to } => self.measure_prefix(id, reply_to),
-            Command::CancelLaunch { id } => self.cancel_launch(id),
-            Command::RunTool { id, tool } => self.run_tool(id, tool, None),
-            Command::ImportArtwork { id, slot, source } => self.import_artwork(id, slot, source),
-            Command::FetchOnlineArtwork { id } => self.fetch_online_artwork(id, true),
-            Command::FindSteamApp { id, term, reply_to } => self.find_steam_app(id, term, reply_to),
-            Command::Launch { id, exe, origin } => self.start_launch(id, exe, origin),
-            Command::StopSession { session, mode } => self.stop_session(session, mode),
-            Command::AnswerPrompt { prompt, answer } => self.answer_prompt(prompt, answer),
-            Command::ResetPrefix { id, options } => self.reset_prefix(id, options),
-            Command::AdoptRuntime { variant } => self.adopt_runtime(variant),
-            Command::RefreshRuntimes => self.scan_runtimes(),
-            Command::ProvisionRuntime { target } => self.provision_runtime(target),
-            Command::RemoveRuntime { name } => self.remove_runtime(name),
-            Command::VerifyRuntime => self.verify_runtimes(),
-            Command::SetPreference(patch) => self.set_preference(&patch),
-            Command::RefreshHostFacts => self.probe_host(true),
-            Command::SetDefaultHandler { enable } => self.set_default_handler(enable),
-            Command::SetShortcut { id, enable } => self.set_shortcut(id, enable),
-            Command::OpenFolder(target) => self.open_folder(target),
-            Command::ViewLog { session, game } => self.view_log(session, game),
-            Command::Inspect { target, reply_to } => self.inspect(target, reply_to),
-            Command::ListSessions { game, reply_to } => self.list_sessions(game, reply_to),
-            Command::ReadLog {
-                session,
-                file,
-                offset,
-                reply_to,
-            } => self.read_log(session, file, offset, reply_to),
-            Command::ListProcesses { session, reply_to } => {
-                self.list_processes(session, reply_to);
-            }
-            Command::RunDoctor => self.run_doctor(),
-            Command::BuildReport {
-                game,
-                session,
-                reply_to,
-            } => self.build_report(game, session, reply_to),
-            Command::SaveReport { files, dest } => self.save_report(files, dest),
-            Command::DismissCrash => self.dismiss_crash(),
-            Command::ResolveDatabase(choice) => self.resolve_database(&choice),
-            // Handled by `steam_route`.
-            Command::Steam(_) => {}
-            Command::Chat(c) if super::flows::chat_services::handles(&c) => {
-                self.chat_service_command(c);
-            }
-            Command::Chat(c) => self.chat_command(c),
-            Command::Shutdown => self.stopping = true,
-        }
-    }
-
-    pub(super) fn handle_internal(&mut self, i: Internal) {
-        match i {
-            Internal::Opened(o) => self.on_opened(*o),
-            Internal::Drafted { result, origin } => self.on_drafted(result, origin),
-            Internal::LaunchState {
-                game,
-                launch,
-                state,
-            } => self.on_launch_state(game, launch, state),
-            Internal::LaunchDone(d) => self.on_launch_done(*d),
-            Internal::HostFacts(f) => self.on_host_facts(f),
-            Internal::Runtimes(c) => {
-                self.hub.runtimes.store(c);
-                self.emit(Event::RuntimesChanged);
-                // The runtime check (D-15) reads the catalog.
-                if self.hub.diagnostics.load().doctor.is_some() {
-                    self.run_doctor();
-                }
-            }
-            Internal::Sessions(p) => self.on_sessions(p),
-            Internal::Art(a) => self.on_art_fetched(*a),
-            Internal::Adopted(r) => self.on_adopted(r),
-            Internal::RuntimeJob(d) => self.on_runtime_job(d),
-            Internal::Flow(f) => self.on_flow_done(*f),
-            Internal::Desktop(d) => self.on_desktop(*d),
-            Internal::Doctor(r) => self.on_doctor(*r),
-            Internal::ReportSaved(r) => self.on_report_saved(r),
-        }
-    }
-
     // ---- plumbing -----------------------------------------------------------------------
 
     /// Post a message to the loop from a job.
@@ -764,7 +643,7 @@ impl AppService {
         self.sync_shortcuts();
     }
 
-    fn after_library_edit(&mut self, r: Result<(), Error>) {
+    pub(crate) fn after_library_edit(&mut self, r: Result<(), Error>) {
         match r {
             Ok(()) => self.publish_library(),
             Err(e) => self.fail(e),
@@ -821,7 +700,7 @@ impl AppService {
 
     // ---- game page (UI seam) ------------------------------------------------------------
 
-    fn update_game(&mut self, id: GameId, edits: Vec<super::command::GameEdit>) {
+    pub(super) fn update_game(&mut self, id: GameId, edits: Vec<super::command::GameEdit>) {
         use super::command::GameEdit as E;
         let mut patch = crate::storage::GamePatch::default();
         let mut program_edits = Vec::new();
@@ -911,7 +790,7 @@ impl AppService {
         self.after_library_edit(r);
     }
 
-    fn load_game(&mut self, id: GameId, reply_to: crate::ids::QueryId) {
+    pub(super) fn load_game(&mut self, id: GameId, reply_to: crate::ids::QueryId) {
         let result = match self.lib.game(id) {
             Ok(g) => super::event::QueryResult::Game(Box::new(g)),
             Err(e) => super::event::QueryResult::Failed(Box::new(self.describe(&e, Some(id)))),
@@ -922,7 +801,11 @@ impl AppService {
         });
     }
 
-    fn query_stats(&mut self, req: &crate::stats::StatsRequest, reply_to: crate::ids::QueryId) {
+    pub(super) fn query_stats(
+        &mut self,
+        req: &crate::stats::StatsRequest,
+        reply_to: crate::ids::QueryId,
+    ) {
         use crate::stats::StatsRequest as R;
         let now = self.deps.clock.now();
         // The UI computes ranges in local time; their end date is "today" for streaks.
@@ -987,7 +870,7 @@ impl AppService {
 
     // ---- host and preferences (SVC-009) -----------------------------------------------
 
-    fn probe_host(&self, fresh: bool) {
+    pub(super) fn probe_host(&self, fresh: bool) {
         let host = Arc::clone(&self.deps.host);
         let post = self.poster();
         let _ = self.deps.jobs.submit(
@@ -1000,7 +883,7 @@ impl AppService {
         );
     }
 
-    fn on_host_facts(&mut self, f: Arc<HostFacts>) {
+    pub(super) fn on_host_facts(&mut self, f: Arc<HostFacts>) {
         self.host = Some(Arc::clone(&f));
         self.install_policy_check();
         self.hub.host.store(Arc::new(Some((*f).clone())));
@@ -1035,7 +918,7 @@ impl AppService {
         }
     }
 
-    fn set_preference(&mut self, patch: &crate::config::PreferencePatch) {
+    pub(super) fn set_preference(&mut self, patch: &crate::config::PreferencePatch) {
         let next = match self
             .prefs
             .apply(patch, &*self.deps.fs, &LoadOptions { env_rule: None })
@@ -1116,61 +999,8 @@ impl AppService {
 // ---- recovery mode (ERR-004) -------------------------------------------------------------
 
 impl AppService {
-    /// In recovery mode, refuse what would write the library or start a session, with the
-    /// recovery error (ERROR_HANDLING §5). Returns whether `cmd` was refused.
-    fn refuse_in_recovery(&mut self, cmd: &Command) -> bool {
-        let Some(r) = self.hub.diagnostics.load().recovery.clone() else {
-            return false;
-        };
-        let allowed = matches!(
-            cmd,
-            Command::LoadGame { .. }
-                | Command::AboutGame { .. }
-                | Command::QueryStats { .. }
-                | Command::ScanFolder { .. }
-                | Command::MeasurePrefix { .. }
-                | Command::FindSteamApp { .. }
-                | Command::RescanMissing
-                | Command::StopSession { .. }
-                | Command::AnswerPrompt { .. }
-                | Command::RefreshRuntimes
-                | Command::SetPreference(_)
-                | Command::RefreshHostFacts
-                | Command::OpenFolder(_)
-                | Command::ViewLog { .. }
-                | Command::Inspect { .. }
-                | Command::ListSessions { .. }
-                | Command::ReadLog { .. }
-                | Command::ListProcesses { .. }
-                | Command::RunDoctor
-                | Command::BuildReport { .. }
-                | Command::SaveReport { .. }
-                | Command::DismissCrash
-                | Command::ResolveDatabase(_)
-                | Command::Shutdown
-        );
-        if allowed {
-            return false;
-        }
-        tracing::info!(command = cmd.name(), "refused in recovery mode");
-        let u = r.error.clone();
-        if let Command::Launch { id, .. } = cmd {
-            let launch = LaunchId::generate(&*self.deps.clock);
-            let mut u = u;
-            u.game = Some(*id);
-            self.emit(Event::LaunchProgress {
-                game: *id,
-                launch,
-                state: crate::launch::LaunchState::Failed(Box::new(u)),
-            });
-        } else {
-            self.emit(Event::Failure(Box::new(u)));
-        }
-        true
-    }
-
     /// `ResolveDatabase`: carry out the choice, reopen the library, leave recovery mode.
-    fn resolve_database(&mut self, choice: &super::command::DatabaseChoice) {
+    pub(super) fn resolve_database(&mut self, choice: &super::command::DatabaseChoice) {
         let damaged = matches!(
             self.hub
                 .diagnostics
