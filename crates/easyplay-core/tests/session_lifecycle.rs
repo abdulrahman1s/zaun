@@ -709,7 +709,7 @@ fn ignoring_sigterm_is_killed_after_the_grace_period() {
         &w,
         &PlanOpts {
             fake: "umu,game,ignore-term,sleep:60000",
-            grace: 2,
+            grace: 1,
             ..PlanOpts::default()
         },
     );
@@ -724,9 +724,9 @@ fn ignoring_sigterm_is_killed_after_the_grace_period() {
     r.stop(StopMode::Graceful);
     let (out, _) = r.join();
     let took = t.elapsed();
-    assert!(took >= Duration::from_secs(2), "{took:?}");
+    assert!(took >= Duration::from_secs(1), "{took:?}");
     assert!(
-        took < Duration::from_secs(2 + 4 + 1),
+        took < Duration::from_secs(1 + 4 + 1),
         "gone within grace + 4 s: {took:?}"
     );
     assert!(
@@ -769,7 +769,8 @@ fn sigsegv_is_a_crash() {
 fn large_output_is_capped_and_never_blocks() {
     let _s = serial();
     let w = World::new();
-    let mib = if e2e() { 1024 } else { 256 };
+    // 64× the cap is plenty to show it never blocks; the e2e run drains a full GiB.
+    let mib = if e2e() { 1024 } else { 64 };
     let mut c = cfg(&w);
     c.log_cap_bytes = 1 << 20;
     let p = plan(
