@@ -1,6 +1,5 @@
 //! `StopSession`: ask the supervisor to stop; a supervisor that is gone means recovery (SVC-005).
 use crate::session::StopOutcome;
-use crate::storage::SessionRepo;
 
 use crate::service::prelude::*;
 

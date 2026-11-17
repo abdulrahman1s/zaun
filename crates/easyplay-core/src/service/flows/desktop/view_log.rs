@@ -3,7 +3,6 @@ use super::DesktopDone;
 use crate::desktop::KnownPath;
 use crate::model::SessionKind;
 use crate::service::prelude::*;
-use crate::storage::SessionRepo;
 
 impl AppService {
     pub(crate) fn view_log(

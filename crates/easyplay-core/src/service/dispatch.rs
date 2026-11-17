@@ -1,10 +1,4 @@
 //! The routes table: commands, job completions and prompt answers to their flows (ADR-0034).
-
-#![allow(
-    clippy::unit_arg,
-    reason = "`Reply` bridges handlers still returning `()`; goes when every handler returns `Result`"
-)]
-
 use super::app_service::{AppService, Internal};
 use super::command::Command;
 use super::event::Event;
@@ -13,24 +7,6 @@ use super::prompts::Continuation;
 use crate::error::Result;
 use crate::ids::{LaunchId, PromptId};
 use crate::model::PromptAnswer;
-
-/// What a handler hands back: `()` or `Result<()>`, like axum's `IntoResponse`. Lets flows move
-/// to `Result<()>` one at a time; removed once all of them have (ADR-0034).
-pub(crate) trait Reply {
-    fn into_result(self) -> Result<()>;
-}
-
-impl Reply for () {
-    fn into_result(self) -> Result<()> {
-        Ok(())
-    }
-}
-
-impl Reply for Result<()> {
-    fn into_result(self) -> Result<()> {
-        self
-    }
-}
 
 impl AppService {
     /// Handle one command (also used by tests and the headless CLI through
@@ -50,87 +26,89 @@ impl AppService {
 
     fn route(&mut self, cmd: Command) -> Result<()> {
         match cmd {
-            Command::OpenPaths { paths, origin } => self.open_paths(paths, origin).into_result(),
-            Command::CreateGame { draft, then } => self.create_game(*draft, then).into_result(),
-            Command::DiscardDraft => self.setup_closed().into_result(),
-            Command::RemoveGame { id, options } => self.remove_game(id, options).into_result(),
+            Command::OpenPaths { paths, origin } => self.open_paths(paths, origin),
+            Command::CreateGame { draft, then } => self.create_game(*draft, then),
+            Command::DiscardDraft => self.setup_closed(),
+            Command::RemoveGame { id, options } => self.remove_game(id, options),
             Command::SetFavorite { id, favorite } => self.set_favorite(id, favorite),
             Command::SetHidden { id, hidden } => self.set_hidden(id, hidden),
             Command::SetTags { id, tags } => self.set_tags(id, &tags),
             Command::UpdateGame { id, edits } => self.update_game(id, edits),
             Command::LoadGame { id, reply_to } => self.load_game(id, reply_to),
-            Command::AboutGame { id, reply_to } => self.about_game(id, reply_to).into_result(),
+            Command::AboutGame { id, reply_to } => self.about_game(id, reply_to),
             Command::QueryStats { request, reply_to } => self.query_stats(&request, reply_to),
-            Command::RescanMissing => self.check_availability().into_result(),
-            Command::ClearStatistics => self.clear_statistics(None).into_result(),
-            Command::ResetGameStatistics { id } => self.clear_statistics(Some(id)).into_result(),
-            Command::RemoveSession { id } => self.remove_session(id).into_result(),
-            Command::AddExecutable { id, path, role } => {
-                self.add_program(id, &path, role).into_result()
+            Command::RescanMissing => {
+                self.check_availability();
+                Ok(())
             }
+            Command::ClearStatistics => self.clear_statistics(None),
+            Command::ResetGameStatistics { id } => self.clear_statistics(Some(id)),
+            Command::RemoveSession { id } => self.remove_session(id),
+            Command::AddExecutable { id, path, role } => self.add_program(id, &path, role),
             Command::LocateExecutable { id, exe, new_path } => {
-                self.locate_program(id, exe, &new_path).into_result()
+                self.locate_program(id, exe, &new_path)
             }
-            Command::ScanFolder { folder, reply_to } => {
-                self.scan_folder(folder, reply_to).into_result()
+            Command::ScanFolder { folder, reply_to } => self.scan_folder(folder, reply_to),
+            Command::MeasurePrefix { id, reply_to } => self.measure_prefix(id, reply_to),
+            Command::CancelLaunch { id } => {
+                self.cancel_launch(id);
+                Ok(())
             }
-            Command::MeasurePrefix { id, reply_to } => {
-                self.measure_prefix(id, reply_to).into_result()
+            Command::RunTool { id, tool } => self.run_tool(id, tool, None),
+            Command::ImportArtwork { id, slot, source } => self.import_artwork(id, slot, source),
+            Command::FetchOnlineArtwork { id } => self.fetch_online_artwork(id, true),
+            Command::FindSteamApp { id, term, reply_to } => self.find_steam_app(id, term, reply_to),
+            Command::Launch { id, exe, origin } => {
+                self.start_launch(id, exe, origin);
+                Ok(())
             }
-            Command::CancelLaunch { id } => self.cancel_launch(id).into_result(),
-            Command::RunTool { id, tool } => self.run_tool(id, tool, None).into_result(),
-            Command::ImportArtwork { id, slot, source } => {
-                self.import_artwork(id, slot, source).into_result()
-            }
-            Command::FetchOnlineArtwork { id } => self.fetch_online_artwork(id, true).into_result(),
-            Command::FindSteamApp { id, term, reply_to } => {
-                self.find_steam_app(id, term, reply_to).into_result()
-            }
-            Command::Launch { id, exe, origin } => self.start_launch(id, exe, origin).into_result(),
             Command::StopSession { session, mode } => {
-                self.stop_session(session, mode).into_result()
+                self.stop_session(session, mode);
+                Ok(())
             }
             Command::AnswerPrompt { prompt, answer } => self.answer_prompt(prompt, answer),
-            Command::ResetPrefix { id, options } => self.reset_prefix(id, options).into_result(),
-            Command::AdoptRuntime { variant } => self.adopt_runtime(variant).into_result(),
-            Command::RefreshRuntimes => self.scan_runtimes().into_result(),
-            Command::ProvisionRuntime { target } => self.provision_runtime(target).into_result(),
-            Command::RemoveRuntime { name } => self.remove_runtime(name).into_result(),
-            Command::VerifyRuntime => self.verify_runtimes().into_result(),
+            Command::ResetPrefix { id, options } => self.reset_prefix(id, options),
+            Command::AdoptRuntime { variant } => self.adopt_runtime(variant),
+            Command::RefreshRuntimes => {
+                self.scan_runtimes();
+                Ok(())
+            }
+            Command::ProvisionRuntime { target } => self.provision_runtime(target),
+            Command::RemoveRuntime { name } => self.remove_runtime(name),
+            Command::VerifyRuntime => self.verify_runtimes(),
             Command::SetPreference(patch) => self.set_preference(&patch),
             Command::RefreshHostFacts => {
                 self.probe_host(true);
                 Ok(())
             }
-            Command::SetDefaultHandler { enable } => self.set_default_handler(enable).into_result(),
-            Command::SetShortcut { id, enable } => self.set_shortcut(id, enable).into_result(),
-            Command::OpenFolder(target) => self.open_folder(target).into_result(),
-            Command::ViewLog { session, game } => self.view_log(session, game).into_result(),
-            Command::Inspect { target, reply_to } => self.inspect(target, reply_to).into_result(),
-            Command::ListSessions { game, reply_to } => {
-                self.list_sessions(game, reply_to).into_result()
-            }
+            Command::SetDefaultHandler { enable } => self.set_default_handler(enable),
+            Command::SetShortcut { id, enable } => self.set_shortcut(id, enable),
+            Command::OpenFolder(target) => self.open_folder(target),
+            Command::ViewLog { session, game } => self.view_log(session, game),
+            Command::Inspect { target, reply_to } => self.inspect(target, reply_to),
+            Command::ListSessions { game, reply_to } => self.list_sessions(game, reply_to),
             Command::ReadLog {
                 session,
                 file,
                 offset,
                 reply_to,
-            } => self.read_log(session, file, offset, reply_to).into_result(),
-            Command::ListProcesses { session, reply_to } => {
-                self.list_processes(session, reply_to).into_result()
+            } => self.read_log(session, file, offset, reply_to),
+            Command::ListProcesses { session, reply_to } => self.list_processes(session, reply_to),
+            Command::RunDoctor => {
+                self.run_doctor();
+                Ok(())
             }
-            Command::RunDoctor => self.run_doctor().into_result(),
             Command::BuildReport {
                 game,
                 session,
                 reply_to,
-            } => self.build_report(game, session, reply_to).into_result(),
-            Command::SaveReport { files, dest } => self.save_report(files, dest).into_result(),
-            Command::DismissCrash => self.dismiss_crash().into_result(),
+            } => self.build_report(game, session, reply_to),
+            Command::SaveReport { files, dest } => self.save_report(files, dest),
+            Command::DismissCrash => self.dismiss_crash(),
             Command::ResolveDatabase(choice) => self.resolve_database(&choice),
             // Handled by `steam_route`.
             Command::Steam(_) => Ok(()),
-            Command::Chat(c) => self.chat_command(c).into_result(),
+            Command::Chat(c) => self.chat_command(c),
             Command::Shutdown => {
                 self.stopping = true;
                 Ok(())
@@ -146,14 +124,14 @@ impl AppService {
 
     fn route_internal(&mut self, i: Internal) -> Result<()> {
         match i {
-            Internal::Opened(o) => self.on_opened(*o).into_result(),
-            Internal::Drafted { result, origin } => self.on_drafted(result, origin).into_result(),
+            Internal::Opened(o) => self.on_opened(*o),
+            Internal::Drafted { result, origin } => self.on_drafted(result, origin),
             Internal::LaunchState {
                 game,
                 launch,
                 state,
-            } => self.on_launch_state(game, launch, state).into_result(),
-            Internal::LaunchDone(d) => self.on_launch_done(*d).into_result(),
+            } => self.on_launch_state(game, launch, state),
+            Internal::LaunchDone(d) => self.on_launch_done(*d),
             Internal::HostFacts(f) => self.on_host_facts(f),
             Internal::Runtimes(c) => {
                 self.hub.runtimes.store(c);
@@ -164,28 +142,31 @@ impl AppService {
                 }
                 Ok(())
             }
-            Internal::Sessions(p) => self.on_sessions(p).into_result(),
-            Internal::Art(a) => self.on_art_fetched(*a).into_result(),
-            Internal::Adopted(r) => self.on_adopted(r).into_result(),
-            Internal::RuntimeJob(d) => self.on_runtime_job(d).into_result(),
+            Internal::Sessions(p) => {
+                self.on_sessions(p);
+                Ok(())
+            }
+            Internal::Art(a) => self.on_art_fetched(*a),
+            Internal::Adopted(r) => self.on_adopted(r),
+            Internal::RuntimeJob(d) => self.on_runtime_job(d),
             Internal::Flow(f) => self.on_flow_done(*f),
-            Internal::Desktop(d) => self.on_desktop(*d).into_result(),
-            Internal::Doctor(r) => self.on_doctor(*r).into_result(),
-            Internal::ReportSaved(r) => self.on_report_saved(r).into_result(),
+            Internal::Desktop(d) => self.on_desktop(*d),
+            Internal::Doctor(r) => self.on_doctor(*r),
+            Internal::ReportSaved(r) => self.on_report_saved(r),
         }
     }
 
     /// A job of the flows finished.
     fn on_flow_done(&mut self, done: FlowDone) -> Result<()> {
         match done {
-            FlowDone::Removed { job, files } => self.on_removed(&job, files).into_result(),
-            FlowDone::Reset { game, result } => self.on_reset(game, result).into_result(),
-            FlowDone::Tool { game, result } => self.on_tool_started(game, result).into_result(),
+            FlowDone::Removed { job, files } => self.on_removed(&job, files),
+            FlowDone::Reset { game, result } => self.on_reset(game, result),
+            FlowDone::Tool { game, result } => self.on_tool_started(game, result),
             FlowDone::Query { id, result } => {
                 self.emit(Event::QueryResult { id, result });
                 Ok(())
             }
-            FlowDone::Maintenance(r) => self.on_maintenance(r).into_result(),
+            FlowDone::Maintenance(r) => self.on_maintenance(r),
             FlowDone::Availability(a) => {
                 self.lib.set_availability(&a);
                 self.publish_library();
@@ -196,9 +177,9 @@ impl AppService {
                 self.publish_library();
                 Ok(())
             }
-            FlowDone::Steam(d) => self.on_steam_done(d).into_result(),
-            FlowDone::Chat(d) => self.on_chat_done(d).into_result(),
-            FlowDone::ChatServices(d) => self.on_services_done(d).into_result(),
+            FlowDone::Steam(d) => self.on_steam_done(d),
+            FlowDone::Chat(d) => self.on_chat_done(d),
+            FlowDone::ChatServices(d) => self.on_services_done(d),
         }
     }
 
@@ -210,14 +191,14 @@ impl AppService {
         };
         match parked.then {
             c @ (Continuation::OpenChanged { .. } | Continuation::OpenAttach { .. }) => {
-                self.resume_open(c, &answer).into_result()
+                self.resume_open(c, &answer)
             }
             c @ (Continuation::LaunchExeChanged { .. } | Continuation::LaunchRuntime { .. }) => {
-                self.resume_launch(c, &answer).into_result()
+                self.resume_launch(c, &answer)
             }
-            c @ Continuation::RemoveRunning { .. } => self.resume_remove(c, &answer).into_result(),
-            c @ Continuation::ToolNetwork { .. } => self.resume_tool(c, &answer).into_result(),
-            c @ Continuation::Locate { .. } => self.resume_locate(c, &answer).into_result(),
+            c @ Continuation::RemoveRunning { .. } => self.resume_remove(c, &answer),
+            c @ Continuation::ToolNetwork { .. } => self.resume_tool(c, &answer),
+            c @ Continuation::Locate { .. } => self.resume_locate(c, &answer),
             Continuation::Nothing => Ok(()),
         }
     }

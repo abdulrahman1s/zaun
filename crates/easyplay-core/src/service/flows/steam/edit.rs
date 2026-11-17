@@ -1,5 +1,4 @@
 //! Library edits of a Steam game: favourite, hidden, tags and notes (ADR-0031).
-
 use super::details::app_id;
 use crate::ids::TagName;
 use crate::library::steam::not_for_steam;

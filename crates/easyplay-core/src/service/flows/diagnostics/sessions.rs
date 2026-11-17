@@ -1,6 +1,5 @@
 //! `ListSessions`: the game's recent sessions of every kind, newest first (DEV-003).
 use crate::service::prelude::*;
-use crate::storage::SessionRepo;
 
 /// Sessions listed for the selector.
 const SESSION_LIST: u64 = 50;

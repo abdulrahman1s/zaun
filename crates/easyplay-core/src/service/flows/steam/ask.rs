@@ -1,5 +1,4 @@
 //! Requests handed to the Steam client: Play, Update, Open in Steam (ADR-0031).
-
 use super::state::{STEAM_START_WINDOW, SteamDone};
 use crate::host::CommandSpec;
 use crate::library::steam::not_listed;

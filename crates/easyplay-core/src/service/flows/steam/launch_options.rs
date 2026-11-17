@@ -1,7 +1,5 @@
 //! A Steam game's launch options: written to Steam's own file on the job pool (ADR-0031 §6a).
-
 use crate::service::prelude::*;
-use std::path::PathBuf;
 
 use super::details::app_id;
 use super::state::SteamDone;

@@ -1,12 +1,8 @@
 //! Send a file or picture: copy it into the Chat folder (the engine's sandbox sees nothing
 //! else), make a picture's preview, send it from a thread of its own (ADR-0033).
-use std::path::{Path, PathBuf};
-
 use super::preview::{PREVIEW_BUDGET, PREVIEW_MAX_SOURCE, preview_jpeg};
 use super::state::{ChatDone, OUTBOX_DIR};
 use crate::chat::{FileKind, MAX_FILE, MAX_SEND, Request};
-use crate::fsx::Fs;
-use crate::model::ChatRef;
 use crate::service::ClipKind;
 use crate::service::prelude::*;
 

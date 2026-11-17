@@ -1,5 +1,4 @@
 //! A Steam job finished: hand its result to the action that started it (ADR-0031).
-
 use super::state::SteamDone;
 use crate::service::prelude::*;
 

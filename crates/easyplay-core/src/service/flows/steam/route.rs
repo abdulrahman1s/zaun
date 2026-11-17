@@ -1,5 +1,4 @@
 //! Which commands go to Steam, and what each Steam command does (ADR-0031).
-
 use super::details::app_id;
 use crate::library::steam::not_for_steam;
 use crate::service::command::FolderRequest;

@@ -1,6 +1,4 @@
 //! `ReadLog`: one chunk of a session log file for the viewer (DEV-004, SCREEN_SPECS_2 §15).
-use std::path::{Path, PathBuf};
-
 use crate::fsx::{FileType, Fs};
 use crate::service::command::LogFile;
 use crate::service::event::LogChunk;

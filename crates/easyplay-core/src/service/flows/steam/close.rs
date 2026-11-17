@@ -1,5 +1,4 @@
 //! "Close Steam": ask the running client to close itself (ADR-0031 §6a).
-
 use crate::service::prelude::*;
 use crate::steam::client::{SteamRequest, client_running};
 

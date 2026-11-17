@@ -4,7 +4,6 @@
 //! the session's network mode, the game folder access, the program's bitness, sibling files
 //! and the tail of `game.log`. Reads at most 64 KiB of the log and one directory listing.
 use crate::diagnostics::evidence::{self, Evidence, LOG_TAIL_BYTES};
-use crate::error::UserError;
 use crate::model::{EndReason, PeMachine, Session};
 use crate::service::prelude::*;
 

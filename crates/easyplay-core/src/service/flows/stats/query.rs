@@ -65,7 +65,7 @@ impl AppService {
 }
 
 /// Describe on the job pool, where the service's redactor is not at hand.
-fn describe_plain(e: &Error) -> crate::error::UserError {
+fn describe_plain(e: &Error) -> UserError {
     let redact = |s: &str| s.to_owned();
     catalog::describe(
         e,

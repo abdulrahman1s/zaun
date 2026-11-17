@@ -1,9 +1,7 @@
 //! `Inspect`: the launch inspector's data for a session or the next launch (DEV-001).
-use crate::error::UserError;
 use crate::launch;
 use crate::service::command::InspectTarget;
 use crate::service::prelude::*;
-use crate::storage::SessionRepo;
 
 impl AppService {
     pub(crate) fn inspect(&mut self, target: InspectTarget, reply_to: QueryId) -> Result<()> {

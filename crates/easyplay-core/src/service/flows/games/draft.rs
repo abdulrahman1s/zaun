@@ -1,6 +1,4 @@
 //! Draft a program for the setup dialog and queue the dialogs (SVC-004, LOGIC_SPECS §2).
-use std::path::{Path, PathBuf};
-
 use crate::artwork::IconSource;
 use crate::clock::Clock;
 use crate::fsx::{Fs, MountTable};

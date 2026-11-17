@@ -1,7 +1,6 @@
 //! Messages: send, edit, mark read, and load a page of a conversation (ADR-0033).
 use super::state::PAGE;
 use crate::chat::Request;
-use crate::model::ChatRef;
 use crate::service::prelude::*;
 
 impl AppService {

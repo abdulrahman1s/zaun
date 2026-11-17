@@ -5,13 +5,9 @@
 //!   `ChatCommand::SendFile`, which copies it at once into the conversation's files; the
 //!   download is then deleted, so no copy of Giphy's media is kept beyond the sent file. A
 //!   saved GIF is sent from where it is, if it is inside the Chat folder.
-use std::path::PathBuf;
-use std::time::Duration;
-
 use super::services::ServicesDone;
 use crate::artwork::http::HttpClient;
 use crate::gifs::{self, GifAnswer, GifPick, GifProblem};
-use crate::model::ChatRef;
 use crate::service::prelude::*;
 
 /// Where a chosen Giphy GIF waits until `SendFile` has copied it (`<chat>/gif-downloads`).

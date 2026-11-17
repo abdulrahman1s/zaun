@@ -1,6 +1,4 @@
 //! The classification job finished: launch, prompt, show or draft (SVC-003, LOGIC_SPECS §1).
-use std::path::PathBuf;
-
 use super::open::Opened;
 use crate::identity::matcher::{Change, MatchOutcome};
 use crate::model::{Fingerprint, PeInfo};

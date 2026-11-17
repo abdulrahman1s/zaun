@@ -1,6 +1,4 @@
 //! `OpenFolder`: only folders EasyPlay knows (DESKTOP_INTEGRATION §8).
-use std::path::PathBuf;
-
 use super::DesktopDone;
 use crate::desktop::KnownPath;
 use crate::model::SaveDataLocation;

@@ -1,6 +1,4 @@
 //! OpenPaths (SVC-003, LOGIC_SPECS §1): classify each path on the job pool, then act on its match.
-use std::path::PathBuf;
-
 use super::classify::Classified;
 use crate::model::{ExeRole, Fingerprint, PeInfo};
 use crate::service::prelude::*;

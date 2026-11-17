@@ -1,6 +1,4 @@
 //! `ScanFolder` (GAME_LIBRARY §11): list the programs under a folder, answered through its query.
-use std::path::PathBuf;
-
 use crate::library::folder_scan;
 use crate::service::prelude::*;
 

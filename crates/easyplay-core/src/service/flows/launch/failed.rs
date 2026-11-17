@@ -1,6 +1,4 @@
 //! How a launch ends without a session: failed, or parked behind a question (SVC-005).
-use crate::launch::LaunchState;
-use crate::model::Activity;
 use crate::runtime::ProvisionNeed;
 use crate::service::prelude::*;
 

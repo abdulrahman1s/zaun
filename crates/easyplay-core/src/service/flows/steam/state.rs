@@ -1,8 +1,6 @@
 //! What the Steam flow keeps between messages and what its jobs send back (ADR-0031).
-
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use crate::clock::{MonoInstant, Timestamp};
 use crate::procfs::ProcIdentity;

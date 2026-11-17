@@ -1,10 +1,6 @@
 //! The prefix-tool job: plan the `Tool` session and start it on the job pool (ADR-0031 §6).
-
-use std::path::PathBuf;
-
 use super::tool_game::{steam_tool_plan, tool_game};
 use crate::clock::Clock;
-use crate::fsx::Fs;
 use crate::host::HostProbe;
 use crate::launch::{LaunchTarget, PlanRequest, PrefixLocks, plan_launch_in_prefix};
 use crate::model::Tool;

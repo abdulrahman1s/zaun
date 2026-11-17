@@ -1,7 +1,6 @@
 //! Friends and conversations: mute, block, security code (ADR-0033). The snapshot changes at
 //! once; the engine is asked after.
 use crate::chat::Request;
-use crate::model::ChatRef;
 use crate::service::prelude::*;
 
 impl AppService {

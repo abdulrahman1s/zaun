@@ -1,5 +1,4 @@
 //! Sessions that ended: idle the game, close the launch's progress, finish a parked removal (SVC-005).
-use crate::launch::LaunchState;
 use crate::model::{Activity, EndReason, Session};
 use crate::service::prelude::*;
 

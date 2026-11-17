@@ -1,7 +1,4 @@
 //! The never-stored game a prefix tool runs under, and its plan adjustment (ADR-0031 §6).
-
-use std::path::Path;
-
 use crate::clock::Timestamp;
 use crate::model::{
     ExeRole, Executable, Fingerprint, Game, GameDirAccess, GameFlags, LaunchConfig, PeInfo,

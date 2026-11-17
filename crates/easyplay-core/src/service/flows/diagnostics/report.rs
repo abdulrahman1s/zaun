@@ -1,10 +1,7 @@
 //! The diagnostics report: preview, save as an archive, saved notice (ERR-003).
-use std::path::PathBuf;
-
 use crate::diagnostics::report::{self, GamePart, ReportFile, ReportInput};
 use crate::model::SessionKind;
 use crate::service::prelude::*;
-use crate::storage::SessionRepo;
 
 impl AppService {
     /// `BuildReport`: collect the files for the preview.

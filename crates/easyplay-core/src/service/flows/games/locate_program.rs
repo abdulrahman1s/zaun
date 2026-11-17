@@ -1,6 +1,4 @@
 //! *Locate…* for a moved program (UI-020, LOGIC_SPECS §1, §8): relink, or ask when it changed.
-use std::path::Path;
-
 use crate::identity::fingerprint;
 use crate::library::RelinkOutcome;
 use crate::service::prelude::*;

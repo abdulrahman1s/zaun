@@ -1,5 +1,4 @@
 //! The Steam page's record of a game, answered through its query (ADR-0031 §6).
-
 use crate::library::steam::{is_listed, not_listed};
 use crate::model::{GameOrigin, GameSummary, SteamCompat};
 use crate::service::event::SteamDetail;

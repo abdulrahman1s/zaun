@@ -1,9 +1,6 @@
 //! Save and open a received file: only files inside the Chat folder, never run (ADR-0033).
-use std::path::{Path, PathBuf};
-
 use super::state::ChatDone;
 use crate::chat::{FileKind, Request};
-use crate::model::ChatRef;
 use crate::service::prelude::*;
 
 impl AppService {

@@ -1,7 +1,5 @@
 //! Open a Steam game's install folder or Windows storage (ADR-0031).
-
 use crate::service::prelude::*;
-use std::path::PathBuf;
 
 use crate::desktop::KnownPath;
 use crate::service::flows::desktop::DesktopDone;

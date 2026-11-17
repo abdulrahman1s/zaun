@@ -1,8 +1,5 @@
 //! `CancelLaunch`: drop a launch before its hand-off (SVC-005, LOGIC_SPECS §3 "Cancellation").
-use crate::launch::LaunchState;
-use crate::model::Activity;
 use crate::service::prelude::*;
-use crate::storage::SessionRepo;
 
 impl AppService {
     /// Before the hand-off the launch is dropped (a session that starts anyway is stopped at

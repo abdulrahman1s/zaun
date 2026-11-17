@@ -1,6 +1,4 @@
 //! `MeasurePrefix`: size of a game's private storage (prefix and private home), answered through its query.
-use std::time::Duration;
-
 use crate::library::prefix_ops;
 use crate::service::prelude::*;
 

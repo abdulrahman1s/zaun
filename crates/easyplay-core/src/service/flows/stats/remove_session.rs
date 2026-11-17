@@ -1,7 +1,6 @@
 //! `RemoveSession`: delete one ended session from history (STATISTICS §9).
 use crate::service::prelude::*;
 use crate::stats;
-use crate::storage::SessionRepo;
 
 impl AppService {
     pub(crate) fn remove_session(&mut self, id: SessionId) -> Result<()> {

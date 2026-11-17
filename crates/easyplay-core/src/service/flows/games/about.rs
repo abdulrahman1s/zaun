@@ -1,5 +1,4 @@
 //! `AboutGame` (ADR-0028): the engine and hints from a game's files, answered through its query.
-use crate::error::UserError;
 use crate::error::catalog::{self, DescribeCtx};
 use crate::service::prelude::*;
 

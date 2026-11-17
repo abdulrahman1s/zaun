@@ -121,7 +121,7 @@ impl AppService {
         self.emit(Event::Notice(Notice::ChatMessagesUpdated(messages)));
     }
 
-    fn on_history(&mut self, tag: u64, chat: crate::model::ChatRef, messages: Vec<ChatMessage>) {
+    fn on_history(&mut self, tag: u64, chat: ChatRef, messages: Vec<ChatMessage>) {
         if let Some(id) = self.flow.chat.pages.remove(&tag) {
             self.emit(Event::QueryResult {
                 id,

@@ -1,6 +1,4 @@
 //! "Set up as a new game" (LOGIC_SPECS §1, §4): the file leaves its old game, then a draft follows.
-use std::path::PathBuf;
-
 use crate::service::prelude::*;
 
 impl AppService {

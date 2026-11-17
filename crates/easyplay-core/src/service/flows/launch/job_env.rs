@@ -1,8 +1,5 @@
 //! What a launch-like job takes from the service onto the pool (SVC-005).
-use std::path::PathBuf;
-
 use crate::clock::Clock;
-use crate::fsx::Fs;
 use crate::host::{HostFacts, HostProbe};
 use crate::launch::{HostEnv, PrefixLocks};
 use crate::model::Game;

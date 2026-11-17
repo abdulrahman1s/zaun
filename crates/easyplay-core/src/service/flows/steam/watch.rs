@@ -1,11 +1,9 @@
 //! Which Steam games run, seen through `/proc` by a polling thread (ADR-0031).
-
 use crate::service::prelude::*;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::state::{STEAM_POLL, SteamDone};
-use crate::model::Activity;
 use crate::procfs::ProcIdentity;
 use crate::steam::client::running_games;
 

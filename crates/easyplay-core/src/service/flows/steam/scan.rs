@@ -1,7 +1,5 @@
 //! The option and the scans of Steam's files (ADR-0031).
-
 use super::state::SteamDone;
-use crate::model::Activity;
 use crate::service::prelude::*;
 use crate::steam::client::running_games;
 use crate::steam::{Handoff, SteamScan};

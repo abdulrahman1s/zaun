@@ -1,7 +1,4 @@
 //! Run a tool in a Steam game's Windows storage as a `Tool` session (ADR-0031 §6).
-
-use std::path::{Path, PathBuf};
-
 use super::prefix_job::PrefixJob;
 use crate::library::steam::not_for_steam;
 use crate::model::{SteamCompat, SteamFacts, Tool};

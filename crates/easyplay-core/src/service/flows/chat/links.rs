@@ -1,6 +1,4 @@
 //! Opening a message's link, checked first when `chat.check_links` is on (ADR-0033).
-use std::sync::Arc;
-
 use super::services::ServicesDone;
 use crate::artwork::http::HttpClient;
 use crate::jobs::JobLabel;

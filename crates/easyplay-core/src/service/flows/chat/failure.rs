@@ -1,8 +1,6 @@
 //! The engine failed a request or exited: say why, fail waiting pages, restart with a back-off
 //! (ADR-0033). After `MAX_FAILURES` exits without a successful start Chat stops with
 //! `EP-CHT-002`.
-use std::time::Duration;
-
 use super::state::{ChatDone, MAX_FAILURES, backoff};
 use crate::chat::RequestKind;
 use crate::model::ChatStatus;

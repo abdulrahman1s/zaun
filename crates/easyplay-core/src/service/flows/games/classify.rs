@@ -1,6 +1,4 @@
 //! Classify, fingerprint and match one path on the job pool (SVC-003, LOGIC_SPECS §1).
-use std::path::{Path, PathBuf};
-
 use super::draft::DraftInputs;
 use crate::consts::MIN_PE_SIZE;
 use crate::fsx::{Fs, MountTable};

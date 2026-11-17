@@ -6,15 +6,11 @@
 //!   build without network) GIF search answers "unavailable" and links open unchecked
 //!   only when the check is off.
 //! - Picker pictures are `Background` jobs, so they never hold up the user's own actions.
-use std::path::PathBuf;
-use std::sync::Arc;
-
 use crate::artwork::http::HttpClient;
 use crate::clock::MonoInstant;
 use crate::gifs::GifAnswer;
 use crate::jobs::JobLabel;
 use crate::linkcheck::{CheckError, Verdict, WebLink};
-use crate::model::ChatRef;
 use crate::service::prelude::*;
 
 /// What this module keeps between messages.

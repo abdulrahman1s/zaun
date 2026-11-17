@@ -1,6 +1,4 @@
 //! Import a user-chosen artwork file: decode and normalise on the pool (ART-008, LOGIC_SPECS §14).
-use std::path::PathBuf;
-
 use super::fetched::ArtFetched;
 use crate::artwork::ArtSource;
 use crate::artwork::ImageLimits;

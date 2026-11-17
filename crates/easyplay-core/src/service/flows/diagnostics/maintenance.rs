@@ -6,12 +6,7 @@
 //!
 //! Session recovery and the retry of interrupted removals run earlier, before the first
 //! snapshot (they change what the library shows).
-
-use std::path::PathBuf;
-use std::time::Duration;
-
 use crate::clock::Timestamp;
-use crate::fsx::Fs;
 use crate::jobs::{JobLabel, JobPriority};
 use crate::paths::AppPaths;
 use crate::service::prelude::*;

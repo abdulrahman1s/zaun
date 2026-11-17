@@ -1,6 +1,4 @@
 //! Add a program to a game from the game page (UI-018, LOGIC_SPECS §8).
-use std::path::Path;
-
 use crate::model::ExeRole;
 use crate::service::prelude::*;
 

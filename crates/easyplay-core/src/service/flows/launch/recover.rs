@@ -1,5 +1,4 @@
 //! Session registry: recover dead supervisors and apply the watcher's reports (SVC-005, PROCESS_LIFECYCLE §9).
-use crate::launch::LaunchState;
 use crate::model::{Activity, LaunchStateTag, Session, SessionState};
 use crate::service::prelude::*;
 use crate::service::session_watch::SessionPoll;
