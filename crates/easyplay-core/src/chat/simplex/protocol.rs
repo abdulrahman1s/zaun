@@ -52,15 +52,30 @@
 //!   user's own list knows (the engine refuses others: `fileNotApproved`), so a sender
 //!   cannot make this computer contact a server of their choosing.
 //! - **Offline**: every SMP relay host the engine reported is disconnected.
+//! - **Relays that answer.** The engine puts each new queue on a random enabled relay, and
+//!   some relays may not answer from this network (no IPv6 route, a relay down). After the
+//!   start, and after a network failure (at most once every [`CHECK_EVERY`]), the codec
+//!   tests the enabled relays and file servers with the engine's own test (`/_server test`,
+//!   run beside the other commands so a timeout holds nothing up), reads the server list
+//!   (`/_servers`) and writes it back with the ones that failed disabled and marked
+//!   `tested: false`; those are tested again next time and enabled when they answer. It
+//!   never disables every server of a kind, nor every server of an operator (then nothing
+//!   changes: the network is down, not the relays).
+//! - **Retry.** An invitation, an address or a connection that fails with a network error
+//!   waits for that check and is sent once more before the failure is reported. Only one
+//!   invitation and one address are made at a time (repeats are ignored), and an address the
+//!   engine already has (`duplicateContactLink`: a timed-out request made it after all) is
+//!   read back with `/_show_address` instead of failing.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde_json::Value;
 
 use crate::chat::engine::{ChatEvent, FileKind, Request, RequestKind};
 use crate::chat::{MAX_FILE, REACTION_EMOJI};
-use crate::clock::Timestamp;
+use crate::clock::{MonoInstant, Timestamp};
 use crate::error::ErrorCode;
 use crate::model::{
     ChatFeatures, ChatGroup, ChatMessage, ChatPreview, ChatProfile, ChatRef, Delivery, Friend,
@@ -80,11 +95,14 @@ pub const GIFS_SEND_WORKS: bool = true;
 /// file itself, so no thumbnail is made (core cannot decode GIFs).
 const PREVIEW: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
+/// The least time between two checks of the relays (a check after a failure waits for it).
+pub const CHECK_EVERY: Duration = Duration::from_secs(180);
+
 /// The key under the contact's custom data that EasyPlay owns.
 const CUSTOM_KEY: &str = "easyplay";
 
 /// What a command's answer belongs to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Pending {
     ShowUser,
     CreateUser,
@@ -99,7 +117,25 @@ enum Pending {
         chat: ChatRef,
     },
     /// `/_connect plan`: what a link is, before connecting with it.
-    Plan,
+    Plan {
+        /// The `Connect` request, for a retry.
+        request: Request,
+        /// This is the retry.
+        retried: bool,
+    },
+    /// A request that reaches a relay (an invitation, an address, a connection): retried
+    /// once after a relay check when the network fails.
+    Net {
+        kind: RequestKind,
+        request: Request,
+        retried: bool,
+    },
+    /// `/_servers`: the server list, for a check.
+    Servers,
+    /// `/_server test`: one server of the check.
+    ServerTest(String),
+    /// `/_servers <json>`: the checked list written back.
+    SetServers,
     Req(RequestKind),
     /// `/_get code @friend`.
     Code(i64),
@@ -160,6 +196,28 @@ pub struct Codec {
     /// SMP relay hosts the engine reported, and whether each is connected.
     hosts: HashMap<String, bool>,
     offline: bool,
+    /// The time, as the engine last told it ([`Codec::tick`]).
+    now: Option<MonoInstant>,
+    /// The relay check under way, and when the last one started.
+    check: Option<Check>,
+    last_check: Option<MonoInstant>,
+    /// Requests to send again once the check is done.
+    after_check: Vec<Request>,
+    /// The next rendered request is a retry.
+    retrying: bool,
+    /// An invitation or an address being made (`CreateInvite`, `Address`).
+    links_busy: HashSet<RequestKind>,
+}
+
+/// A relay check under way.
+#[derive(Debug)]
+struct Check {
+    /// The server list as read (`userServers`).
+    list: Value,
+    /// Tests not answered yet.
+    waiting: usize,
+    /// Each tested server: whether it answered.
+    passed: HashMap<String, bool>,
 }
 
 impl Codec {
@@ -189,7 +247,18 @@ impl Codec {
             members_read: HashSet::new(),
             hosts: HashMap::new(),
             offline: false,
+            now: None,
+            check: None,
+            last_check: None,
+            after_check: Vec::new(),
+            retrying: false,
+            links_busy: HashSet::new(),
         }
+    }
+
+    /// The time now (the engine calls this before each request and line; tests set it).
+    pub fn tick(&mut self, now: MonoInstant) {
+        self.now = Some(now);
     }
 
     /// Whether start-up finished.
@@ -285,6 +354,15 @@ impl Codec {
             .push(serde_json::json!({ "corr": corr, "cmd": cmd }).to_string());
     }
 
+    /// A command run beside the others (its answer may come after later ones).
+    fn send_bg(&mut self, out: &mut Output, pending: Pending, cmd: String) {
+        let corr = self.next;
+        self.next += 1;
+        self.pending.insert(corr, pending);
+        out.lines
+            .push(serde_json::json!({ "corr": corr, "cmd": cmd, "bg": true }).to_string());
+    }
+
     fn uid(&self) -> i64 {
         self.user.unwrap_or(1)
     }
@@ -306,6 +384,7 @@ impl Codec {
     #[allow(clippy::too_many_lines)]
     fn render(&mut self, request: Request, out: &mut Output) {
         let uid = self.uid();
+        let retried = std::mem::take(&mut self.retrying);
         let (kind, cmd) = match request {
             Request::Refresh => {
                 self.refresh(out);
@@ -329,7 +408,24 @@ impl Codec {
                 RequestKind::SetProfile,
                 format!("/_profile {uid} {}", self.profile_json(&p)),
             ),
-            Request::CreateInvite => (RequestKind::CreateInvite, format!("/_connect {uid}")),
+            Request::CreateInvite | Request::CreateAddress => {
+                let (kind, cmd) = if request == Request::CreateInvite {
+                    (RequestKind::CreateInvite, format!("/_connect {uid}"))
+                } else {
+                    (RequestKind::Address, format!("/_address {uid}"))
+                };
+                if !retried && !self.links_busy.insert(kind) {
+                    tracing::debug!(?kind, "chat: already being made");
+                    return;
+                }
+                let pending = Pending::Net {
+                    kind,
+                    request,
+                    retried,
+                };
+                self.send(out, pending, cmd);
+                return;
+            }
             Request::Connect(link) => {
                 let link = link.trim().to_owned();
                 if link.is_empty() || link.chars().any(char::is_whitespace) {
@@ -340,12 +436,16 @@ impl Codec {
                     ));
                     return;
                 }
-                self.send(out, Pending::Plan, format!("/_connect plan {uid} {link}"));
+                let cmd = format!("/_connect plan {uid} {link}");
+                let pending = Pending::Plan {
+                    request: Request::Connect(link),
+                    retried,
+                };
+                self.send(out, pending, cmd);
                 return;
             }
             Request::Accept(id) => (RequestKind::Answer, format!("/_accept {id}")),
             Request::Reject(id) => (RequestKind::Answer, format!("/_reject {id}")),
-            Request::CreateAddress => (RequestKind::Address, format!("/_address {uid}")),
             Request::DeleteAddress => (RequestKind::Address, format!("/_delete_address {uid}")),
             Request::Send {
                 chat,
@@ -676,7 +776,62 @@ impl Codec {
                     )),
                 }
             }
-            Pending::Plan => self.on_plan(result, ty, error, out),
+            Pending::Plan { request, retried } => {
+                if let Some(e) = error.filter(|_| ty != Some("connectionPlan")) {
+                    return self.on_net_error(RequestKind::Connect, request, retried, e, out);
+                }
+                self.on_plan(result, ty, request, retried, out);
+            }
+            Pending::Net {
+                kind,
+                request,
+                retried,
+            } => {
+                if let Some(e) = error {
+                    return self.on_net_error(kind, request, retried, e, out);
+                }
+                self.links_busy.remove(&kind);
+                self.on_request_done(kind, ty, result, out);
+            }
+            Pending::Servers => {
+                match result
+                    .filter(|_| ty == Some("userServers"))
+                    .and_then(|r| r.get("userServers"))
+                {
+                    Some(list) => self.test_servers(list.clone(), out),
+                    None => {
+                        tracing::info!(error = %error.map(short).unwrap_or_default(), "chat: the server list was not read");
+                        self.check_done(out);
+                    }
+                }
+            }
+            Pending::ServerTest(server) => {
+                let passed = ty == Some("serverTestResult")
+                    && result
+                        .and_then(|r| r.get("testFailure"))
+                        .is_none_or(Value::is_null);
+                if !passed {
+                    let why = result
+                        .and_then(|r| r.get("testFailure"))
+                        .or(error)
+                        .map(short)
+                        .unwrap_or_default();
+                    tracing::info!(server = %host_of(&server), why, "chat: a relay did not answer its test");
+                }
+                if let Some(c) = &mut self.check {
+                    c.passed.insert(server, passed);
+                    c.waiting = c.waiting.saturating_sub(1);
+                    if c.waiting == 0 {
+                        self.apply_check(out);
+                    }
+                }
+            }
+            Pending::SetServers => {
+                if let Some(e) = error {
+                    tracing::info!(error = %short(e), "chat: the checked server list was refused");
+                }
+                self.check_done(out);
+            }
             Pending::Code(friend) => {
                 match result
                     .filter(|_| ty == Some("contactCode"))
@@ -746,7 +901,11 @@ impl Codec {
             }
             Pending::Req(kind) => {
                 if let Some(e) = error {
-                    out.events.push(failed(kind, error_code(kind, e), short(e)));
+                    let code = error_code(kind, e);
+                    out.events.push(failed(kind, code, short(e)));
+                    if code == ErrorCode::ChtNoConnection {
+                        self.start_check(out);
+                    }
                     return;
                 }
                 self.on_request_done(kind, ty, result, out);
@@ -758,16 +917,16 @@ impl Codec {
         &mut self,
         result: Option<&Value>,
         ty: Option<&str>,
-        error: Option<&Value>,
+        request: Request,
+        retried: bool,
         out: &mut Output,
     ) {
         let plan = result.filter(|_| ty == Some("connectionPlan"));
         let Some(plan) = plan else {
-            let e = error.cloned().unwrap_or(Value::Null);
             out.events.push(failed(
                 RequestKind::Connect,
-                error_code(RequestKind::Connect, &e),
-                short(&e),
+                ErrorCode::ChtBadLink,
+                result.map(short).unwrap_or_default(),
             ));
             return;
         };
@@ -801,7 +960,12 @@ impl Codec {
             (_, _, Some(link)) => {
                 let uid = self.uid();
                 let cmd = format!("/_connect {uid} {link}");
-                self.send(out, Pending::Req(RequestKind::Connect), cmd);
+                let pending = Pending::Net {
+                    kind: RequestKind::Connect,
+                    request,
+                    retried,
+                };
+                self.send(out, pending, cmd);
             }
         }
     }
@@ -858,6 +1022,139 @@ impl Codec {
         let uid = self.uid();
         self.send(out, Pending::ShowAddress, format!("/_show_address {uid}"));
         for r in std::mem::take(&mut self.queued) {
+            self.render(r, out);
+        }
+        self.start_check(out);
+    }
+
+    // ---- relays that answer, retries ----------------------------------------------------
+
+    /// A request that reaches a relay failed. A network failure, the first time: check the
+    /// relays and send it again. An address the engine already has: read it back.
+    fn on_net_error(
+        &mut self,
+        kind: RequestKind,
+        request: Request,
+        retried: bool,
+        e: &Value,
+        out: &mut Output,
+    ) {
+        let code = error_code(kind, e);
+        if code == ErrorCode::ChtNoConnection && !retried {
+            tracing::info!(?kind, error = %short(e), "chat: a relay did not answer; checking the relays, then once more");
+            self.after_check.push(request);
+            if !self.start_check(out) && self.check.is_none() {
+                // Checked a moment ago: just send it again.
+                self.flush_retries(out);
+            }
+            return;
+        }
+        self.links_busy.remove(&kind);
+        if kind == RequestKind::Address && e.to_string().contains("duplicateContactLink") {
+            // A request that timed out made it after all.
+            let uid = self.uid();
+            self.send(out, Pending::ShowAddress, format!("/_show_address {uid}"));
+            return;
+        }
+        out.events.push(failed(kind, code, short(e)));
+        if code == ErrorCode::ChtNoConnection {
+            self.start_check(out);
+        }
+    }
+
+    /// Start a relay check unless one runs or one started less than [`CHECK_EVERY`] ago.
+    /// Whether one started.
+    fn start_check(&mut self, out: &mut Output) -> bool {
+        if self.check.is_some() {
+            return false;
+        }
+        let recent = match (self.last_check, self.now) {
+            (Some(last), Some(now)) => now.saturating_duration_since(last) < CHECK_EVERY,
+            (Some(_), None) => true,
+            (None, _) => false,
+        };
+        if recent {
+            return false;
+        }
+        self.last_check = self.now.or(self.last_check);
+        self.check = Some(Check {
+            list: Value::Null,
+            waiting: 0,
+            passed: HashMap::new(),
+        });
+        let uid = self.uid();
+        self.send(out, Pending::Servers, format!("/_servers {uid}"));
+        true
+    }
+
+    /// Test every enabled server, and those a check disabled before.
+    fn test_servers(&mut self, list: Value, out: &mut Output) {
+        let servers: Vec<String> = candidates(&list, !self.smp.is_empty())
+            .into_iter()
+            .map(|(_, _, _, s)| s)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if servers.is_empty() {
+            return self.check_done(out);
+        }
+        if let Some(c) = &mut self.check {
+            c.list = list;
+            c.waiting = servers.len();
+        }
+        let uid = self.uid();
+        for s in servers {
+            let cmd = format!("/_server test {uid} {s}");
+            self.send_bg(out, Pending::ServerTest(s), cmd);
+        }
+    }
+
+    /// Every test answered: disable what failed and enable what recovered, unless that
+    /// would leave a kind of server, or an operator's servers of a kind, with none.
+    fn apply_check(&mut self, out: &mut Output) {
+        let Some(c) = self.check.as_mut() else { return };
+        let mut list = c.list.clone();
+        let found = candidates(&list, !self.smp.is_empty());
+        let mut changed = false;
+        for key in ["smpServers", "xftpServers"] {
+            let of_kind: Vec<_> = found.iter().filter(|f| f.1 == key).collect();
+            if !of_kind.iter().any(|f| c.passed.get(&f.3) == Some(&true)) {
+                continue;
+            }
+            let ops: HashSet<usize> = of_kind.iter().map(|f| f.0).collect();
+            for op in ops {
+                let in_op: Vec<_> = of_kind.iter().filter(|f| f.0 == op).collect();
+                if !in_op.iter().any(|f| c.passed.get(&f.3) == Some(&true)) {
+                    continue;
+                }
+                for f in in_op {
+                    let ok = c.passed.get(&f.3) == Some(&true);
+                    let s = &mut list[f.0][f.1][f.2];
+                    if s.get("enabled").and_then(Value::as_bool) != Some(ok) {
+                        changed = true;
+                        tracing::info!(server = %host_of(&f.3), enabled = ok, "chat: relay");
+                    }
+                    s["enabled"] = ok.into();
+                    s["tested"] = ok.into();
+                }
+            }
+        }
+        if changed {
+            let uid = self.uid();
+            self.send(out, Pending::SetServers, format!("/_servers {uid} {list}"));
+        } else {
+            self.check_done(out);
+        }
+    }
+
+    fn check_done(&mut self, out: &mut Output) {
+        self.check = None;
+        self.flush_retries(out);
+    }
+
+    fn flush_retries(&mut self, out: &mut Output) {
+        for r in std::mem::take(&mut self.after_check) {
+            self.retrying = true;
             self.render(r, out);
         }
     }
@@ -1655,6 +1952,50 @@ fn parse_members(g: &Value) -> Vec<GroupMember> {
         })
         .filter_map(|m| member(m, false));
     me.into_iter().chain(others).collect()
+}
+
+/// The servers a check tests in a `userServers` list: (operator entry, kind, index,
+/// address) of every server not deleted, of an enabled operator (or the user's own), that
+/// is enabled or was disabled by an earlier check (`tested: false`). With `own_only` (custom
+/// relays) only the user's own: the presets stay untouched, and uncontacted.
+fn candidates(list: &Value, own_only: bool) -> Vec<(usize, &'static str, usize, String)> {
+    let mut found = Vec::new();
+    for (i, op) in list.as_array().into_iter().flatten().enumerate() {
+        let operator = op.get("operator").filter(|o| !o.is_null());
+        let enabled_op = match operator {
+            None => true,
+            Some(_) if own_only => false,
+            Some(o) => o.get("enabled").and_then(Value::as_bool) == Some(true),
+        };
+        if !enabled_op {
+            continue;
+        }
+        for key in ["smpServers", "xftpServers"] {
+            for (j, s) in op
+                .get(key)
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .enumerate()
+            {
+                let flag = |k: &str| s.get(k).and_then(Value::as_bool);
+                if flag("deleted") == Some(true) {
+                    continue;
+                }
+                if (flag("enabled") == Some(true) || flag("tested") == Some(false))
+                    && let Some(addr) = s.get("server").and_then(Value::as_str)
+                {
+                    found.push((i, key, j, addr.to_owned()));
+                }
+            }
+        }
+    }
+    found
+}
+
+/// A server's host, for the log (no key fingerprint).
+fn host_of(server: &str) -> &str {
+    server.rsplit('@').next().unwrap_or(server)
 }
 
 #[cfg(test)]

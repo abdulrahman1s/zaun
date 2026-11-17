@@ -14,6 +14,9 @@
 //!   3) when it cannot be opened; `{"t":"fatal","msg":"<text>"}` (exit 4) when the library
 //!   cannot be loaded or the first line is not understood.
 //! - in, then: `{"corr":<n>,"cmd":"<chat command>"}`; out: `{"t":"resp","corr":<n>,"body":<json>}`.
+//!   Commands run one after another in the order given, except one marked `"bg":true`,
+//!   which runs on a thread of its own (a server test can wait for a network timeout and
+//!   must not hold up messages); its answer comes whenever it is done.
 //! - out, at any time: `{"t":"event","body":<json>}` for what the engine reports by itself.
 //! - End of input closes the database and exits 0.
 //!
@@ -26,12 +29,15 @@
 use std::ffi::{CStr, CString, c_char, c_int, c_long, c_void};
 use std::io::{BufRead, Write};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Protocol version of the first line.
 const PROTOCOL: u32 = 1;
 /// How long one wait for an engine event lasts, in microseconds.
 const RECV_WAIT_US: c_int = 1_000_000;
+/// How long the end of input waits for commands running beside, in milliseconds.
+const BG_GRACE_MS: u64 = 3000;
 /// Exit status: the database could not be opened.
 const EXIT_INIT: u8 = 3;
 /// Exit status: the library could not be loaded, or the first line was not understood.
@@ -65,6 +71,9 @@ struct Init {
 struct Request {
     corr: u64,
     cmd: String,
+    /// Run on a thread of its own, beside the commands in order.
+    #[serde(default)]
+    bg: bool,
 }
 
 /// The engine's functions, resolved once.
@@ -244,6 +253,7 @@ fn main() -> ExitCode {
         return out.fatal(&format!("event thread: {e}"));
     }
 
+    let running = Arc::new(AtomicUsize::new(0));
     for line in lines {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
@@ -262,9 +272,34 @@ fn main() -> ExitCode {
             out.line(&v.to_string());
             continue;
         };
+        if req.bg {
+            let (bg_out, bg_running) = (out.clone(), Arc::clone(&running));
+            running.fetch_add(1, Ordering::SeqCst);
+            let corr = req.corr;
+            let spawned = std::thread::Builder::new()
+                .name("engine-bg".into())
+                .spawn(move || {
+                    // SAFETY: as below; the engine accepts commands from several threads.
+                    let r = take(unsafe { (api.send)(ctrl.ptr(), cmd.as_ptr()) });
+                    bg_out.body("resp", Some(corr), &r);
+                    bg_running.fetch_sub(1, Ordering::SeqCst);
+                });
+            if spawned.is_err() {
+                running.fetch_sub(1, Ordering::SeqCst);
+                let v = serde_json::json!({ "t": "bad_request", "corr": corr, "msg": "no thread" });
+                out.line(&v.to_string());
+            }
+            continue;
+        }
         // SAFETY: the command is NUL-terminated and lives across the call.
         let r = take(unsafe { (api.send)(ctrl.ptr(), cmd.as_ptr()) });
         out.body("resp", Some(req.corr), &r);
+    }
+    // Commands still running beside get a moment to finish before the database closes.
+    let mut waited = 0;
+    while running.load(Ordering::SeqCst) > 0 && waited < BG_GRACE_MS {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        waited += 50;
     }
     // SAFETY: the controller is valid; no command runs after this.
     let _ = take(unsafe { (api.close)(ctrl.ptr()) });

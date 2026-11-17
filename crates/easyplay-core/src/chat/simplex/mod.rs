@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::engine::{ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, Request};
+use crate::clock::Clock as _;
 use crate::error::{Error, ErrorCode, Result};
 use crate::session::{PipedHelper, spawn_piped_helper};
 use protocol::Codec;
@@ -178,6 +179,8 @@ impl EngineFactory for SimplexFactory {
             }),
         )?;
 
+        // The codec's time (how long since the last relay check).
+        let clock = crate::clock::SystemClock::new();
         let codec = Arc::new(Mutex::new(Codec::new(
             &config.name,
             config.relays,
@@ -194,7 +197,11 @@ impl EngineFactory for SimplexFactory {
                 Box::new(move || {
                     for line in BufReader::new(stdout).lines() {
                         let Ok(line) = line else { break };
-                        let out = lock(&codec).on_line(&line);
+                        let out = {
+                            let mut c = lock(&codec);
+                            c.tick(clock.mono());
+                            c.on_line(&line)
+                        };
                         for l in out.lines {
                             let _ = tx.send(l);
                         }
@@ -216,6 +223,7 @@ impl EngineFactory for SimplexFactory {
             sink,
             pid,
             exited,
+            clock,
         }))
     }
 }
@@ -233,6 +241,7 @@ struct SimplexEngine {
     sink: EventSink,
     pid: u32,
     exited: Arc<AtomicBool>,
+    clock: crate::clock::SystemClock,
 }
 
 impl Engine for SimplexEngine {
@@ -247,7 +256,11 @@ impl Engine for SimplexEngine {
     }
 
     fn request(&self, request: Request) {
-        let out = lock(&self.codec).request(request);
+        let out = {
+            let mut c = lock(&self.codec);
+            c.tick(self.clock.mono());
+            c.request(request)
+        };
         if let Some(tx) = &self.tx {
             for l in out.lines {
                 let _ = tx.send(l);

@@ -1,0 +1,64 @@
+{
+  "result": {
+    "type": "serverTestResult",
+    "user": {
+      "userId": 1,
+      "agentUserId": "1",
+      "userContactId": 1,
+      "localDisplayName": "alice",
+      "profile": {
+        "profileId": 1,
+        "displayName": "alice",
+        "fullName": "",
+        "localAlias": ""
+      },
+      "fullPreferences": {
+        "timedMessages": {
+          "allow": "yes"
+        },
+        "fullDelete": {
+          "allow": "no"
+        },
+        "reactions": {
+          "allow": "yes"
+        },
+        "voice": {
+          "allow": "yes"
+        },
+        "files": {
+          "allow": "always"
+        },
+        "calls": {
+          "allow": "yes"
+        },
+        "sessions": {
+          "allow": "no"
+        },
+        "commands": []
+      },
+      "activeUser": true,
+      "activeOrder": 1,
+      "showNtfs": true,
+      "sendRcptsContacts": true,
+      "sendRcptsSmallGroups": true,
+      "autoAcceptMemberContacts": false,
+      "userChatRelay": false,
+      "clientService": false
+    },
+    "testServer": "smp://6iIcWT_dF2zN_w5xzZEY7HI2Prbh3ldP07YTyDexPjE=@smp10.simplex.im,rb2pbttocvnbrngnwziclp2f4ckjq65kebafws6g4hy22cdaiv5dwjqd.onion",
+    "testFailure": {
+      "testStep": "connect",
+      "testError": {
+        "type": "BROKER",
+        "brokerAddress": "smp://6iIcWT_dF2zN_w5xzZEY7HI2Prbh3ldP07YTyDexPjE=@smp10.simplex.im,rb2pbttocvnbrngnwziclp2f4ckjq65kebafws6g4hy22cdaiv5dwjqd.onion",
+        "brokerErr": {
+          "type": "NETWORK",
+          "networkError": {
+            "type": "connectError",
+            "connectError": "Network.Socket.connect: <socket: 13>: does not exist (Network is unreachable)"
+          }
+        }
+      }
+    }
+  }
+}

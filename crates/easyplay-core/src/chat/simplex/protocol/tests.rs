@@ -2,6 +2,9 @@
 //! helpers talking through a local relay).
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use crate::clock::MonoInstant;
 
 use serde_json::Value;
 
@@ -55,6 +58,14 @@ fn fixture(name: &str) -> Value {
         "file_not_approved" => include_str!("../fixtures/file_not_approved.json"),
         "address_created" => include_str!("../fixtures/address_created.json"),
         "show_address" => include_str!("../fixtures/show_address.json"),
+        "servers_presets" => include_str!("../fixtures/servers_presets.json"),
+        "servers_custom" => include_str!("../fixtures/servers_custom.json"),
+        "server_test_ok" => include_str!("../fixtures/server_test_ok.json"),
+        "server_test_dead" => include_str!("../fixtures/server_test_dead.json"),
+        "server_test_offline" => include_str!("../fixtures/server_test_offline.json"),
+        "address_duplicate" => include_str!("../fixtures/address_duplicate.json"),
+        "invite_network_error" => include_str!("../fixtures/invite_network_error.json"),
+        "servers_set_none_resp" => include_str!("../fixtures/servers_set_none_resp.json"),
         other => panic!("no fixture {other}"),
     };
     serde_json::from_str(text).unwrap()
@@ -101,8 +112,14 @@ fn started() -> Codec {
     c.on_line(&resp(2, &ok()));
     let out = c.on_line(&resp(3, &fixture("chat_started")));
     assert!(c.started());
-    assert_eq!(cmds(&out).len(), 2);
+    // The list (4), the address (5), and the relay check reads the server list (6).
+    assert_eq!(cmds(&out).len(), 3);
     c
+}
+
+/// No servers to test: the check ends at once.
+fn no_servers() -> Value {
+    serde_json::json!({ "result": { "type": "userServers", "userServers": [] } })
 }
 
 /// Started, with the start-up list (4) and address (5) answered: nothing in flight.
@@ -117,6 +134,7 @@ fn settled_with(list: &str) -> Codec {
     let none = serde_json::json!({ "error": { "type": "error", "errorType": { "type": "noContactLink" } } });
     let out = c.on_line(&resp(5, &none));
     assert_eq!(out.events, vec![ChatEvent::Address(None)]);
+    assert!(c.on_line(&resp(6, &no_servers())).lines.is_empty());
     c
 }
 
@@ -163,6 +181,7 @@ fn start_up_reads_the_user_then_starts_then_reads_the_list_and_address() {
         sent[0].1
     );
     assert_eq!(sent[1], (5, "/_show_address 1".to_owned()));
+    assert_eq!(sent[2], (6, "/_servers 1".to_owned()));
 }
 
 #[test]
@@ -232,7 +251,7 @@ fn requests_made_while_starting_wait_for_the_start() {
     c.on_line(&resp(1, &fixture("active_user")));
     c.on_line(&resp(2, &ok()));
     let out = c.on_line(&resp(3, &fixture("chat_started")));
-    assert_eq!(cmds(&out).last().unwrap().1, "/_connect 1");
+    assert!(cmds(&out).iter().any(|(_, c)| c == "/_connect 1"));
 }
 
 #[test]
@@ -324,6 +343,12 @@ fn an_engine_error_for_a_link_is_a_bad_link_and_a_network_error_is_no_connection
 
     let corr = cmds(&c.request(Request::CreateInvite))[0].0;
     let net = serde_json::json!({ "error": { "type": "errorAgent", "agentError": { "type": "BROKER", "brokerErr": { "type": "NETWORK" } } } });
+    // The first network failure waits for the relay check (6, under way) and is sent again.
+    let out = c.on_line(&resp(corr, &net));
+    assert!(out.events.is_empty() && out.lines.is_empty(), "{out:?}");
+    let out = c.on_line(&resp(6, &no_servers()));
+    let (corr, cmd) = cmds(&out)[0].clone();
+    assert_eq!(cmd, "/_connect 1");
     let out = c.on_line(&resp(corr, &net));
     assert!(matches!(
         out.events[0],
@@ -1159,4 +1184,210 @@ fn the_address_is_shared_as_its_short_link_when_made_and_when_read_back() {
     c.on_line(&resp(4, &fixture("api_chats")));
     let out = c.on_line(&resp(5, &fixture("show_address")));
     assert_eq!(out.events, vec![ChatEvent::Address(Some(made.clone()))]);
+}
+
+// ---- relays that answer, retries, one invitation at a time --------------------------------
+
+/// The commands of `out` run beside the others (`"bg":true`).
+fn bg_cmds(out: &Output) -> Vec<(u64, String)> {
+    out.lines
+        .iter()
+        .filter_map(|l| {
+            let v: Value = serde_json::from_str(l).unwrap();
+            (v["bg"] == true).then(|| {
+                (
+                    v["corr"].as_u64().unwrap(),
+                    v["cmd"].as_str().unwrap().to_owned(),
+                )
+            })
+        })
+        .collect()
+}
+
+const LIVE: &str = "smp://jZxOZYTgS4Q3Mp5r4wJW5ruxuQAPb8y5pa4a1DI2l6Y=@127.0.0.1:5223";
+const DEAD: &str = "smp://jZxOZYTgS4Q3Mp5r4wJW5ruxuQAPb8y5pa4a1DI2l6Y=@127.0.0.2:5999";
+
+/// A codec with the recorded custom relays (one answers, one does not), started; the
+/// check's server list read (corr 7) is in flight.
+fn started_custom(now: MonoInstant) -> Codec {
+    let mut c = codec("alice", vec![LIVE.into(), DEAD.into()]);
+    c.tick(now);
+    c.on_line(r#"{"t":"ready"}"#);
+    c.on_line(&resp(1, &fixture("active_user")));
+    c.on_line(&resp(2, &ok()));
+    c.on_line(&resp(3, &fixture("chat_started")));
+    let out = c.on_line(&resp(4, &ok()));
+    assert_eq!(cmds(&out).last().unwrap(), &(7, "/_servers 1".to_owned()));
+    c
+}
+
+/// The server list written back by `out` (`/_servers 1 <json>`), as (address, enabled,
+/// tested) of the user's own SMP servers.
+fn written(out: &Output) -> Vec<(String, bool, Option<bool>)> {
+    let (_, cmd) = cmds(out)
+        .into_iter()
+        .find(|(_, c)| c.starts_with("/_servers 1 "))
+        .expect("the list written back");
+    let list: Value = serde_json::from_str(cmd.strip_prefix("/_servers 1 ").unwrap()).unwrap();
+    list.as_array()
+        .unwrap()
+        .iter()
+        .filter(|op| op["operator"].is_null())
+        .flat_map(|op| op["smpServers"].as_array().unwrap().clone())
+        .map(|s| {
+            (
+                s["server"].as_str().unwrap().to_owned(),
+                s["enabled"].as_bool().unwrap(),
+                s["tested"].as_bool(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_relay_that_does_not_answer_is_disabled_and_the_presets_are_left_alone() {
+    let mut c = started_custom(MonoInstant::ZERO);
+    let out = c.on_line(&resp(7, &fixture("servers_custom")));
+    let tests = bg_cmds(&out);
+    // Only the user's own relays: the preset file servers (still enabled in the engine
+    // under custom relays) are never contacted.
+    let mut tested: Vec<&str> = tests.iter().map(|(_, c)| c.as_str()).collect();
+    tested.sort_unstable();
+    assert_eq!(
+        tested,
+        vec![
+            format!("/_server test 1 {LIVE}").as_str(),
+            format!("/_server test 1 {DEAD}").as_str(),
+        ]
+    );
+    let corr_of = |addr: &str| tests.iter().find(|(_, c)| c.ends_with(addr)).unwrap().0;
+    let out = c.on_line(&resp(corr_of(DEAD), &fixture("server_test_dead")));
+    assert!(out.lines.is_empty(), "waits for every test");
+    let out = c.on_line(&resp(corr_of(LIVE), &fixture("server_test_ok")));
+    assert_eq!(
+        written(&out),
+        vec![
+            (LIVE.to_owned(), true, Some(true)),
+            (DEAD.to_owned(), false, Some(false)),
+        ]
+    );
+}
+
+#[test]
+fn a_relay_disabled_by_a_check_is_enabled_again_when_it_answers() {
+    let mut c = started_custom(MonoInstant::ZERO);
+    let mut list = fixture("servers_custom");
+    for op in list["result"]["userServers"].as_array_mut().unwrap() {
+        for s in op["smpServers"].as_array_mut().unwrap() {
+            if s["server"] == DEAD {
+                s["enabled"] = false.into();
+                s["tested"] = false.into();
+            }
+        }
+    }
+    let out = c.on_line(&resp(7, &list));
+    let tests = bg_cmds(&out);
+    assert_eq!(tests.len(), 2, "the one a check disabled is tested again");
+    let mut last = Output::default();
+    for (corr, _) in tests {
+        last = c.on_line(&resp(corr, &fixture("server_test_ok")));
+    }
+    assert!(written(&last).iter().all(|(_, on, _)| *on));
+}
+
+#[test]
+fn when_no_relay_answers_nothing_is_disabled() {
+    let mut c = started(); // the preset relays; the check's list read is corr 6
+    let out = c.on_line(&resp(6, &fixture("servers_presets")));
+    let tests = bg_cmds(&out);
+    // The enabled preset relays and file servers of both operators.
+    assert_eq!(tests.len(), 13, "{tests:?}");
+    assert!(tests.iter().all(|(_, c)| c.starts_with("/_server test 1 ")));
+    let mut last = Output::default();
+    for (corr, _) in tests {
+        last = c.on_line(&resp(corr, &fixture("server_test_offline")));
+    }
+    // Offline, not dead relays: the list is not written.
+    assert!(last.lines.is_empty(), "{:?}", last.lines);
+}
+
+#[test]
+fn checks_are_at_most_every_few_minutes_and_a_failure_soon_after_is_just_sent_again() {
+    let t0 = MonoInstant::ZERO;
+    let mut c = started_custom(t0);
+    c.on_line(&resp(
+        7,
+        &serde_json::json!({ "result": { "type": "userServers", "userServers": [] } }),
+    ));
+    let net = fixture("invite_network_error");
+
+    c.tick(t0.saturating_add(Duration::from_secs(60)));
+    let corr = cmds(&c.request(Request::CreateInvite))[0].0;
+    let out = c.on_line(&resp(corr, &net));
+    // Checked a minute ago: sent again at once, no new check.
+    assert_eq!(
+        cmds(&out)
+            .iter()
+            .map(|(_, c)| c.as_str())
+            .collect::<Vec<_>>(),
+        vec!["/_connect 1"]
+    );
+    let corr = cmds(&out)[0].0;
+    let out = c.on_line(&resp(corr, &net));
+    assert!(matches!(
+        out.events[0],
+        ChatEvent::Failed {
+            request: RequestKind::CreateInvite,
+            code: ErrorCode::ChtNoConnection,
+            ..
+        }
+    ));
+
+    c.tick(t0.saturating_add(CHECK_EVERY + Duration::from_secs(1)));
+    let corr = cmds(&c.request(Request::CreateInvite))[0].0;
+    let out = c.on_line(&resp(corr, &net));
+    assert_eq!(
+        cmds(&out)[0].1,
+        "/_servers 1",
+        "a new check before the retry"
+    );
+}
+
+#[test]
+fn a_connection_whose_relay_times_out_is_planned_and_sent_again_after_the_check() {
+    let mut c = settled();
+    let link = "https://relay.example/i#abc";
+    let corr = cmds(&c.request(Request::Connect(link.into())))[0].0;
+    let out = c.on_line(&resp(corr, &fixture("invite_network_error")));
+    let (corr, cmd) = cmds(&out)[0].clone();
+    assert_eq!(cmd, "/_servers 1");
+    let out = c.on_line(&resp(corr, &no_servers()));
+    assert_eq!(cmds(&out)[0].1, format!("/_connect plan 1 {link}"));
+}
+
+#[test]
+fn an_address_the_engine_already_has_is_read_back_and_only_one_is_made_at_a_time() {
+    let mut c = settled();
+    let corr = cmds(&c.request(Request::CreateAddress))[0].0;
+    // A second tap while it is made is ignored.
+    assert!(c.request(Request::CreateAddress).lines.is_empty());
+    assert!(
+        c.request(Request::CreateInvite).lines.len() == 1,
+        "an invitation is separate"
+    );
+    let out = c.on_line(&resp(corr, &fixture("address_duplicate")));
+    assert!(out.events.is_empty(), "not a failure: {:?}", out.events);
+    let (corr, cmd) = cmds(&out)[0].clone();
+    assert_eq!(cmd, "/_show_address 1");
+    let out = c.on_line(&resp(corr, &fixture("show_address")));
+    assert!(matches!(out.events[0], ChatEvent::Address(Some(_))));
+    // Done: a new request goes through.
+    assert_eq!(cmds(&c.request(Request::CreateAddress))[0].1, "/_address 1");
+}
+
+#[test]
+fn the_engine_refuses_a_list_with_no_relay_so_a_check_never_writes_one() {
+    // Recorded: every SMP relay disabled is refused (USENoServers); the check never asks.
+    let refused = fixture("servers_set_none_resp");
+    assert!(refused["error"].to_string().contains("USENoServers"));
 }

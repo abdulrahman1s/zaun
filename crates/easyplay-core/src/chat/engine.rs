@@ -144,7 +144,7 @@ pub enum Request {
 }
 
 /// Which request failed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RequestKind {
     /// Starting the engine.
     Start,

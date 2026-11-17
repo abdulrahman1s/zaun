@@ -29,7 +29,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use easyplay_core::chat::{
-    ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, FileKind, Request, SimplexFactory,
+    ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, FileKind, Request, RequestKind,
+    SimplexFactory,
 };
 use easyplay_core::model::{ChatMessage, ChatRef, MessageAuthor, MessageBody, Quote};
 
@@ -59,6 +60,13 @@ fn factory(log: PathBuf) -> SimplexFactory {
     }
 }
 
+/// The local relay's address on a loopback address nothing listens on.
+fn dead_relay(relay: &str) -> Option<String> {
+    relay
+        .contains("@127.0.0.1:")
+        .then(|| relay.replace("@127.0.0.1:5223", "@127.0.0.2:5999"))
+}
+
 struct Peer {
     engine: Box<dyn Engine>,
     events: Receiver<ChatEvent>,
@@ -84,7 +92,10 @@ impl Peer {
                     relays: match env("EASYPLAY_TEST_SMP").as_str() {
                         // The engine's preset public relays: the path every user takes.
                         "preset" => Vec::new(),
+                        // With a local relay, a second one that never answers: the relay
+                        // check must disable it, or about half the new queues time out.
                         relay => std::iter::once(relay.to_owned())
+                            .chain(dead_relay(relay))
                             .chain(std::env::var("EASYPLAY_TEST_XFTP").ok())
                             .collect(),
                     },
@@ -167,6 +178,12 @@ impl Peer {
 #[ignore = "needs libsimplex and a local SMP relay (see the file's header)"]
 fn two_engines_talk_through_a_relay_and_keep_their_history() {
     let tmp = tempfile::tempdir().unwrap();
+    // EasyPlay's own log, to see the relay check at work.
+    let app_log = tmp.path().join("easyplay.log");
+    let mut opts =
+        easyplay_core::logging::LogOptions::new(easyplay_core::logging::ProcessRole::Cli);
+    opts.file = Some(app_log.clone());
+    let _log = easyplay_core::logging::init(&opts).unwrap();
     let f = factory(tmp.path().join("engine.log"));
     let (a_dir, b_dir) = (tmp.path().join("alice"), tmp.path().join("bob"));
     for d in [&a_dir, &b_dir] {
@@ -175,14 +192,52 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
     let a = Peer::start(&f, a_dir.clone(), "alice", "alice-key");
     let b = Peer::start(&f, b_dir.clone(), "bob", "bob-key");
 
-    a.engine.request(Request::CreateInvite);
-    let link = a.wait(
-        |e| match e {
-            ChatEvent::Invite(l) => Some(l.clone()),
-            _ => None,
-        },
-        "an invitation",
+    // Several invitations in a row: each new queue goes to a random enabled relay, so
+    // without the relay check some would land on the dead one and fail.
+    let mut link = String::new();
+    for i in 0..4 {
+        a.engine.request(Request::CreateInvite);
+        link = a.wait(
+            |e| match e {
+                ChatEvent::Invite(l) => Some(l.clone()),
+                _ => None,
+            },
+            &format!("invitation {i}"),
+        );
+    }
+    assert!(
+        !a.log.lock().unwrap().iter().any(|e| matches!(
+            e,
+            ChatEvent::Failed {
+                request: RequestKind::CreateInvite,
+                ..
+            }
+        )),
+        "an invitation failed"
     );
+    if dead_relay(&env("EASYPLAY_TEST_SMP")).is_some() {
+        // The check disabled the relay that does not answer (and only that one).
+        let wait_until = std::time::Instant::now() + WAIT;
+        loop {
+            let log = std::fs::read_to_string(&app_log).unwrap_or_default();
+            let disabled: Vec<&str> = log
+                .lines()
+                .filter(|l| l.contains("chat: relay") && l.contains("enabled=false"))
+                .collect();
+            if !disabled.is_empty() {
+                assert!(
+                    disabled.iter().all(|l| l.contains("127.0.0.2:5999")),
+                    "{disabled:?}"
+                );
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < wait_until,
+                "no relay was disabled:\n{log}"
+            );
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
     b.engine.request(Request::Connect(link));
     // Both lists gain the other once the connection is ready.
     let wait_friend = |p: &Peer| {
