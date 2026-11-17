@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use super::engine::{ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, Request};
 use crate::clock::Clock as _;
-use crate::error::{Error, ErrorCode, Result};
+use crate::error::Result;
 use crate::session::{PipedHelper, spawn_piped_helper};
 use protocol::Codec;
 
@@ -129,9 +129,7 @@ impl EngineFactory for SimplexFactory {
     }
 
     fn start(&self, config: EngineConfig, sink: EventSink) -> Result<Box<dyn Engine>> {
-        if !self.available() {
-            return Err(Error::new(ErrorCode::ChtUnavailable));
-        }
+        ensure!(self.available(), ChtUnavailable);
         if self.bwrap.is_none() {
             tracing::warn!("chat: bwrap not found; the chat engine runs without a sandbox");
         }
@@ -143,10 +141,10 @@ impl EngineFactory for SimplexFactory {
             env: &env,
             log: &self.log,
         })
-        .map_err(|e| Error::new(ErrorCode::ChtUnavailable).with_source(e))?;
+        .map_err(|e| err!(ChtUnavailable).with_source(e))?;
         let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
             let _ = child.kill();
-            return Err(Error::new(ErrorCode::ChtUnavailable));
+            bail!(ChtUnavailable);
         };
         let pid = child.id();
 
@@ -162,7 +160,7 @@ impl EngineFactory for SimplexFactory {
             std::thread::Builder::new()
                 .name(name.into())
                 .spawn(f)
-                .map_err(|e| Error::new(ErrorCode::IntTaskFailed).with_source(e))
+                .map_err(|e| err!(IntTaskFailed).with_source(e))
         };
         spawn(
             "chat-write",
@@ -297,6 +295,7 @@ impl Drop for SimplexEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::ErrorCode;
 
     fn factory(bwrap: Option<&str>) -> SimplexFactory {
         SimplexFactory {

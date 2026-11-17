@@ -22,7 +22,7 @@ use super::command::{Command, OpenOrigin};
 use super::event::{Event, Notice};
 use super::flows::artwork::ArtFetched;
 use super::flows::launch::LaunchDone;
-use super::flows::open::Opened;
+use super::flows::games::Opened;
 use super::prompts::Prompts;
 use super::session_watch::{SessionPoll, SessionWatcher, WatchMsg};
 use super::snapshot::{ActiveSessions, SnapshotHub};

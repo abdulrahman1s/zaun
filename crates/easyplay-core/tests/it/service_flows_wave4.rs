@@ -411,6 +411,42 @@ fn set_up_as_new_detaches_a_changed_program_and_drafts_it() {
 }
 
 #[test]
+fn answering_update_for_a_removed_program_reports_exe_not_found() {
+    let mut w = World::new();
+    let id = w.add("Vanishing");
+    let exe = w.env.home().join("Games/Vanishing/Vanishing.exe");
+    let other = pe::PeBuilder::new()
+        .string("ProductName", "Another Game")
+        .string("CompanyName", "Someone Else")
+        .string("OriginalFilename", "another.exe")
+        .import("KERNEL32.dll")
+        .build();
+    std::fs::write(&exe, other).unwrap();
+    let evs = w.send(Command::OpenPaths {
+        paths: vec![exe],
+        origin: OpenOrigin::Picker,
+    });
+    let prompt = evs
+        .iter()
+        .find_map(|e| match e {
+            Event::Prompt(p) => Some(p.clone()),
+            _ => None,
+        })
+        .expect("ExeChanged prompt");
+    // The program is gone by the time the user answers.
+    let evs = w.send(Command::RemoveGame {
+        id,
+        options: easyplay_core::library::RemoveOptions::default(),
+    });
+    assert!(failure(&evs).is_none(), "{evs:?}");
+    let evs = w.send(Command::AnswerPrompt {
+        prompt: prompt.id,
+        answer: PromptAnswer::ItsAnUpdate,
+    });
+    assert_eq!(failure(&evs), Some(ErrorCode::LibExeNotFound), "{evs:?}");
+}
+
+#[test]
 fn statistics_edits_delete_history() {
     use easyplay_core::model::{EndReason, SessionState};
     let mut w = World::new();

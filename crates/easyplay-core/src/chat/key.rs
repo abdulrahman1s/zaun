@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use crate::error::{Error, ErrorCode, Result};
+use crate::error::Result;
 use crate::fsx::Fs;
 
 /// The key file's name inside the Chat folder.
@@ -30,11 +30,11 @@ pub fn load_or_create(
             return Ok(text);
         }
         // A key that is not one would make the database unreadable; never replace it.
-        return Err(Error::new(ErrorCode::ChtDatabase).with("reason", "the key file is damaged"));
+        bail!(ChtDatabase, reason = "the key file is damaged");
     }
     fs.create_dir_all(dir, 0o700)?;
     let mut raw = [0u8; KEY_BYTES];
-    random(&mut raw).map_err(|e| Error::new(ErrorCode::ChtDatabase).with_source(e))?;
+    random(&mut raw).map_err(|e| err!(ChtDatabase).with_source(e))?;
     let text: String = raw.iter().map(|b| format!("{b:02x}")).collect();
     fs.atomic_write(&path, text.as_bytes(), 0o600)?;
     Ok(text)

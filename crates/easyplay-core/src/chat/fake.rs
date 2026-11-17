@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::engine::{ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, Request};
-use crate::error::{Error, ErrorCode, Result};
+use crate::error::Result;
 
 #[derive(Default)]
 struct Shared {
@@ -92,12 +92,7 @@ impl EngineFactory for FakeEngine {
     fn start(&self, config: EngineConfig, sink: EventSink) -> Result<Box<dyn Engine>> {
         self.with(|s| {
             s.starts.push(config);
-            if !s.available {
-                return Err(Error::new(ErrorCode::ChtUnavailable));
-            }
-            if s.fail_start {
-                return Err(Error::new(ErrorCode::ChtUnavailable));
-            }
+            ensure!(s.available && !s.fail_start, ChtUnavailable);
             s.sink = Some(sink);
             s.running = true;
             Ok(Box::new(FakeRunning(self.clone())) as Box<dyn Engine>)

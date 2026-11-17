@@ -3,7 +3,8 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use super::{chat, chat_services, maintenance, steam};
+use super::diagnostics::maintenance;
+use super::{chat, steam};
 use crate::error::Result;
 use crate::ids::{GameId, LaunchId, QueryId, SessionId};
 use crate::library::prefix_ops::ResetReport;
@@ -41,7 +42,7 @@ pub(crate) enum FlowDone {
     /// The engine reported, or a restart is due (ADR-0033).
     Chat(chat::ChatDone),
     /// A web service (GIFs, link check) finished.
-    ChatServices(chat_services::ServicesDone),
+    ChatServices(chat::ServicesDone),
 }
 
 #[derive(Default)]
@@ -52,5 +53,5 @@ pub(crate) struct FlowState {
     pub stats_db: Arc<Mutex<Option<ReadDb>>>,
     pub steam: steam::SteamState,
     pub chat: chat::ChatState,
-    pub services: chat_services::ServicesState,
+    pub services: chat::ServicesState,
 }

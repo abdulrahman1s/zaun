@@ -9,7 +9,6 @@ use super::app_service::{AppService, Internal};
 use super::command::Command;
 use super::event::Event;
 use super::flows::FlowDone;
-use super::flows::chat_services;
 use super::prompts::Continuation;
 use crate::error::Result;
 use crate::ids::{LaunchId, PromptId};
@@ -131,9 +130,6 @@ impl AppService {
             Command::ResolveDatabase(choice) => self.resolve_database(&choice),
             // Handled by `steam_route`.
             Command::Steam(_) => Ok(()),
-            Command::Chat(c) if chat_services::handles(&c) => {
-                self.chat_service_command(c).into_result()
-            }
             Command::Chat(c) => self.chat_command(c).into_result(),
             Command::Shutdown => {
                 self.stopping = true;

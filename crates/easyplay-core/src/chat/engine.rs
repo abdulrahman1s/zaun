@@ -31,22 +31,17 @@ pub enum Request {
     DeleteAddress,
     /// Send text to a conversation.
     Send {
-        /// Where.
         chat: ChatRef,
-        /// What.
         text: String,
-        /// The message it answers.
         reply_to: Option<i64>,
         /// Members named with @ (name as written, member number); groups only.
         mentions: Vec<(String, i64)>,
     },
     /// Send a file (inside the engine's data folder).
     SendFile {
-        /// Where.
         chat: ChatRef,
         /// The file (inside `EngineConfig::dir`).
         path: PathBuf,
-        /// What it is.
         kind: FileKind,
         /// A small preview picture (JPEG or PNG bytes) friends see before fetching it.
         preview: Option<Vec<u8>>,
@@ -56,60 +51,28 @@ pub enum Request {
         text: String,
     },
     /// Fetch a file a friend offered.
-    ReceiveFile {
-        /// Where.
-        chat: ChatRef,
-        /// The message carrying it.
-        item: i64,
-    },
+    ReceiveFile { chat: ChatRef, item: i64 },
     /// Stop sending or fetching a file.
-    CancelFile {
-        /// Where.
-        chat: ChatRef,
-        /// The message carrying it.
-        item: i64,
-    },
+    CancelFile { chat: ChatRef, item: i64 },
     /// Where a message's file is on this computer ([`ChatEvent::OpenFile`]).
-    OpenFile {
-        /// Where.
-        chat: ChatRef,
-        /// The message carrying it.
-        item: i64,
-    },
+    OpenFile { chat: ChatRef, item: i64 },
     /// Where a message's file is, for a copy ([`ChatEvent::Located`]); never fails.
-    LocateFile {
-        /// Where.
-        chat: ChatRef,
-        /// The message carrying it.
-        item: i64,
-        /// Returned with the answer.
-        tag: u64,
-    },
+    LocateFile { chat: ChatRef, item: i64, tag: u64 },
     /// Make a group's invite link ([`ChatEvent::GroupLink`]).
     CreateGroupLink(i64),
     /// Delete it.
     DeleteGroupLink(i64),
     /// Change the text of one of the user's messages.
     Edit {
-        /// Where.
         chat: ChatRef,
-        /// Which message.
         item: i64,
-        /// The new text.
         text: String,
     },
     /// Delete one of the user's messages for everyone.
-    Delete {
-        /// Where.
-        chat: ChatRef,
-        /// Which message.
-        item: i64,
-    },
+    Delete { chat: ChatRef, item: i64 },
     /// Add or take back a reaction.
     React {
-        /// Where.
         chat: ChatRef,
-        /// Which message.
         item: i64,
         /// The emoji (display form).
         emoji: String,
@@ -117,51 +80,26 @@ pub enum Request {
         on: bool,
     },
     /// Mute or unmute a conversation (a muted group still notifies mentions of the user).
-    SetMuted {
-        /// Which.
-        chat: ChatRef,
-        /// Muted.
-        on: bool,
-    },
+    SetMuted { chat: ChatRef, on: bool },
     /// Block or unblock a friend, without telling them: their conversation leaves the list
     /// and what they send while blocked is deleted on arrival.
-    SetBlocked {
-        /// The friend.
-        friend: i64,
-        /// Blocked.
-        on: bool,
-    },
+    SetBlocked { friend: i64, on: bool },
     /// Hide or show a group member's messages (on this computer only).
-    SetMemberBlocked {
-        /// The group.
-        group: i64,
-        /// The member.
-        member: i64,
-        /// Blocked.
-        on: bool,
-    },
+    SetMemberBlocked { group: i64, member: i64, on: bool },
     /// Read a friend's security code ([`ChatEvent::Code`]).
     ShowCode(i64),
     /// Compare a friend's security code with the one read out ([`ChatEvent::Verified`]).
-    Verify {
-        /// The friend.
-        friend: i64,
-        /// The code compared.
-        code: String,
-    },
+    Verify { friend: i64, code: String },
     /// Read a group's members ([`ChatEvent::Members`]).
     Members(i64),
     /// Mark everything in a conversation read.
     MarkRead(ChatRef),
     /// Messages of a conversation, newest last ([`ChatEvent::History`]).
     History {
-        /// Which.
         chat: ChatRef,
         /// Only messages older than this item number (`None` = the latest).
         before: Option<i64>,
-        /// At most this many.
         count: u32,
-        /// Returned with the answer.
         tag: u64,
     },
     /// Read the conversation list again ([`ChatEvent::Chats`]).
@@ -169,12 +107,7 @@ pub enum Request {
     /// Make a group with the user as owner.
     NewGroup(String),
     /// Invite a friend into a group.
-    AddMember {
-        /// The group.
-        group: i64,
-        /// The friend.
-        friend: i64,
-    },
+    AddMember { group: i64, friend: i64 },
     /// Join a group the user was invited to.
     JoinGroup(i64),
     /// Leave a group.
@@ -186,7 +119,6 @@ pub enum Request {
 /// Which request failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RequestKind {
-    /// Starting the engine.
     Start,
     /// [`Request::SetProfile`].
     SetProfile,
@@ -206,7 +138,6 @@ pub enum RequestKind {
     History,
     /// [`Request::Refresh`].
     Refresh,
-    /// A group request.
     Group,
     /// [`Request::RemoveFriend`].
     RemoveFriend,
@@ -235,13 +166,9 @@ pub enum RequestKind {
 /// What a sent file is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileKind {
-    /// A still picture.
     Image,
-    /// An animated GIF.
     Gif,
-    /// A video.
     Video,
-    /// Any other file.
     File,
 }
 
@@ -250,7 +177,6 @@ pub enum FileKind {
 pub enum ChatEvent {
     /// What this engine carries (reported before [`ChatEvent::Ready`]).
     Features {
-        /// The features.
         features: ChatFeatures,
         /// The reactions it carries (display form); `None` = any emoji.
         reactions: Option<Vec<String>>,
@@ -261,11 +187,8 @@ pub enum ChatEvent {
     Profile(ChatProfile),
     /// The whole conversation list, read again.
     Chats {
-        /// Friends.
         friends: Vec<Friend>,
-        /// Groups.
         groups: Vec<ChatGroup>,
-        /// Requests waiting.
         requests: Vec<FriendRequest>,
         /// Conversations, most recent first.
         chats: Vec<ChatPreview>,
@@ -280,67 +203,50 @@ pub enum ChatEvent {
     Updated(Vec<ChatMessage>),
     /// The answer to [`Request::History`].
     History {
-        /// The request's tag.
         tag: u64,
-        /// The conversation.
         chat: ChatRef,
-        /// Oldest first.
         messages: Vec<ChatMessage>,
     },
     /// A friend's security code, after [`Request::ShowCode`].
     Code {
-        /// The friend.
         friend: i64,
         /// The code (groups of five digits).
         code: String,
     },
     /// The answer to [`Request::Verify`].
     Verified {
-        /// The friend.
         friend: i64,
         /// The codes matched (the friend is now verified).
         matched: bool,
     },
     /// A group's members, the user included.
     Members {
-        /// The group.
         group: i64,
-        /// Its members.
         members: Vec<GroupMember>,
     },
     /// The relays cannot (true) or can again (false) be reached.
     Offline(bool),
     /// The latest message the page shows of a chat whose latest item is not shown.
     Preview {
-        /// The chat.
         chat: ChatRef,
-        /// That message.
         last: Box<ChatMessage>,
     },
     /// The answer to [`Request::OpenFile`]: the file, inside the engine's data folder.
-    OpenFile {
-        /// The file.
-        path: PathBuf,
-        /// What it is.
-        kind: FileKind,
-    },
+    OpenFile { path: PathBuf, kind: FileKind },
     /// The answer to [`Request::LocateFile`].
     Located {
-        /// The request's tag.
         tag: u64,
         /// The file, inside the engine's data folder (`None` = not on this computer).
         path: Option<PathBuf>,
     },
     /// A group's invite link (`None` = none, or deleted).
     GroupLink {
-        /// The group.
         group: i64,
         /// The link (short form when the relay offers one).
         link: Option<String>,
     },
     /// A request failed.
     Failed {
-        /// Which.
         request: RequestKind,
         /// Why, for the user.
         code: ErrorCode,
@@ -351,7 +257,6 @@ pub enum ChatEvent {
     Exited {
         /// The helper's exit status, if it exited normally.
         status: Option<i32>,
-        /// Whether it had started.
         started: bool,
     },
 }

@@ -399,6 +399,24 @@ fn inspector_dry_run_has_no_side_effects() {
     assert!(matches!(query(&evs, q2), QueryResult::Failed(_)));
 }
 
+/// DEV-001: inspecting a session that does not exist answers with the session's not-found
+/// code, not a file-access error.
+#[test]
+fn inspector_unknown_session_is_not_found() {
+    use easyplay_core::ids::QueryId;
+    use easyplay_core::service::{InspectTarget, QueryResult};
+    let mut w = World::new();
+    let q = QueryId::from_uuid(uuid::Uuid::from_u128(10));
+    let evs = w.send(Command::Inspect {
+        target: InspectTarget::Session(easyplay_testkit::fixtures::games::session_id(1, 1)),
+        reply_to: q,
+    });
+    let QueryResult::Failed(u) = query(&evs, q) else {
+        panic!("{evs:?}")
+    };
+    assert_eq!(u.code, ErrorCode::SesSessionNotFound);
+}
+
 /// ERR-003: the report is built for the preview and saved as an archive.
 #[test]
 fn report_build_and_save() {
