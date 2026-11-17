@@ -157,6 +157,17 @@ impl LogFile {
     }
 }
 
+/// What a picture from the clipboard is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClipKind {
+    /// PNG.
+    Png,
+    /// JPEG.
+    Jpeg,
+    /// GIF.
+    Gif,
+}
+
 /// Chat (ADR-0033). Answers arrive as `Event::ChatChanged` (the snapshot),
 /// `Notice::ChatMessages` / `Notice::ChatMessagesUpdated`, and `QueryResult::Chat`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -212,6 +223,41 @@ pub enum ChatCommand {
         /// The file on this computer.
         path: PathBuf,
     },
+    /// Fetch a file a friend offered (core agent, round 3).
+    ReceiveFile {
+        /// Where.
+        chat: crate::model::ChatRef,
+        /// The message carrying it.
+        item: i64,
+    },
+    /// Stop sending or fetching a file.
+    CancelFile {
+        /// Where.
+        chat: crate::model::ChatRef,
+        /// The message carrying it.
+        item: i64,
+    },
+    /// Open a received or sent file with the desktop's default application.
+    OpenFile {
+        /// Where.
+        chat: crate::model::ChatRef,
+        /// The message carrying it.
+        item: i64,
+    },
+    /// Send a picture from the clipboard: the service writes it into the Chat folder and
+    /// sends it like `SendFile`.
+    SendClipboard {
+        /// Where.
+        chat: crate::model::ChatRef,
+        /// The picture's bytes.
+        bytes: Vec<u8>,
+        /// What they are.
+        kind: ClipKind,
+    },
+    /// Make a group's invite link (`ChatGroup::link`).
+    CreateGroupLink(i64),
+    /// Delete it; links already shared stop working.
+    DeleteGroupLink(i64),
     /// Change the text of one of the user's messages.
     Edit {
         /// Where.

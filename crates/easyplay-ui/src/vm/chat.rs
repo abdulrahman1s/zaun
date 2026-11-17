@@ -49,6 +49,8 @@ pub enum ChatDialog {
     Blocked,
     /// The link in `ChatVm::link_to_open` may be harmful: open it anyway?
     UnsafeLink,
+    /// "Invite to <group>": friends to add, or the group's own link (details).
+    InviteToGroup(i64),
 }
 
 /// The open conversation.
@@ -157,6 +159,13 @@ pub struct ChatVm {
     pub revealed: HashSet<(i64, u32)>,
     /// A link waiting for the user's answer in `ChatDialog::UnsafeLink` (services).
     pub link_to_open: Option<String>,
+    /// A picture or files pasted into the composer, waiting for Send or × (composer).
+    pub pasted: Option<Pasted>,
+    /// Where Ctrl+V reads the clipboard from (composer; tests set their own).
+    pub clipboard: Clipboard,
+    /// The open conversation takes files dropped on the window in this pass (the composer
+    /// sets it while it draws; the shell's drop zone reads and clears it afterwards).
+    pub takes_drops: bool,
     /// That link was not checked (no answer), rather than flagged (services).
     pub link_unchecked: bool,
     /// The GIF picker's search and pictures (services).
@@ -164,6 +173,8 @@ pub struct ChatVm {
     /// Messages deleted for everyone but held back while their toast offers Undo; each goes
     /// out when its toast leaves (conversation).
     pub deleting: Vec<Deleting>,
+    /// The picture shown in the full-window viewer (conversation).
+    pub viewer: Option<Viewer>,
     // ---- list agent (page layout, list)
     /// What `details: None` means at the window's width: open from 1240 wide (list).
     pub details_auto: bool,
@@ -182,6 +193,22 @@ pub struct ChatVm {
     pub share_choice: Option<ShareChoice>,
     /// `ShowCode` was sent for this friend while the Verify dialog is open (details).
     pub code_asked: Option<i64>,
+    /// The Invite-to-group dialog: its tab (0 friends, 1 link), the friends ticked, and the
+    /// search over them (details).
+    pub group_invite: GroupInvite,
+}
+
+/// The Invite-to-group dialog's state (details).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GroupInvite {
+    /// 0 = Friends, 1 = Share a link.
+    pub tab: usize,
+    /// Friends ticked.
+    pub pick: Vec<i64>,
+    /// The search over them.
+    pub query: String,
+    /// `CreateGroupLink` was sent and the link has not arrived yet.
+    pub link_asked: bool,
 }
 
 /// A share that begins once the game started for it is running (details).
@@ -232,6 +259,15 @@ pub struct ShareChoice {
     pub quality: usize,
     /// Include the game's sound.
     pub sound: bool,
+}
+
+/// A picture of a message shown over the whole window (conversation).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Viewer {
+    /// The conversation.
+    pub chat: ChatRef,
+    /// The message.
+    pub item: i64,
 }
 
 /// A message the user deleted, waiting for its toast's Undo (conversation).
@@ -316,6 +352,72 @@ impl GifVm {
             }
         }
         true
+    }
+}
+
+/// Something pasted into the composer, not sent yet (composer).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Pasted {
+    /// A picture from the clipboard: its size and RGBA pixels.
+    Image {
+        /// Width and height in pixels.
+        size: [usize; 2],
+        /// RGBA, not premultiplied, row by row.
+        rgba: std::sync::Arc<Vec<u8>>,
+    },
+    /// Files copied in a file manager (at most [`PASTE_FILES`]).
+    Files(Vec<std::path::PathBuf>),
+}
+
+/// Files sent from one paste at most (composer).
+pub const PASTE_FILES: usize = 10;
+
+/// What the clipboard holds, as far as pasting into Chat goes (composer).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Clip {
+    /// Files copied in a file manager (`text/uri-list`).
+    Files(Vec<std::path::PathBuf>),
+    /// A picture: its size and RGBA pixels (not premultiplied).
+    Image {
+        /// Width and height.
+        size: [usize; 2],
+        /// The pixels, row by row.
+        rgba: Vec<u8>,
+    },
+    /// Text, or nothing: an ordinary paste.
+    Other,
+}
+
+/// Reads the clipboard when Ctrl+V reaches the composer's field (behind a trait so tests
+/// need no clipboard). Reading it is not file I/O; files are only named, never opened.
+pub trait ClipboardSource: Send + Sync {
+    /// What is on the clipboard now.
+    fn read(&self) -> Clip;
+}
+
+/// The clipboard the composer reads: the desktop's (`None`), or one a test set (composer).
+#[derive(Clone, Default)]
+pub struct Clipboard(Option<std::sync::Arc<dyn ClipboardSource>>);
+
+impl Clipboard {
+    /// Read `source` instead of the desktop's clipboard.
+    pub fn new(source: std::sync::Arc<dyn ClipboardSource>) -> Self {
+        Self(Some(source))
+    }
+
+    /// The source set, if any.
+    pub fn source(&self) -> Option<&std::sync::Arc<dyn ClipboardSource>> {
+        self.0.as_ref()
+    }
+}
+
+impl std::fmt::Debug for Clipboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() {
+            "Clipboard(set)"
+        } else {
+            "Clipboard(desktop)"
+        })
     }
 }
 
@@ -470,6 +572,14 @@ impl ChatVm {
     /// close the details, and in a narrow window go back to the list. Returns whether a
     /// step was taken.
     pub fn escape(&mut self, search_focused: bool) -> bool {
+        // The picture viewer covers everything: it closes first (conversation).
+        if self.viewer.take().is_some() {
+            return true;
+        }
+        // A paste waiting to be sent goes first (composer).
+        if self.pasted.take().is_some() {
+            return true;
+        }
         if self.suggest.take().is_some() {
             return true;
         }

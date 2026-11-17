@@ -40,7 +40,7 @@ pub enum Request {
         /// Members named with @ (name as written, member number); groups only.
         mentions: Vec<(String, i64)>,
     },
-    /// Send a picture or GIF (a file inside the engine's data folder).
+    /// Send a file (inside the engine's data folder).
     SendFile {
         /// Where.
         chat: ChatRef,
@@ -48,7 +48,36 @@ pub enum Request {
         path: PathBuf,
         /// What it is.
         kind: FileKind,
+        /// A small preview picture (JPEG or PNG bytes) friends see before fetching it.
+        preview: Option<Vec<u8>>,
+        /// A video's length in seconds.
+        duration: Option<u32>,
     },
+    /// Fetch a file a friend offered.
+    ReceiveFile {
+        /// Where.
+        chat: ChatRef,
+        /// The message carrying it.
+        item: i64,
+    },
+    /// Stop sending or fetching a file.
+    CancelFile {
+        /// Where.
+        chat: ChatRef,
+        /// The message carrying it.
+        item: i64,
+    },
+    /// Where a message's file is on this computer ([`ChatEvent::OpenFile`]).
+    OpenFile {
+        /// Where.
+        chat: ChatRef,
+        /// The message carrying it.
+        item: i64,
+    },
+    /// Make a group's invite link ([`ChatEvent::GroupLink`]).
+    CreateGroupLink(i64),
+    /// Delete it.
+    DeleteGroupLink(i64),
     /// Change the text of one of the user's messages.
     Edit {
         /// Where.
@@ -186,6 +215,10 @@ pub enum RequestKind {
     Code,
     /// [`Request::Members`].
     Members,
+    /// [`Request::ReceiveFile`] / [`Request::CancelFile`] / [`Request::OpenFile`].
+    File,
+    /// [`Request::CreateGroupLink`] / [`Request::DeleteGroupLink`].
+    GroupLink,
 }
 
 /// What a sent file is.
@@ -195,6 +228,10 @@ pub enum FileKind {
     Image,
     /// An animated GIF.
     Gif,
+    /// A video.
+    Video,
+    /// Any other file.
+    File,
 }
 
 /// What the engine reports.
@@ -262,6 +299,27 @@ pub enum ChatEvent {
     },
     /// The relays cannot (true) or can again (false) be reached.
     Offline(bool),
+    /// The latest message the page shows of a chat whose latest item is not shown.
+    Preview {
+        /// The chat.
+        chat: ChatRef,
+        /// That message.
+        last: ChatMessage,
+    },
+    /// The answer to [`Request::OpenFile`]: the file, inside the engine's data folder.
+    OpenFile {
+        /// The file.
+        path: PathBuf,
+        /// What it is.
+        kind: FileKind,
+    },
+    /// A group's invite link (`None` = none, or deleted).
+    GroupLink {
+        /// The group.
+        group: i64,
+        /// The link (short form when the relay offers one).
+        link: Option<String>,
+    },
     /// A request failed.
     Failed {
         /// Which.

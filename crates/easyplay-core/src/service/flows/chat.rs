@@ -54,7 +54,30 @@ pub(crate) enum ChatDone {
         /// Which start failed.
         generation: u64,
     },
+    /// A file to send was copied into the Chat folder (and its preview made).
+    Prepared {
+        /// For which start.
+        generation: u64,
+        /// The request to send, or why not.
+        result: Result<Request, Error>,
+    },
 }
+
+/// A file to send: a file on this computer, or a picture from the clipboard.
+enum Outgoing {
+    Path(std::path::PathBuf),
+    /// Already copied into place.
+    Ready(std::path::PathBuf),
+    Bytes {
+        bytes: Vec<u8>,
+        name: String,
+    },
+}
+
+/// The longest side of a preview picture, in pixels (a JPEG of about 1 to 2 KB).
+pub const PREVIEW_SIDE: u32 = 64;
+/// Pictures larger than this are sent without a preview (not decoded).
+pub const PREVIEW_MAX_SOURCE: u64 = 64 * 1024 * 1024;
 
 /// The Chat part of the service's state.
 #[derive(Default)]
@@ -260,6 +283,15 @@ impl AppService {
                     self.chat_launch();
                 }
             }
+            ChatDone::Prepared { generation, result } => {
+                if generation != self.flow.chat.generation {
+                    return;
+                }
+                match result {
+                    Ok(r) => self.chat_request(r),
+                    Err(e) => self.fail(e),
+                }
+            }
         }
     }
 
@@ -289,10 +321,11 @@ impl AppService {
                 requests,
                 chats,
             } => {
-                // Members are read separately (when a group is opened): keep them.
+                // Members and invite links are read separately: keep them.
                 for g in &mut groups {
                     if let Some(old) = snap.groups.iter().find(|o| o.id == g.id) {
                         g.member_list.clone_from(&old.member_list);
+                        g.link.clone_from(&old.link);
                     }
                 }
                 snap.friends = friends;
@@ -320,6 +353,19 @@ impl AppService {
                 }
             }
             ChatEvent::Offline(offline) => snap.offline = offline,
+            ChatEvent::Preview { chat, last } => {
+                if let Some(p) = snap.chats.iter_mut().find(|p| p.chat == chat)
+                    && p.last.as_ref().is_none_or(|l| l.id < last.id)
+                {
+                    p.last = Some(last);
+                }
+            }
+            ChatEvent::OpenFile { path, kind } => return self.chat_open_file(&path, kind),
+            ChatEvent::GroupLink { group, link } => {
+                if let Some(g) = snap.groups.iter_mut().find(|g| g.id == group) {
+                    g.link = link;
+                }
+            }
             ChatEvent::Invite(link) => snap.invite = Some(link),
             ChatEvent::Address(a) => snap.address = a,
             ChatEvent::Messages(messages) => {
@@ -440,7 +486,11 @@ impl AppService {
         }
         self.chat_set_status(ChatStatus::Starting);
         let wait = backoff(self.flow.chat.failures);
-        let wait = self.deps.chat.as_ref().map_or(wait, |f| f.restart_wait(wait));
+        let wait = self
+            .deps
+            .chat
+            .as_ref()
+            .map_or(wait, |f| f.restart_wait(wait));
         let generation = self.flow.chat.generation;
         let post = self.poster();
         let spawned = std::thread::Builder::new()
@@ -500,49 +550,125 @@ impl AppService {
         }
     }
 
-    /// Copy a picture or GIF into the Chat folder (the engine's sandbox sees nothing else)
-    /// and send the copy. Refused when files are off or it is too large for a friend's app
-    /// to fetch by itself.
-    fn chat_send_file(&mut self, chat: ChatRef, path: &std::path::Path) {
-        let refuse = |s: &mut Self, detail: &str| {
-            s.fail(Error::new(ErrorCode::ChtRequestFailed).with("detail", detail));
-        };
+    /// Copy a file into the Chat folder (the engine's sandbox sees nothing else), make a
+    /// picture's preview, and send it; on a thread of its own (a large file takes a while).
+    /// Refused when files are off or it is larger than `chat::MAX_SEND`.
+    fn chat_send_file(&mut self, chat: ChatRef, src: Outgoing) {
         if !self.flow.chat.snapshot.features.files || self.flow.chat.engine.is_none() {
-            return refuse(self, "files are off");
+            return self
+                .fail(Error::new(ErrorCode::ChtRequestFailed).with("detail", "files are off"));
         }
-        let size = match self.deps.fs.metadata_follow(path) {
-            Ok(m) => m.size,
-            Err(e) => return self.fail(Error::from(e)),
+        let (name, size) = match &src {
+            Outgoing::Path(p) => match self.deps.fs.metadata_follow(p) {
+                Ok(m) if m.is_dir() => {
+                    return self
+                        .fail(Error::new(ErrorCode::ChtRequestFailed).with("detail", "a folder"));
+                }
+                Ok(m) => (
+                    p.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                    m.size,
+                ),
+                Err(e) => return self.fail(Error::from(e)),
+            },
+            Outgoing::Bytes { bytes, name } => (name.clone(), bytes.len() as u64),
+            Outgoing::Ready(_) => return,
         };
-        if size > crate::chat::MAX_FILE {
-            return refuse(self, "the file is larger than 1 MiB");
+        if size > crate::chat::MAX_SEND {
+            return self.fail(
+                Error::new(ErrorCode::ChtRequestFailed)
+                    .with("detail", "the file is larger than 1 GiB"),
+            );
         }
-        let kind = file_kind(path);
-        let ext = if kind == crate::chat::FileKind::Gif {
-            "gif"
-        } else {
-            path.extension()
-                .and_then(|e| e.to_str())
-                .filter(|e| e.len() <= 5 && e.chars().all(|c| c.is_ascii_alphanumeric()))
-                .unwrap_or("img")
-        };
-        let dir = self.deps.paths.chat_dir.join(OUTBOX_DIR);
+        let name = safe_name(&name);
+        let kind = file_kind(std::path::Path::new(&name));
         self.flow.chat.next_file += 1;
         let stamp = self.deps.clock.now().as_millis();
-        let copy = dir.join(format!("{stamp}-{}.{ext}", self.flow.chat.next_file));
-        let copied = self
+        // A folder per file keeps its name, which is what the friend sees.
+        let dir = self
+            .deps
+            .paths
+            .chat_dir
+            .join(OUTBOX_DIR)
+            .join(format!("{stamp}-{}", self.flow.chat.next_file));
+        // A small file is copied before this returns (a caller may remove its own copy
+        // then); a large one on the thread.
+        let src = match src {
+            Outgoing::Path(p) if size <= crate::chat::MAX_FILE => {
+                let dest = dir.join(&name);
+                let copied = self
+                    .deps
+                    .fs
+                    .create_dir_all(&dir, 0o700)
+                    .and_then(|()| self.deps.fs.copy_file(&p, &dest, 0o600));
+                if let Err(e) = copied {
+                    return self.fail(Error::from(e));
+                }
+                Outgoing::Ready(dest)
+            }
+            other => other,
+        };
+        let fs = Arc::clone(&self.deps.fs);
+        let generation = self.flow.chat.generation;
+        let post = self.poster();
+        let spawned = std::thread::Builder::new()
+            .name("chat-file".into())
+            .spawn(move || {
+                let result =
+                    prepare_file(&*fs, src, &dir, &name, kind, size).map(|(path, preview)| {
+                        Request::SendFile {
+                            chat,
+                            path,
+                            kind,
+                            preview,
+                            duration: None,
+                        }
+                    });
+                post(Internal::Flow(Box::new(FlowDone::Chat(
+                    ChatDone::Prepared { generation, result },
+                ))));
+            });
+        if let Err(e) = spawned {
+            self.fail(Error::new(ErrorCode::IntTaskFailed).with_source(e));
+        }
+    }
+
+    /// Open a message's file: pictures and videos with the desktop's default application,
+    /// other files shown in their folder (a received file is never run). Only files inside
+    /// the Chat folder.
+    fn chat_open_file(&mut self, path: &std::path::Path, kind: crate::chat::FileKind) {
+        let inside = self
             .deps
             .fs
-            .create_dir_all(&dir, 0o700)
-            .and_then(|()| self.deps.fs.copy_file(path, &copy, 0o600));
-        if let Err(e) = copied {
-            return self.fail(Error::from(e));
+            .canonicalize(path)
+            .ok()
+            .zip(self.deps.fs.canonicalize(&self.deps.paths.chat_dir).ok())
+            .is_some_and(|(p, d)| p.starts_with(&d) && p != d);
+        if !inside {
+            tracing::warn!("chat: a file outside the Chat folder was not opened");
+            return;
         }
-        self.chat_request(Request::SendFile {
-            chat,
-            path: copy,
-            kind,
-        });
+        let Some(desktop) = self.deps.desktop.clone() else {
+            return;
+        };
+        let target = crate::desktop::open_uri::KnownPath::file(path.to_owned());
+        let reveal = kind == crate::chat::FileKind::File;
+        let spawned = std::thread::Builder::new()
+            .name("chat-open".into())
+            .spawn(move || {
+                let r = if reveal {
+                    desktop.opener.reveal(&target)
+                } else {
+                    desktop.opener.open(&target)
+                };
+                if let Err(e) = r {
+                    tracing::warn!(error = %e, "chat: the file was not opened");
+                }
+            });
+        if let Err(e) = spawned {
+            tracing::warn!(error = %e, "chat: the opener did not start");
+        }
     }
 
     // ---- commands ------------------------------------------------------------------------
@@ -602,7 +728,27 @@ impl AppService {
                     });
                 }
             }
-            ChatCommand::SendFile { chat, path } => self.chat_send_file(chat, &path),
+            ChatCommand::SendFile { chat, path } => self.chat_send_file(chat, Outgoing::Path(path)),
+            ChatCommand::SendClipboard { chat, bytes, kind } => {
+                let ext = match kind {
+                    crate::service::ClipKind::Png => "png",
+                    crate::service::ClipKind::Jpeg => "jpg",
+                    crate::service::ClipKind::Gif => "gif",
+                };
+                let name = format!("pasted-{}.{ext}", self.deps.clock.now().as_millis());
+                self.chat_send_file(chat, Outgoing::Bytes { bytes, name });
+            }
+            ChatCommand::ReceiveFile { chat, item } => {
+                self.chat_request(Request::ReceiveFile { chat, item });
+            }
+            ChatCommand::CancelFile { chat, item } => {
+                self.chat_request(Request::CancelFile { chat, item });
+            }
+            ChatCommand::OpenFile { chat, item } => {
+                self.chat_request(Request::OpenFile { chat, item });
+            }
+            ChatCommand::CreateGroupLink(g) => self.chat_request(Request::CreateGroupLink(g)),
+            ChatCommand::DeleteGroupLink(g) => self.chat_request(Request::DeleteGroupLink(g)),
             ChatCommand::Edit { chat, item, text } => {
                 if !text.trim().is_empty() {
                     self.chat_request(Request::Edit { chat, item, text });
@@ -748,14 +894,74 @@ fn local_profile(snap: &ChatSnapshot, mut p: ChatProfile, paper: Option<u8>) -> 
 
 /// What a file sent from this computer is, by its name.
 fn file_kind(path: &std::path::Path) -> crate::chat::FileKind {
-    let gif = path
+    use crate::chat::FileKind;
+    let ext = path
         .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("gif"));
-    if gif {
-        crate::chat::FileKind::Gif
-    } else {
-        crate::chat::FileKind::Image
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    match ext.as_str() {
+        "gif" => FileKind::Gif,
+        "jpg" | "jpeg" | "png" | "webp" | "bmp" => FileKind::Image,
+        "mp4" | "m4v" | "mov" | "webm" | "mkv" | "avi" => FileKind::Video,
+        _ => FileKind::File,
     }
+}
+
+/// A file name for the Chat folder and for the friend: the last component, no control
+/// characters, not empty, at most 120 characters.
+fn safe_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+    let clean: String = base.chars().filter(|c| !c.is_control()).take(120).collect();
+    let clean = clean.trim().trim_start_matches('.').to_owned();
+    if clean.is_empty() {
+        "file".to_owned()
+    } else {
+        clean
+    }
+}
+
+/// Put the file to send at `dir/name` (0600, the folder 0700) and make a picture's preview.
+fn prepare_file(
+    fs: &dyn crate::fsx::Fs,
+    src: Outgoing,
+    dir: &std::path::Path,
+    name: &str,
+    kind: crate::chat::FileKind,
+    size: u64,
+) -> Result<(std::path::PathBuf, Option<Vec<u8>>), Error> {
+    let dest = match src {
+        Outgoing::Ready(p) => p,
+        Outgoing::Path(p) => {
+            fs.create_dir_all(dir, 0o700)?;
+            let dest = dir.join(name);
+            fs.copy_file(&p, &dest, 0o600)?;
+            dest
+        }
+        Outgoing::Bytes { bytes, .. } => {
+            fs.create_dir_all(dir, 0o700)?;
+            let dest = dir.join(name);
+            fs.write_new(&dest, &bytes, 0o600)?;
+            dest
+        }
+    };
+    let preview = (kind == crate::chat::FileKind::Image && size <= PREVIEW_MAX_SOURCE)
+        .then(|| fs.read(&dest, PREVIEW_MAX_SOURCE).ok())
+        .flatten()
+        .and_then(|b| preview_jpeg(&b));
+    Ok((dest, preview))
+}
+
+/// A small JPEG of a picture (its longest side [`PREVIEW_SIDE`]), or `None` when it cannot
+/// be read.
+pub fn preview_jpeg(bytes: &[u8]) -> Option<Vec<u8>> {
+    let img = image::load_from_memory(bytes).ok()?;
+    let small = img.thumbnail(PREVIEW_SIDE, PREVIEW_SIDE).to_rgb8();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 60)
+        .encode_image(&small)
+        .ok()?;
+    Some(out)
 }
 
 /// Put a new message into its conversation's preview (moving it to the top). `false` when

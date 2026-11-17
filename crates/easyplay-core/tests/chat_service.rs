@@ -35,7 +35,7 @@ use easyplay_core::model::{Game, RuntimeRef, SlrVariant};
 use easyplay_core::procfs::RealProc;
 use easyplay_core::runtime::{ProvisionNeed, Resolution, RuntimeCatalog, RuntimeService};
 use easyplay_core::service::{
-    AppService, ChatCommand, Command, Event, LaunchEnv, Notice, QueryResult, ServiceDeps,
+    AppService, ChatCommand, ClipKind, Command, Event, LaunchEnv, Notice, QueryResult, ServiceDeps,
 };
 use easyplay_testkit::TestEnv;
 use easyplay_testkit::fakes::FakeLauncher;
@@ -155,6 +155,19 @@ impl World {
 
     fn status(&self) -> ChatStatus {
         self.svc.hub().chat.load().status.clone()
+    }
+
+    /// The next request to the engine, waiting for a file prepared on its own thread.
+    fn next_request(&mut self) -> Request {
+        for _ in 0..200 {
+            self.settle();
+            let mut r = self.engine.take_requests();
+            if !r.is_empty() {
+                return r.remove(0);
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        panic!("no request")
     }
 
     fn ready(&mut self) {
@@ -356,7 +369,12 @@ fn an_engine_that_keeps_exiting_is_restarted_then_given_up() {
     std::thread::sleep(Duration::from_millis(400));
     w.settle();
     assert_eq!(w.engine.starts().len(), 5);
-    let secs: Vec<u64> = w.engine.restart_waits().iter().map(Duration::as_secs).collect();
+    let secs: Vec<u64> = w
+        .engine
+        .restart_waits()
+        .iter()
+        .map(Duration::as_secs)
+        .collect();
     assert_eq!(secs, [1, 2, 4, 8]);
 }
 
@@ -723,16 +741,57 @@ fn a_picture_is_copied_into_the_chat_folder_before_it_is_sent() {
         chat: ChatRef::Direct(3),
         path: src.clone(),
     });
-    let Some(Request::SendFile { chat, path, kind }) = w.engine.take_requests().pop() else {
+    let Request::SendFile {
+        chat, path, kind, ..
+    } = w.next_request()
+    else {
         panic!("no file request")
     };
     assert_eq!((chat, kind), (ChatRef::Direct(3), FileKind::Gif));
     assert!(path.starts_with(&w.env.paths().chat_dir), "{path:?}");
+    // Its name is what the friend sees.
+    assert_eq!(path.file_name().unwrap(), "party.GIF");
     assert_eq!(std::fs::read(&path).unwrap(), b"GIF89a");
 
-    // Too large for a friend's app to fetch by itself: refused.
-    let big = w.env.home().join("big.png");
-    std::fs::write(&big, vec![0u8; 1024 * 1024 + 1]).unwrap();
+    // A 3 MB photo goes too, with a small preview made from it.
+    let photo = w.env.home().join("IMG_1.png");
+    let img = image::RgbImage::from_fn(1200, 900, |x, y| {
+        image::Rgb([(x % 256) as u8, (y % 256) as u8, 90])
+    });
+    img.save(&photo).unwrap();
+    w.cmd(ChatCommand::SendFile {
+        chat: ChatRef::Direct(3),
+        path: photo,
+    });
+    let Request::SendFile { kind, preview, .. } = w.next_request() else {
+        panic!("no file request")
+    };
+    assert_eq!(kind, FileKind::Image);
+    let preview = preview.expect("a preview");
+    assert!(
+        preview.starts_with(&[0xFF, 0xD8]) && preview.len() < 4096,
+        "{}",
+        preview.len()
+    );
+
+    // A picture pasted from the clipboard is written into the Chat folder first.
+    w.cmd(ChatCommand::SendClipboard {
+        chat: ChatRef::Direct(3),
+        bytes: b"GIF89a-pasted".to_vec(),
+        kind: ClipKind::Gif,
+    });
+    let Request::SendFile { path, kind, .. } = w.next_request() else {
+        panic!("no file request")
+    };
+    assert_eq!(kind, FileKind::Gif);
+    assert_eq!(std::fs::read(&path).unwrap(), b"GIF89a-pasted");
+
+    // Over the 1 GiB the file servers take: refused (a sparse file, nothing written).
+    let big = w.env.home().join("huge.mkv");
+    std::fs::File::create(&big)
+        .unwrap()
+        .set_len(easyplay_core::chat::MAX_SEND + 1)
+        .unwrap();
     w.drain();
     w.cmd(ChatCommand::SendFile {
         chat: ChatRef::Direct(3),
@@ -740,6 +799,52 @@ fn a_picture_is_copied_into_the_chat_folder_before_it_is_sent() {
     });
     assert!(w.engine.take_requests().is_empty());
     assert!(w.drain().iter().any(|e| matches!(e, Event::Failure(_))));
+}
+
+#[test]
+fn files_are_fetched_cancelled_and_opened_through_the_engine_and_group_links_kept() {
+    let mut w = World::new(true);
+    ready_with_kai(&mut w);
+    let kai = ChatRef::Direct(3);
+    w.cmd(ChatCommand::ReceiveFile { chat: kai, item: 7 });
+    w.cmd(ChatCommand::CancelFile { chat: kai, item: 7 });
+    w.cmd(ChatCommand::OpenFile { chat: kai, item: 7 });
+    w.cmd(ChatCommand::CreateGroupLink(9));
+    w.cmd(ChatCommand::DeleteGroupLink(9));
+    assert_eq!(
+        w.engine.take_requests(),
+        vec![
+            Request::ReceiveFile { chat: kai, item: 7 },
+            Request::CancelFile { chat: kai, item: 7 },
+            Request::OpenFile { chat: kai, item: 7 },
+            Request::CreateGroupLink(9),
+            Request::DeleteGroupLink(9),
+        ]
+    );
+    let mut list = one_friend();
+    if let ChatEvent::Chats { groups, .. } = &mut list {
+        groups.push(ChatGroup {
+            id: 9,
+            name: "Crew".into(),
+            ..ChatGroup::default()
+        });
+    }
+    w.engine_says(list.clone());
+    w.engine_says(ChatEvent::GroupLink {
+        group: 9,
+        link: Some("https://relay.example/g#x".into()),
+    });
+    w.engine_says(list);
+    assert_eq!(
+        w.svc.hub().chat.load().group(9).unwrap().link.as_deref(),
+        Some("https://relay.example/g#x")
+    );
+    // A file outside the Chat folder is never opened (no desktop in this world anyway:
+    // nothing happens, nothing fails).
+    w.engine_says(ChatEvent::OpenFile {
+        path: "/etc/passwd".into(),
+        kind: FileKind::File,
+    });
 }
 
 #[test]
@@ -838,7 +943,10 @@ fn a_giphy_gif_goes_through_the_relay_and_is_sent_as_a_file() {
         std::thread::sleep(Duration::from_millis(20));
         w.settle();
     }
-    let Some(Request::SendFile { chat, path, kind }) = sent.pop() else {
+    let Some(Request::SendFile {
+        chat, path, kind, ..
+    }) = sent.pop()
+    else {
         panic!("no file request: {sent:?}")
     };
     assert_eq!((chat, kind), (ChatRef::Direct(3), FileKind::Gif));
@@ -868,5 +976,30 @@ fn a_giphy_gif_goes_through_the_relay_and_is_sent_as_a_file() {
         w.drain()
             .iter()
             .any(|e| matches!(e, Event::Notice(Notice::ChatGifNotSent)))
+    );
+}
+
+#[test]
+fn a_chats_latest_shown_message_fills_an_empty_preview() {
+    let mut w = World::new(true);
+    ready_with_kai(&mut w);
+    let kai = ChatRef::Direct(3);
+    let mut m = msg(kai, 4, "", MessageAuthor::Friend);
+    m.body = MessageBody::Notice(easyplay_core::model::ChatNotice::Connected);
+    w.engine_says(ChatEvent::Preview {
+        chat: kai,
+        last: m.clone(),
+    });
+    assert_eq!(w.svc.hub().chat.load().chats[0].last, Some(m.clone()));
+    // An older one never replaces a newer preview.
+    let mut older = m;
+    older.id = 2;
+    w.engine_says(ChatEvent::Preview {
+        chat: kai,
+        last: older,
+    });
+    assert_eq!(
+        w.svc.hub().chat.load().chats[0].last.as_ref().unwrap().id,
+        4
     );
 }

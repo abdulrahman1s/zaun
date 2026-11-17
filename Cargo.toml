@@ -77,6 +77,9 @@ qrcode = { version = "0.14", default-features = false }
 twemoji-assets = { version = "1.5", default-features = false, features = ["png"] }
 emojis = "0.9"
 unicode-segmentation = "1.13"
+# Pasting pictures and copied files into Chat (already in the tree through egui-winit; the
+# same features).
+arboard = { version = "3.7", features = ["wayland-data-control"] }
 jiff = "0.2"
 rustix = { version = "1.0", features = ["fs", "process", "pipe", "event", "system", "thread", "net", "param", "rand"] }
 # `gif`: Chat GIFs are decoded by `easyplay_core::gifs::decode` (ADR-0033).

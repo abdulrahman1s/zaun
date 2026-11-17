@@ -250,11 +250,22 @@ pub fn preview(snap: &ChatSnapshot, c: &ChatPreview) -> String {
             }
             .to_owned();
         }
-        MessageBody::Event(t) => return t.clone(),
+        // Conversation agent, round 3c: the notice in words.
+        MessageBody::Notice(n) => {
+            let friend = match c.chat {
+                ChatRef::Direct(_) => c.name.split_whitespace().next().unwrap_or(&c.name),
+                ChatRef::Group(_) => "",
+            };
+            return crate::strings::chat::conversation::notice(n, friend);
+        }
         MessageBody::Deleted => return s::DELETED().to_owned(),
         MessageBody::Text(t) => plain(t),
         MessageBody::Voice { .. } => s::VOICE().to_owned(),
         MessageBody::Gif(_) => s::GIF().to_owned(),
+        // Conversation agent, round 3: "Photo", "Video", "File: <name>".
+        MessageBody::Image(_) => crate::strings::chat::conversation::PHOTO().to_owned(),
+        MessageBody::Video(_) => crate::strings::chat::conversation::VIDEO_WORD().to_owned(),
+        MessageBody::File(m) => crate::strings::chat::conversation::file_preview(&m.name),
         MessageBody::Stream(st) if st.live => s::sharing(&st.title),
         MessageBody::Stream(st) => s::shared(&st.title),
     };
@@ -317,7 +328,6 @@ enum Act {
     Ignore(i64),
     Mute(ChatRef, bool),
     Dialog(ChatDialog),
-    Invite { group: i64, friend: i64 },
     Unblock(i64),
     Status(MyStatus),
     ShowPlaying(bool),
@@ -342,7 +352,6 @@ fn apply(state: &mut UiState, env: &mut Env<'_>, act: Act) {
             }
             state.show_dialog(Dialog::Chat(d));
         }
-        Act::Invite { group, friend } => send(env, ChatCommand::AddMember { group, friend }),
         Act::Unblock(friend) => send(env, ChatCommand::SetBlocked { friend, on: false }),
         Act::Status(st) => send(env, ChatCommand::SetStatus(st)),
         Act::ShowPlaying(on) => {
@@ -1039,23 +1048,6 @@ fn row_menu(
     muted: bool,
 ) -> Option<Act> {
     let f = snap.features;
-    if let (Some(g), Some("invite")) = (group, context_menu::open_sub(ui).as_deref()) {
-        context_menu::back(ui, s::INVITE_PEOPLE());
-        let members: Vec<i64> = g.member_list.iter().filter_map(|mm| mm.friend).collect();
-        for fr in snap
-            .friends
-            .iter()
-            .filter(|fr| fr.ready && !fr.blocked && !members.contains(&fr.id))
-        {
-            if context_menu::item(ui, None, &fr.name, None, false).clicked() {
-                return Some(Act::Invite {
-                    group: g.id,
-                    friend: fr.id,
-                });
-            }
-        }
-        return None;
-    }
     let mut out = None;
     if f.mute
         && context_menu::icon_check_item(ui, icons::BELL_OFF, s::MUTE(), muted, false).clicked()
@@ -1103,8 +1095,10 @@ fn row_menu(
             }
         }
         (None, Some(g)) => {
-            if g.membership == Membership::Member {
-                context_menu::icon_sub_item(ui, "invite", icons::USER_PLUS, s::INVITE_PEOPLE());
+            if g.membership == Membership::Member
+                && context_menu::icon_item(ui, icons::USER_PLUS, s::INVITE_PEOPLE(), None).clicked()
+            {
+                out = Some(Act::Dialog(ChatDialog::InviteToGroup(g.id)));
             }
             if f.mute || g.membership == Membership::Member {
                 context_menu::separator(ui);

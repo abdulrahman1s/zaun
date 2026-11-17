@@ -23,6 +23,9 @@ pub use simplex::SimplexFactory;
 /// `ChatSnapshot::reaction_emoji` and the page offers only these.
 pub const REACTION_EMOJI: [&str; 8] = ["👍", "👎", "😀", "😂", "😢", "❤️", "🚀", "✅"];
 
-/// The largest picture or GIF sent or received without asking (1 MiB): a friend's app
-/// fetches a picture up to this size by itself, so a larger one would never show.
+/// The largest picture a friend's app fetches by itself (1 MiB); a larger one, and every
+/// video and other file, is offered and fetched when asked (`ChatCommand::ReceiveFile`).
 pub const MAX_FILE: u64 = 1024 * 1024;
+
+/// The largest file sent (1 GiB, the engine's file-server limit).
+pub const MAX_SEND: u64 = 1024 * 1024 * 1024;

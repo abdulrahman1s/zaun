@@ -36,6 +36,7 @@ emojis.workspace = true
 unicode-segmentation.workspace = true
 # Scaling Twemoji pictures into glyphs (already in the tree through egui_extras).
 image.workspace = true
+arboard.workspace = true
 winit.workspace = true
 
 [dev-dependencies]

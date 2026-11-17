@@ -27,7 +27,7 @@ use easyplay_core::config::schema::ChatSendWith;
 use easyplay_core::model::{
     ChatFeatures, ChatRef, ChatSnapshot, Friend, GroupMember, MessageAuthor, MessageBody,
 };
-use easyplay_core::service::ChatCommand;
+use easyplay_core::service::{ChatCommand, ClipKind};
 use egui::text::{CCursor, CCursorRange, LayoutJob, TextFormat};
 use egui::{
     Align, Align2, Color32, Context, CornerRadius, Event, EventFilter, FontFamily, FontId, Id, Key,
@@ -46,7 +46,7 @@ use crate::strings::chat::list as ls;
 use crate::theme::palette::Palette;
 use crate::theme::tokens::{icon as icon_size, stroke};
 use crate::theme::{self, Icon, Type, icons, motion};
-use crate::vm::chat::{Picker, Suggest, SuggestKind};
+use crate::vm::chat::{Clip, ClipboardSource, PASTE_FILES, Pasted, Picker, Suggest, SuggestKind};
 use crate::widgets::button::Button;
 use crate::widgets::{context_menu, tooltip};
 
@@ -68,6 +68,19 @@ mod m {
     pub const BAR_GAP: f32 = 8.0;
     pub const BAR_ICON: f32 = 12.0;
     pub const BAR_CLOSE: f32 = 26.0;
+    /// The paste bar: a picture's (64, thumbnail 48, radius 6) or files' (48), its padding.
+    pub const PASTE_H_IMAGE: f32 = 64.0;
+    pub const PASTE_H: f32 = 48.0;
+    pub const PASTE_THUMB: f32 = 48.0;
+    pub const PASTE_RADIUS: u8 = 6;
+    pub const PASTE_PAD: f32 = 10.0;
+    /// The drop overlay: the wall's opacity, the dashed outline's inset, dash and gap, the
+    /// glyph, and the gap under it.
+    pub const DROP_WALL: f32 = 0.85;
+    pub const DROP_INSET: f32 = 16.0;
+    pub const DROP_DASH: [f32; 2] = [8.0, 6.0];
+    pub const DROP_ICON: f32 = 32.0;
+    pub const DROP_GAP: f32 = 12.0;
     /// `.fmt`: padding top and sides, buttons, their radius, glyphs, gap.
     pub const FMT_PAD: [f32; 2] = [5.0, 8.0];
     pub const FMT_BTN: f32 = 26.0;
@@ -151,6 +164,14 @@ pub fn show(
     let f = snap.features;
     let p = theme::theme(&ctx).palette.clone();
     let rtl = i18n::dir() == Dir::Rtl;
+    // Pasted pictures encoded off the UI thread go out now.
+    for (to, bytes) in encoded(&ctx).take() {
+        env.bridge.send(UiCommand::Chat(ChatCommand::SendClipboard {
+            chat: to,
+            bytes,
+            kind: ClipKind::Png,
+        }));
+    }
     if !f.voice {
         state.chat.recording = None;
     }
@@ -167,6 +188,13 @@ pub fn show(
         state.chat.suggest = None;
         state.chat.recording = None;
         state.chat.picker = None;
+    }
+    // A paste the page's Esc discarded: focus comes back to the field.
+    let held = ctx.data(|d| d.get_temp::<bool>(Id::unique("chat.composer.held")));
+    let held_now = state.chat.pasted.is_some();
+    ctx.data_mut(|d| d.insert_temp(Id::unique("chat.composer.held"), held_now));
+    if held == Some(true) && !held_now {
+        state.chat.focus_composer = true;
     }
     // A recording the page's Esc discarded: focus comes back to the field.
     let recorded = ctx.data(|d| d.get_temp::<bool>(Id::unique("chat.composer.recorded")));
@@ -204,6 +232,21 @@ pub fn show(
         ChatRef::Direct(id) => snap.friend(id).filter(|x| x.blocked),
         ChatRef::Group(_) => None,
     };
+    // Files dropped on the window go to this conversation (see `take_drop`).
+    // The conversation's column: its width is the composer's clip; its height runs from under
+    // the top bar to the window's bottom.
+    let column = {
+        let clip = ui.clip_rect();
+        let screen = ctx.content_rect();
+        Rect::from_x_y_ranges(
+            clip.x_range(),
+            (screen.top() + theme::tokens::layout::TOP_BAR)..=screen.bottom(),
+        )
+    };
+    let drops = f.files && blocked.is_none() && matches!(compose, Compose::Open);
+    if drops {
+        take_drop(&ctx, state, env);
+    }
     if let Some(friend) = blocked {
         blocked_bar(ui, env, &p, friend, f.block, rtl);
     } else {
@@ -220,6 +263,14 @@ pub fn show(
     }
     emoji::picker(&ctx, state, env);
     super::gif::picker(&ctx, state, env);
+    if drops {
+        let to = if matches!(chat, ChatRef::Group(_)) {
+            name
+        } else {
+            first(name)
+        };
+        drop_overlay(&ctx, column, to);
+    }
 }
 
 /// Take a plain press of `key` from this pass's input.
@@ -1154,9 +1205,13 @@ fn format_row(ui: &mut Ui, p: &Palette, rtl: bool) -> Option<Mark> {
 fn summary(body: &MessageBody) -> String {
     match body {
         MessageBody::Text(t) => super::list::plain(t),
-        MessageBody::Event(t) => t.clone(),
+        // Conversation agent, round 3c: the notice in words (a direct chat's friend unnamed).
+        MessageBody::Notice(n) => crate::strings::chat::conversation::notice(n, ""),
         MessageBody::Voice { .. } => ls::VOICE().to_owned(),
         MessageBody::Gif(_) => ls::GIF().to_owned(),
+        MessageBody::Image(_) => s::PHOTO().to_owned(),
+        MessageBody::Video(_) => s::VIDEO().to_owned(),
+        MessageBody::File(m) => m.name.clone(),
         MessageBody::Call(c) => match c.kind {
             easyplay_core::model::CallKind::Ended => ls::CALL_ENDED(),
             easyplay_core::model::CallKind::Missed => ls::MISSED_CALL(),
@@ -1276,11 +1331,495 @@ fn reply_bar(
     tooltip::tooltip(resp, s::CANCEL(), Some("Esc")).clicked()
 }
 
+// ---- Pasting ------------------------------------------------------------------------------
+
+/// The desktop's clipboard (Wayland and X11) through `arboard`.
+struct SystemClipboard;
+
+impl ClipboardSource for SystemClipboard {
+    fn read(&self) -> Clip {
+        let Ok(mut board) = arboard::Clipboard::new() else {
+            return Clip::Other;
+        };
+        if let Ok(files) = board.get().file_list()
+            && !files.is_empty()
+        {
+            return Clip::Files(files);
+        }
+        match board.get_image() {
+            Ok(img) => Clip::Image {
+                size: [img.width, img.height],
+                rgba: img.bytes.into_owned(),
+            },
+            Err(_) => Clip::Other,
+        }
+    }
+}
+
+/// A paste this pass (`Event::Paste`, or `Event::PasteImage` when the clipboard has no
+/// text): copied files or a picture are held for the bar instead of going into the text.
+fn take_paste(ctx: &Context, state: &mut UiState) {
+    let event_image = ctx.input(|i| {
+        let mut pasted = false;
+        let mut image = None;
+        for e in &i.events {
+            match e {
+                Event::Paste(_) => pasted = true,
+                Event::PasteImage(img) => {
+                    pasted = true;
+                    image = Some(img.clone());
+                }
+                _ => {}
+            }
+        }
+        pasted.then_some(image)
+    });
+    let Some(event_image) = event_image else {
+        return;
+    };
+    let source = state.chat.clipboard.source();
+    let held = match source.map_or_else(|| SystemClipboard.read(), |c| c.read()) {
+        Clip::Files(mut files) if !files.is_empty() => {
+            files.truncate(PASTE_FILES);
+            Some(Pasted::Files(files))
+        }
+        Clip::Image { size, rgba } if rgba.len() == size[0] * size[1] * 4 => Some(Pasted::Image {
+            size,
+            rgba: std::sync::Arc::new(rgba),
+        }),
+        _ => event_image.map(|img| Pasted::Image {
+            size: img.size,
+            rgba: std::sync::Arc::new(
+                img.pixels
+                    .iter()
+                    .flat_map(|px| px.to_srgba_unmultiplied())
+                    .collect(),
+            ),
+        }),
+    };
+    if let Some(held) = held {
+        state.chat.pasted = Some(held);
+        ctx.input_mut(|i| {
+            i.events
+                .retain(|e| !matches!(e, Event::Paste(_) | Event::PasteImage(_)));
+        });
+    }
+}
+
+/// A picture encoded off the UI thread: its chat and PNG bytes.
+type Png = (ChatRef, Vec<u8>);
+
+/// Pictures encoded off the UI thread, waiting to go out.
+#[derive(Clone, Default)]
+struct Encoded(std::sync::Arc<std::sync::Mutex<Vec<Png>>>);
+
+impl Encoded {
+    fn take(&self) -> Vec<Png> {
+        std::mem::take(
+            &mut *self
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+}
+
+fn encoded(ctx: &Context) -> Encoded {
+    ctx.data_mut(|d| {
+        d.get_temp_mut_or_default::<Encoded>(Id::unique("chat.composer.encoded"))
+            .clone()
+    })
+}
+
+/// A picture as PNG bytes (fast compression: it is a screenshot on its way out).
+fn encode_png(size: [usize; 2], rgba: &[u8]) -> Option<Vec<u8>> {
+    use image::ImageEncoder as _;
+    let mut out = Vec::new();
+    let encoder = image::codecs::png::PngEncoder::new_with_quality(
+        &mut out,
+        image::codecs::png::CompressionType::Fast,
+        image::codecs::png::FilterType::Adaptive,
+    );
+    encoder
+        .write_image(
+            rgba,
+            u32::try_from(size[0]).ok()?,
+            u32::try_from(size[1]).ok()?,
+            image::ExtendedColorType::Rgba8,
+        )
+        .ok()?;
+    Some(out)
+}
+
+/// Send what was pasted: each file as itself; a picture encoded to PNG on a worker
+/// thread, sent when ready (`show` picks it up).
+fn send_pasted(ctx: &Context, state: &mut UiState, env: &mut Env<'_>, chat: ChatRef) {
+    match state.chat.pasted.take() {
+        Some(Pasted::Files(paths)) => {
+            for path in paths {
+                env.bridge
+                    .send(UiCommand::Chat(ChatCommand::SendFile { chat, path }));
+            }
+        }
+        Some(Pasted::Image { size, rgba }) => {
+            let out = encoded(ctx);
+            let waker = ctx.clone();
+            let spawned = std::thread::Builder::new()
+                .name("easyplay-paste".into())
+                .spawn(move || {
+                    if let Some(png) = encode_png(size, &rgba) {
+                        out.0
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .push((chat, png));
+                        waker.request_repaint();
+                    }
+                });
+            if let Err(e) = spawned {
+                tracing::warn!(error = %e, "chat_paste_encoder_not_started");
+            }
+        }
+        None => {}
+    }
+    state.chat.focus_composer = true;
+}
+
+// ---- Dropping files ------------------------------------------------------------------------
+
+/// Files dropped on the window this pass, while this conversation can take them: they wait
+/// in the paste bar (at most [`PASTE_FILES`]); folders are skipped, and only folders say so
+/// in a toast. The UI does no I/O, so a path without an extension counts as a folder (as
+/// the app's own drop routing does). Marks `state.chat.takes_drops` so the shell's drop
+/// zone (adding games), which runs after the page, stands aside.
+fn take_drop(ctx: &Context, state: &mut UiState, env: &mut Env<'_>) {
+    state.chat.takes_drops = true;
+    let dropped: Vec<std::path::PathBuf> = ctx.input(|i| {
+        i.raw
+            .dropped_files
+            .iter()
+            .map(|f| f.path().to_path_buf())
+            .collect()
+    });
+    if dropped.is_empty() {
+        return;
+    }
+    ctx.input_mut(|i| i.raw.dropped_files.clear());
+    let mut files: Vec<std::path::PathBuf> = dropped
+        .into_iter()
+        .filter(|p| p.extension().is_some())
+        .collect();
+    if files.is_empty() {
+        state.toast(
+            s::FOLDERS_REFUSED(),
+            crate::vm::toasts::ToastKind::Warning,
+            None,
+            env.mono,
+        );
+        return;
+    }
+    files.truncate(PASTE_FILES);
+    state.chat.pasted = Some(Pasted::Files(files));
+    state.chat.focus_composer = true;
+}
+
+/// The overlay over the conversation while files are dragged over the window: the wall at
+/// 85 %, a dashed 2 pt accent rounded rect inset 16, the file glyph at 32 and "Drop to send
+/// to Mira". It fades in over 140 (at once under reduced motion).
+fn drop_overlay(ctx: &Context, column: Rect, name: &str) {
+    if ctx.input(|i| i.raw.hovered_files.is_empty()) {
+        return;
+    }
+    let th = theme::theme(ctx);
+    let p = th.palette.clone();
+    let id = Id::unique("chat.composer.drop");
+    let shown = if th.motion.reduced {
+        1.0
+    } else {
+        motion::appear(ctx, id.with("in"), theme::Dur::Fast.secs())
+    };
+    egui::Area::new(id)
+        .order(Order::Foreground)
+        .fixed_pos(column.min)
+        .interactable(false)
+        .show(ctx, |ui| {
+            ui.multiply_opacity(shown);
+            let painter = ui.painter();
+            painter.rect_filled(
+                column,
+                CornerRadius::ZERO,
+                p.bg.gamma_multiply(m::DROP_WALL),
+            );
+            let inner = column.shrink(m::DROP_INSET);
+            painter.extend(egui::Shape::dashed_line(
+                &rounded_outline(inner, m::RADIUS.into()),
+                Stroke::new(stroke::FOCUS, p.accent_mark),
+                m::DROP_DASH[0],
+                m::DROP_DASH[1],
+            ));
+            let label = s::drop_to(name);
+            let g = Type::Heading.galley(ui, &label, p.t1, inner.width() - 2.0 * m::DROP_INSET, 2);
+            let h = m::DROP_ICON + m::DROP_GAP + g.size().y;
+            let c = inner.center();
+            let top = c.y - h / 2.0;
+            painter.text(
+                pos2(c.x, top + m::DROP_ICON / 2.0),
+                Align2::CENTER_CENTER,
+                icons::FILE.text(false),
+                icons::font(m::DROP_ICON),
+                p.accent_text,
+            );
+            painter.galley(
+                pos2(c.x - g.size().x / 2.0, top + m::DROP_ICON + m::DROP_GAP),
+                g,
+                p.t1,
+            );
+            crate::a11y::labelled(ui.ctx(), id, egui::Role::Label, &label);
+        });
+}
+
+/// The outline of `rect` with corners of `radius`, as points for a dashed line.
+fn rounded_outline(rect: Rect, radius: f32) -> Vec<egui::Pos2> {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    let r = radius.min(rect.width() / 2.0).min(rect.height() / 2.0);
+    let corners = [
+        (pos2(rect.right() - r, rect.top() + r), -FRAC_PI_2),
+        (pos2(rect.right() - r, rect.bottom() - r), 0.0),
+        (pos2(rect.left() + r, rect.bottom() - r), FRAC_PI_2),
+        (pos2(rect.left() + r, rect.top() + r), PI),
+    ];
+    let steps = 8;
+    let mut pts = vec![pos2(rect.left() + r, rect.top())];
+    for (c, start) in corners {
+        for k in 0..=steps {
+            let a = start + FRAC_PI_2 * k as f32 / steps as f32;
+            pts.push(c + vec2(a.cos(), a.sin()) * r);
+        }
+    }
+    pts.push(pos2(rect.left() + r, rect.top()));
+    pts
+}
+
+/// The thumbnail of one dropped picture file: decoded on a worker thread the first time
+/// (the UI does no I/O), the file glyph until then or when it is no picture.
+fn file_thumbnail(ctx: &Context, path: &std::path::Path) -> Option<(egui::TextureId, Vec2)> {
+    type Decoded = std::sync::Arc<
+        std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, Option<egui::ColorImage>>>,
+    >;
+    let picture = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        matches!(
+            e.to_ascii_lowercase().as_str(),
+            "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"
+        )
+    });
+    if !picture {
+        return None;
+    }
+    let tex_key = Id::unique(("chat.composer.file_thumb", path));
+    if let Some(t) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(tex_key)) {
+        return Some((t.id(), t.size_vec2()));
+    }
+    let decoded: Decoded = ctx.data_mut(|d| {
+        d.get_temp_mut_or_default::<Decoded>(Id::unique("chat.composer.file_thumbs"))
+            .clone()
+    });
+    let mut map = decoded
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match map.get(path) {
+        Some(Some(image)) => {
+            let t = ctx.load_texture("chat-drop", image.clone(), egui::TextureOptions::LINEAR);
+            let out = (t.id(), t.size_vec2());
+            ctx.data_mut(|d| d.insert_temp(tex_key, t));
+            Some(out)
+        }
+        Some(None) => None,
+        None => {
+            map.insert(path.to_path_buf(), None);
+            let (owned, store, waker) = (path.to_path_buf(), decoded.clone(), ctx.clone());
+            let side = (m::PASTE_THUMB * 2.0) as u32;
+            let _ = std::thread::Builder::new()
+                .name("easyplay-drop-thumb".into())
+                .spawn(move || {
+                    let Ok(img) = image::open(&owned) else {
+                        return;
+                    };
+                    let small = img.thumbnail(side, side).to_rgba8();
+                    let size = [small.width() as usize, small.height() as usize];
+                    let image = egui::ColorImage::from_rgba_unmultiplied(size, small.as_raw());
+                    store
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .insert(owned, Some(image));
+                    waker.request_repaint();
+                });
+            None
+        }
+    }
+}
+
+/// The thumbnail of a pasted picture (uploaded once per paste).
+fn thumbnail(ctx: &Context, size: [usize; 2], rgba: &std::sync::Arc<Vec<u8>>) -> egui::TextureId {
+    let key = Id::unique("chat.composer.paste_thumb");
+    let ptr = std::sync::Arc::as_ptr(rgba) as usize;
+    if let Some((at, tex)) = ctx.data(|d| d.get_temp::<(usize, egui::TextureHandle)>(key))
+        && at == ptr
+    {
+        return tex.id();
+    }
+    let image = egui::ColorImage::from_rgba_unmultiplied(size, rgba);
+    let tex = ctx.load_texture("chat-paste", image, egui::TextureOptions::LINEAR);
+    let id = tex.id();
+    ctx.data_mut(|d| d.insert_temp(key, (ptr, tex)));
+    id
+}
+
+/// The bar above the field while a paste waits: the picture's thumbnail (or the files'
+/// names), a line saying it is not sent yet, Send and ×. `Some(true)`: Send; `Some(false)`:
+/// ×.
+fn pasted_bar(ui: &mut Ui, pasted: &Pasted, p: &Palette, rtl: bool) -> Option<bool> {
+    let w = ui.available_width();
+    let image = match pasted {
+        Pasted::Image { .. } => true,
+        Pasted::Files(paths) => paths.len() == 1 && file_thumbnail(ui.ctx(), &paths[0]).is_some(),
+    };
+    let h = if image { m::PASTE_H_IMAGE } else { m::PASTE_H };
+    let (rect, bar) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
+    let painter = ui.painter().clone();
+    painter.hline(
+        rect.x_range(),
+        rect.bottom() - stroke::BORDER / 2.0,
+        Stroke::new(stroke::BORDER, p.line),
+    );
+    let cy = rect.center().y;
+    let mut x = m::PASTE_PAD;
+    let title = match pasted {
+        Pasted::Image { size, rgba } => {
+            let side = m::PASTE_THUMB;
+            let fit = Vec2::new(size[0] as f32, size[1] as f32);
+            let scale = (side / fit.x.max(fit.y).max(1.0)).min(1.0);
+            let shown = fit * scale;
+            let box_r = Rect::from_min_size(
+                pos2(at(rect, x, side, rtl), cy - side / 2.0),
+                Vec2::splat(side),
+            );
+            painter.rect_filled(box_r, CornerRadius::same(m::PASTE_RADIUS), p.o1);
+            let r = Rect::from_center_size(box_r.center(), shown);
+            let tex = thumbnail(ui.ctx(), *size, rgba);
+            painter.image(
+                tex,
+                r,
+                Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                Color32::WHITE,
+            );
+            x += side + m::BAR_GAP;
+            s::PASTED_PICTURE().to_owned()
+        }
+        Pasted::Files(paths)
+            if paths.len() == 1 && file_thumbnail(ui.ctx(), &paths[0]).is_some() =>
+        {
+            let side = m::PASTE_THUMB;
+            if let Some((tex, size)) = file_thumbnail(ui.ctx(), &paths[0]) {
+                let scale = (side / size.x.max(size.y).max(1.0)).min(1.0);
+                let box_r = Rect::from_min_size(
+                    pos2(at(rect, x, side, rtl), cy - side / 2.0),
+                    Vec2::splat(side),
+                );
+                painter.rect_filled(box_r, CornerRadius::same(m::PASTE_RADIUS), p.o1);
+                painter.image(
+                    tex,
+                    Rect::from_center_size(box_r.center(), size * scale),
+                    Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+            }
+            x += side + m::BAR_GAP;
+            paths[0].file_name().map_or_else(
+                || paths[0].display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            )
+        }
+        Pasted::Files(paths) => {
+            let glyph = icon_size::INLINE;
+            painter.text(
+                pos2(at(rect, x, glyph, rtl) + glyph / 2.0, cy),
+                Align2::CENTER_CENTER,
+                icons::FILE.text(false),
+                icons::font(glyph),
+                p.t2,
+            );
+            x += glyph + m::BAR_GAP;
+            paths
+                .iter()
+                .map(|path| {
+                    path.file_name().map_or_else(
+                        || path.display().to_string(),
+                        |n| n.to_string_lossy().into_owned(),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+    };
+    // From the end: ×, then Send.
+    let close_x = w - m::BAR_PAD[1] - m::BAR_CLOSE;
+    let send = Button::primary(s::SEND()).size(crate::widgets::button::Size::Sm);
+    let sw = send.width(ui);
+    let send_x = close_x - m::BAR_GAP - sw;
+    let bh = theme::tokens::control::BUTTON_SM;
+    let send_r = Rect::from_min_size(pos2(at(rect, send_x, sw, rtl), cy - bh / 2.0), vec2(sw, bh));
+    let room = (send_x - m::BAR_GAP - x).max(1.0);
+    let t = Type::BodyStrong.galley(ui, &title, p.t1, room, 1);
+    let hint = Type::Caption.galley(ui, s::PASTED_HINT(), p.t3, room, 1);
+    let total = t.size().y + hint.size().y;
+    let ty = cy - total / 2.0;
+    painter.galley(pos2(at(rect, x, t.size().x, rtl), ty), t.clone(), p.t1);
+    painter.galley(
+        pos2(at(rect, x, hint.size().x, rtl), ty + t.size().y),
+        hint,
+        p.t3,
+    );
+    crate::a11y::item(
+        &bar,
+        egui::Role::Label,
+        &format!("{title}. {}", s::PASTED_HINT()),
+    );
+    let sent = ui.put(send_r, send).clicked();
+    let cr = Rect::from_center_size(
+        pos2(
+            at(rect, close_x, m::BAR_CLOSE, rtl) + m::BAR_CLOSE / 2.0,
+            cy,
+        ),
+        Vec2::splat(m::BAR_CLOSE),
+    );
+    let resp = ui.interact(cr, Id::unique("chat.composer.paste_close"), Sense::click());
+    let hot = resp.hovered() || resp.has_focus();
+    if hot {
+        painter.circle_filled(cr.center(), m::BAR_CLOSE / 2.0, p.o2);
+    }
+    painter.text(
+        cr.center(),
+        Align2::CENTER_CENTER,
+        icons::CLOSE.text(false),
+        icons::font(icon_size::SMALL),
+        if hot { p.t1 } else { p.t3 },
+    );
+    crate::a11y::button(&resp, s::DISCARD());
+    let closed = tooltip::tooltip(resp, s::DISCARD(), Some("Esc")).clicked();
+    if sent {
+        Some(true)
+    } else if closed {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 // ---- The field --------------------------------------------------------------------------
 
 /// What the keys asked for in this pass.
 enum Act {
     Send,
+    SendPasted,
     Format(Mark),
     EditLast,
     Move(isize),
@@ -1415,8 +1954,14 @@ fn field(
         ctx.data_mut(|d| d.insert_temp(Id::unique("chat.composer.dismissed"), q));
     }
 
-    // Keys, before the field sees them.
+    // Ctrl+V of a picture or of copied files: held in a bar above the field until Send.
     let focused = ctx.memory(|mem| mem.has_focus(id));
+    if focused && f.files {
+        take_paste(&ctx, state);
+    }
+    let pending = state.chat.pasted.is_some();
+
+    // Keys, before the field sees them.
     let list = hits(state, snap, chat, system);
     let open_list = focused && !list.is_empty();
     let empty = state.chat.drafts.get(&chat).is_none_or(String::is_empty);
@@ -1436,6 +1981,10 @@ fn field(
                 };
                 let cmd = modifiers.command || modifiers.ctrl;
                 let plain = !cmd && !modifiers.shift && !modifiers.alt;
+                if pending && *key == Key::Enter && !modifiers.shift && !modifiers.alt {
+                    acts.push(Act::SendPasted);
+                    return false;
+                }
                 if open_list {
                     let act = match key {
                         Key::ArrowDown => Some(Act::Move(1)),
@@ -1476,6 +2025,7 @@ fn field(
     for act in acts {
         match act {
             Act::Send => send(state, env, snap, chat),
+            Act::SendPasted => send_pasted(&ctx, state, env, chat),
             Act::Format(mark) => format(&ctx, state, chat, mark),
             Act::EditLast => {
                 if let Some((item, text)) = last_own(state, chat) {
@@ -1514,6 +2064,16 @@ fn field(
     let mut frame_rect = Rect::from_min_size(pos2(plate_left, top), vec2(w, 0.0));
     let bg_idx = ui.painter().add(egui::Shape::Noop);
 
+    if let Some(pasted) = state.chat.pasted.clone() {
+        match pasted_bar(ui, &pasted, p, rtl) {
+            Some(true) => send_pasted(&ctx, state, env, chat),
+            Some(false) => {
+                state.chat.pasted = None;
+                state.chat.focus_composer = true;
+            }
+            None => {}
+        }
+    }
     let mut close_bar = false;
     if reply_or_edit {
         close_bar = reply_bar(ui, state, snap, chat, p, rtl);
@@ -1543,7 +2103,7 @@ fn field(
         tab: open_list,
         horizontal_arrows: true,
         vertical_arrows: true,
-        escape: open_list || reply_or_edit,
+        escape: open_list || reply_or_edit || pending,
     };
     let placeholder = s::placeholder(if group { name } else { first(name) });
     let label = s::label(name);
@@ -1641,7 +2201,7 @@ fn field(
                 id,
                 EventFilter {
                     tab: open,
-                    escape: open || reply_or_edit,
+                    escape: open || reply_or_edit || state.chat.pasted.is_some(),
                     ..filter
                 },
             );
@@ -1863,7 +2423,7 @@ fn plus_menu(ui: &mut Ui, state: &mut UiState, chat: ChatRef, rect: Rect) {
         .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
         .align(egui::RectAlign::TOP_START);
     context_menu::popup(popup, |ui| {
-        context_menu::section(ui, s::FILE_LIMIT());
+        context_menu::section(ui, &s::file_limit(easyplay_core::chat::MAX_SEND >> 30));
         if context_menu::icon_item(ui, icons::IMAGE, s::PICTURE(), None).clicked() {
             state.picks.push(PickPurpose::ChatPicture(chat));
         }

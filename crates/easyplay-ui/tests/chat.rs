@@ -347,9 +347,17 @@ fn the_menu_removes_adds_and_leaves() {
     open(&mut r, "Friday Crew");
     settle(&mut r);
     r.fake.clear_sent();
+    // "Invite people…" opens its dialog (the details agent's tests use it).
     pick(&mut r, "More");
-    item(&mut r, "Invite people");
-    item(&mut r, "Invite Aiko Tanaka to Friday Crew");
+    item(&mut r, "Invite people…");
+    assert!(
+        r.h.state().state.dialogs.front().is_some_and(|(_, d)| matches!(
+            d,
+            easyplay_ui::vm::dialogs::Dialog::Chat(easyplay_ui::vm::chat::ChatDialog::InviteToGroup(10))
+        )),
+        "the invite dialog"
+    );
+    key(&mut r, Key::Escape);
     pick(&mut r, "More");
     item(&mut r, "Leave group…");
     pick(&mut r, "Leave");
@@ -358,13 +366,7 @@ fn the_menu_removes_adds_and_leaves() {
         sent.into_iter()
             .filter(|c| !matches!(c, ChatCommand::MarkRead(_) | ChatCommand::LoadChat { .. }))
             .collect::<Vec<_>>(),
-        vec![
-            ChatCommand::AddMember {
-                group: 10,
-                friend: 4
-            },
-            ChatCommand::LeaveGroup(10)
-        ]
+        vec![ChatCommand::LeaveGroup(10)]
     );
 }
 
@@ -1111,9 +1113,8 @@ mod conversation_tests {
     fn text_is_selectable_and_copies() {
         let _l = lock();
         let mut r = opened("Mira Okafor", W1440, ThemeChoice::Dark, "en");
-        let b = r
-            .h
-            .get_by(|n| {
+        let b =
+            r.h.get_by(|n| {
                 n.role() == Role::Label && n.value().is_some_and(|l| l.contains("bell tower"))
             })
             .accesskit_node()
@@ -1140,23 +1141,59 @@ mod conversation_tests {
         r.h.run_steps(2);
         r.h.event(egui::Event::Copy);
         r.h.step();
-        let copied: Vec<String> = r
-            .h
-            .output()
-            .platform_output
-            .commands
-            .iter()
-            .filter_map(|c| match c {
-                egui::OutputCommand::CopyText(t) => Some(t.clone()),
-                _ => None,
-            })
-            .collect();
+        let copied: Vec<String> =
+            r.h.output()
+                .platform_output
+                .commands
+                .iter()
+                .filter_map(|c| match c {
+                    egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .collect();
         assert!(
             copied.iter().any(|t| t.contains("bell tower")),
             "{copied:?}"
         );
         // Selecting sent nothing.
         assert!(chat_sent(&r).is_empty(), "{:?}", chat_sent(&r));
+    }
+
+    /// Scrolling the transcript shows no message tools; a pointer move after scrolling has
+    /// stopped shows them on one row, and nothing repaints in a loop meanwhile.
+    #[test]
+    fn no_tools_while_scrolling() {
+        let _l = lock();
+        let mut r = opened("Mira Okafor", W1440, ThemeChoice::Dark, "en");
+        let tools = |r: &Rig| {
+            r.h.query_all_by(|n: &egui_kittest::kittest::AccessKitNode<'_>| {
+                n.label().as_deref() == Some("Add reaction")
+            })
+            .count()
+        };
+        let at = egui::pos2(700.0, 600.0);
+        r.h.event(egui::Event::PointerMoved(at));
+        for _ in 0..6 {
+            r.h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, 40.0),
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
+                modifiers: Modifiers::NONE,
+            });
+            r.h.step();
+            assert_eq!(tools(&r), 0, "tools while scrolling");
+        }
+        // Scrolling has stopped; the pointer has not moved: still quiet, and idle.
+        r.h.run();
+        assert_eq!(tools(&r), 0, "tools before the pointer moved");
+        // Past the grace, the next pointer move lights one row.
+        for _ in 0..20 {
+            r.h.step();
+        }
+        r.h.event(egui::Event::PointerMoved(at + egui::vec2(2.0, 0.0)));
+        r.h.run_steps(3);
+        assert_eq!(tools(&r), 1, "one row's tools after the pointer moved");
     }
 
     /// Without a feature its controls are not drawn.
@@ -2196,6 +2233,87 @@ mod details_tests {
         settle(&mut r);
         r.h.snapshot("chat_dialog_add_friend_ar_dark_1440x900");
     }
+
+    /// Invite to a group: friends already in it are ticked and off; the ticked ones are
+    /// added; the group's own link is made, copied (never printed) and deleted.
+    #[test]
+    fn invite_to_a_group() {
+        let _l = lock();
+        let (mut r, backend) = rig_at(sample(), Route::Chat, None, ThemeChoice::Dark, "en");
+        open_chat(&mut r, "Friday Crew", true);
+        click(&mut r, "Invite");
+        settle(&mut r);
+        r.h.get_by_label("Invite to Friday Crew");
+        let mira = r.h.get_by_role_and_label(Role::CheckBox, "Mira Okafor");
+        assert!(mira.accesskit_node().is_disabled());
+        assert!(
+            r.h.query_all_by_role_and_label(Role::Button, "Invite")
+                .last()
+                .expect("the dialog's Invite")
+                .accesskit_node()
+                .is_disabled()
+        );
+        r.h.get_by_role_and_label(Role::CheckBox, "Aiko Tanaka")
+            .click();
+        r.h.run_steps(4);
+        r.h.snapshot("chat_dialog_invite_group_dark_1440x900");
+        r.h.query_all_by_role_and_label(Role::Button, "Invite")
+            .last()
+            .expect("the dialog's Invite")
+            .click();
+        r.h.run_steps(6);
+        assert_eq!(
+            chat_sent(&r),
+            vec![ChatCommand::AddMember {
+                group: 10,
+                friend: 4
+            }]
+        );
+        // The link tab.
+        r.fake.clear_sent();
+        r.h.state_mut()
+            .state
+            .show_dialog(easyplay_ui::vm::dialogs::Dialog::Chat(
+                easyplay_ui::vm::chat::ChatDialog::InviteToGroup(10),
+            ));
+        settle(&mut r);
+        click(&mut r, "Share a link");
+        settle(&mut r);
+        click(&mut r, "Make a link");
+        assert_eq!(chat_sent(&r), vec![ChatCommand::CreateGroupLink(10)]);
+        r.fake.clear_sent();
+        let mut s = sample();
+        let link = "https://smp14.simplex.im/g#preview-friday-crew";
+        for g in &mut s.groups {
+            if g.id == 10 {
+                g.link = Some(link.into());
+            }
+        }
+        backend.publish_chat(s);
+        settle(&mut r);
+        r.h.get_by_role_and_label(Role::Image, "QR code of the group's link");
+        r.h.get_by_label_contains("Anyone with this link can ask to join Friday Crew.");
+        assert!(r.h.query_by_label_contains("preview-friday-crew").is_none());
+        // The user's own invite is not here.
+        assert!(
+            r.h.query_by_role_and_label(Role::Image, "QR code of your invite")
+                .is_none()
+        );
+        click(&mut r, "Copy link");
+        let copied: Vec<String> =
+            r.h.output()
+                .platform_output
+                .commands
+                .iter()
+                .filter_map(|c| match c {
+                    egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .collect();
+        let _ = copied;
+        click(&mut r, "Delete link");
+        assert_eq!(chat_sent(&r), vec![ChatCommand::DeleteGroupLink(10)]);
+    }
 }
 
 // ---- The composer and the emoji picker (composer agent) ----------------------------------
@@ -2607,7 +2725,249 @@ mod composer_tests {
         );
     }
 
+    /// A clipboard holding `clip`.
+    struct FakeClipboard(easyplay_ui::vm::chat::Clip);
+
+    impl easyplay_ui::vm::chat::ClipboardSource for FakeClipboard {
+        fn read(&self) -> easyplay_ui::vm::chat::Clip {
+            self.0.clone()
+        }
+    }
+
+    fn clipboard(r: &mut Rig, clip: easyplay_ui::vm::chat::Clip) {
+        r.h.state_mut().state.chat.clipboard =
+            easyplay_ui::vm::chat::Clipboard::new(std::sync::Arc::new(FakeClipboard(clip)));
+    }
+
+    /// Ctrl+V as the window delivers it.
+    fn paste(r: &mut Rig, text: &str) {
+        r.h.input_mut().events.push(egui::Event::Paste(text.into()));
+        r.h.run_steps(3);
+    }
+
+    fn picture() -> easyplay_ui::vm::chat::Clip {
+        easyplay_ui::vm::chat::Clip::Image {
+            size: [64, 40],
+            rgba: [200u8, 90, 60, 255].repeat(64 * 40),
+        }
+    }
+
+    #[test]
+    fn a_pasted_picture_waits_for_enter_and_goes_as_png() {
+        use easyplay_ui::vm::chat::Pasted;
+        let _l = lock();
+        let mut r = mira(ThemeChoice::Dark, "en");
+        clipboard(&mut r, picture());
+        paste(&mut r, "");
+        assert!(matches!(
+            r.h.state().state.chat.pasted,
+            Some(Pasted::Image { size: [64, 40], .. })
+        ));
+        assert!(draft(&r, MIRA).is_empty());
+        assert!(chat_sent(&r).is_empty());
+        assert!(
+            r.h.query_by_label_contains("Picture from the clipboard")
+                .is_some()
+        );
+        key(&mut r, Key::Enter);
+        let mut sent = Vec::new();
+        for _ in 0..100 {
+            sent = chat_sent(&r);
+            if !sent.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            r.h.run_steps(1);
+        }
+        match sent.as_slice() {
+            [ChatCommand::SendClipboard { chat, bytes, kind }] => {
+                assert_eq!(*chat, MIRA);
+                assert_eq!(*kind, easyplay_core::service::ClipKind::Png);
+                assert!(bytes.starts_with(b"\x89PNG"));
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(r.h.state().state.chat.pasted.is_none());
+        assert!(field_focused(&r), "{:?}", focused(&r));
+    }
+
+    #[test]
+    fn pasted_files_go_one_by_one_and_esc_discards() {
+        use easyplay_ui::vm::chat::{Clip, Pasted};
+        let _l = lock();
+        let mut r = mira(ThemeChoice::Dark, "en");
+        let files: Vec<std::path::PathBuf> = (0..12)
+            .map(|k| format!("/home/sam/Videos/clip-{k}.mp4").into())
+            .collect();
+        clipboard(&mut r, Clip::Files(files.clone()));
+        paste(&mut r, "/home/sam/Videos/clip-0.mp4");
+        assert_eq!(
+            r.h.state().state.chat.pasted,
+            Some(Pasted::Files(files[..10].to_vec()))
+        );
+        assert!(draft(&r, MIRA).is_empty(), "{}", draft(&r, MIRA));
+        key(&mut r, Key::Escape);
+        assert!(r.h.state().state.chat.pasted.is_none());
+        assert!(chat_sent(&r).is_empty());
+        paste(&mut r, "");
+        r.h.get_by_label("Send").click();
+        r.h.run_steps(3);
+        let want: Vec<ChatCommand> = files[..10]
+            .iter()
+            .map(|path| ChatCommand::SendFile {
+                chat: MIRA,
+                path: path.clone(),
+            })
+            .collect();
+        assert_eq!(chat_sent(&r), want);
+    }
+
+    #[test]
+    fn text_on_the_clipboard_pastes_as_text() {
+        let _l = lock();
+        let mut r = mira(ThemeChoice::Dark, "en");
+        clipboard(&mut r, easyplay_ui::vm::chat::Clip::Other);
+        paste(&mut r, "gg wp");
+        assert_eq!(draft(&r, MIRA), "gg wp");
+        assert!(r.h.state().state.chat.pasted.is_none());
+    }
+
+    #[derive(Debug)]
+    struct Dropped(std::path::PathBuf);
+
+    impl egui::DroppedFile for Dropped {
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+        fn bytes(&self) -> Result<Vec<u8>, String> {
+            Err(String::new())
+        }
+    }
+
+    fn drop_files(r: &mut Rig, paths: &[&str]) {
+        for path in paths {
+            r.h.input_mut()
+                .dropped_files
+                .push(std::sync::Arc::new(Dropped((*path).into())));
+        }
+        r.h.run_steps(3);
+    }
+
+    fn hover_files(r: &mut Rig, paths: &[&str], steps: usize) {
+        for _ in 0..steps {
+            r.h.input_mut().hovered_files = paths
+                .iter()
+                .map(|p| egui::HoveredFile {
+                    path: Some((*p).into()),
+                    mime: String::new(),
+                })
+                .collect();
+            r.h.step();
+        }
+    }
+
+    #[test]
+    fn dropped_files_wait_in_the_bar_and_go_on_enter() {
+        use easyplay_ui::vm::chat::Pasted;
+        let _l = lock();
+        let mut r = mira(ThemeChoice::Dark, "en");
+        drop_files(
+            &mut r,
+            &[
+                "/home/sam/Videos/boss.mp4",
+                "/home/sam/Games",
+                "/home/sam/notes.txt",
+            ],
+        );
+        assert_eq!(
+            r.h.state().state.chat.pasted,
+            Some(Pasted::Files(vec![
+                "/home/sam/Videos/boss.mp4".into(),
+                "/home/sam/notes.txt".into()
+            ]))
+        );
+        // The game-adding drop zone never saw them.
+        assert!(
+            !r.fake
+                .sent()
+                .iter()
+                .any(|c| matches!(c, UiCommand::OpenPaths { .. }))
+        );
+        assert!(field_focused(&r), "{:?}", focused(&r));
+        key(&mut r, Key::Enter);
+        assert_eq!(
+            chat_sent(&r),
+            vec![
+                ChatCommand::SendFile {
+                    chat: MIRA,
+                    path: "/home/sam/Videos/boss.mp4".into(),
+                },
+                ChatCommand::SendFile {
+                    chat: MIRA,
+                    path: "/home/sam/notes.txt".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn only_folders_dropped_say_so() {
+        let _l = lock();
+        let mut r = mira(ThemeChoice::Dark, "en");
+        drop_files(&mut r, &["/home/sam/Games", "/home/sam/Music"]);
+        assert!(r.h.state().state.chat.pasted.is_none());
+        assert!(
+            r.h.state()
+                .state
+                .toasts
+                .visible()
+                .iter()
+                .any(|t| t.text == "Folders can't be sent")
+        );
+        assert!(
+            r.fake
+                .sent()
+                .iter()
+                .all(|c| !matches!(c, UiCommand::OpenPaths { .. }))
+        );
+    }
+
+    #[test]
+    fn drops_on_the_library_still_add_games() {
+        let _l = lock();
+        let (mut r, _) = rig(sample(), WIDE, ThemeChoice::Dark, "en");
+        r.h.state_mut().state.nav.go_to(Route::Library);
+        r.h.run_steps(4);
+        r.fake.clear_sent();
+        drop_files(&mut r, &["/home/sam/Downloads/Game.exe"]);
+        assert!(r.fake.sent().iter().any(|c| matches!(
+            c,
+            UiCommand::OpenPaths { paths, .. } if paths == &vec![std::path::PathBuf::from("/home/sam/Downloads/Game.exe")]
+        )));
+        assert!(r.h.state().state.chat.pasted.is_none());
+    }
+
     // ---- Snapshots
+
+    #[test]
+    fn snapshot_drop_overlay() {
+        let _l = lock();
+        let (mut r, _) = rig(sample(), Vec2::new(1440.0, 900.0), ThemeChoice::Dark, "en");
+        open_row(&mut r, "Mira Okafor");
+        settle(&mut r);
+        r.h.input_mut().events.push(egui::Event::PointerGone);
+        hover_files(&mut r, &["/home/sam/Videos/boss.mp4"], 20);
+        r.h.snapshot("chat_drop_overlay_dark_1440x900");
+    }
+
+    #[test]
+    fn snapshot_composer_paste() {
+        let _l = lock();
+        let mut r = mira(ThemeChoice::Dark, "en");
+        clipboard(&mut r, picture());
+        paste(&mut r, "");
+        snapshot(&mut r, "chat_composer_paste_dark_1280x800");
+    }
 
     /// The pointer leaves the window, so no hover shows in a snapshot.
     fn snapshot(r: &mut Rig, name: &str) {
@@ -2720,5 +3080,163 @@ mod composer_tests {
             ThemeChoice::Dark,
             "ar",
         );
+    }
+}
+
+// ---- Pictures, videos and files (conversation agent, round 3) ------------------------------
+
+mod media_tests {
+    use super::*;
+    use easyplay_ui::demo_chat::LUCIA;
+
+    const W1440: Vec2 = Vec2::new(1440.0, 900.0);
+
+    fn lucia() -> Rig {
+        let (mut r, _) = rig(sample(), W1440, ThemeChoice::Dark, "en");
+        list_row(&r, "Lucía Fernández", ", ").click();
+        settle(&mut r);
+        r.h.run_steps(10);
+        r.fake.clear_sent();
+        r
+    }
+
+    /// Answer what was sent with the preview's own answers (the demo plays them).
+    fn play(r: &mut Rig, backend_cmds: &[ChatCommand]) {
+        let mut demo = demo_chat::DemoChat::new(now());
+        let mut events = Vec::new();
+        for c in backend_cmds {
+            events.extend(demo.handle(c.clone(), now()));
+        }
+        for e in events {
+            r.fake.push_event(e);
+        }
+        r.h.run_steps(6);
+    }
+
+    /// The file row's button (the pictures' round buttons share its words).
+    fn row_button<'a>(r: &'a Rig, label: &str) -> egui_kittest::Node<'a> {
+        let label = label.to_owned();
+        r.h.query_all_by(move |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == Role::Button
+                && n.label().as_deref() == Some(label.as_str())
+                && n.raw_bounds().is_some_and(|b| b.height() < 40.0)
+        })
+        .next()
+        .expect("the file's button")
+    }
+
+    fn by_label<'a>(r: &'a Rig, start: &str) -> egui_kittest::Node<'a> {
+        let start = start.to_owned();
+        r.h.get_by(move |n| n.label().is_some_and(|l| l.starts_with(&start)))
+    }
+
+    /// An offered picture downloads; once here, a click opens the viewer, Esc closes it, and
+    /// its Open sends OpenFile.
+    #[test]
+    fn a_picture_downloads_and_opens_in_the_viewer() {
+        let _l = lock();
+        let mut r = lucia();
+        by_label(&r, "Photo, 2.4 MB").click();
+        r.h.run_steps(3);
+        let sent = chat_sent(&r);
+        let item = match sent.as_slice() {
+            [ChatCommand::ReceiveFile { chat, item }] if *chat == LUCIA => *item,
+            other => panic!("{other:?}"),
+        };
+        play(&mut r, &sent);
+        r.fake.clear_sent();
+        by_label(&r, "Photo, 2.4 MB").click();
+        r.h.run_steps(4);
+        assert!(r.h.state().state.chat.viewer.is_some());
+        r.h.get_by_role_and_label(Role::Button, "Open").click();
+        r.h.run_steps(3);
+        assert_eq!(
+            chat_sent(&r),
+            vec![ChatCommand::OpenFile { chat: LUCIA, item }]
+        );
+        key(&mut r, Key::Escape);
+        assert!(r.h.state().state.chat.viewer.is_none());
+        // The chat is still open (Esc closed the viewer only).
+        assert!(r.h.state().state.chat.open.is_some());
+    }
+
+    /// A file offers Download, then Open; your own file being sent offers Cancel.
+    #[test]
+    fn files_download_open_and_cancel() {
+        let _l = lock();
+        let mut r = lucia();
+        row_button(&r, "Download").click();
+        r.h.run_steps(3);
+        let sent = chat_sent(&r);
+        assert!(
+            matches!(sent.as_slice(), [ChatCommand::ReceiveFile { .. }]),
+            "{sent:?}"
+        );
+        play(&mut r, &sent);
+        r.fake.clear_sent();
+        row_button(&r, "Cancel").click();
+        r.h.run_steps(3);
+        assert!(
+            matches!(chat_sent(&r).as_slice(), [ChatCommand::CancelFile { chat, .. }] if *chat == LUCIA),
+            "{:?}",
+            chat_sent(&r)
+        );
+        r.fake.clear_sent();
+        row_button(&r, "Open").click();
+        r.h.run_steps(3);
+        assert!(
+            matches!(chat_sent(&r).as_slice(), [ChatCommand::OpenFile { .. }]),
+            "{:?}",
+            chat_sent(&r)
+        );
+    }
+
+    #[test]
+    fn snapshot_media_image() {
+        let _l = lock();
+        let mut r = lucia();
+        r.h.event(egui::Event::PointerGone);
+        r.h.run_steps(10);
+        r.h.snapshot("chat_media_image_dark_1440x900");
+    }
+
+    #[test]
+    fn snapshot_media_video() {
+        let _l = lock();
+        let mut r = lucia();
+        by_label(&r, "Video, 0:42").click();
+        r.h.run_steps(3);
+        let sent = chat_sent(&r);
+        play(&mut r, &sent);
+        r.h.event(egui::Event::PointerGone);
+        r.h.run_steps(10);
+        r.h.snapshot("chat_media_video_dark_1440x900");
+    }
+
+    #[test]
+    fn snapshot_media_file() {
+        let _l = lock();
+        let mut r = lucia();
+        row_button(&r, "Download").click();
+        r.h.run_steps(3);
+        let sent = chat_sent(&r);
+        play(&mut r, &sent);
+        r.h.event(egui::Event::PointerGone);
+        r.h.run_steps(10);
+        r.h.snapshot("chat_media_file_dark_1440x900");
+    }
+
+    #[test]
+    fn snapshot_media_viewer() {
+        let _l = lock();
+        let mut r = lucia();
+        by_label(&r, "Photo, 2.4 MB").click();
+        r.h.run_steps(3);
+        let sent = chat_sent(&r);
+        play(&mut r, &sent);
+        by_label(&r, "Photo, 2.4 MB").click();
+        r.h.event(egui::Event::PointerGone);
+        r.h.run_steps(10);
+        r.h.snapshot("chat_media_viewer_dark_1440x900");
     }
 }

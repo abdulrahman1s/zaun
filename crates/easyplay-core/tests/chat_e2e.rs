@@ -32,7 +32,9 @@ use easyplay_core::chat::{
     ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, FileKind, Request, RequestKind,
     SimplexFactory,
 };
-use easyplay_core::model::{ChatMessage, ChatRef, MessageAuthor, MessageBody, Quote};
+use easyplay_core::model::{
+    ChatMessage, ChatRef, FileState, Media, MessageAuthor, MessageBody, Quote,
+};
 
 const WAIT: Duration = Duration::from_secs(60);
 
@@ -371,6 +373,8 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
             chat: ChatRef::Direct(a_bob),
             path: gif,
             kind: FileKind::Gif,
+            preview: None,
+            duration: None,
         });
         let got = b.updated(
             "the GIF, fetched",
@@ -384,6 +388,60 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
             std::fs::read(&path).unwrap(),
             std::fs::read(&outside).unwrap()
         );
+
+        // A 3 MB picture: offered with its preview, fetched when asked, identical.
+        let photo = a_dir.join("files").join("sent").join("IMG_3mb.png");
+        let mut seed = 0x2545_f491_u32;
+        let img = image::RgbImage::from_fn(1024, 1024, |_, _| {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            let [r, g, b, _] = seed.to_le_bytes();
+            image::Rgb([r, g, b])
+        });
+        img.save(&photo).unwrap();
+        let photo_bytes = std::fs::read(&photo).unwrap();
+        assert!(photo_bytes.len() > 3_000_000, "{}", photo_bytes.len());
+        let preview = easyplay_core::service::flows::chat::preview_jpeg(&photo_bytes);
+        assert!(preview.is_some());
+        a.engine.request(Request::SendFile {
+            chat: ChatRef::Direct(a_bob),
+            path: photo,
+            kind: FileKind::Image,
+            preview: preview.clone(),
+            duration: None,
+        });
+        let offered = b.updated(
+            "the photo, offered",
+            |m| matches!(&m.body, MessageBody::Image(x) if x.name == "IMG_3mb.png"),
+        );
+        let MessageBody::Image(x) = &offered.body else {
+            unreachable!()
+        };
+        assert_eq!(
+            x.state,
+            FileState::Offered,
+            "too large to be fetched by itself"
+        );
+        assert_eq!(x.preview, preview);
+        assert_eq!(x.size, photo_bytes.len() as u64);
+        b.engine.request(Request::ReceiveFile {
+            chat: offered.chat,
+            item: offered.id,
+        });
+        let got = b.updated("the photo, fetched", |m| {
+            m.id == offered.id
+                && matches!(&m.body, MessageBody::Image(x) if matches!(x.state, FileState::Received(_)))
+        });
+        let MessageBody::Image(Media {
+            state: FileState::Received(path),
+            ..
+        }) = got.body
+        else {
+            unreachable!()
+        };
+        assert!(path.starts_with(&b_dir), "{path:?}");
+        assert_eq!(std::fs::read(&path).unwrap(), photo_bytes);
     }
 
     a.engine.request(Request::NewGroup("squad".into()));

@@ -732,7 +732,7 @@ fn group(
         super::dialogs::call_flow(state, env, snap, chat);
     }
     if invite {
-        state.show_dialog(Dialog::Chat(ChatDialog::AddFriend));
+        state.show_dialog(Dialog::Chat(ChatDialog::InviteToGroup(g.id)));
     }
     heading(ui, s::MEMBERS(), p);
     for (mem, pr) in &members {

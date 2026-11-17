@@ -1,0 +1,1500 @@
+{
+  "result": {
+    "type": "apiChat",
+    "user": {
+      "userId": 1,
+      "agentUserId": "1",
+      "userContactId": 1,
+      "localDisplayName": "caroline",
+      "profile": {
+        "profileId": 1,
+        "displayName": "caroline",
+        "fullName": "",
+        "localAlias": ""
+      },
+      "fullPreferences": {
+        "timedMessages": {
+          "allow": "yes"
+        },
+        "fullDelete": {
+          "allow": "no"
+        },
+        "reactions": {
+          "allow": "yes"
+        },
+        "voice": {
+          "allow": "yes"
+        },
+        "files": {
+          "allow": "always"
+        },
+        "calls": {
+          "allow": "yes"
+        },
+        "sessions": {
+          "allow": "no"
+        },
+        "commands": []
+      },
+      "activeUser": true,
+      "activeOrder": 1,
+      "showNtfs": true,
+      "sendRcptsContacts": true,
+      "sendRcptsSmallGroups": true,
+      "autoAcceptMemberContacts": false,
+      "userMemberProfileUpdatedAt": "2026-11-17T11:45:57.569809161Z",
+      "userChatRelay": false,
+      "clientService": false
+    },
+    "chat": {
+      "chatInfo": {
+        "type": "group",
+        "groupInfo": {
+          "groupId": 1,
+          "useRelays": false,
+          "localDisplayName": "squad night",
+          "groupProfile": {
+            "displayName": "squad night",
+            "fullName": ""
+          },
+          "localAlias": "",
+          "fullGroupPreferences": {
+            "timedMessages": {
+              "enable": "off",
+              "ttl": 86400
+            },
+            "directMessages": {
+              "enable": "off"
+            },
+            "fullDelete": {
+              "enable": "off"
+            },
+            "reactions": {
+              "enable": "on"
+            },
+            "voice": {
+              "enable": "on"
+            },
+            "files": {
+              "enable": "on"
+            },
+            "simplexLinks": {
+              "enable": "on"
+            },
+            "reports": {
+              "enable": "on"
+            },
+            "history": {
+              "enable": "off"
+            },
+            "support": {
+              "enable": "on"
+            },
+            "sessions": {
+              "enable": "off"
+            },
+            "comments": {
+              "enable": "off"
+            },
+            "signMessages": {
+              "enable": "off"
+            },
+            "commands": []
+          },
+          "membership": {
+            "groupMemberId": 2,
+            "groupId": 1,
+            "indexInGroup": 1,
+            "memberId": "N2puVTNRWi82WWw5dmF6cA==",
+            "memberRole": "member",
+            "memberCategory": "user",
+            "memberStatus": "removed",
+            "memberSettings": {
+              "showMessages": true
+            },
+            "blockedByAdmin": false,
+            "invitedBy": {
+              "type": "contact",
+              "byContactId": 3
+            },
+            "invitedByGroupMemberId": 1,
+            "localDisplayName": "caroline",
+            "memberProfile": {
+              "profileId": 1,
+              "displayName": "caroline",
+              "fullName": "",
+              "localAlias": ""
+            },
+            "memberContactId": 1,
+            "memberContactProfileId": 1,
+            "memberChatVRange": {
+              "minVersion": 1,
+              "maxVersion": 19
+            },
+            "createdAt": "2026-11-17T11:45:51.433750673Z",
+            "updatedAt": "2026-11-17T11:46:02.612616155Z"
+          },
+          "chatSettings": {
+            "enableNtfs": "all",
+            "favorite": false
+          },
+          "createdAt": "2026-11-17T11:45:51.433750673Z",
+          "updatedAt": "2026-11-17T11:45:55.570295465Z",
+          "chatTs": "2026-11-17T11:46:02.614988783Z",
+          "userMemberProfileSentAt": "2026-11-17T11:45:51.433750673Z",
+          "chatTags": [],
+          "groupSummary": {
+            "currentMembers": 1
+          },
+          "membersRequireAttention": 0
+        }
+      },
+      "chatItems": [
+        {
+          "chatDir": {
+            "type": "groupSnd"
+          },
+          "meta": {
+            "itemId": 8,
+            "itemTs": "1970-01-01T00:00:00Z",
+            "itemText": "chat banner",
+            "itemStatus": {
+              "type": "sndNew"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.43514847Z",
+            "updatedAt": "2026-11-17T11:45:51.43514847Z"
+          },
+          "content": {
+            "type": "chatBanner"
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 10,
+            "itemTs": "2026-11-17T11:45:51.55926168Z",
+            "itemText": "This conversation is protected by end-to-end encryption with perfect forward secrecy, repudiation and break-in recovery.",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.55926168Z",
+            "updatedAt": "2026-11-17T11:45:51.55926168Z"
+          },
+          "content": {
+            "type": "rcvGroupE2EEInfo",
+            "e2eeInfo": {
+              "pqEnabled": false
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 11,
+            "itemTs": "2026-11-17T11:45:51.561364094Z",
+            "itemText": "Disappearing messages: off",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.561364094Z",
+            "updatedAt": "2026-11-17T11:45:51.561364094Z"
+          },
+          "content": {
+            "type": "rcvGroupFeature",
+            "groupFeature": "timedMessages",
+            "preference": {
+              "enable": "off"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 12,
+            "itemTs": "2026-11-17T11:45:51.563022393Z",
+            "itemText": "Direct messages: off",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.563022393Z",
+            "updatedAt": "2026-11-17T11:45:51.563022393Z"
+          },
+          "content": {
+            "type": "rcvGroupFeature",
+            "groupFeature": "directMessages",
+            "preference": {
+              "enable": "off"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 13,
+            "itemTs": "2026-11-17T11:45:51.56447182Z",
+            "itemText": "Full deletion: off",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.56447182Z",
+            "updatedAt": "2026-11-17T11:45:51.56447182Z"
+          },
+          "content": {
+            "type": "rcvGroupFeature",
+            "groupFeature": "fullDelete",
+            "preference": {
+              "enable": "off"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 14,
+            "itemTs": "2026-11-17T11:45:51.565921077Z",
+            "itemText": "Message reactions: on",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.565921077Z",
+            "updatedAt": "2026-11-17T11:45:51.565921077Z"
+          },
+          "content": {
+            "type": "rcvGroupFeature",
+            "groupFeature": "reactions",
+            "preference": {
+              "enable": "on"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 15,
+            "itemTs": "2026-11-17T11:45:51.567330584Z",
+            "itemText": "Voice messages: on",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.567330584Z",
+            "updatedAt": "2026-11-17T11:45:51.567330584Z"
+          },
+          "content": {
+            "type": "rcvGroupFeature",
+            "groupFeature": "voice",
+            "preference": {
+              "enable": "on"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 16,
+            "itemTs": "2026-11-17T11:45:51.568822811Z",
+            "itemText": "Files and media: on",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.568822811Z",
+            "updatedAt": "2026-11-17T11:45:51.568822811Z"
+          },
+          "content": {
+            "type": "rcvGroupFeature",
+            "groupFeature": "files",
+            "preference": {
+              "enable": "on"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 17,
+            "itemTs": "2026-11-17T11:45:51.570243448Z",
+            "itemText": "SimpleX links: on",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.570243448Z",
+            "updatedAt": "2026-11-17T11:45:51.570243448Z"
+          },
+          "content": {
+            "type": "rcvGroupFeature",
+            "groupFeature": "simplexLinks",
+            "preference": {
+              "enable": "on"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 18,
+            "itemTs": "2026-11-17T11:45:51.571668644Z",
+            "itemText": "Member reports: on",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.571668644Z",
+            "updatedAt": "2026-11-17T11:45:51.571668644Z"
+          },
+          "content": {
+            "type": "rcvGroupFeature",
+            "groupFeature": "reports",
+            "preference": {
+              "enable": "on"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 19,
+            "itemTs": "2026-11-17T11:45:51.573074031Z",
+            "itemText": "Recent history: off",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.573074031Z",
+            "updatedAt": "2026-11-17T11:45:51.573074031Z"
+          },
+          "content": {
+            "type": "rcvGroupFeature",
+            "groupFeature": "history",
+            "preference": {
+              "enable": "off"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 20,
+            "itemTs": "2026-11-17T11:45:51.574903832Z",
+            "itemText": "Chat with admins: on",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.574903832Z",
+            "updatedAt": "2026-11-17T11:45:51.574903832Z"
+          },
+          "content": {
+            "type": "rcvGroupFeature",
+            "groupFeature": "support",
+            "preference": {
+              "enable": "on"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 21,
+            "itemTs": "2026-11-17T11:45:51.576509561Z",
+            "itemText": "connected",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.576509561Z",
+            "updatedAt": "2026-11-17T11:45:51.576509561Z"
+          },
+          "content": {
+            "type": "rcvGroupEvent",
+            "rcvGroupEvent": {
+              "type": "memberConnected"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 3,
+              "groupId": 1,
+              "indexInGroup": 2,
+              "memberId": "UzF2aDlWYXp3Qm9kdEQwVg==",
+              "memberRole": "member",
+              "memberCategory": "pre",
+              "memberStatus": "left",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "bob",
+              "memberProfile": {
+                "profileId": 4,
+                "displayName": "bob",
+                "fullName": "",
+                "localAlias": ""
+              },
+              "memberContactProfileId": 4,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.603492976Z",
+              "updatedAt": "2026-11-17T11:45:59.597446206Z"
+            }
+          },
+          "meta": {
+            "itemId": 22,
+            "itemTs": "2026-11-17T11:45:51.668412415Z",
+            "itemText": "connected",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:51.668412415Z",
+            "updatedAt": "2026-11-17T11:45:51.668412415Z"
+          },
+          "content": {
+            "type": "rcvGroupEvent",
+            "rcvGroupEvent": {
+              "type": "memberConnected"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 23,
+            "itemTs": "2026-11-17T11:45:55Z",
+            "itemText": "group profile updated",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemSharedMsgId": "L29tN3RzV3V0b1lTeFQ5NA==",
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:55.572085336Z",
+            "updatedAt": "2026-11-17T11:45:55.572085336Z"
+          },
+          "content": {
+            "type": "rcvGroupEvent",
+            "rcvGroupEvent": {
+              "type": "groupUpdated",
+              "groupProfile": {
+                "displayName": "squad night",
+                "fullName": ""
+              }
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 3,
+              "groupId": 1,
+              "indexInGroup": 2,
+              "memberId": "UzF2aDlWYXp3Qm9kdEQwVg==",
+              "memberRole": "member",
+              "memberCategory": "pre",
+              "memberStatus": "left",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "bob",
+              "memberProfile": {
+                "profileId": 4,
+                "displayName": "bob",
+                "fullName": "",
+                "localAlias": ""
+              },
+              "memberContactProfileId": 4,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.603492976Z",
+              "updatedAt": "2026-11-17T11:45:59.597446206Z"
+            }
+          },
+          "meta": {
+            "itemId": 24,
+            "itemTs": "2026-11-17T11:45:59Z",
+            "itemText": "left",
+            "itemStatus": {
+              "type": "rcvRead"
+            },
+            "itemSharedMsgId": "WlNucHNwRVlOYVc1ZFZSOA==",
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:45:59.597861121Z",
+            "updatedAt": "2026-11-17T11:45:59.597861121Z"
+          },
+          "content": {
+            "type": "rcvGroupEvent",
+            "rcvGroupEvent": {
+              "type": "memberLeft"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        },
+        {
+          "chatDir": {
+            "type": "groupRcv",
+            "groupMember": {
+              "groupMemberId": 1,
+              "groupId": 1,
+              "indexInGroup": 0,
+              "memberId": "OGZmQk9ldyszQlFpblhrbQ==",
+              "memberRole": "owner",
+              "memberCategory": "host",
+              "memberStatus": "connected",
+              "memberSettings": {
+                "showMessages": true
+              },
+              "blockedByAdmin": false,
+              "invitedBy": {
+                "type": "unknown"
+              },
+              "localDisplayName": "alice",
+              "memberProfile": {
+                "profileId": 3,
+                "displayName": "alice",
+                "fullName": "",
+                "preferences": {
+                  "timedMessages": {
+                    "allow": "yes"
+                  },
+                  "fullDelete": {
+                    "allow": "no"
+                  },
+                  "reactions": {
+                    "allow": "yes"
+                  },
+                  "voice": {
+                    "allow": "yes"
+                  },
+                  "files": {
+                    "allow": "always"
+                  },
+                  "calls": {
+                    "allow": "yes"
+                  },
+                  "sessions": {
+                    "allow": "no"
+                  },
+                  "commands": []
+                },
+                "localAlias": ""
+              },
+              "memberContactId": 3,
+              "memberContactProfileId": 3,
+              "memberChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "createdAt": "2026-11-17T11:45:51.433750673Z",
+              "updatedAt": "2026-11-17T11:45:51.559000587Z"
+            }
+          },
+          "meta": {
+            "itemId": 25,
+            "itemTs": "2026-11-17T11:46:02Z",
+            "itemText": "removed you",
+            "itemStatus": {
+              "type": "rcvNew"
+            },
+            "itemSharedMsgId": "Q3NVRkExZlFDY3pPUkxvVg==",
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": false,
+            "editable": false,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T11:46:02.614988783Z",
+            "updatedAt": "2026-11-17T11:46:02.614988783Z"
+          },
+          "content": {
+            "type": "rcvGroupEvent",
+            "rcvGroupEvent": {
+              "type": "userDeleted"
+            }
+          },
+          "mentions": {},
+          "reactions": []
+        }
+      ],
+      "chatStats": {
+        "unreadCount": 0,
+        "unreadMentions": 0,
+        "reportsCount": 0,
+        "minUnreadItemId": 0,
+        "unreadChat": false
+      }
+    }
+  }
+}

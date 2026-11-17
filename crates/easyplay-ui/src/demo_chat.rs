@@ -21,6 +21,7 @@ use easyplay_core::model::{
     Mention, MessageAuthor, MessageBody, MyStatus, Playing, Presence, Quote, Reaction, Ringing,
     Share, StreamRecord, Watching,
 };
+use easyplay_core::model::{FileState, Media};
 use easyplay_core::service::{ChatCommand, ChatPage};
 
 use crate::bridge::{QueryPayload, UiEvent};
@@ -319,6 +320,7 @@ fn group(
         member_list: list,
         muted,
         voice: voice.iter().map(|f| member_id(id, *f)).collect(),
+        link: None,
     }
 }
 
@@ -433,10 +435,52 @@ impl Convo<'_> {
 /// What a reply shows of the message it answers: its first line.
 fn quote_text(body: &MessageBody) -> String {
     match body {
-        MessageBody::Text(t) | MessageBody::Event(t) => t.lines().next().unwrap_or("").to_owned(),
+        MessageBody::Text(t) => t.lines().next().unwrap_or("").to_owned(),
         MessageBody::Gif(g) => format!("GIF {g}"),
         MessageBody::Stream(s) => s.title.clone(),
         _ => String::new(),
+    }
+}
+
+/// A small preview picture (PNG): a sky from `top` to `bottom` with a sun, `w` × `h`.
+pub fn preview_png(w: u32, h: u32, top: [u8; 3], bottom: [u8; 3]) -> Vec<u8> {
+    let img = image::RgbaImage::from_fn(w, h, |x, y| {
+        let t = y as f32 / h.max(1) as f32;
+        let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t) as u8;
+        let (cx, cy, r) = (w as f32 * 0.68, h as f32 * 0.42, h as f32 * 0.16);
+        let d = ((x as f32 - cx).powi(2) + (y as f32 - cy).powi(2)).sqrt();
+        if d < r {
+            image::Rgba([255, 214, 150, 255])
+        } else if y as f32 > h as f32 * 0.72 {
+            image::Rgba([mix(top[0], 20), mix(top[1], 24), mix(top[2], 30), 255])
+        } else {
+            image::Rgba([
+                mix(top[0], bottom[0]),
+                mix(top[1], bottom[1]),
+                mix(top[2], bottom[2]),
+                255,
+            ])
+        }
+    });
+    let mut out = Vec::new();
+    let _ = img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png);
+    out
+}
+
+/// A picture, video or file offered (or sent) with `name` and `size`.
+fn media(
+    name: &str,
+    size: u64,
+    preview: Option<Vec<u8>>,
+    duration: Option<u32>,
+    state: FileState,
+) -> Media {
+    Media {
+        name: name.into(),
+        size,
+        preview,
+        duration,
+        state,
     }
 }
 
@@ -586,6 +630,51 @@ fn conversations(now: Timestamp, names: &HashMap<i64, String>) -> Vec<(ChatRef, 
     convo(LUCIA, &|c| {
         c.t(lucia, Day(1, 23, 10), "gg last night 🙌");
         c.mk(Me, Day(1, 23, 11), MessageBody::Gif("gg".into()));
+        // Pictures, a video and files (round 3): offered, not fetched yet.
+        c.mk(
+            lucia,
+            Day(1, 23, 14),
+            MessageBody::Image(media(
+                "IMG_20261117_231402.jpg",
+                2_400_000,
+                Some(preview_png(96, 72, [214, 120, 92], [96, 52, 110])),
+                None,
+                FileState::Offered,
+            )),
+        );
+        c.mk(
+            lucia,
+            Day(1, 23, 15),
+            MessageBody::Video(media(
+                "clutch.mp4",
+                18_200_000,
+                Some(preview_png(128, 72, [40, 70, 120], [16, 22, 40])),
+                Some(42),
+                FileState::Offered,
+            )),
+        );
+        c.mk(
+            lucia,
+            Day(1, 23, 16),
+            MessageBody::File(media(
+                "shaders-v3.zip",
+                3_100_000,
+                None,
+                None,
+                FileState::Offered,
+            )),
+        );
+        c.mk(
+            Me,
+            Day(1, 23, 18),
+            MessageBody::File(media(
+                "save_slot2.dat",
+                840_000,
+                None,
+                None,
+                FileState::Sending { percent: 40 },
+            )),
+        );
     });
     convo(TOMASZ, &|c| {
         c.t(
@@ -1504,6 +1593,7 @@ impl DemoChat {
                     member_list: vec![me_member(id, true)],
                     muted: false,
                     voice: Vec::new(),
+                    link: None,
                 });
                 self.made.insert(ChatRef::Group(id), now);
                 self.histories.entry(ChatRef::Group(id)).or_default();
@@ -1619,6 +1709,37 @@ impl DemoChat {
             ChatCommand::OpenLinkAnyway(_) => {}
             // Commands added later reach the preview as nothing.
             #[allow(unreachable_patterns)]
+            // Round 3: fetching is at once in the preview; opening does nothing.
+            ChatCommand::ReceiveFile { chat, item } => {
+                if let Some(m) = self.change(chat, item, |m| {
+                    if let MessageBody::Image(md) | MessageBody::Video(md) | MessageBody::File(md) =
+                        &mut m.body
+                    {
+                        md.state = FileState::Received(
+                            std::path::Path::new("/nonexistent/easyplay-preview").join(&md.name),
+                        );
+                    }
+                }) {
+                    out.push(UiEvent::ChatMessages {
+                        messages: vec![m],
+                        updated: true,
+                    });
+                }
+            }
+            ChatCommand::CancelFile { chat, item } => {
+                if let Some(m) = self.change(chat, item, |m| {
+                    if let MessageBody::Image(md) | MessageBody::Video(md) | MessageBody::File(md) =
+                        &mut m.body
+                    {
+                        md.state = FileState::Cancelled;
+                    }
+                }) {
+                    out.push(UiEvent::ChatMessages {
+                        messages: vec![m],
+                        updated: true,
+                    });
+                }
+            }
             _ => {}
         }
         self.relist();

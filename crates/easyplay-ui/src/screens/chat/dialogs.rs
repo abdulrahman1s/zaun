@@ -90,6 +90,7 @@ pub fn dialog(
         ChatDialog::Block(f) => block(ctx, id, state, env, f),
         ChatDialog::Blocked => blocked(ctx, id, state, env),
         ChatDialog::UnsafeLink => unsafe_link(ctx, id, state, env),
+        ChatDialog::InviteToGroup(g) => invite_to_group(ctx, id, state, env, g),
         ChatDialog::RemoveFriend(f) => {
             let name = super::name_of(env.bridge.chat(), ChatRef::Direct(f));
             confirm(
@@ -618,6 +619,288 @@ fn save_name(env: &mut Env<'_>, name: &str) {
     let mut next = (**env.bridge.prefs()).clone();
     next.chat.name = name.to_owned();
     env.bridge.set_prefs_preview(next);
+}
+
+// ── Invite to a group ─────────────────────────────────────────────────────────────────
+
+/// Friends to show in Invite to a group before the list gets a search field.
+const INVITE_SEARCH_FROM: usize = 8;
+
+fn invite_to_group(
+    ctx: &Context,
+    id: Id,
+    state: &mut UiState,
+    env: &mut Env<'_>,
+    group: i64,
+) -> bool {
+    let snap = env.bridge.chat().clone();
+    let Some(g) = snap.group(group).cloned() else {
+        return true;
+    };
+    let p = theme::theme(ctx).palette.clone();
+    // Each time it opens it starts on Friends with nobody ticked.
+    if modal::opening(ctx, id.with("chat.invite.fresh")) {
+        state.chat.group_invite = Default::default();
+    }
+    // Friends who are members already (or invited): ticked and off.
+    let members: Vec<i64> = g.member_list.iter().filter_map(|m| m.friend).collect();
+    let friends: Vec<_> = snap
+        .friends
+        .iter()
+        .filter(|f| !f.blocked && f.ready)
+        .cloned()
+        .collect();
+    let open_count = friends.iter().filter(|f| !members.contains(&f.id)).count();
+    let vm = &mut state.chat.group_invite;
+    vm.pick.retain(|f| !members.contains(f));
+    let ticked = !vm.pick.is_empty();
+    if g.link.is_some() {
+        vm.link_asked = false;
+    }
+    let tab = vm.tab.min(1);
+    let mut link_act = None;
+    let mut copy = None;
+    let title = s::invite_title(&g.name);
+    let shown = modal::show(
+        ctx,
+        id,
+        Spec::new(&title)
+            .close_button()
+            .step(tab as u64)
+            .unsaved(ticked),
+        |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let mut t = tab;
+            ui.horizontal(|ui| {
+                segmented(
+                    ui,
+                    s::INVITE_TABS(),
+                    &mut t,
+                    &[
+                        Segment {
+                            icon: None,
+                            label: s::INVITE_TAB_FRIENDS(),
+                        },
+                        Segment {
+                            icon: None,
+                            label: s::INVITE_TAB_LINK(),
+                        },
+                    ],
+                    false,
+                );
+            });
+            vm.tab = t;
+            ui.add_space(m::TABS_BELOW);
+            if tab == 1 {
+                link_act = group_link(ui, &g, vm.link_asked, &mut copy, &p);
+                return;
+            }
+            if friends.len() > INVITE_SEARCH_FROM {
+                let r = TextField::new(&mut vm.query, "chat.invite.search")
+                    .search()
+                    .hint(s::INVITE_SEARCH())
+                    .accessible_name(s::INVITE_SEARCH())
+                    .show(ui)
+                    .response;
+                focus_once(ui, id, &r);
+                ui.add_space(space::S2);
+            }
+            if open_count == 0 {
+                para(ui, s::INVITE_NOBODY(), Type::Body, p.t3);
+                ui.add_space(space::S2);
+            }
+            let q = vm.query.trim().to_lowercase();
+            let shown: Vec<_> = friends
+                .iter()
+                .filter(|f| q.is_empty() || f.name.to_lowercase().contains(&q))
+                .collect();
+            if shown.is_empty() {
+                para(ui, s::INVITE_NO_MATCH(), Type::Body, p.t3);
+            }
+            for f in shown {
+                let member = members.contains(&f.id);
+                let on = member || vm.pick.contains(&f.id);
+                let clicked = ui
+                    .add_enabled_ui(!member, |ui| {
+                        friend_pick(ui, f, on, member.then(s::IN_THE_GROUP), &p)
+                    })
+                    .inner;
+                if clicked && !member {
+                    if on {
+                        vm.pick.retain(|x| *x != f.id);
+                    } else {
+                        vm.pick.push(f.id);
+                    }
+                }
+            }
+        },
+        |ui| {
+            if tab == 1 {
+                return (false, ui.add(Button::primary(c::DONE())).clicked());
+            }
+            let go = ui
+                .add_enabled(ticked, Button::primary(s::INVITE_SEND()))
+                .clicked();
+            let cancel = ui.add(Button::new(c::CANCEL())).clicked();
+            (go, cancel)
+        },
+    );
+    if let Some(link) = copy {
+        env.ctx.copy_text(link);
+        state.toast(c::LINK_COPIED(), ToastKind::Success, None, env.mono);
+    }
+    match link_act {
+        Some(true) => {
+            state.chat.group_invite.link_asked = true;
+            env.bridge
+                .send(UiCommand::Chat(ChatCommand::CreateGroupLink(group)));
+        }
+        Some(false) => {
+            state.chat.group_invite.link_asked = false;
+            env.bridge
+                .send(UiCommand::Chat(ChatCommand::DeleteGroupLink(group)));
+        }
+        None => {}
+    }
+    let (go, cancel) = shown.footer;
+    if go && ticked {
+        let picked = std::mem::take(&mut state.chat.group_invite.pick);
+        for &friend in &picked {
+            env.bridge
+                .send(UiCommand::Chat(ChatCommand::AddMember { group, friend }));
+        }
+        state.toast(
+            s::invited(picked.len(), &g.name),
+            ToastKind::Success,
+            None,
+            env.mono,
+        );
+    }
+    if go || cancel {
+        modal::closed(ctx, id);
+    }
+    let done = go || cancel || shown.close_requested;
+    if done {
+        state.chat.group_invite = Default::default();
+    }
+    done
+}
+
+/// The group's own link: "Make a link" while there is none; then its QR code, Copy link,
+/// what it does, and Delete link. The link itself is never printed. Returns
+/// `Some(true)` to make it, `Some(false)` to delete it; a copy goes into `copy`.
+fn group_link(
+    ui: &mut Ui,
+    g: &easyplay_core::model::ChatGroup,
+    asked: bool,
+    copy: &mut Option<String>,
+    p: &theme::palette::Palette,
+) -> Option<bool> {
+    let mut act = None;
+    match g.link.as_deref() {
+        None => {
+            para(ui, s::GROUP_LINK_NONE(), Type::Body, p.t3);
+            ui.add_space(m::LINE_GAP);
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(!asked, Button::new(s::MAKE_LINK()).busy(asked))
+                    .clicked()
+                {
+                    act = Some(true);
+                }
+            });
+        }
+        Some(link) => {
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = m::INVITE_GAP;
+                let side = paint::qr_side(ui.ctx(), link, m::QR, m::QR_MODULE);
+                paint::qr(ui, link, side, s::QR_GROUP());
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    para(ui, &s::group_link_body(&g.name), Type::Body, p.t3);
+                    ui.add_space(m::LINE_GAP);
+                    if ui
+                        .add(Button::new(c::COPY_LINK()).icon(icons::COPY))
+                        .clicked()
+                    {
+                        *copy = Some(link.to_owned());
+                    }
+                });
+            });
+            ui.add_space(space::S4);
+            let w = ui.available_width();
+            let (row, _) =
+                ui.allocate_exact_size(vec2(w, theme::tokens::control::BUTTON), Sense::hover());
+            let label = s::DELETE_LINK();
+            let bw = Type::BodyStrong.line(ui, label, p.t1).size().x
+                + theme::tokens::control::BUTTON_PAD * 2.0;
+            // The coral text button hangs out by its padding, so its words stand on the
+            // column's edge.
+            let x = if crate::i18n::dir() == crate::i18n::Dir::Rtl {
+                row.right() + theme::tokens::control::BUTTON_PAD - bw
+            } else {
+                row.left() - theme::tokens::control::BUTTON_PAD
+            };
+            let r =
+                Rect::from_min_size(pos2(x, row.top()), vec2(bw, theme::tokens::control::BUTTON));
+            if paint::place(ui, r, Button::new(label).variant(Variant::Warn)).clicked() {
+                act = Some(false);
+            }
+        }
+    }
+    act
+}
+
+/// A friend to tick (`.pick` with a checkbox): the name, and at the end `note` (quiet) or
+/// the avatar. Returns whether it was clicked.
+fn friend_pick(
+    ui: &mut Ui,
+    f: &easyplay_core::model::Friend,
+    on: bool,
+    note: Option<&str>,
+    p: &theme::palette::Palette,
+) -> bool {
+    let (resp, ()) = pick(ui, PickKind::Check, on, &f.name, |ui| {
+        let w = ui.available_width();
+        let (r, _) = ui.allocate_exact_size(vec2(w, m::PICK_AVATAR), Sense::hover());
+        let rtl = crate::i18n::dir() == crate::i18n::Dir::Rtl;
+        let note_g = note.map(|n| Type::Caption.line(ui, n, p.t3));
+        let end_w = note_g.as_ref().map_or(0.0, |g| g.size().x + space::S2) + m::PICK_AVATAR;
+        let name = super::emoji::Line::new(
+            ui,
+            Type::Body,
+            &f.name,
+            p.t1,
+            (w - end_w - space::S2).max(1.0),
+        );
+        let (tx, ax) = if rtl {
+            (r.right() - name.size().x, r.left())
+        } else {
+            (r.left(), r.right() - m::PICK_AVATAR)
+        };
+        let ny = r.center().y - name.size().y / 2.0;
+        name.paint(ui.painter(), pos2(tx, ny), p.t1);
+        avatar::avatar(
+            ui.painter(),
+            Rect::from_min_size(pos2(ax, r.top()), vec2(m::PICK_AVATAR, m::PICK_AVATAR)),
+            &f.name,
+            f.paper,
+            Shape::Person,
+        );
+        if let Some(g) = note_g {
+            let nx = if rtl {
+                ax + m::PICK_AVATAR + space::S2
+            } else {
+                ax - space::S2 - g.size().x
+            };
+            ui.painter()
+                .galley(pos2(nx, r.center().y - g.size().y / 2.0), g, p.t3);
+        }
+    });
+    if let Some(n) = note {
+        crate::a11y::describe(&resp, n);
+    }
+    resp.clicked()
 }
 
 // ── Your profile ──────────────────────────────────────────────────────────────────────

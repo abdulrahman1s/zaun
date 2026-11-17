@@ -139,6 +139,24 @@ texts! {
     LOADING_OLDER = "chat.conversation.loading_older";
     /// Loading failed.
     LOAD_FAILED = "chat.conversation.load_failed";
+    /// A picture (the list's preview, what a screen reader says).
+    PHOTO = "chat.conversation.photo";
+    /// A video (the list's preview, what a screen reader says).
+    VIDEO_WORD = "chat.conversation.video_word";
+    /// Fetch an offered picture, video or file.
+    DOWNLOAD = "chat.conversation.download";
+    /// Stop fetching or sending it.
+    CANCEL = "chat.conversation.cancel";
+    /// Open a received file with the system's app.
+    OPEN = "chat.conversation.open";
+    /// Close the picture viewer.
+    CLOSE = "chat.conversation.close";
+    /// Under the user's own media that could not be sent.
+    MEDIA_NOT_SENT = "chat.conversation.media_not_sent";
+    /// Under someone's media that could not be fetched.
+    MEDIA_NOT_RECEIVED = "chat.conversation.media_not_received";
+    /// A file whose fetching or sending was stopped.
+    CANCELLED = "chat.conversation.cancelled";
 }
 
 fn t(key: &str, args: &[(&str, &str)]) -> String {
@@ -232,6 +250,96 @@ pub fn invited_by(who: &str, group: &str) -> String {
     t(
         "chat.conversation.invited_by",
         &[("who", who), ("group", group)],
+    )
+}
+
+/// A notice of the conversation, in words. `friend` names the other side of a direct
+/// chat ("You and Mira are now friends").
+pub fn notice(n: &easyplay_core::model::ChatNotice, friend: &str) -> String {
+    use easyplay_core::model::ChatNotice as N;
+    let k = |key: &str| format!("chat.conversation.notice.{key}");
+    match n {
+        N::Connected => t(&k("connected"), &[("name", friend)]),
+        N::GroupCreated => t(&k("group_created"), &[]),
+        N::YouJoined => t(&k("you_joined"), &[]),
+        N::MemberJoined(name) => t(&k("member_joined"), &[("name", name)]),
+        N::MemberAdded { by: Some(by), who } => t(&k("member_added"), &[("by", by), ("who", who)]),
+        N::MemberAdded { by: None, who } => t(&k("you_added"), &[("who", who)]),
+        N::MemberLeft(name) => t(&k("member_left"), &[("name", name)]),
+        N::MemberRemoved { by: Some(by), who } => {
+            t(&k("member_removed"), &[("by", by), ("who", who)])
+        }
+        N::MemberRemoved { by: None, who } => t(&k("you_removed"), &[("who", who)]),
+        N::YouLeft => t(&k("you_left"), &[]),
+        N::YouRemoved(by) => t(&k("removed_you"), &[("by", by)]),
+        N::GroupDeleted => t(&k("group_deleted"), &[]),
+        N::GroupNameChanged(name) => t(&k("group_renamed"), &[("name", name)]),
+        N::NameChanged { from, to } => t(&k("name_changed"), &[("from", from), ("to", to)]),
+        N::FriendDeleted => t(&k("friend_deleted"), &[("name", friend)]),
+        N::GroupInvitation { group, sent: false } => {
+            t(&k("invited_you"), &[("name", friend), ("group", group)])
+        }
+        N::GroupInvitation { group, sent: true } => {
+            t(&k("you_invited"), &[("name", friend), ("group", group)])
+        }
+        N::CodeChanged => t(&k("code_changed"), &[]),
+    }
+}
+
+/// "File: shaders.zip" (the list's preview).
+pub fn file_preview(name: &str) -> String {
+    t("chat.conversation.file_preview", &[("name", name)])
+}
+
+/// A file's size: "640 KB", "2.4 MB", "1.2 GB".
+pub fn size(n: u64) -> String {
+    const K: f64 = 1000.0;
+    let f = n as f64;
+    if f < K {
+        format!("{n} B")
+    } else if f < K * K {
+        format!("{:.0} KB", f / K)
+    } else if f < K * K * K {
+        format!("{:.1} MB", f / (K * K))
+    } else {
+        format!("{:.1} GB", f / (K * K * K))
+    }
+}
+
+/// "Downloading, 45%".
+pub fn receiving(percent: u8) -> String {
+    t(
+        "chat.conversation.receiving",
+        &[("percent", &percent.to_string())],
+    )
+}
+
+/// "Sending, 45%".
+pub fn sending(percent: u8) -> String {
+    t(
+        "chat.conversation.sending_percent",
+        &[("percent", &percent.to_string())],
+    )
+}
+
+/// A picture, spoken: "Photo, 2.4 MB".
+pub fn photo_spoken(size: &str) -> String {
+    t("chat.conversation.photo_spoken", &[("size", size)])
+}
+
+/// A video, spoken: "Video, 0:42, 18.0 MB".
+pub fn video_spoken(len: &str, size: &str) -> String {
+    t(
+        "chat.conversation.video_spoken",
+        &[("len", len), ("size", size)],
+    )
+}
+
+/// A file, spoken: "File shaders.zip, 3.1 MB".
+pub fn file_spoken(name: &str, size: &str) -> String {
+    t(
+        "chat.conversation.file_spoken",
+        &[("name", name), ("size", size)],
     )
 }
 
@@ -340,4 +448,52 @@ pub fn message_spoken(author: &str, when: &str, text: &str) -> String {
 /// The transcript's name: "Messages with Mira".
 pub fn transcript(name: &str) -> String {
     t("chat.conversation.transcript", &[("name", name)])
+}
+
+#[cfg(test)]
+mod tests {
+    use easyplay_core::model::ChatNotice as N;
+
+    use super::*;
+
+    #[test]
+    fn notices_read_as_sentences() {
+        crate::i18n::set(crate::i18n::Language::English);
+        assert_eq!(
+            notice(&N::Connected, "Alaa"),
+            "You and Alaa are now friends"
+        );
+        assert_eq!(
+            notice(
+                &N::MemberAdded {
+                    by: Some("Jonas".into()),
+                    who: "Aiko".into()
+                },
+                ""
+            ),
+            "Jonas added Aiko"
+        );
+        assert_eq!(
+            notice(
+                &N::MemberRemoved {
+                    by: None,
+                    who: "Rex".into()
+                },
+                ""
+            ),
+            "You removed Rex"
+        );
+        assert_eq!(
+            notice(
+                &N::GroupInvitation {
+                    group: "LAN night".into(),
+                    sent: true
+                },
+                "Mira"
+            ),
+            "You invited Mira to LAN night"
+        );
+        assert_eq!(size(2_400_000), "2.4 MB");
+        assert_eq!(size(640_000), "640 KB");
+    }
 }

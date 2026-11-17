@@ -1041,6 +1041,14 @@ fn show_overlays(ctx: &egui::Context, state: &mut UiState, env: &mut Env<'_>) {
 
 /// The drop zone (USER_EXPERIENCE §5.4) and drop routing.
 fn drop_zone(ctx: &egui::Context, state: &mut UiState, env: &mut Env<'_>) {
+    // Order: the page draws before this runs. On the Chat page with a conversation that
+    // carries files, the composer has already taken any dropped files (and draws its own
+    // "Drop to send" overlay over the conversation); adding games must not see them, so the
+    // drop zone stands aside for this pass. Everywhere else it works as before.
+    if std::mem::take(&mut state.chat.takes_drops) {
+        state.dnd.hovering = None;
+        return;
+    }
     let (hovered, dropped, pos) = ctx.input(|i| {
         (
             i.raw

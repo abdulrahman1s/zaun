@@ -16,10 +16,20 @@ texts! {
     ATTACH = "chat.composer.attach";
     /// The + menu: a picture.
     PICTURE = "chat.composer.picture";
+    /// A picture in a message (the reply bar).
+    PHOTO = "chat.composer.photo";
+    /// A video in a message (the reply bar).
+    VIDEO = "chat.composer.video";
+    /// A pasted picture waiting to be sent.
+    PASTED_PICTURE = "chat.composer.pasted_picture";
+    /// Under a paste waiting to be sent.
+    PASTED_HINT = "chat.composer.pasted_hint";
+    /// Only folders were dropped.
+    FOLDERS_REFUSED = "chat.composer.folders_refused";
+    /// The picture-or-video chooser's filter.
+    MEDIA_FILTER = "chat.composer.media_filter";
     /// The + menu: any file.
     FILE = "chat.composer.file";
-    /// The + menu's heading: the size limit.
-    FILE_LIMIT = "chat.composer.file_limit";
     /// The Aa button.
     FORMATTING = "chat.composer.formatting";
     /// The GIF button's tooltip.
@@ -125,7 +135,17 @@ pub fn blocked(name: &str) -> String {
     rust_i18n::t!("chat.composer.blocked", name = name).into_owned()
 }
 
+/// Over the conversation while files are dragged over the window.
+pub fn drop_to(name: &str) -> String {
+    rust_i18n::t!("chat.composer.drop_to", name = name).into_owned()
+}
+
 /// The picker found nothing.
 pub fn no_emoji(query: &str) -> String {
     rust_i18n::t!("chat.composer.no_emoji", query = query).into_owned()
+}
+
+/// The + menu's heading: "Up to 1 GB each" (the engine's send limit, in GiB).
+pub fn file_limit(gib: u64) -> String {
+    rust_i18n::t!("chat.composer.file_limit", size = gib).into_owned()
 }

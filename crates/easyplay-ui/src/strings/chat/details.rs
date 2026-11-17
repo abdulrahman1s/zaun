@@ -210,6 +210,31 @@ texts! {
     /// Each row's action.
     PLAY_AND_SHARE = "chat.details.play_and_share";
     // ---- Block
+    // ---- Invite to a group
+    /// A tab.
+    INVITE_TAB_FRIENDS = "chat.details.invite_tab_friends";
+    /// A tab.
+    INVITE_TAB_LINK = "chat.details.invite_tab_link";
+    /// The tabs' accessible name.
+    INVITE_TABS = "chat.details.invite_tabs";
+    /// The search over friends.
+    INVITE_SEARCH = "chat.details.invite_search";
+    /// Beside a friend who is a member already.
+    IN_THE_GROUP = "chat.details.in_the_group";
+    /// With nobody left to invite.
+    INVITE_NOBODY = "chat.details.invite_nobody";
+    /// With nobody matching the search.
+    INVITE_NO_MATCH = "chat.details.invite_no_match";
+    /// The main action.
+    INVITE_SEND = "chat.details.invite_send";
+    /// Before the group has a link.
+    GROUP_LINK_NONE = "chat.details.group_link_none";
+    /// Make the group's link.
+    MAKE_LINK = "chat.details.make_link";
+    /// Delete it.
+    DELETE_LINK = "chat.details.delete_link";
+    /// The QR code's accessible name.
+    QR_GROUP = "chat.details.qr_group";
     /// The coral action.
     BLOCK = "chat.details.block";
     /// The title of the blocked list.
@@ -399,4 +424,19 @@ pub fn blocked_toast(name: &str) -> String {
 /// "Unblocked Mira" (a toast).
 pub fn unblocked_toast(name: &str) -> String {
     t1("chat.details.unblocked_toast", name)
+}
+
+/// "Invite to Friday Crew".
+pub fn invite_title(group: &str) -> String {
+    rust_i18n::t!("chat.details.invite_title", group = group).into_owned()
+}
+
+/// "Anyone with this link can ask to join Friday Crew."
+pub fn group_link_body(group: &str) -> String {
+    rust_i18n::t!("chat.details.group_link_body", group = group).into_owned()
+}
+
+/// "Invited 2 friends to Friday Crew" (a toast).
+pub fn invited(n: usize, group: &str) -> String {
+    plural::counted_args("chat.details.invited", n as u64, &[("group", group)])
 }

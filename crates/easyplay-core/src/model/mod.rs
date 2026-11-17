@@ -24,10 +24,10 @@ mod tag;
 
 pub use artwork::{ArtOrigin, ArtSlot, ArtworkRef};
 pub use chat::{
-    Call, CallKind, CallRecord, ChatFeatures, ChatGroup, ChatLive, ChatMessage, ChatPreview,
-    ChatProfile, ChatRef, ChatSnapshot, ChatStatus, Delivery, Friend, FriendRequest, GroupMember,
-    Membership, Mention, MessageAuthor, MessageBody, MyStatus, Playing, Presence, Quote, Reaction,
-    Ringing, Share, StreamRecord, Watching,
+    Call, CallKind, CallRecord, ChatFeatures, ChatNotice, ChatGroup, ChatLive, ChatMessage, ChatPreview,
+    ChatProfile, ChatRef, ChatSnapshot, ChatStatus, Delivery, FileState, Friend, FriendRequest,
+    GroupMember, Media, Membership, Mention, MessageAuthor, MessageBody, MyStatus, Playing,
+    Presence, Quote, Reaction, Ringing, Share, StreamRecord, Watching,
 };
 pub use doc::{DocError, UpgradeStep, parse_launch_config, parse_policy};
 pub use executable::{

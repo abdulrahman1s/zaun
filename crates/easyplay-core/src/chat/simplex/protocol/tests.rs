@@ -66,6 +66,33 @@ fn fixture(name: &str) -> Value {
         "address_duplicate" => include_str!("../fixtures/address_duplicate.json"),
         "invite_network_error" => include_str!("../fixtures/invite_network_error.json"),
         "servers_set_none_resp" => include_str!("../fixtures/servers_set_none_resp.json"),
+        "snd_sndFileProgressXFTP" => include_str!("../fixtures/snd_sndFileProgressXFTP.json"),
+        "snd_sndFileCompleteXFTP" => include_str!("../fixtures/snd_sndFileCompleteXFTP.json"),
+        "new_items_image_big" => include_str!("../fixtures/new_items_image_big.json"),
+        "freceive_big_resp" => include_str!("../fixtures/freceive_big_resp.json"),
+        "rcv_rcvFileStart" => include_str!("../fixtures/rcv_rcvFileStart.json"),
+        "rcv_rcvFileProgressXFTP" => include_str!("../fixtures/rcv_rcvFileProgressXFTP.json"),
+        "rcv_rcvFileComplete" => include_str!("../fixtures/rcv_rcvFileComplete.json"),
+        "send_image_big_resp" => include_str!("../fixtures/send_image_big_resp.json"),
+        "send_video_resp" => include_str!("../fixtures/send_video_resp.json"),
+        "new_items_video" => include_str!("../fixtures/new_items_video.json"),
+        "send_file_pdf_resp" => include_str!("../fixtures/send_file_pdf_resp.json"),
+        "new_items_pdf" => include_str!("../fixtures/new_items_pdf.json"),
+        "fcancel_rcv_resp" => include_str!("../fixtures/fcancel_rcv_resp.json"),
+        "fcancel_snd_resp" => include_str!("../fixtures/fcancel_snd_resp.json"),
+        "get_link_none_resp" => include_str!("../fixtures/get_link_none_resp.json"),
+        "create_link_resp" => include_str!("../fixtures/create_link_resp.json"),
+        "get_link_resp" => include_str!("../fixtures/get_link_resp.json"),
+        "delete_link_resp" => include_str!("../fixtures/delete_link_resp.json"),
+        "link_alice_joinedGroupMember" => {
+            include_str!("../fixtures/link_alice_joinedGroupMember.json")
+        }
+        "history_group_owner" => include_str!("../fixtures/history_group_owner.json"),
+        "history_group_left" => include_str!("../fixtures/history_group_left.json"),
+        "history_group_removed" => include_str!("../fixtures/history_group_removed.json"),
+        "history_direct_deleted" => include_str!("../fixtures/history_direct_deleted.json"),
+        "history_direct_owner" => include_str!("../fixtures/history_direct_owner.json"),
+        "delete_contact_resp" => include_str!("../fixtures/delete_contact_resp.json"),
         other => panic!("no fixture {other}"),
     };
     serde_json::from_str(text).unwrap()
@@ -1011,6 +1038,8 @@ fn a_sent_picture_goes_as_an_image_with_its_file_and_shows_the_local_copy() {
         chat: ChatRef::Direct(3),
         path: path.clone(),
         kind: FileKind::Gif,
+        preview: None,
+        duration: None,
     });
     let (corr, cmd) = cmds(&out)[0].clone();
     let json: Value = serde_json::from_str(cmd.strip_prefix("/_send @3 json ").unwrap()).unwrap();
@@ -1028,7 +1057,14 @@ fn a_small_received_picture_is_fetched_and_shows_its_file_once_here() {
     let mut c = started();
     let out = c.on_line(&event(&fixture("new_items_file")));
     let m = one(&out);
-    assert_eq!(m.body, MessageBody::Gif("party.gif".into()));
+    // Small enough to be fetched by itself: shown as a picture on its way, then the GIF.
+    let MessageBody::Image(media) = &m.body else {
+        panic!("{:?}", m.body)
+    };
+    assert_eq!(
+        (media.name.as_str(), &media.state),
+        ("party.gif", &FileState::Offered)
+    );
     assert_eq!(cmds(&out)[0].1, "/freceive 1 encrypt=off");
     let m = one(&c.on_line(&event(&fixture("rcv_file_complete"))));
     assert_eq!(m.body, MessageBody::Gif(format!("{DIR}/files/party.gif")));
@@ -1061,6 +1097,8 @@ fn a_large_picture_or_files_turned_off_fetch_nothing() {
         chat: ChatRef::Direct(3),
         path: PathBuf::from(format!("{DIR}/files/x.gif")),
         kind: FileKind::Gif,
+        preview: None,
+        duration: None,
     });
     assert!(out.lines.is_empty());
     assert!(matches!(
@@ -1390,4 +1428,405 @@ fn the_engine_refuses_a_list_with_no_relay_so_a_check_never_writes_one() {
     // Recorded: every SMP relay disabled is refused (USENoServers); the check never asks.
     let refused = fixture("servers_set_none_resp");
     assert!(refused["error"].to_string().contains("USENoServers"));
+}
+
+// ---- pictures, videos and files (round 3) -------------------------------------------------
+
+/// The media of a picture, video or file message.
+fn media(m: &ChatMessage) -> &Media {
+    match &m.body {
+        MessageBody::Image(x) | MessageBody::Video(x) | MessageBody::File(x) => x,
+        other => panic!("not a file: {other:?}"),
+    }
+}
+
+#[test]
+fn a_large_picture_is_offered_with_its_preview_and_fetched_when_asked() {
+    let mut c = settled();
+    let out = c.on_line(&event(&fixture("new_items_image_big")));
+    assert!(out.lines.is_empty(), "3 MB: not fetched by itself");
+    let m = one(&out);
+    assert!(matches!(m.body, MessageBody::Image(_)));
+    let x = media(&m);
+    assert_eq!(x.name, "IMG_20261117_photo.jpg");
+    assert_eq!(x.size, 3 * 1024 * 1024);
+    assert_eq!(x.state, FileState::Offered);
+    assert!(
+        x.preview
+            .as_deref()
+            .is_some_and(|p| p.starts_with(&[0xFF, 0xD8])),
+        "a JPEG"
+    );
+
+    let (corr, cmd) = cmds(&c.request(Request::ReceiveFile {
+        chat: m.chat,
+        item: m.id,
+    }))[0]
+        .clone();
+    assert_eq!(cmd, "/freceive 1 encrypt=off");
+    let m = one(&c.on_line(&resp(corr, &fixture("freceive_big_resp"))));
+    assert_eq!(media(&m).state, FileState::Receiving { percent: 0 });
+    let m = one(&c.on_line(&event(&fixture("rcv_rcvFileProgressXFTP"))));
+    assert_eq!(media(&m).state, FileState::Receiving { percent: 100 });
+    let m = one(&c.on_line(&event(&fixture("rcv_rcvFileComplete"))));
+    let here = PathBuf::from(format!("{DIR}/files/IMG_20261117_photo.jpg"));
+    assert_eq!(media(&m).state, FileState::Received(here.clone()));
+
+    // Opening it: pictures open in the default viewer.
+    let out = c.request(Request::OpenFile {
+        chat: m.chat,
+        item: m.id,
+    });
+    assert_eq!(
+        out.events,
+        vec![ChatEvent::OpenFile {
+            path: here,
+            kind: FileKind::Image
+        }]
+    );
+}
+
+#[test]
+fn a_video_and_a_file_are_offered_and_a_file_can_be_cancelled() {
+    let mut c = settled();
+    let v = one(&c.on_line(&event(&fixture("new_items_video"))));
+    assert!(matches!(v.body, MessageBody::Video(_)));
+    assert_eq!(media(&v).duration, Some(7));
+    assert!(media(&v).preview.is_some());
+    let f = one(&c.on_line(&event(&fixture("new_items_pdf"))));
+    assert!(matches!(f.body, MessageBody::File(_)));
+    assert_eq!(media(&f).name, "rules.pdf");
+    assert!(media(&f).preview.is_none());
+
+    let (corr, cmd) = cmds(&c.request(Request::CancelFile {
+        chat: f.chat,
+        item: f.id,
+    }))[0]
+        .clone();
+    assert_eq!(cmd, "/fcancel 3");
+    let m = one(&c.on_line(&resp(corr, &fixture("fcancel_rcv_resp"))));
+    assert_eq!(media(&m).state, FileState::Cancelled);
+
+    // Nothing to open before it is here; a message without a file is refused.
+    for item in [f.id, 999] {
+        let out = c.request(Request::OpenFile { chat: f.chat, item });
+        assert!(matches!(
+            out.events[0],
+            ChatEvent::Failed {
+                request: RequestKind::File,
+                ..
+            }
+        ));
+    }
+}
+
+#[test]
+fn sending_says_what_the_file_is_and_reports_progress() {
+    let mut c = settled();
+    let jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
+    let path = PathBuf::from(format!("{DIR}/files/sent/1-1/clip.mp4"));
+    let cmd = cmds(&c.request(Request::SendFile {
+        chat: ChatRef::Direct(3),
+        path: path.clone(),
+        kind: FileKind::Video,
+        preview: Some(jpeg.clone()),
+        duration: None,
+    }))[0]
+        .1
+        .clone();
+    let json: Value = serde_json::from_str(cmd.strip_prefix("/_send @3 json ").unwrap()).unwrap();
+    let mc = &json[0]["msgContent"];
+    assert_eq!(
+        (mc["type"].as_str(), mc["duration"].as_u64()),
+        (Some("video"), Some(0))
+    );
+    assert_eq!(data_uri_bytes(mc["image"].as_str().unwrap()), Some(jpeg));
+
+    let cmd = cmds(&c.request(Request::SendFile {
+        chat: ChatRef::Direct(3),
+        path: PathBuf::from(format!("{DIR}/files/sent/1-2/rules.pdf")),
+        kind: FileKind::File,
+        preview: None,
+        duration: None,
+    }))[0]
+        .1
+        .clone();
+    let json: Value = serde_json::from_str(cmd.strip_prefix("/_send @3 json ").unwrap()).unwrap();
+    assert_eq!(
+        json[0]["msgContent"],
+        serde_json::json!({ "type": "file", "text": "" })
+    );
+
+    // The 3 MB picture on its way out.
+    let corr = cmds(&c.request(Request::SendFile {
+        chat: ChatRef::Direct(3),
+        path: PathBuf::from(format!("{DIR}/files/IMG_20261117_photo.jpg")),
+        kind: FileKind::Image,
+        preview: None,
+        duration: None,
+    }))[0]
+        .0;
+    let m = one(&c.on_line(&resp(corr, &fixture("send_image_big_resp"))));
+    assert_eq!(media(&m).state, FileState::Sending { percent: 0 });
+    let m = one(&c.on_line(&event(&fixture("snd_sndFileProgressXFTP"))));
+    assert_eq!(media(&m).state, FileState::Sending { percent: 100 });
+    let m = one(&c.on_line(&event(&fixture("snd_sndFileCompleteXFTP"))));
+    assert_eq!(media(&m).state, FileState::Sent);
+    // The user's own copy opens too.
+    let out = c.request(Request::OpenFile {
+        chat: m.chat,
+        item: m.id,
+    });
+    assert!(
+        matches!(out.events[0], ChatEvent::OpenFile { .. }),
+        "{:?}",
+        out.events
+    );
+    let corr = cmds(&c.request(Request::CancelFile {
+        chat: m.chat,
+        item: m.id,
+    }))[0]
+        .0;
+    let m = one(&c.on_line(&resp(corr, &fixture("fcancel_snd_resp"))));
+    assert_eq!(media(&m).state, FileState::Cancelled);
+}
+
+// ---- group invite links ---------------------------------------------------------------------
+
+#[test]
+fn a_group_link_is_made_read_and_deleted() {
+    let mut c = settled();
+    let (corr, cmd) = cmds(&c.request(Request::CreateGroupLink(1)))[0].clone();
+    assert_eq!(cmd, "/_create link #1 member");
+    let out = c.on_line(&resp(corr, &fixture("create_link_resp")));
+    let [
+        ChatEvent::GroupLink {
+            group: 1,
+            link: Some(link),
+        },
+    ] = out.events.as_slice()
+    else {
+        panic!("{:?}", out.events)
+    };
+    assert!(
+        link.starts_with("https://") && link.contains("/g#"),
+        "the short link: {link}"
+    );
+
+    let (corr, cmd) = cmds(&c.request(Request::DeleteGroupLink(1)))[0].clone();
+    assert_eq!(cmd, "/_delete link #1");
+    let out = c.on_line(&resp(corr, &fixture("delete_link_resp")));
+    assert_eq!(
+        out.events,
+        vec![ChatEvent::GroupLink {
+            group: 1,
+            link: None
+        }]
+    );
+}
+
+#[test]
+fn the_link_of_each_group_the_user_runs_is_read_once_and_a_missing_one_is_no_failure() {
+    let mut c = started();
+    let mut list = fixture("api_chats");
+    for ch in list["result"]["chats"].as_array_mut().unwrap() {
+        if ch["chatInfo"]["type"] == "group" {
+            ch["chatInfo"]["groupInfo"]["membership"]["memberRole"] = "owner".into();
+        }
+    }
+    let out = c.on_line(&resp(4, &list));
+    let (corr, cmd) = cmds(&out)[0].clone();
+    assert_eq!(cmd, "/_get link #1");
+    let out = c.on_line(&resp(corr, &fixture("get_link_none_resp")));
+    assert_eq!(
+        out.events,
+        vec![ChatEvent::GroupLink {
+            group: 1,
+            link: None
+        }]
+    );
+    // Not again on the next list.
+    c.request(Request::Refresh);
+    let corr = c.next - 1;
+    let out = c.on_line(&resp(corr, &list));
+    assert!(!cmds(&out).iter().any(|(_, c)| c.starts_with("/_get link")));
+    // Someone joining through it is a change of members: the list is read again.
+    let out = c.on_line(&event(&fixture("link_alice_joinedGroupMember")));
+    assert!(cmds(&out).iter().any(|(_, c)| c.starts_with("/_get chats")));
+    let _ = fixture("get_link_resp");
+}
+
+// ---- notices (round 3c) ---------------------------------------------------------------------
+
+/// What a recorded conversation shows, as notices and texts in order.
+fn shown(c: &mut Codec, chat: ChatRef, name: &str) -> Vec<MessageBody> {
+    let corr = cmds(&c.request(Request::History {
+        chat,
+        before: None,
+        count: 50,
+        tag: 1,
+    }))[0]
+        .0;
+    let out = c.on_line(&resp(corr, &fixture(name)));
+    let [ChatEvent::History { messages, .. }] = out.events.as_slice() else {
+        panic!("{:?}", out.events)
+    };
+    messages.iter().map(|m| m.body.clone()).collect()
+}
+
+fn n(notice: ChatNotice) -> MessageBody {
+    MessageBody::Notice(notice)
+}
+
+#[test]
+fn a_groups_story_is_told_in_notices_and_banners_and_features_are_dropped() {
+    let mut c = settled();
+    use ChatNotice::*;
+    assert_eq!(
+        shown(&mut c, ChatRef::Group(1), "history_group_owner"),
+        vec![
+            n(GroupCreated),
+            n(MemberJoined("bob".into())),
+            n(MemberJoined("caroline".into())),
+            n(GroupNameChanged("squad night".into())),
+            n(MemberLeft("bob".into())),
+            n(MemberRemoved {
+                by: None,
+                who: "caroline".into()
+            }),
+        ]
+    );
+    assert_eq!(
+        shown(&mut c, ChatRef::Group(1), "history_group_left"),
+        vec![
+            n(YouJoined),
+            n(MemberJoined("alice".into())),
+            n(MemberAdded {
+                by: Some("alice".into()),
+                who: "carol".into()
+            }),
+            n(MemberJoined("carol".into())),
+            n(GroupNameChanged("squad night".into())),
+            n(YouLeft),
+        ]
+    );
+    let removed = shown(&mut c, ChatRef::Group(1), "history_group_removed");
+    assert_eq!(removed.last(), Some(&n(YouRemoved("alice".into()))));
+    assert!(removed.contains(&n(MemberLeft("bob".into()))));
+}
+
+#[test]
+fn a_direct_chat_starts_connected_and_tells_invitations_names_and_a_deleted_friend() {
+    let mut c = settled();
+    use ChatNotice::*;
+    assert_eq!(
+        shown(&mut c, ChatRef::Direct(3), "history_direct_deleted"),
+        vec![
+            n(Connected),
+            n(GroupInvitation {
+                group: "squad".into(),
+                sent: false
+            }),
+            n(FriendDeleted),
+        ]
+    );
+    assert_eq!(
+        shown(&mut c, ChatRef::Direct(3), "history_direct_owner"),
+        vec![
+            n(Connected),
+            n(GroupInvitation {
+                group: "squad".into(),
+                sent: true
+            }),
+            n(NameChanged {
+                from: "carol".into(),
+                to: "caroline".into()
+            }),
+        ]
+    );
+}
+
+#[test]
+fn a_chat_whose_latest_item_is_hidden_shows_its_latest_shown_one_read_once() {
+    let mut c = started();
+    // A new friend's list entry: the latest item is a feature banner.
+    let mut list = fixture("api_chats");
+    let hist = fixture("history_direct_deleted");
+    let items = hist["result"]["chat"]["chatItems"].as_array().unwrap();
+    let feature = items
+        .iter()
+        .find(|i| i["content"]["type"] == "rcvChatFeature")
+        .unwrap()
+        .clone();
+    let feature_id = feature["meta"]["itemId"].as_i64().unwrap();
+    let chats = list["result"]["chats"].as_array_mut().unwrap();
+    let direct = chats
+        .iter_mut()
+        .find(|c| {
+            c["chatInfo"]["type"] == "direct" && c["chatInfo"]["contact"]["activeConn"].is_object()
+        })
+        .unwrap();
+    let id = direct["chatInfo"]["contact"]["contactId"].as_i64().unwrap();
+    direct["chatItems"] = serde_json::json!([feature]);
+    let out = c.on_line(&resp(4, &list));
+    let ChatEvent::Chats {
+        chats: previews, ..
+    } = &out.events[0]
+    else {
+        panic!("{:?}", out.events)
+    };
+    assert!(
+        previews
+            .iter()
+            .find(|p| p.chat == ChatRef::Direct(id))
+            .unwrap()
+            .last
+            .is_none()
+    );
+    let (corr, cmd) = cmds(&out)
+        .into_iter()
+        .find(|(_, c)| c.starts_with("/_get chat @"))
+        .expect("the chat read for its preview");
+    assert_eq!(cmd, format!("/_get chat @{id} count=20"));
+    let out = c.on_line(&resp(corr, &hist));
+    let [ChatEvent::Preview { chat, last }] = out.events.as_slice() else {
+        panic!("{:?}", out.events)
+    };
+    assert_eq!(*chat, ChatRef::Direct(id));
+    assert_eq!(last.body, n(ChatNotice::FriendDeleted));
+
+    // The next list, same latest item: the remembered preview, nothing read again.
+    c.request(Request::Refresh);
+    let corr = c.next - 1;
+    let out = c.on_line(&resp(corr, &list));
+    assert!(
+        !cmds(&out)
+            .iter()
+            .any(|(_, c)| c.starts_with("/_get chat @"))
+    );
+    let ChatEvent::Chats {
+        chats: previews, ..
+    } = &out.events[0]
+    else {
+        panic!("{:?}", out.events)
+    };
+    let p = previews
+        .iter()
+        .find(|p| p.chat == ChatRef::Direct(id))
+        .unwrap();
+    assert_eq!(
+        p.last.as_ref().map(|m| m.body.clone()),
+        Some(n(ChatNotice::FriendDeleted))
+    );
+    let _ = feature_id;
+}
+
+#[test]
+fn removing_a_friend_uses_the_engines_delete_mode_word() {
+    let mut c = settled();
+    let (corr, cmd) = cmds(&c.request(Request::RemoveFriend(3)))[0].clone();
+    // Recorded: the JSON form is refused ("Failed reading: empty").
+    assert_eq!(cmd, "/_delete @3 full");
+    let out = c.on_line(&resp(corr, &fixture("delete_contact_resp")));
+    assert!(cmds(&out)[0].1.starts_with("/_get chats"));
 }

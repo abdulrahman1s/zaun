@@ -22,7 +22,7 @@ pub enum PickKind {
     Image,
     /// A file to save (the diagnostics report).
     Save,
-    /// A picture or GIF to send in Chat.
+    /// A picture, GIF or video to send in Chat.
     Media,
     /// Any file to send in Chat.
     File,
@@ -149,10 +149,10 @@ impl Picker for RfdPicker {
                     PickKind::Folder => dialog.pick_folder().into_iter().collect(),
                     PickKind::Media => dialog
                         .add_filter(
-                            strings::picker::IMAGES(),
+                            strings::chat::composer::MEDIA_FILTER(),
                             &[
-                                "png", "jpg", "jpeg", "webp", "gif", "PNG", "JPG", "JPEG", "WEBP",
-                                "GIF",
+                                "png", "jpg", "jpeg", "webp", "gif", "mp4", "webm", "mkv", "mov",
+                                "PNG", "JPG", "JPEG", "WEBP", "GIF", "MP4", "WEBM", "MKV", "MOV",
                             ],
                         )
                         .pick_file()

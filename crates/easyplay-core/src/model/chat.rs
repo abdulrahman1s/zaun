@@ -184,6 +184,8 @@ pub struct ChatGroup {
     pub muted: bool,
     /// Members in the group's voice right now (member numbers).
     pub voice: Vec<i64>,
+    /// The group's invite link (short form when the relay offers one), if made.
+    pub link: Option<String>,
 }
 
 /// One member of a group.
@@ -232,9 +234,9 @@ pub enum MessageAuthor {
 pub enum MessageBody {
     /// Text the author wrote (markdown, chat.html section 8 MARKDOWN).
     Text(String),
-    /// Something that happened in the conversation (a member joined, encryption is on),
-    /// in the engine's words.
-    Event(String),
+    /// Something that happened in the conversation (a member joined, a friend changed
+    /// name): typed, so the page words it in the user's language.
+    Notice(ChatNotice),
     /// A voice message.
     Voice {
         /// Its length.
@@ -244,12 +246,114 @@ pub enum MessageBody {
     },
     /// A GIF, sent as a file (its name; the preview draws a stand-in).
     Gif(String),
+    /// A picture (core agent, round 3).
+    Image(Media),
+    /// A video.
+    Video(Media),
+    /// Any other file.
+    File(Media),
     /// A call, as one line.
     Call(CallRecord),
     /// A shared game (watch only).
     Stream(StreamRecord),
     /// Deleted for everyone.
     Deleted,
+}
+
+/// Something that happened in a conversation (core agent, round 3c). Who did it is the
+/// message's author where that is a member; `None` in `by` is the user.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChatNotice {
+    /// The user and the friend are connected (the first line of a direct chat).
+    Connected,
+    /// The user made this group.
+    GroupCreated,
+    /// The user joined this group.
+    YouJoined,
+    /// A member joined (their name).
+    MemberJoined(String),
+    /// Someone added a member.
+    MemberAdded {
+        /// Who added them (`None` = the user).
+        by: Option<String>,
+        /// Who was added.
+        who: String,
+    },
+    /// A member left (their name).
+    MemberLeft(String),
+    /// Someone removed a member.
+    MemberRemoved {
+        /// Who removed them (`None` = the user).
+        by: Option<String>,
+        /// Who was removed.
+        who: String,
+    },
+    /// The user left the group.
+    YouLeft,
+    /// The user was removed from the group (by whom).
+    YouRemoved(String),
+    /// The group was deleted.
+    GroupDeleted,
+    /// The group's name changed (the new name).
+    GroupNameChanged(String),
+    /// A friend or member changed their name.
+    NameChanged {
+        /// The old name.
+        from: String,
+        /// The new name.
+        to: String,
+    },
+    /// The friend deleted the conversation with the user (no more messages arrive).
+    FriendDeleted,
+    /// An invitation to a group, received or sent, in a direct chat.
+    GroupInvitation {
+        /// The group's name.
+        group: String,
+        /// The user sent it (to the friend).
+        sent: bool,
+    },
+    /// The security code with this friend changed (compare it again).
+    CodeChanged,
+}
+
+/// A picture, video or file in a message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Media {
+    /// The file's name, as the sender gave it.
+    pub name: String,
+    /// Its size in bytes.
+    pub size: u64,
+    /// A small preview picture (the bytes of a JPEG or PNG), shown before it is fetched.
+    pub preview: Option<Vec<u8>>,
+    /// A video's length in seconds, when the sender said.
+    pub duration: Option<u32>,
+    /// Where the file is.
+    pub state: FileState,
+}
+
+/// Where a file in a message is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FileState {
+    /// Offered by the sender, not fetched (`ChatCommand::ReceiveFile` fetches it).
+    Offered,
+    /// Being fetched.
+    Receiving {
+        /// 0..=100.
+        percent: u8,
+    },
+    /// Here: a file inside the Chat folder.
+    Received(std::path::PathBuf),
+    /// Being sent.
+    Sending {
+        /// 0..=100.
+        percent: u8,
+    },
+    /// Sent (the user's own file stays where it was copied, inside the Chat folder).
+    Sent,
+    /// It could not be sent or fetched.
+    Failed,
+    /// Sending or fetching was stopped.
+    Cancelled,
 }
 
 /// How a call went.
@@ -497,7 +601,11 @@ pub struct ChatSnapshot {
 impl ChatSnapshot {
     /// Unread messages over every unmuted conversation (the top bar's count).
     pub fn unread(&self) -> u32 {
-        self.chats.iter().filter(|c| !c.muted).map(|c| c.unread).sum()
+        self.chats
+            .iter()
+            .filter(|c| !c.muted)
+            .map(|c| c.unread)
+            .sum()
     }
 
     /// The friend with this contact number.

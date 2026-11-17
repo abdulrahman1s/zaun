@@ -27,7 +27,7 @@ pub use app_service::{
     AppService, CommandSender, LaunchEnv, ServiceDeps, ServiceHandle, Waker, open_db,
 };
 pub use command::{
-    AfterCreate, ChatCommand, Command, DatabaseChoice, FolderRequest, GameEdit, InspectTarget,
+    AfterCreate, ChatCommand, ClipKind, Command, DatabaseChoice, FolderRequest, GameEdit, InspectTarget,
     LaunchOrigin, LogFile, OpenOrigin, SteamCommand, StopMode,
 };
 pub use event::{

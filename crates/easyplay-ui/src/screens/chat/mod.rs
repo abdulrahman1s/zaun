@@ -28,6 +28,7 @@ mod gif;
 mod incoming;
 mod list;
 mod markdown;
+mod media;
 mod paint;
 mod trays;
 

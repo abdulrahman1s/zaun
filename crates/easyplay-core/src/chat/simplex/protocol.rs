@@ -67,6 +67,7 @@
 //!   engine already has (`duplicateContactLink`: a timed-out request made it after all) is
 //!   read back with `/_show_address` instead of failing.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -78,9 +79,13 @@ use crate::chat::{MAX_FILE, REACTION_EMOJI};
 use crate::clock::{MonoInstant, Timestamp};
 use crate::error::ErrorCode;
 use crate::model::{
-    ChatFeatures, ChatGroup, ChatMessage, ChatPreview, ChatProfile, ChatRef, Delivery, Friend,
-    FriendRequest, GroupMember, Membership, Mention, MessageAuthor, MessageBody, Quote, Reaction,
+    ChatFeatures, ChatGroup, ChatMessage, ChatNotice, ChatPreview, ChatProfile, ChatRef, Delivery,
+    FileState, Friend, FriendRequest, GroupMember, Media, Membership, Mention, MessageAuthor,
+    MessageBody, Quote, Reaction,
 };
+
+/// How far back a chat is read for its latest shown message.
+const PREVIEW_DEPTH: u32 = 20;
 
 /// How many conversations the list reads.
 pub const CHAT_LIST_COUNT: u32 = 200;
@@ -130,12 +135,28 @@ enum Pending {
         request: Request,
         retried: bool,
     },
+    /// `/_get chat` for the latest shown message of a chat (`last`: its latest item).
+    Preview {
+        chat: ChatRef,
+        last: i64,
+    },
     /// `/_servers`: the server list, for a check.
     Servers,
     /// `/_server test`: one server of the check.
     ServerTest(String),
     /// `/_servers <json>`: the checked list written back.
     SetServers,
+    /// `/freceive`, `/fcancel`: the item with its file now.
+    File {
+        /// It was a cancel (the engine's answer may still show the offer).
+        cancel: bool,
+    },
+    /// `/_create link`, `/_get link`, `/_delete link` of a group.
+    GroupLink {
+        group: i64,
+        /// Reading it (a missing link is no failure).
+        read: bool,
+    },
     Req(RequestKind),
     /// `/_get code @friend`.
     Code(i64),
@@ -207,6 +228,26 @@ pub struct Codec {
     retrying: bool,
     /// An invitation or an address being made (`CreateInvite`, `Address`).
     links_busy: HashSet<RequestKind>,
+    /// The file of each message seen with one (fetching, cancelling, opening it).
+    files: RefCell<HashMap<(ChatRef, i64), FileRef>>,
+    /// Groups whose invite link was read (owners and admins), and those to read.
+    group_links_read: HashSet<i64>,
+    links_to_read: Vec<i64>,
+    /// The latest shown message of chats whose latest item is one the page does not show,
+    /// by that item's number (read once with `/_get chat`), and those to read.
+    previews: HashMap<ChatRef, (i64, Option<ChatMessage>)>,
+    previews_to_read: Vec<(ChatRef, i64)>,
+}
+
+/// A message's file, as the engine knows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FileRef {
+    /// The engine's file number.
+    id: i64,
+    /// Where it is on this computer (sent, or received completely).
+    local: Option<PathBuf>,
+    /// What it is.
+    kind: FileKind,
 }
 
 /// A relay check under way.
@@ -253,6 +294,11 @@ impl Codec {
             after_check: Vec::new(),
             retrying: false,
             links_busy: HashSet::new(),
+            files: RefCell::new(HashMap::new()),
+            group_links_read: HashSet::new(),
+            links_to_read: Vec::new(),
+            previews: HashMap::new(),
+            previews_to_read: Vec::new(),
         }
     }
 
@@ -469,7 +515,13 @@ impl Codec {
                     format!("/_send {} json {}", chat_ref(chat), Value::Array(vec![m])),
                 )
             }
-            Request::SendFile { chat, path, kind } => {
+            Request::SendFile {
+                chat,
+                path,
+                kind,
+                preview,
+                duration,
+            } => {
                 if !self.files_on() {
                     out.events.push(failed(
                         RequestKind::SendFile,
@@ -482,10 +534,21 @@ impl Codec {
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                // Both go as a picture: the engine's apps show a GIF file as one, and
-                // EasyPlay draws the fetched file.
-                let _: FileKind = kind;
-                let mc = serde_json::json!({ "type": "image", "text": "", "image": PREVIEW });
+                let image = preview
+                    .as_deref()
+                    .map_or_else(|| PREVIEW.to_owned(), data_uri);
+                // A GIF goes as a picture: the engine's apps show it as one, and EasyPlay
+                // draws the fetched file.
+                let mc = match kind {
+                    FileKind::Image | FileKind::Gif => {
+                        serde_json::json!({ "type": "image", "text": "", "image": image })
+                    }
+                    FileKind::Video => serde_json::json!({
+                        "type": "video", "text": "", "image": image,
+                        "duration": duration.unwrap_or(0),
+                    }),
+                    FileKind::File => serde_json::json!({ "type": "file", "text": "" }),
+                };
                 let m = serde_json::json!([{
                     "fileSource": { "filePath": path },
                     "msgContent": mc,
@@ -496,6 +559,46 @@ impl Codec {
                     RequestKind::SendFile,
                     format!("/_send {} json {m}", chat_ref(chat)),
                 )
+            }
+            Request::ReceiveFile { chat, item } | Request::CancelFile { chat, item } => {
+                let cancel = matches!(request, Request::CancelFile { .. });
+                let Some(f) = self.files.borrow().get(&(chat, item)).cloned() else {
+                    out.events.push(failed(
+                        RequestKind::File,
+                        ErrorCode::ChtRequestFailed,
+                        "no file known for that message".to_owned(),
+                    ));
+                    return;
+                };
+                let cmd = if cancel {
+                    format!("/fcancel {}", f.id)
+                } else {
+                    format!("/freceive {} encrypt=off", f.id)
+                };
+                self.send(out, Pending::File { cancel }, cmd);
+                return;
+            }
+            Request::OpenFile { chat, item } => {
+                let f = self.files.borrow().get(&(chat, item)).cloned();
+                match f.and_then(|f| Some((f.local?, f.kind))) {
+                    Some((path, kind)) => out.events.push(ChatEvent::OpenFile { path, kind }),
+                    None => out.events.push(failed(
+                        RequestKind::File,
+                        ErrorCode::ChtRequestFailed,
+                        "that file is not on this computer".to_owned(),
+                    )),
+                }
+                return;
+            }
+            Request::CreateGroupLink(group) => {
+                let pending = Pending::GroupLink { group, read: false };
+                self.send(out, pending, format!("/_create link #{group} member"));
+                return;
+            }
+            Request::DeleteGroupLink(group) => {
+                let pending = Pending::GroupLink { group, read: false };
+                self.send(out, pending, format!("/_delete link #{group}"));
+                return;
             }
             Request::Edit { chat, item, text } => {
                 let m = serde_json::json!({
@@ -621,13 +724,8 @@ impl Codec {
             ),
             Request::JoinGroup(g) => (RequestKind::Group, format!("/_join #{g}")),
             Request::LeaveGroup(g) => (RequestKind::Group, format!("/_leave #{g}")),
-            Request::RemoveFriend(c) => (
-                RequestKind::RemoveFriend,
-                format!(
-                    "/_delete @{c} {}",
-                    serde_json::json!({ "type": "full", "notify": true })
-                ),
-            ),
+            // `full` (the friend is told); the mode is a word, not JSON (APIDeleteChat).
+            Request::RemoveFriend(c) => (RequestKind::RemoveFriend, format!("/_delete @{c} full")),
         };
         self.send(out, Pending::Req(kind), cmd);
     }
@@ -740,6 +838,22 @@ impl Codec {
                 if let (Some("apiChats"), Some(r)) = (ty, result) {
                     let list = self.parse_chats(r);
                     out.events.push(list);
+                    // The latest shown message of chats whose latest item is hidden.
+                    for (chat, last) in std::mem::take(&mut self.previews_to_read) {
+                        let pending = Pending::Preview { chat, last };
+                        let cmd = format!("/_get chat {} count={PREVIEW_DEPTH}", chat_ref(chat));
+                        self.send(out, pending, cmd);
+                    }
+                    // The invite link of each group the user runs, once per start.
+                    for g in std::mem::take(&mut self.links_to_read) {
+                        if self.group_links_read.insert(g) {
+                            let pending = Pending::GroupLink {
+                                group: g,
+                                read: true,
+                            };
+                            self.send(out, pending, format!("/_get link #{g}"));
+                        }
+                    }
                 } else {
                     out.events.push(failed(
                         RequestKind::Refresh,
@@ -892,6 +1006,71 @@ impl Codec {
                 } else {
                     self.members_read.insert(group);
                     self.send(out, Pending::Members(group), format!("/_members #{group}"));
+                }
+            }
+            Pending::File { cancel } => {
+                if let Some(e) = error {
+                    out.events.push(failed(
+                        RequestKind::File,
+                        error_code(RequestKind::File, e),
+                        short(e),
+                    ));
+                    return;
+                }
+                let m = result
+                    .and_then(|r| r.get("chatItem").or_else(|| r.get("chatItem_")))
+                    .filter(|a| !a.is_null())
+                    .and_then(|a| self.parse_a_item(a));
+                if let Some(mut m) = m {
+                    if cancel
+                        && let MessageBody::Image(x) | MessageBody::Video(x) | MessageBody::File(x) =
+                            &mut m.body
+                    {
+                        x.state = FileState::Cancelled;
+                    }
+                    out.events.push(ChatEvent::Updated(vec![m]));
+                }
+            }
+            Pending::GroupLink { group, read } => match (ty, result) {
+                (Some("groupLinkCreated" | "groupLink"), Some(r)) => {
+                    let link = r
+                        .get("groupLink")
+                        .and_then(|l| l.get("connLinkContact"))
+                        .and_then(link_text);
+                    out.events.push(ChatEvent::GroupLink { group, link });
+                }
+                (Some("groupLinkDeleted"), _) => {
+                    out.events.push(ChatEvent::GroupLink { group, link: None });
+                }
+                _ => {
+                    let e = error.cloned().unwrap_or(Value::Null);
+                    if read || e.to_string().contains("groupLinkNotFound") {
+                        out.events.push(ChatEvent::GroupLink { group, link: None });
+                    } else {
+                        out.events.push(failed(
+                            RequestKind::GroupLink,
+                            error_code(RequestKind::GroupLink, &e),
+                            short(&e),
+                        ));
+                    }
+                }
+            },
+            Pending::Preview { chat, last } => {
+                let found = result
+                    .filter(|_| ty == Some("apiChat"))
+                    .and_then(|r| r.get("chat"));
+                let Some(c) = found else {
+                    tracing::info!(error = %error.map(short).unwrap_or_default(), "chat: a preview was not read");
+                    return;
+                };
+                let ctx = self.ctx(c.get("chatInfo"), chat);
+                let shown = c
+                    .get("chatItems")
+                    .and_then(Value::as_array)
+                    .and_then(|items| items.iter().rev().find_map(|ci| parse_item(chat, ci, &ctx)));
+                self.previews.insert(chat, (last, shown.clone()));
+                if let Some(m) = shown {
+                    out.events.push(ChatEvent::Preview { chat, last: m });
                 }
             }
             Pending::Quiet => {
@@ -1242,8 +1421,25 @@ impl Codec {
                     out.events.push(ChatEvent::Updated(m));
                 }
             }
-            "chatItemUpdated" | "rcvFileComplete" | "sndFileCompleteXFTP" => {
-                if let Some(m) = r.get("chatItem").and_then(|a| self.parse_a_item(a)) {
+            "chatItemUpdated"
+            | "rcvFileComplete"
+            | "sndFileCompleteXFTP"
+            | "rcvFileAccepted"
+            | "rcvFileDescrReady"
+            | "rcvFileStart"
+            | "rcvFileProgressXFTP"
+            | "sndFileProgressXFTP"
+            | "rcvFileSndCancelled"
+            | "rcvFileError"
+            | "rcvFileWarning"
+            | "sndFileError"
+            | "sndFileWarning" => {
+                if let Some(m) = r
+                    .get("chatItem")
+                    .or_else(|| r.get("chatItem_"))
+                    .filter(|a| !a.is_null())
+                    .and_then(|a| self.parse_a_item(a))
+                {
                     out.events.push(ChatEvent::Updated(vec![m]));
                 }
             }
@@ -1365,7 +1561,7 @@ impl Codec {
     // ---- reading the engine's JSON ------------------------------------------------------
 
     /// What reading items of `chat` needs: the user's member number there, the files folder.
-    fn ctx(&self, info: Option<&Value>, chat: ChatRef) -> Ctx {
+    fn ctx(&self, info: Option<&Value>, chat: ChatRef) -> Ctx<'_> {
         let me = info.and_then(me_of).or(match chat {
             ChatRef::Group(g) => self.me_in.get(&g).copied(),
             ChatRef::Direct(_) => None,
@@ -1373,6 +1569,7 @@ impl Codec {
         Ctx {
             me,
             files: self.files_dir(),
+            known: &self.files,
         }
     }
 
@@ -1522,6 +1719,14 @@ impl Codec {
                     if let Some(me) = me_of(info) {
                         self.me_in.insert(id, me);
                     }
+                    if matches!(
+                        str_at(g, &["membership", "memberRole"]),
+                        Some("owner" | "admin")
+                    ) && membership(str_at(g, &["membership", "memberStatus"]).unwrap_or(""))
+                        == Membership::Member
+                    {
+                        self.links_to_read.push(id);
+                    }
                     let chat = ChatRef::Group(id);
                     let muted = self.remember_settings(chat, g.get("chatSettings"));
                     groups.push(ChatGroup {
@@ -1552,10 +1757,24 @@ impl Codec {
                 _ => continue,
             };
             let ctx = self.ctx(Some(info), chat);
-            let last = c
-                .get("chatItems")
-                .and_then(Value::as_array)
+            let items = c.get("chatItems").and_then(Value::as_array);
+            let mut last = items
                 .and_then(|items| items.iter().rev().find_map(|ci| parse_item(chat, ci, &ctx)));
+            // The latest item is one the page does not show: the latest shown one, read
+            // separately (once per latest item).
+            let newest = items
+                .and_then(|i| i.last())
+                .and_then(|ci| ci.get("meta"))
+                .and_then(|m| m.get("itemId"))
+                .and_then(Value::as_i64);
+            if last.is_none()
+                && let Some(newest) = newest
+            {
+                match self.previews.get(&chat) {
+                    Some((id, m)) if *id == newest => last.clone_from(m),
+                    _ => self.previews_to_read.push((chat, newest)),
+                }
+            }
             chats.push(ChatPreview {
                 chat,
                 name,
@@ -1585,11 +1804,13 @@ impl Codec {
 }
 
 /// What reading one conversation's items needs.
-struct Ctx {
+struct Ctx<'a> {
     /// The user's member number (groups).
     me: Option<i64>,
     /// Where received files are.
     files: PathBuf,
+    /// Messages' files, remembered as they are read.
+    known: &'a RefCell<HashMap<(ChatRef, i64), FileRef>>,
 }
 
 fn failed(request: RequestKind, code: ErrorCode, detail: String) -> ChatEvent {
@@ -1745,6 +1966,104 @@ fn hidden(content_type: &str) -> bool {
         || content_type.ends_with("GroupFeatureRejected")
 }
 
+/// The engine's display name in a profile.
+fn name_in(v: Option<&Value>) -> Option<String> {
+    v?.get("displayName")?.as_str().map(str::to_owned)
+}
+
+/// The notice an engine item stands for, or `None` for one the page does not show:
+/// encryption and feature banners (the conversation's start says it), role and queue
+/// changes, errors, and anything unknown (never shown in the engine's own words).
+fn notice(ctype: &str, content: &Value, dir: Option<&Value>) -> Option<ChatNotice> {
+    let member = || {
+        dir.and_then(|d| str_at(d, &["groupMember", "memberProfile", "displayName"]))
+            .map(str::to_owned)
+    };
+    let sub = |k: &str| {
+        content
+            .get(k)
+            .and_then(|e| e.get("type"))
+            .and_then(Value::as_str)
+    };
+    Some(match ctype {
+        "rcvDirectE2EEInfo" | "sndDirectE2EEInfo" => ChatNotice::Connected,
+        "sndGroupE2EEInfo" => ChatNotice::GroupCreated,
+        "rcvGroupE2EEInfo" => ChatNotice::YouJoined,
+        "rcvGroupInvitation" | "sndGroupInvitation" => ChatNotice::GroupInvitation {
+            group: str_at(content, &["groupInvitation", "groupProfile", "displayName"])?.to_owned(),
+            sent: ctype == "sndGroupInvitation",
+        },
+        "rcvDirectEvent" => {
+            let e = content.get("rcvDirectEvent")?;
+            match sub("rcvDirectEvent")? {
+                "contactDeleted" => ChatNotice::FriendDeleted,
+                "profileUpdated" => renamed(e)?,
+                _ => return None,
+            }
+        }
+        "rcvGroupEvent" => {
+            let e = content.get("rcvGroupEvent")?;
+            match sub("rcvGroupEvent")? {
+                "memberConnected" => ChatNotice::MemberJoined(member()?),
+                "memberAdded" => ChatNotice::MemberAdded {
+                    by: Some(member()?),
+                    who: name_in(e.get("profile"))?,
+                },
+                "memberLeft" => ChatNotice::MemberLeft(member()?),
+                "memberDeleted" => ChatNotice::MemberRemoved {
+                    by: Some(member()?),
+                    who: name_in(e.get("profile"))?,
+                },
+                "userDeleted" => ChatNotice::YouRemoved(member()?),
+                "groupDeleted" => ChatNotice::GroupDeleted,
+                "groupUpdated" => ChatNotice::GroupNameChanged(name_in(e.get("groupProfile"))?),
+                "memberProfileUpdated" => renamed(e)?,
+                _ => return None,
+            }
+        }
+        "sndGroupEvent" => {
+            let e = content.get("sndGroupEvent")?;
+            match sub("sndGroupEvent")? {
+                "memberDeleted" => ChatNotice::MemberRemoved {
+                    by: None,
+                    who: name_in(e.get("profile"))?,
+                },
+                "userLeft" => ChatNotice::YouLeft,
+                "groupUpdated" => ChatNotice::GroupNameChanged(name_in(e.get("groupProfile"))?),
+                _ => return None,
+            }
+        }
+        "rcvConnEvent" => match sub("rcvConnEvent")? {
+            "verificationCodeReset" => ChatNotice::CodeChanged,
+            _ => return None,
+        },
+        _ => return None,
+    })
+}
+
+/// A profile change that changed the name (other changes are not shown).
+fn renamed(e: &Value) -> Option<ChatNotice> {
+    let from = name_in(e.get("fromProfile"))?;
+    let to = name_in(e.get("toProfile"))?;
+    (from != to).then_some(ChatNotice::NameChanged { from, to })
+}
+
+/// A call item as one line (calls are not carried yet: one that was not ended counts as
+/// missed).
+fn call_record(content: &Value) -> crate::model::CallRecord {
+    use crate::model::{CallKind, CallRecord};
+    let kind = match content.get("status").and_then(Value::as_str) {
+        Some("ended") => CallKind::Ended,
+        Some("rejected") => CallKind::Declined,
+        _ => CallKind::Missed,
+    };
+    let secs = content.get("duration").and_then(Value::as_u64).unwrap_or(0);
+    CallRecord {
+        kind,
+        minutes: u32::try_from(secs / 60).unwrap_or(u32::MAX),
+    }
+}
+
 /// Who a `chatDir` names.
 fn author_of(dir: &Value) -> Option<MessageAuthor> {
     Some(match dir.get("type").and_then(Value::as_str)? {
@@ -1759,37 +2078,141 @@ fn author_of(dir: &Value) -> Option<MessageAuthor> {
     })
 }
 
-/// A picture or GIF: the fetched file's path once it is here, else its name.
-fn picture(ci: &Value, files: &Path) -> MessageBody {
-    let Some(file) = ci.get("file").filter(|f| !f.is_null()) else {
-        return MessageBody::Gif(String::new());
+/// A whole percentage of `done` out of `total`.
+fn percent(done: Option<u64>, total: Option<u64>) -> u8 {
+    match (done, total) {
+        (Some(d), Some(t)) if t > 0 => u8::try_from(d.min(t) * 100 / t).unwrap_or(100),
+        _ => 0,
+    }
+}
+
+/// A `data:` URI's bytes (the preview picture of a picture or video).
+fn data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    if uri == PREVIEW {
+        return None;
+    }
+    let (_, b64) = uri.split_once("base64,")?;
+    base64::engine::general_purpose::STANDARD
+        .decode(b64.trim())
+        .ok()
+}
+
+/// A preview picture's `data:` URI (PNG or JPEG, by its first bytes).
+fn data_uri(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    let kind = if bytes.starts_with(b"\x89PNG") {
+        "png"
+    } else {
+        "jpg"
     };
+    format!(
+        "data:image/{kind};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    )
+}
+
+/// A picture, video or file message (`mc` its `msgContent`). A GIF that is here (sent, or
+/// fetched) is a [`MessageBody::Gif`] with its path; everything else a [`Media`] whose
+/// state follows the engine's file status.
+fn file_body(chat: ChatRef, item: i64, ci: &Value, mc: &Value, ctx: &Ctx<'_>) -> MessageBody {
+    let kind = match mc.get("type").and_then(Value::as_str) {
+        Some("image") => FileKind::Image,
+        Some("video") => FileKind::Video,
+        _ => FileKind::File,
+    };
+    let file = ci.get("file").filter(|f| !f.is_null());
     let name = file
-        .get("fileName")
+        .and_then(|f| f.get("fileName"))
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_owned();
-    let status = str_at(file, &["fileStatus", "type"]).unwrap_or("");
-    let path = str_at(file, &["fileSource", "filePath"]).unwrap_or("");
-    if status == "rcvComplete" {
-        // The engine names received files relative to the files folder; anything that is
-        // not a bare name (a path the sender could have chosen) is not followed.
-        let p = Path::new(path);
-        let bare = p.components().count() == 1
-            && matches!(p.components().next(), Some(std::path::Component::Normal(_)));
-        if bare {
-            return MessageBody::Gif(files.join(p).to_string_lossy().into_owned());
+    let size = file
+        .and_then(|f| f.get("fileSize"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let status = file
+        .and_then(|f| f.get("fileStatus"))
+        .unwrap_or(&Value::Null);
+    let path = file
+        .and_then(|f| str_at(f, &["fileSource", "filePath"]))
+        .unwrap_or("");
+    let n = |k: &str| status.get(k).and_then(Value::as_u64);
+    let ty = status.get("type").and_then(Value::as_str).unwrap_or("");
+    let mut local = None;
+    let state = match ty {
+        "rcvInvitation" => FileState::Offered,
+        "rcvAccepted" | "rcvWarning" => FileState::Receiving { percent: 0 },
+        "rcvTransfer" => FileState::Receiving {
+            percent: percent(n("rcvProgress"), n("rcvTotal")),
+        },
+        "rcvComplete" => {
+            // The engine names received files relative to the files folder; anything that
+            // is not a bare name (a path the sender could have chosen) is not followed.
+            let p = Path::new(path);
+            let bare = p.components().count() == 1
+                && matches!(p.components().next(), Some(std::path::Component::Normal(_)));
+            if bare {
+                let full = ctx.files.join(p);
+                local = Some(full.clone());
+                FileState::Received(full)
+            } else {
+                tracing::warn!("chat: a received file with a path that is not a bare name");
+                FileState::Failed
+            }
         }
-        tracing::warn!("chat: a received file with a path that is not a bare name");
-    } else if status.starts_with("snd") && Path::new(path).is_absolute() {
-        return MessageBody::Gif(path.to_owned());
+        "sndStored" | "sndWarning" => FileState::Sending { percent: 0 },
+        "sndTransfer" => FileState::Sending {
+            percent: percent(n("sndProgress"), n("sndTotal")),
+        },
+        "sndComplete" => FileState::Sent,
+        "sndCancelled" | "rcvCancelled" | "rcvAborted" => FileState::Cancelled,
+        _ => FileState::Failed,
+    };
+    if ty.starts_with("snd") && Path::new(path).is_absolute() {
+        local = Some(PathBuf::from(path));
     }
-    MessageBody::Gif(name)
+    let gif = kind == FileKind::Image
+        && Path::new(&name)
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("gif"));
+    let kind = if gif { FileKind::Gif } else { kind };
+    if let Some(id) = file.and_then(|f| f.get("fileId")).and_then(Value::as_i64) {
+        ctx.known.borrow_mut().insert(
+            (chat, item),
+            FileRef {
+                id,
+                local: local.clone(),
+                kind,
+            },
+        );
+    }
+    if gif && let Some(p) = &local {
+        return MessageBody::Gif(p.to_string_lossy().into_owned());
+    }
+    let media = Media {
+        name,
+        size,
+        preview: mc
+            .get("image")
+            .and_then(Value::as_str)
+            .and_then(data_uri_bytes),
+        duration: mc
+            .get("duration")
+            .and_then(Value::as_u64)
+            .and_then(|d| u32::try_from(d).ok()),
+        state,
+    };
+    match kind {
+        FileKind::Image | FileKind::Gif => MessageBody::Image(media),
+        FileKind::Video => MessageBody::Video(media),
+        FileKind::File => MessageBody::File(media),
+    }
 }
 
 /// A `ChatItem` in `chat`.
 #[allow(clippy::too_many_lines)]
-fn parse_item(chat: ChatRef, ci: &Value, ctx: &Ctx) -> Option<ChatMessage> {
+fn parse_item(chat: ChatRef, ci: &Value, ctx: &Ctx<'_>) -> Option<ChatMessage> {
     let meta = ci.get("meta")?;
     let content = ci.get("content")?;
     let ctype = content.get("type").and_then(Value::as_str)?;
@@ -1812,6 +2235,7 @@ fn parse_item(chat: ChatRef, ci: &Value, ctx: &Ctx) -> Option<ChatMessage> {
         })
         .collect();
     let names: Vec<&str> = mentions.iter().map(|m| m.name.as_str()).collect();
+    let item = meta.get("itemId")?.as_i64()?;
     let mut body = match ctype {
         "sndMsgContent" | "rcvMsgContent" => {
             let mc = content.get("msgContent")?;
@@ -1819,12 +2243,22 @@ fn parse_item(chat: ChatRef, ci: &Value, ctx: &Ctx) -> Option<ChatMessage> {
                 Some("text") => {
                     MessageBody::Text(unquote_mentions(mc.get("text")?.as_str()?, &names))
                 }
-                Some("image") => picture(ci, &ctx.files),
-                // Files, voice and links are shown by their text for now.
+                Some("image" | "video" | "file") => file_body(chat, item, ci, mc, ctx),
+                // Voice and links are shown by their text for now.
                 _ => MessageBody::Text(item_text.to_owned()),
             }
         }
-        _ => MessageBody::Event(item_text.to_owned()),
+        "sndDeleted" | "rcvDeleted" | "sndModerated" | "rcvModerated" | "rcvBlocked" => {
+            MessageBody::Deleted
+        }
+        "sndCall" | "rcvCall" => MessageBody::Call(call_record(content)),
+        _ => match notice(ctype, content, ci.get("chatDir")) {
+            Some(n) => MessageBody::Notice(n),
+            None => {
+                tracing::debug!(ctype, "chat: an engine notice not shown");
+                return None;
+            }
+        },
     };
     let deleted = meta
         .get("itemDeleted")
