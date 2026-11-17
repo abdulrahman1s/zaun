@@ -317,4 +317,9 @@ pub trait EngineFactory: Send + Sync {
         let _ = relays;
         ChatFeatures::default()
     }
+    /// How long to really wait before restarting after a back-off of `wait`. The wait itself
+    /// by default; test engines shorten it so a restart test doesn't sleep through seconds.
+    fn restart_wait(&self, wait: std::time::Duration) -> std::time::Duration {
+        wait
+    }
 }

@@ -652,6 +652,16 @@ impl EasyPlayApp {
                     }
                     a.settled();
                 }
+                // Chat: the relays out of reach, or a link that is not one, are passing
+                // states, said in one line; the engine retries and the page shows "offline".
+                if matches!(
+                    e.code,
+                    easyplay_core::error::ErrorCode::ChtNoConnection
+                        | easyplay_core::error::ErrorCode::ChtBadLink
+                ) {
+                    s.toast(e.title, ToastKind::Warning, None, mono);
+                    return;
+                }
                 s.show_dialog(Dialog::Error(e));
             }
             UiEvent::Prompt(p) => s.show_dialog(Dialog::Prompt(p)),

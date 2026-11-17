@@ -303,7 +303,8 @@ fn a_start_the_engine_refuses_stops_with_the_reason_and_on_again_retries() {
         detail: "invalid display name".into(),
     });
     assert_eq!(w.status(), ChatStatus::Failed(ErrorCode::ChtRequestFailed));
-    assert!(w.drain().iter().any(|e| matches!(e, Event::Failure(_))));
+    // The Chat page says why; no dialog on top of it.
+    assert!(!w.drain().iter().any(|e| matches!(e, Event::Failure(_))));
     // A late exit of that engine restarts nothing.
     w.engine_says(ChatEvent::Exited {
         status: Some(1),
@@ -322,16 +323,20 @@ fn a_start_the_engine_refuses_stops_with_the_reason_and_on_again_retries() {
 #[test]
 fn an_engine_that_keeps_exiting_is_restarted_then_given_up() {
     let mut w = World::new(true);
-    // Exits 1 to 4 are each followed by a restart after the back-off (1 + 2 + 4 + 8 s).
+    // Exits 1 to 4 are each followed by a restart after the back-off (1, 2, 4, 8 s; the fake
+    // engine records each and waits a hundredth of it, so the restart may already be done).
     for n in 1..easyplay_core::service::flows::chat::MAX_FAILURES {
         w.engine_says(ChatEvent::Exited {
             status: Some(1),
             started: false,
         });
         assert_eq!(w.status(), ChatStatus::Starting, "after exit {n}");
-        assert!(!w.engine.running());
-        std::thread::sleep(easyplay_core::service::flows::chat::backoff(n));
-        for _ in 0..20 {
+        assert_eq!(
+            w.engine.restart_waits().last().copied(),
+            Some(easyplay_core::service::flows::chat::backoff(n)),
+            "back-off after exit {n}"
+        );
+        for _ in 0..40 {
             w.settle();
             if w.engine.running() {
                 break;
@@ -347,9 +352,12 @@ fn an_engine_that_keeps_exiting_is_restarted_then_given_up() {
     });
     assert_eq!(w.status(), ChatStatus::Failed(ErrorCode::ChtEngineFailing));
     assert!(w.drain().iter().any(|e| matches!(e, Event::Failure(_))));
-    std::thread::sleep(Duration::from_millis(1200));
+    // Longer than the next (scaled) back-off would be: still no restart.
+    std::thread::sleep(Duration::from_millis(400));
     w.settle();
     assert_eq!(w.engine.starts().len(), 5);
+    let secs: Vec<u64> = w.engine.restart_waits().iter().map(Duration::as_secs).collect();
+    assert_eq!(secs, [1, 2, 4, 8]);
 }
 
 #[test]

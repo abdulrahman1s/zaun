@@ -1,6 +1,7 @@
 //! An engine for tests: records requests and lets the test report events as the engine.
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use super::engine::{ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, Request};
 use crate::error::{Error, ErrorCode, Result};
@@ -13,6 +14,8 @@ struct Shared {
     requests: Vec<Request>,
     sink: Option<EventSink>,
     running: bool,
+    /// Back-offs the service asked to wait before restarts.
+    restart_waits: Vec<Duration>,
 }
 
 /// A factory whose engines do nothing but record. Clones share their state.
@@ -66,6 +69,12 @@ impl FakeEngine {
         self.with(|s| s.running)
     }
 
+    /// The back-offs asked for before each restart so far (the real ones; the fake waits a
+    /// hundredth of each).
+    pub fn restart_waits(&self) -> Vec<Duration> {
+        self.with(|s| s.restart_waits.clone())
+    }
+
     /// Report `event` as the running engine (no-op when none runs).
     pub fn emit(&self, event: ChatEvent) {
         let sink = self.with(|s| s.sink.clone());
@@ -93,6 +102,13 @@ impl EngineFactory for FakeEngine {
             s.running = true;
             Ok(Box::new(FakeRunning(self.clone())) as Box<dyn Engine>)
         })
+    }
+
+    /// Records the back-off and waits a hundredth of it (1 s → 10 ms): tests check the
+    /// back-offs through [`FakeEngine::restart_waits`] instead of sleeping through them.
+    fn restart_wait(&self, wait: Duration) -> Duration {
+        self.with(|s| s.restart_waits.push(wait));
+        wait / 100
     }
 }
 

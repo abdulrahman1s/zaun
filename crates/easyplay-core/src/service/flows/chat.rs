@@ -390,7 +390,9 @@ impl AppService {
         if request == RequestKind::History {
             // The engine answers pages in order; the oldest waiting one failed.
             if let Some((_, id)) = self.flow.chat.pages.pop_first() {
-                let user = self.describe(&Error::new(code).with("detail", &detail), None);
+                // The engine's own words stay in the log (above): they name relays and
+                // internals, never anything the user can act on.
+                let user = self.describe(&Error::new(code), None);
                 self.emit(Event::QueryResult {
                     id,
                     result: QueryResult::Failed(Box::new(user)),
@@ -398,7 +400,11 @@ impl AppService {
             }
             return;
         }
-        self.fail(Error::new(code).with("detail", detail));
+        if request == RequestKind::Start {
+            // The Chat page says why (its status); a dialog on top would say it twice.
+            return;
+        }
+        self.fail(Error::new(code));
     }
 
     /// Answer every page still waiting with a failure (the engine stopped).
@@ -434,6 +440,7 @@ impl AppService {
         }
         self.chat_set_status(ChatStatus::Starting);
         let wait = backoff(self.flow.chat.failures);
+        let wait = self.deps.chat.as_ref().map_or(wait, |f| f.restart_wait(wait));
         let generation = self.flow.chat.generation;
         let post = self.poster();
         let spawned = std::thread::Builder::new()
