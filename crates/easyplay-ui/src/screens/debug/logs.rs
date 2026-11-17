@@ -24,7 +24,7 @@ use egui::{
 
 use super::super::Env;
 use crate::app::UiState;
-use crate::bridge::{FolderTarget, InspectTarget, LogFile, UiCommand};
+use crate::bridge::{Command, FolderRequest, InspectTarget, LogFile};
 use crate::route::Overlay;
 use crate::strings::debug as s;
 use crate::strings::details as d;
@@ -486,7 +486,7 @@ fn viewer(
         );
         if row.add(Button::ghost(s::OPEN_FOLDER())).clicked() {
             env.bridge
-                .send(UiCommand::OpenFolder(FolderTarget::Session(sid)));
+                .send(Command::OpenFolder(FolderRequest::Session(sid)));
         }
         if developer && row.add(Button::ghost(s::OPEN_INSPECTOR())).clicked() {
             open_inspector = Some(sid);

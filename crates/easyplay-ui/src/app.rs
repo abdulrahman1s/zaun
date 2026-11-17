@@ -19,7 +19,8 @@ use easyplay_core::model::{PromptAnswer, SaveDataLocation, Tool, WorkingDir};
 use egui::{Context, Ui};
 
 use crate::bridge::{
-    MAX_EVENTS_PER_FRAME, OpenOrigin, QueryPayload, ToastLevel, UiBridge, UiCommand, UiEvent,
+    Command, MAX_EVENTS_PER_FRAME, OpenOrigin, QueryPayload, ToastLevel, UiBridge, UiCommand,
+    UiEvent,
 };
 use crate::input::dnd::DndState;
 use crate::input::gamepad::{self, NavIntent, PadGate, PadInput, PadNav};
@@ -387,7 +388,7 @@ impl EasyPlayApp {
 
     /// Start in the compact quick-launch layout for `path` (SCREEN_SPECS §7).
     pub fn quick_launch(self, path: PathBuf) -> Self {
-        self.bridge.send(UiCommand::OpenPaths {
+        self.bridge.send(Command::OpenPaths {
             paths: vec![path.clone()],
             origin: OpenOrigin::FileManager,
         });
@@ -418,12 +419,12 @@ impl EasyPlayApp {
             .as_ref()
             .is_some_and(|v| v.phase == SetupPhase::Editing)
         {
-            self.bridge.send(UiCommand::DiscardDraft);
+            self.bridge.send(Command::DiscardDraft);
             self.state.setup = None;
         }
         let prompts: Vec<_> = self.state.dialogs.prompts().map(|p| p.id).collect();
         for prompt in prompts {
-            self.bridge.send(UiCommand::AnswerPrompt {
+            self.bridge.send(Command::AnswerPrompt {
                 prompt,
                 answer: PromptAnswer::Cancel,
             });
@@ -1058,7 +1059,7 @@ impl EasyPlayApp {
                     source: crate::bridge::ArtworkSource::File(first),
                 });
             }
-            PickPurpose::AddProgram(game) => self.bridge.send(UiCommand::AddExecutable {
+            PickPurpose::AddProgram(game) => self.bridge.send(Command::AddExecutable {
                 id: game,
                 path: first,
                 role: easyplay_core::model::ExeRole::Alternate,
@@ -1072,14 +1073,14 @@ impl EasyPlayApp {
                         args: Vec::new(),
                     }));
             }
-            PickPurpose::RunProgram(game) => self.bridge.send(UiCommand::RunTool {
+            PickPurpose::RunProgram(game) => self.bridge.send(Command::RunTool {
                 id: game,
                 tool: Tool::RunExe {
                     path: first,
                     args: Vec::new(),
                 },
             }),
-            PickPurpose::Locate(game) => self.bridge.send(UiCommand::LocateExecutable {
+            PickPurpose::Locate(game) => self.bridge.send(Command::LocateExecutable {
                 id: game,
                 exe: None,
                 new_path: first,
@@ -1114,7 +1115,7 @@ impl EasyPlayApp {
             // one's caption); for a conversation no longer open they go at once.
             // *Save as…* of a Chat message's file (conversation agent): the service copies it.
             PickPurpose::ChatSave { chat, item, .. } => {
-                self.bridge.send(UiCommand::Chat(
+                self.bridge.send(Command::Chat(
                     easyplay_core::service::ChatCommand::SaveFile {
                         chat,
                         item,
@@ -1132,7 +1133,7 @@ impl EasyPlayApp {
                     s.chat.attach(files);
                     s.chat.focus_composer = true;
                 } else {
-                    self.bridge.send(UiCommand::Chat(
+                    self.bridge.send(Command::Chat(
                         easyplay_core::service::ChatCommand::SendFile {
                             chat,
                             path: first,

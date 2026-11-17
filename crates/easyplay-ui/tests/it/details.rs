@@ -9,7 +9,7 @@ use crate::common;
 use common::{Rig, game_id, now, rebuild, rig_with, settle, settled_library};
 use easyplay_core::launch::LaunchState;
 use easyplay_core::model::{Activity, Availability, FolderAccess};
-use easyplay_ui::bridge::{FolderTarget, GameEdit, QueryPayload, UiCommand, UiEvent};
+use easyplay_ui::bridge::{Command, FolderRequest, GameEdit, QueryPayload, UiCommand, UiEvent};
 use easyplay_ui::demo;
 use easyplay_ui::route::Route;
 use easyplay_ui::theme::ThemeChoice;
@@ -154,10 +154,10 @@ fn the_week_is_asked_again_when_a_session_was_counted() {
             .filter(|c| {
                 matches!(
                     c,
-                    UiCommand::QueryStats {
+                    UiCommand::Core(Command::QueryStats {
                         request: easyplay_core::stats::StatsRequest::GameOverview { game, .. },
                         ..
-                    } if *game == id
+                    }) if *game == id
                 )
             })
             .count()
@@ -231,8 +231,12 @@ fn overview_rows_open_the_folders_and_run_the_other_programs() {
         .click();
     r.h.run_steps(2);
     let sent = r.fake.sent();
-    assert!(sent.contains(&UiCommand::OpenFolder(FolderTarget::GameFolder(id))));
-    assert!(sent.contains(&UiCommand::OpenFolder(FolderTarget::SaveData(id))));
+    assert!(sent.contains(&UiCommand::Core(Command::OpenFolder(
+        FolderRequest::GameFolder(id)
+    ))));
+    assert!(sent.contains(&UiCommand::Core(Command::OpenFolder(
+        FolderRequest::SaveData(id)
+    ))));
     assert!(
         sent.iter()
             .any(|c| matches!(c, UiCommand::Launch { id: g, exe: Some(_) } if *g == id))
@@ -247,7 +251,7 @@ fn a_record_that_fails_to_load_offers_retry() {
     r.h.run_steps(2);
     let load = |r: &Rig| {
         r.fake.sent().into_iter().find_map(|c| match c {
-            UiCommand::LoadGame { reply_to, .. } => Some(reply_to),
+            UiCommand::Core(Command::LoadGame { reply_to, .. }) => Some(reply_to),
             _ => None,
         })
     };
@@ -946,7 +950,11 @@ fn launch_progress_cancels_and_failures_show_the_problem_panel() {
     r.h.get_all_by_label_contains("Checking…").next().unwrap();
     r.h.get_by_role_and_label(Role::Button, "Cancel").click();
     r.h.run_steps(2);
-    assert!(r.fake.sent().contains(&UiCommand::CancelLaunch { id }));
+    assert!(
+        r.fake
+            .sent()
+            .contains(&UiCommand::Core(Command::CancelLaunch { id }))
+    );
     r.fake.push_event(UiEvent::LaunchProgress {
         game: id,
         state: LaunchState::Failed(Box::new(demo::launch_failure(id, "Lantern Keep"))),
@@ -983,7 +991,7 @@ fn compatibility_tab_measures_storage_and_offers_reset() {
         !r.fake
             .sent()
             .iter()
-            .any(|c| matches!(c, UiCommand::ResetPrefix { id: g, .. } if *g == id))
+            .any(|c| matches!(c, UiCommand::Core(Command::ResetPrefix { id: g, .. }) if *g == id))
     );
 }
 
@@ -1052,7 +1060,7 @@ fn a_failed_history_page_is_not_requested_every_frame() {
         let sent = r.fake.sent();
         r.fake.clear_sent();
         for c in sent {
-            let UiCommand::QueryStats { request, reply_to } = c else {
+            let UiCommand::Core(Command::QueryStats { request, reply_to }) = c else {
                 continue;
             };
             if matches!(

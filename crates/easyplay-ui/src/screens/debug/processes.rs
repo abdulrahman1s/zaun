@@ -9,7 +9,7 @@ use egui::Ui;
 
 use super::super::Env;
 use super::inspector::{quiet, table};
-use crate::bridge::UiCommand;
+use crate::bridge::Command;
 use crate::strings::debug as s;
 use crate::theme::tokens::debug as dbg;
 use crate::vm::debug::{PROCESS_REFRESH, ProcessTreeVm, role_name};
@@ -22,7 +22,7 @@ pub fn tick(vm: &mut ProcessTreeVm, env: &mut Env<'_>) {
     {
         let q = env.bridge.query_id();
         vm.requested(q, env.mono);
-        env.bridge.send(UiCommand::ListProcesses {
+        env.bridge.send(Command::ListProcesses {
             session,
             reply_to: q,
         });

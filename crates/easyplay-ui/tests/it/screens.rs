@@ -7,7 +7,7 @@ use crate::common;
 
 use common::{Rig, now, rig_with, settle, settled_library};
 use easyplay_core::config::schema::Theme;
-use easyplay_ui::bridge::{FakeBackend, UiCommand, library_from};
+use easyplay_ui::bridge::{Command, FakeBackend, UiCommand, library_from};
 use easyplay_ui::demo;
 use easyplay_ui::route::{Route, SettingsTab};
 use easyplay_ui::theme::ThemeChoice;
@@ -77,10 +77,10 @@ fn returning_to_statistics_shows_cached_results_in_the_first_frame() {
     r.h.get_by_role_and_label(Role::Heading, "9 h 48 min in the last 7 days");
     assert!(!r.fake.sent().iter().any(|c| matches!(
         c,
-        UiCommand::QueryStats {
+        UiCommand::Core(Command::QueryStats {
             request: easyplay_core::stats::StatsRequest::LibraryOverview { .. },
             ..
-        }
+        })
     )));
 }
 
@@ -98,7 +98,7 @@ fn failed_statistics_wait_for_retry() {
         r.fake.clear_sent();
         let mut overviews = 0;
         for c in sent {
-            let UiCommand::QueryStats { request, reply_to } = c else {
+            let UiCommand::Core(Command::QueryStats { request, reply_to }) = c else {
                 continue;
             };
             if matches!(request, StatsRequest::LibraryOverview { .. }) {

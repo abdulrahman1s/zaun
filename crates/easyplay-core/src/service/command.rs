@@ -409,7 +409,7 @@ pub enum DatabaseChoice {
 }
 
 /// A command for the AppService. The log name is the variant in snake_case.
-#[derive(Clone, Debug, strum::IntoStaticStr)]
+#[derive(Clone, Debug, PartialEq, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum Command {
     // ---- entry points

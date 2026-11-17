@@ -24,7 +24,7 @@ use std::path::PathBuf;
 
 use super::Env;
 use crate::app::UiState;
-use crate::bridge::{OpenOrigin, UiBridge, UiCommand};
+use crate::bridge::{Command, OpenOrigin, UiBridge};
 use crate::input::picker::PickPurpose;
 use crate::route::Overlay;
 use crate::strings::setup as s;
@@ -75,7 +75,7 @@ pub fn scan(state: &mut UiState, bridge: &UiBridge, folder: PathBuf) {
     if state.nav.top_overlay() != Some(Overlay::AddGame) {
         state.nav.open(Overlay::AddGame);
     }
-    bridge.send(UiCommand::ScanFolder {
+    bridge.send(Command::ScanFolder {
         folder,
         reply_to: q,
     });
@@ -99,7 +99,7 @@ fn send(ctx: &Context, bridge: &UiBridge, from: Option<&AddGameVm>, paths: Vec<P
             d.insert_temp(pending_id(), now);
         });
     }
-    bridge.send(UiCommand::OpenPaths {
+    bridge.send(Command::OpenPaths {
         paths,
         origin: OpenOrigin::Picker,
     });

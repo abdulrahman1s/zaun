@@ -15,7 +15,7 @@ use egui::{Context, Id, Rect, Sense, Ui, vec2};
 
 use super::column;
 use crate::app::UiState;
-use crate::bridge::{FolderTarget, UiCommand};
+use crate::bridge::{Command, FolderRequest, UiCommand};
 use crate::route::Overlay;
 use crate::screens::Env;
 use crate::strings::details as s;
@@ -132,8 +132,7 @@ fn body(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
         let q = env.bridge.query_id();
         state.details.size_q = Some(q);
         state.details.prefix_size = AsyncValue::Loading { since: env.mono };
-        env.bridge
-            .send(UiCommand::MeasurePrefix { id, reply_to: q });
+        env.bridge.send(Command::MeasurePrefix { id, reply_to: q });
     }
     let Some(c) = state.details.compat.as_mut() else {
         return;
@@ -173,7 +172,7 @@ fn body(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
                     .clicked()
             });
         if download {
-            env.bridge.send(UiCommand::ProvisionRuntime {
+            env.bridge.send(Command::ProvisionRuntime {
                 target: RuntimeRef::Default,
             });
         }
@@ -355,8 +354,8 @@ fn body(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
     match pressed {
         Some(0) => env
             .bridge
-            .send(UiCommand::OpenFolder(FolderTarget::Prefix(id))),
-        Some(1) => env.bridge.send(UiCommand::RunTool {
+            .send(Command::OpenFolder(FolderRequest::Prefix(id))),
+        Some(1) => env.bridge.send(Command::RunTool {
             id,
             tool: Tool::Winecfg,
         }),

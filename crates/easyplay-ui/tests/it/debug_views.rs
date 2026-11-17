@@ -27,7 +27,7 @@ use easyplay_core::service::{
     DatabaseChoice, Diagnostics, LogChunk, LogFile, RecoveryReason, RecoveryState,
 };
 use easyplay_testkit::fixtures::hosts::{self, SandboxWorld};
-use easyplay_ui::bridge::{InspectTarget, QueryPayload, UiCommand, UiEvent};
+use easyplay_ui::bridge::{Command, InspectTarget, QueryPayload, UiCommand, UiEvent};
 use easyplay_ui::input::picker::PickPurpose;
 use easyplay_ui::route::{Overlay, Route, SettingsTab};
 use easyplay_ui::vm::debug::{InspectorTab, InspectorVm, LogViewerVm, ReportVm};
@@ -247,12 +247,12 @@ fn log_viewer_loads_filters_and_stays_plain() {
         .sent()
         .into_iter()
         .find_map(|c| match c {
-            UiCommand::ReadLog {
+            UiCommand::Core(Command::ReadLog {
                 session,
                 file,
                 offset,
                 reply_to,
-            } => Some((session, file, offset, reply_to)),
+            }) => Some((session, file, offset, reply_to)),
             _ => None,
         })
         .expect("first chunk requested");
@@ -354,10 +354,15 @@ fn view_log_opens_the_viewer() {
     assert!(r.h.state().state.nav.overlays().contains(&Overlay::Logs));
     let sent = r.fake.sent();
     assert!(
-        sent.iter()
-            .any(|c| matches!(c, UiCommand::ListSessions { game, .. } if *game == g))
+        sent.iter().any(
+            |c| matches!(c, UiCommand::Core(Command::ListSessions { game, .. }) if *game == g)
+        )
     );
-    assert!(!sent.iter().any(|c| matches!(c, UiCommand::ViewLog { .. })));
+    assert!(
+        !sent
+            .iter()
+            .any(|c| matches!(c, UiCommand::Core(Command::ViewLog { .. })))
+    );
 }
 
 /// ERR-003: the preview lists the files with sizes, shows one on demand, and saving asks
@@ -436,7 +441,7 @@ fn crash_banner_and_doctor_section() {
     r.h.snapshot("settings_doctor_crash_dark_1280x800");
     r.h.get_by_label("Check again").click();
     r.h.run_steps(8);
-    assert!(r.fake.sent().contains(&UiCommand::RunDoctor));
+    assert!(r.fake.sent().contains(&UiCommand::Core(Command::RunDoctor)));
     // Create a report from the banner: the preview opens and the banner goes.
     r.fake.clear_sent();
     // The banner's action comes first (the Doctor section has one too).
@@ -446,10 +451,13 @@ fn crash_banner_and_doctor_section() {
         .click();
     r.h.run_steps(3);
     let sent = r.fake.sent();
-    assert!(sent.contains(&UiCommand::DismissCrash), "{sent:?}");
+    assert!(
+        sent.contains(&UiCommand::Core(Command::DismissCrash)),
+        "{sent:?}"
+    );
     assert!(
         sent.iter()
-            .any(|c| matches!(c, UiCommand::BuildReport { .. }))
+            .any(|c| matches!(c, UiCommand::Core(Command::BuildReport { .. })))
     );
     assert!(r.h.state().state.nav.overlays().contains(&Overlay::Report));
 }
@@ -488,8 +496,8 @@ fn damaged_library_choices() {
     assert!(
         r.fake
             .sent()
-            .contains(&UiCommand::ResolveDatabase(DatabaseChoice::RestoreBackup(
-                backup
+            .contains(&UiCommand::Core(Command::ResolveDatabase(
+                DatabaseChoice::RestoreBackup(backup)
             )))
     );
 }

@@ -14,7 +14,7 @@ use easyplay_core::ids::PromptId;
 use easyplay_core::launch::LaunchState;
 use easyplay_core::model::{ArtSlot, BasePreset, PromptAnswer, PromptKind, PromptRequest};
 use easyplay_ui::bridge::{
-    AfterCreate, FakeBackend, OpenOrigin, SetupContext, SetupOrigin, UiCommand, UiEvent,
+    AfterCreate, Command, FakeBackend, OpenOrigin, SetupContext, SetupOrigin, UiCommand, UiEvent,
 };
 use easyplay_ui::demo;
 use easyplay_ui::route::{Overlay, Route};
@@ -191,10 +191,10 @@ fn a_dropped_folder_lists_programs_and_continue_opens_the_choice() {
     r.h.get_by_role_and_label(Role::RadioButton, "Celeste.exe, main program, 32 MB");
     r.h.get_by_role_and_label(Role::Button, "Continue").click();
     r.h.run();
-    assert!(r.fake.sent().contains(&UiCommand::OpenPaths {
+    assert!(r.fake.sent().contains(&UiCommand::Core(Command::OpenPaths {
         paths: vec![folder.join("Celeste.exe")],
         origin: OpenOrigin::Picker,
-    }));
+    })));
 }
 
 #[test]
@@ -217,10 +217,10 @@ fn add_several_switches_to_checkboxes() {
     r.h.run();
     r.h.get_by_role_and_label(Role::Button, "Continue").click();
     r.h.run();
-    assert!(r.fake.sent().contains(&UiCommand::OpenPaths {
+    assert!(r.fake.sent().contains(&UiCommand::Core(Command::OpenPaths {
         paths: vec![folder.join("Celeste.exe"), folder.join("Config.exe")],
         origin: OpenOrigin::Picker,
-    }));
+    })));
 }
 
 fn prompt(kind: PromptKind) -> PromptRequest {
@@ -235,7 +235,7 @@ fn answers(r: &Rig) -> Vec<PromptAnswer> {
         .sent()
         .into_iter()
         .filter_map(|c| match c {
-            UiCommand::AnswerPrompt { answer, .. } => Some(answer),
+            UiCommand::Core(Command::AnswerPrompt { answer, .. }) => Some(answer),
             _ => None,
         })
         .collect()
@@ -487,10 +487,10 @@ fn quick_launch_opens_the_program_and_closes_after_running() {
         move |a| a.quick_launch(p2),
     );
     r.h.run_steps(2);
-    assert!(r.fake.sent().contains(&UiCommand::OpenPaths {
+    assert!(r.fake.sent().contains(&UiCommand::Core(Command::OpenPaths {
         paths: vec![path],
         origin: OpenOrigin::FileManager,
-    }));
+    })));
     r.fake.push_event(UiEvent::LaunchProgress {
         game: g.id,
         state: LaunchState::Preparing { phase: None },
@@ -504,7 +504,7 @@ fn quick_launch_opens_the_program_and_closes_after_running() {
     assert!(
         r.fake
             .sent()
-            .contains(&UiCommand::CancelLaunch { id: g.id })
+            .contains(&UiCommand::Core(Command::CancelLaunch { id: g.id }))
     );
     r.fake.push_event(UiEvent::LaunchProgress {
         game: g.id,
@@ -884,7 +884,7 @@ fn resident_quick_launch_follows_without_resending_or_saving_its_size() {
         !r.fake
             .sent()
             .iter()
-            .any(|c| matches!(c, UiCommand::OpenPaths { .. })),
+            .any(|c| matches!(c, UiCommand::Core(Command::OpenPaths { .. }))),
         "{:?}",
         r.fake.sent()
     );
@@ -911,7 +911,10 @@ fn closing_the_window_discards_the_setup_and_cancels_prompts() {
     r.h.run();
     r.h.state_mut().abandon_open_flows();
     let sent = r.fake.sent();
-    assert!(sent.contains(&UiCommand::DiscardDraft), "{sent:?}");
+    assert!(
+        sent.contains(&UiCommand::Core(Command::DiscardDraft)),
+        "{sent:?}"
+    );
     assert_eq!(answers(&r), vec![PromptAnswer::Cancel]);
 }
 
@@ -945,10 +948,10 @@ fn add_a_game_takes_three_steps_in_one_dialog() {
         .sent()
         .into_iter()
         .find_map(|c| match c {
-            UiCommand::ScanFolder {
+            UiCommand::Core(Command::ScanFolder {
                 folder: f,
                 reply_to,
-            } if f == folder => Some(reply_to),
+            }) if f == folder => Some(reply_to),
             _ => None,
         })
         .expect("the folder is scanned");
@@ -960,10 +963,10 @@ fn add_a_game_takes_three_steps_in_one_dialog() {
     r.h.get_by_label("Programs found in “Celeste”. Pick the one that starts the game.");
     r.h.get_by_role_and_label(Role::Button, "Continue").click();
     r.h.run_steps(2);
-    assert!(r.fake.sent().contains(&UiCommand::OpenPaths {
+    assert!(r.fake.sent().contains(&UiCommand::Core(Command::OpenPaths {
         paths: vec![folder.join("Celeste.exe")],
         origin: OpenOrigin::Picker,
-    }));
+    })));
     // The service asks for the setup: the third step, in the same dialog.
     request_setup(&r, EXE, SetupOrigin::InsideApp);
     r.h.run_steps(6);
@@ -980,7 +983,11 @@ fn add_a_game_takes_three_steps_in_one_dialog() {
     r.fake.clear_sent();
     r.h.get_by_role_and_label(Role::Button, "Back").click();
     r.h.run_steps(8);
-    assert!(r.fake.sent().contains(&UiCommand::DiscardDraft));
+    assert!(
+        r.fake
+            .sent()
+            .contains(&UiCommand::Core(Command::DiscardDraft))
+    );
     assert_eq!(r.h.state().state.nav.top_overlay(), Some(Overlay::AddGame));
     r.h.get_by_role_and_label(Role::RadioButton, "Celeste.exe, main program, 32 MB");
 }
@@ -1024,10 +1031,10 @@ fn undo_of_hiding_several_games_brings_all_of_them_back() {
     r.h.get_by_role_and_label(Role::Button, "Hide").click();
     r.h.run_steps(4);
     for id in &ids {
-        assert!(r.fake.sent().contains(&UiCommand::SetHidden {
+        assert!(r.fake.sent().contains(&UiCommand::Core(Command::SetHidden {
             id: *id,
             hidden: true
-        }));
+        })));
     }
     r.h.get_all_by_label("Hid 3 games").next().unwrap();
     r.fake.clear_sent();
@@ -1036,10 +1043,10 @@ fn undo_of_hiding_several_games_brings_all_of_them_back() {
     let sent = r.fake.sent();
     for id in &ids {
         assert!(
-            sent.contains(&UiCommand::SetHidden {
+            sent.contains(&UiCommand::Core(Command::SetHidden {
                 id: *id,
                 hidden: false
-            }),
+            })),
             "{id:?} comes back"
         );
     }
@@ -1089,7 +1096,7 @@ fn the_remove_dialog_has_four_switches() {
         .sent()
         .into_iter()
         .find_map(|c| match c {
-            UiCommand::RemoveGame { id, options } if id == g => Some(options),
+            UiCommand::Core(Command::RemoveGame { id, options }) if id == g => Some(options),
             _ => None,
         })
         .expect("the game is removed");
@@ -1173,10 +1180,10 @@ fn choose_a_file_instead_keeps_the_dialog_and_back_returns() {
         r.h.step();
         assert_eq!(r.h.state().state.nav.top_overlay(), Some(Overlay::AddGame));
     }
-    assert!(r.fake.sent().contains(&UiCommand::OpenPaths {
+    assert!(r.fake.sent().contains(&UiCommand::Core(Command::OpenPaths {
         paths: vec![PathBuf::from(EXE)],
         origin: OpenOrigin::Picker,
-    }));
+    })));
     request_setup(&r, EXE, SetupOrigin::InsideApp);
     r.h.run_steps(6);
     r.h.get_by_role_and_label(Role::Dialog, "Set up this game");

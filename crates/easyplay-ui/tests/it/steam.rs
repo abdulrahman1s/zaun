@@ -14,7 +14,8 @@ use easyplay_core::ids::GameId;
 use easyplay_core::library::PresetFilter;
 use easyplay_core::model::{Activity, GameOrigin, SteamUpdate};
 use easyplay_ui::bridge::{
-    Backend, FolderTarget, GameEdit, LibraryView, QueryPayload, SteamAction, UiCommand, UiEvent,
+    Backend, Command, FolderRequest, GameEdit, LibraryView, QueryPayload, SteamAction, UiCommand,
+    UiEvent,
 };
 use easyplay_ui::demo;
 use easyplay_ui::route::{Route, SettingsTab};
@@ -310,7 +311,7 @@ fn delete_on_steam_games_removes_nothing_and_says_how() {
         !r.fake
             .sent()
             .iter()
-            .any(|c| matches!(c, UiCommand::RemoveGame { .. }))
+            .any(|c| matches!(c, UiCommand::Core(Command::RemoveGame { .. })))
     );
     // The same with Steam games selected: nothing to remove, no question asked.
     let brass = game_id(r.h.state().bridge().library(), BRASS);
@@ -326,7 +327,7 @@ fn delete_on_steam_games_removes_nothing_and_says_how() {
         !r.fake
             .sent()
             .iter()
-            .any(|c| matches!(c, UiCommand::RemoveGame { .. }))
+            .any(|c| matches!(c, UiCommand::Core(Command::RemoveGame { .. })))
     );
 }
 
@@ -415,9 +416,9 @@ fn the_page_asks_only_for_steam_s_detail() {
         assert!(
             !matches!(
                 c,
-                UiCommand::LoadGame { .. }
-                    | UiCommand::AboutGame { .. }
-                    | UiCommand::QueryStats { .. }
+                UiCommand::Core(Command::LoadGame { .. })
+                    | UiCommand::Core(Command::AboutGame { .. })
+                    | UiCommand::Core(Command::QueryStats { .. })
             ),
             "{c:?}"
         );
@@ -591,7 +592,7 @@ fn windows_settings_runs_in_the_storage_of_a_closed_game() {
         !r.fake
             .sent()
             .iter()
-            .any(|c| matches!(c, UiCommand::RunTool { .. }))
+            .any(|c| matches!(c, UiCommand::Core(Command::RunTool { .. })))
     );
 }
 
@@ -610,7 +611,9 @@ fn the_overview_doors_lead_to_steam_and_the_folders() {
     r.h.run_steps(4);
     let sent = r.fake.sent();
     assert!(sent.contains(&UiCommand::Steam(SteamAction::OpenInSteam(id))));
-    assert!(sent.contains(&UiCommand::OpenFolder(FolderTarget::GameFolder(id))));
+    assert!(sent.contains(&UiCommand::Core(Command::OpenFolder(
+        FolderRequest::GameFolder(id)
+    ))));
     assert!(sent.contains(&UiCommand::Steam(SteamAction::OpenStorageFolder(id))));
 }
 

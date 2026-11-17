@@ -24,7 +24,7 @@ use easyplay_core::ids::{GameId, TagName};
 use egui::{Context, Id, Ui};
 
 use crate::app::UiState;
-use crate::bridge::{LibraryView, UiCommand};
+use crate::bridge::{Command, LibraryView, UiCommand};
 use crate::route::Overlay;
 use crate::screens::Env;
 use crate::strings;
@@ -49,10 +49,10 @@ fn names_of(lib: &LibraryView, game: GameId) -> Vec<String> {
 }
 
 fn set_tags(game: GameId, names: &[String]) -> UiCommand {
-    UiCommand::SetTags {
+    UiCommand::Core(Command::SetTags {
         id: game,
         tags: names.iter().filter_map(|n| TagName::new(n).ok()).collect(),
-    }
+    })
 }
 
 /// Paint the tag items for `games` (one game, or a selection) and the "New tag" field,

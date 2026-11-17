@@ -10,7 +10,7 @@ use egui::{Align, Layout, Rect, Sense, Ui, UiBuilder, pos2, vec2};
 
 use super::super::Env;
 use crate::app::UiState;
-use crate::bridge::{DatabaseChoice, FolderTarget, RecoveryReason, UiCommand};
+use crate::bridge::{Command, DatabaseChoice, FolderRequest, RecoveryReason};
 use crate::strings::debug as s;
 use crate::theme::tokens::{control, layout, space};
 use crate::theme::{self, Type};
@@ -213,7 +213,7 @@ fn damaged(
             && let Some(c) = chosen
         {
             state.debug.recovery_sent = true;
-            env.bridge.send(UiCommand::ResolveDatabase(c));
+            env.bridge.send(Command::ResolveDatabase(c));
         }
         if ui
             .add(Button::new(s::CREATE_REPORT()).variant(Variant::Secondary))
@@ -237,8 +237,7 @@ fn newer(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, title: &str, messa
             .add(Button::new(s::OPEN_BACKUPS()).variant(Variant::Secondary))
             .clicked()
         {
-            env.bridge
-                .send(UiCommand::OpenFolder(FolderTarget::Backups));
+            env.bridge.send(Command::OpenFolder(FolderRequest::Backups));
         }
         if ui
             .add(Button::new(s::CREATE_REPORT()).variant(Variant::Secondary))

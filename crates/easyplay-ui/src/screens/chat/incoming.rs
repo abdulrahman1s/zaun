@@ -15,7 +15,7 @@ use super::Env;
 use super::avatar::{self, Shape};
 use super::paint::{self, Cc};
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::Command;
 use crate::route::Route;
 use crate::strings::chat::details as s;
 use crate::theme::palette::fade;
@@ -170,10 +170,10 @@ pub fn card(ctx: &egui::Context, state: &mut UiState, env: &mut Env<'_>) {
             decline = d.clicked();
         });
     if answer {
-        env.bridge.send(UiCommand::Chat(ChatCommand::Answer));
+        env.bridge.send(Command::Chat(ChatCommand::Answer));
         go_to_chat(state, env, ring.chat);
     } else if decline {
-        env.bridge.send(UiCommand::Chat(ChatCommand::Decline));
+        env.bridge.send(Command::Chat(ChatCommand::Decline));
     }
 }
 
@@ -219,7 +219,7 @@ fn resolve_waiting(state: &mut UiState, env: &mut Env<'_>, snap: &ChatSnapshot) 
         match activity {
             Some(Activity::Running { .. }) => {
                 env.bridge
-                    .send(UiCommand::Chat(ChatCommand::StartShare(ps.chat)));
+                    .send(Command::Chat(ChatCommand::StartShare(ps.chat)));
                 state.chat.pending_share = None;
             }
             Some(Activity::Launching(_)) => {
@@ -246,7 +246,7 @@ fn resolve_waiting(state: &mut UiState, env: &mut Env<'_>, snap: &ChatSnapshot) 
         let group = g.id;
         for &friend in &pg.friends {
             env.bridge
-                .send(UiCommand::Chat(ChatCommand::AddMember { group, friend }));
+                .send(Command::Chat(ChatCommand::AddMember { group, friend }));
         }
         let name = pg.name.clone();
         state.chat.pending_group = None;
@@ -423,10 +423,10 @@ pub fn top_bar_pill(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         );
         if mute.clicked() {
             env.bridge
-                .send(UiCommand::Chat(ChatCommand::CallMute(!muted)));
+                .send(Command::Chat(ChatCommand::CallMute(!muted)));
         }
         if end.clicked() {
-            env.bridge.send(UiCommand::Chat(ChatCommand::EndCall));
+            env.bridge.send(Command::Chat(ChatCommand::EndCall));
         }
     } else {
         let stop = paint::call_button(
@@ -440,7 +440,7 @@ pub fn top_bar_pill(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
             s::STOP_SHARING(),
         );
         if stop.clicked() {
-            env.bridge.send(UiCommand::Chat(ChatCommand::StopShare));
+            env.bridge.send(Command::Chat(ChatCommand::StopShare));
             state.toast(s::STOPPED_SHARING(), ToastKind::Info, None, env.mono);
         }
     }

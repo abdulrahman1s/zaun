@@ -41,7 +41,7 @@ use egui::{Align, Id, Layout, Margin, Rect, Sense, Stroke, Ui, UiBuilder, pos2, 
 
 use super::Env;
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::Command;
 use crate::route::Route;
 use crate::strings::chat as c;
 use crate::strings::chat::list as ls;
@@ -153,7 +153,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                 )
             });
             if retry {
-                env.bridge.send(UiCommand::Chat(ChatCommand::SetEnabled {
+                env.bridge.send(Command::Chat(ChatCommand::SetEnabled {
                     on: true,
                     name: None,
                 }));
@@ -330,7 +330,7 @@ fn off(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                 next.chat.enabled = true;
                 next.chat.name.clone_from(&name);
                 env.bridge.set_prefs_preview(next);
-                env.bridge.send(UiCommand::Chat(ChatCommand::SetEnabled {
+                env.bridge.send(Command::Chat(ChatCommand::SetEnabled {
                     on: true,
                     name: Some(name),
                 }));
@@ -632,7 +632,7 @@ pub(crate) fn open_chat(state: &mut UiState, env: &mut Env<'_>, chat: ChatRef) {
     if state.chat.open_chat(chat) {
         let q = env.bridge.query_id();
         state.chat.asked(q, false);
-        env.bridge.send(UiCommand::Chat(ChatCommand::LoadChat {
+        env.bridge.send(Command::Chat(ChatCommand::LoadChat {
             chat,
             before: None,
             reply_to: q,

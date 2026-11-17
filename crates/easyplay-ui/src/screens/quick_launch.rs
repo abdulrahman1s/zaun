@@ -20,7 +20,7 @@ use egui::{
 
 use super::Env;
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::{Command, UiCommand};
 use crate::route::{Overlay, Route};
 use crate::strings;
 use crate::strings::setup as s;
@@ -139,7 +139,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
     {
         if cancellable && let Some(g) = q.game {
-            env.bridge.send(UiCommand::CancelLaunch { id: g });
+            env.bridge.send(Command::CancelLaunch { id: g });
         } else {
             env.ctx.send_viewport_cmd(ViewportCommand::Close);
         }
@@ -223,7 +223,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         && row.add(Button::new(strings::launch::CANCEL())).clicked()
         && let Some(g) = q.game
     {
-        env.bridge.send(UiCommand::CancelLaunch { id: g });
+        env.bridge.send(Command::CancelLaunch { id: g });
     }
     if row.add(Button::ghost(s::OPEN_EASYPLAY())).clicked() {
         expand(state, env);

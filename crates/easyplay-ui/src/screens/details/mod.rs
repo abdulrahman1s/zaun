@@ -30,7 +30,7 @@ use egui::{
 use super::Env;
 use super::actions::{self, GameAction};
 use crate::app::UiState;
-use crate::bridge::{GameEdit, UiCommand};
+use crate::bridge::{Command, GameEdit, UiCommand};
 use crate::input::dnd::DropTarget;
 use crate::input::picker::PickPurpose;
 use crate::strings;
@@ -75,13 +75,13 @@ pub(super) fn load(state: &mut UiState, env: &mut Env<'_>, id: GameId) {
     if !matches!(state.details.detail, AsyncValue::Ready(_)) {
         state.details.detail = AsyncValue::Loading { since: env.mono };
     }
-    env.bridge.send(UiCommand::LoadGame { id, reply_to: q });
+    env.bridge.send(Command::LoadGame { id, reply_to: q });
     let q = env.bridge.query_id();
     state.details.about_q = Some(q);
     if !matches!(state.details.about, AsyncValue::Ready(_)) {
         state.details.about = AsyncValue::Loading { since: env.mono };
     }
-    env.bridge.send(UiCommand::AboutGame { id, reply_to: q });
+    env.bridge.send(Command::AboutGame { id, reply_to: q });
 }
 
 /// Keep the play record's thirty days of `g` current: asked for when the page opens and
@@ -101,7 +101,7 @@ fn keep_days(state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
     if state.details.week.ready().is_none() {
         state.details.week = AsyncValue::Loading { since: env.mono };
     }
-    env.bridge.send(UiCommand::QueryStats {
+    env.bridge.send(Command::QueryStats {
         request: easyplay_core::stats::StatsRequest::GameOverview { game: g.id, range },
         reply_to: q,
     });
@@ -1011,7 +1011,7 @@ fn notes(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
             .action
                 == Some(0)
             {
-                env.bridge.send(UiCommand::CancelLaunch { id });
+                env.bridge.send(Command::CancelLaunch { id });
             }
         }
     }
@@ -1056,7 +1056,7 @@ fn notes(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
             .action
                 == Some(0)
             {
-                env.bridge.send(UiCommand::RescanMissing);
+                env.bridge.send(Command::RescanMissing);
             }
         }
         _ if g.flags.suspected_tamper => {

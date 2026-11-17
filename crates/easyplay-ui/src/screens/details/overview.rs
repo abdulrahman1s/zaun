@@ -16,7 +16,7 @@ use egui::text::LayoutJob;
 use egui::{Color32, Ui};
 
 use crate::app::UiState;
-use crate::bridge::{FolderTarget, GameEdit, UiCommand};
+use crate::bridge::{Command, FolderRequest, GameEdit, UiCommand};
 use crate::screens::Env;
 use crate::strings;
 use crate::strings::details as s;
@@ -41,7 +41,7 @@ pub fn request(state: &mut UiState, env: &mut Env<'_>, id: GameId) {
     let q = env.bridge.query_id();
     state.details.activity.overview_q = Some(q);
     state.details.activity.overview = AsyncValue::Loading { since: env.mono };
-    env.bridge.send(UiCommand::QueryStats {
+    env.bridge.send(Command::QueryStats {
         request: StatsRequest::GameOverview { game: id, range },
         reply_to: q,
     });
@@ -347,7 +347,7 @@ fn where_it_lives(ui: &mut Ui, state: &UiState, env: &mut Env<'_>, g: &GameSumma
     });
     if tooltip::tooltip(door, s::OPEN_IN_FILE_MANAGER(), None).clicked() {
         env.bridge
-            .send(UiCommand::OpenFolder(FolderTarget::GameFolder(g.id)));
+            .send(Command::OpenFolder(FolderRequest::GameFolder(g.id)));
     }
     let (save, save_folder) = match g.save_location {
         SaveLocationKind::Internal => (s::SAVE_PRIVATE(), None),
@@ -371,7 +371,7 @@ fn where_it_lives(ui: &mut Ui, state: &UiState, env: &mut Env<'_>, g: &GameSumma
     });
     if tooltip::tooltip(door, s::OPEN_IN_FILE_MANAGER(), None).clicked() {
         env.bridge
-            .send(UiCommand::OpenFolder(FolderTarget::SaveData(g.id)));
+            .send(Command::OpenFolder(FolderRequest::SaveData(g.id)));
     }
 }
 

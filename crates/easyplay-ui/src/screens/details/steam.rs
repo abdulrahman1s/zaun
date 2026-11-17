@@ -20,7 +20,7 @@ use egui::{Align, CornerRadius, Id, Layout, Rect, ScrollArea, Sense, Ui, UiBuild
 
 use super::{back_link, fine, record_lines, risen, tag_words, title, title_type};
 use crate::app::UiState;
-use crate::bridge::{FolderTarget, SteamAction, SteamDetail, UiCommand};
+use crate::bridge::{Command, FolderRequest, SteamAction, SteamDetail, UiCommand};
 use crate::input::picker::PickPurpose;
 use crate::screens::Env;
 use crate::screens::actions::{self, GameAction};
@@ -484,7 +484,7 @@ fn notes(
         && note(ui, Note::missing(title, text).actions(&[s::CHECK_AGAIN()]))
     {
         // Checking for missing games looks at Steam's library folders again too.
-        env.bridge.send(UiCommand::RescanMissing);
+        env.bridge.send(Command::RescanMissing);
     }
 }
 
@@ -735,7 +735,7 @@ fn overview(
     });
     if tooltip::tooltip(door, s::OPEN_IN_FILE_MANAGER(), None).clicked() {
         env.bridge
-            .send(UiCommand::OpenFolder(FolderTarget::GameFolder(g.id)));
+            .send(Command::OpenFolder(FolderRequest::GameFolder(g.id)));
     }
     if facts.prefix().is_some() {
         let spoken = s::row_name(st::page::STORAGE(), st::page::STORAGE_IN_STEAM(), None);

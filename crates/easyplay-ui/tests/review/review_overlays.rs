@@ -254,7 +254,9 @@ fn toasts() {
     r.h.state_mut().state.toast(
         "Hid Lantern Keep",
         ToastKind::Info,
-        Some(easyplay_ui::bridge::UiCommand::SetHidden { id, hidden: false }),
+        Some(easyplay_ui::bridge::UiCommand::Core(
+            easyplay_ui::bridge::Command::SetHidden { id, hidden: false },
+        )),
         mono,
     );
     r.h.run_steps(20);

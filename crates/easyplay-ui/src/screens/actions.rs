@@ -7,7 +7,7 @@ use easyplay_core::model::{Activity, BasePreset, GameSummary, NetworkAccess};
 
 use super::Env;
 use crate::app::UiState;
-use crate::bridge::{FolderTarget, SteamAction, UiCommand};
+use crate::bridge::{Command, FolderRequest, SteamAction, UiCommand};
 use crate::input::picker::PickPurpose;
 use crate::route::{Overlay, Route};
 use crate::strings;
@@ -132,11 +132,11 @@ pub fn apply(state: &mut UiState, env: &mut Env<'_>, id: GameId, action: GameAct
         }
         GameAction::Favorite => {
             let on = !g.favorite;
-            env.bridge.send(UiCommand::SetFavorite { id, favorite: on });
+            env.bridge.send(Command::SetFavorite { id, favorite: on });
             state.toast(
                 strings::feedback::favorited(&g.name, on),
                 ToastKind::Success,
-                Some(UiCommand::SetFavorite { id, favorite: !on }),
+                Some(UiCommand::Core(Command::SetFavorite { id, favorite: !on })),
                 env.mono,
             );
         }
@@ -153,7 +153,7 @@ pub fn apply(state: &mut UiState, env: &mut Env<'_>, id: GameId, action: GameAct
                 .filter_map(|t| lib.tag(*t))
                 .filter_map(|t| easyplay_core::ids::TagName::new(&*t.name).ok())
                 .collect();
-            env.bridge.send(UiCommand::SetTags { id, tags: names });
+            env.bridge.send(Command::SetTags { id, tags: names });
         }
         GameAction::TagMenu
             if state.nav.current() == Route::Library && state.library.cursor_rect.is_some() =>
@@ -183,16 +183,16 @@ pub fn apply(state: &mut UiState, env: &mut Env<'_>, id: GameId, action: GameAct
         }
         GameAction::OpenFolder => env
             .bridge
-            .send(UiCommand::OpenFolder(FolderTarget::GameFolder(id))),
+            .send(Command::OpenFolder(FolderRequest::GameFolder(id))),
         GameAction::OpenSaveData => env
             .bridge
-            .send(UiCommand::OpenFolder(FolderTarget::SaveData(id))),
+            .send(Command::OpenFolder(FolderRequest::SaveData(id))),
         GameAction::Shortcut(on) => {
-            env.bridge.send(UiCommand::SetShortcut { id, enable: on });
+            env.bridge.send(Command::SetShortcut { id, enable: on });
             state.toast(
                 strings::feedback::shortcut(&g.name, on),
                 ToastKind::Success,
-                Some(UiCommand::SetShortcut { id, enable: !on }),
+                Some(UiCommand::Core(Command::SetShortcut { id, enable: !on })),
                 env.mono,
             );
         }
@@ -204,14 +204,14 @@ pub fn apply(state: &mut UiState, env: &mut Env<'_>, id: GameId, action: GameAct
         }
         GameAction::Hide => {
             let on = !g.hidden;
-            env.bridge.send(UiCommand::SetHidden { id, hidden: on });
+            env.bridge.send(Command::SetHidden { id, hidden: on });
             state.library.selection.clear();
             // Hiding offers Undo; showing a game again says nothing.
             if on {
                 state.toast(
                     strings::feedback::hidden(&g.name, on),
                     ToastKind::Success,
-                    Some(UiCommand::SetHidden { id, hidden: !on }),
+                    Some(UiCommand::Core(Command::SetHidden { id, hidden: !on })),
                     env.mono,
                 );
             }
@@ -381,7 +381,7 @@ fn bulk_on(
                 if add {
                     tags.push(t);
                 }
-                env.bridge.send(UiCommand::SetTags {
+                env.bridge.send(Command::SetTags {
                     id: g.id,
                     tags: names(&tags),
                 });
@@ -390,7 +390,7 @@ fn bulk_on(
         BulkAction::Favorite => {
             let on = !games.iter().all(|g| g.favorite);
             for g in games {
-                env.bridge.send(UiCommand::SetFavorite {
+                env.bridge.send(Command::SetFavorite {
                     id: g.id,
                     favorite: on,
                 });
@@ -404,16 +404,18 @@ fn bulk_on(
         }
         BulkAction::Hide => {
             for g in games {
-                env.bridge.send(UiCommand::SetHidden {
+                env.bridge.send(Command::SetHidden {
                     id: g.id,
                     hidden: true,
                 });
             }
             let undo: Vec<UiCommand> = games
                 .iter()
-                .map(|g| UiCommand::SetHidden {
-                    id: g.id,
-                    hidden: false,
+                .map(|g| {
+                    UiCommand::Core(Command::SetHidden {
+                        id: g.id,
+                        hidden: false,
+                    })
                 })
                 .collect();
             let text = match games {
@@ -505,7 +507,7 @@ pub fn recover(
                 });
             }
         }
-        R::DownloadRuntime => env.bridge.send(UiCommand::ProvisionRuntime {
+        R::DownloadRuntime => env.bridge.send(Command::ProvisionRuntime {
             target: easyplay_core::model::RuntimeRef::Default,
         }),
         R::ResetPrefix => {
@@ -538,7 +540,7 @@ pub fn recover(
         R::ViewLog => match game {
             // The in-app viewer (LOGGING §3.3), also without Developer Mode.
             Some(g) => super::debug::open_logs(state, env, g, err.session),
-            None => env.bridge.send(UiCommand::ViewLog {
+            None => env.bridge.send(Command::ViewLog {
                 session: err.session,
                 game,
             }),
@@ -546,7 +548,7 @@ pub fn recover(
         R::OpenSessionFolder => {
             if let Some(s) = err.session {
                 env.bridge
-                    .send(UiCommand::OpenFolder(FolderTarget::Session(s)));
+                    .send(Command::OpenFolder(FolderRequest::Session(s)));
             }
         }
         R::CopyDetails => {
@@ -559,9 +561,7 @@ pub fn recover(
             );
         }
         R::CreateReport => super::debug::open_report(state, env, game, err.session),
-        R::OpenBackupsFolder => env
-            .bridge
-            .send(UiCommand::OpenFolder(FolderTarget::Backups)),
+        R::OpenBackupsFolder => env.bridge.send(Command::OpenFolder(FolderRequest::Backups)),
         // The recovery state offers the backups; otherwise Settings → Advanced lists them.
         R::RestoreBackup => {
             if env.bridge.diagnostics().recovery.is_none() {

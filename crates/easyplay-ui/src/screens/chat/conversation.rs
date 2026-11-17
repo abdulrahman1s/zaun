@@ -29,7 +29,7 @@ use super::avatar::{self, Shape as AvShape};
 use super::composer::{self, Compose};
 use super::{Env, emoji, markdown};
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::{Command, UiCommand};
 use crate::strings::chat as c;
 use crate::strings::chat::conversation as s;
 use crate::theme::motion::{self, ease_out, ease_pop};
@@ -206,8 +206,7 @@ pub fn show(
             .chat
             .should_mark(chat, pv.last.as_ref().map(|m| m.id), pv.unread)
     {
-        env.bridge
-            .send(UiCommand::Chat(ChatCommand::MarkRead(chat)));
+        env.bridge.send(Command::Chat(ChatCommand::MarkRead(chat)));
     }
     settle_deletes(state, env);
     tick_voice(ui, state);
@@ -321,11 +320,11 @@ fn viewer(ui: &Ui, state: &mut UiState, env: &mut Env<'_>, chat: ChatRef) {
         Some(ViewerAct::Close) => state.chat.viewer = None,
         Some(ViewerAct::Open) => {
             env.bridge
-                .send(UiCommand::Chat(ChatCommand::OpenFile { chat, item }));
+                .send(Command::Chat(ChatCommand::OpenFile { chat, item }));
         }
         Some(ViewerAct::Download) => {
             env.bridge
-                .send(UiCommand::Chat(ChatCommand::ReceiveFile { chat, item }));
+                .send(Command::Chat(ChatCommand::ReceiveFile { chat, item }));
         }
         Some(ViewerAct::SaveAs) => {
             state
@@ -755,7 +754,7 @@ fn header(
         }
         tooltip::attach(resp.clone(), &s::watch_tip(&fname, &game));
         if resp.clicked() {
-            env.bridge.send(UiCommand::Chat(ChatCommand::Watch(chat)));
+            env.bridge.send(Command::Chat(ChatCommand::Watch(chat)));
         }
     }
     // Left: back on a narrow window, then the details button.
@@ -1000,7 +999,7 @@ fn header_menu(
         }
     });
     if let Some(cmd) = cmd {
-        env.bridge.send(UiCommand::Chat(cmd));
+        env.bridge.send(Command::Chat(cmd));
     }
     if let Some(d) = dialog {
         state.show_dialog(Dialog::Chat(d));
@@ -1067,10 +1066,10 @@ fn invitation(ui: &mut Ui, env: &mut Env<'_>, snap: &ChatSnapshot, chat: ChatRef
         vec2(jw, bh),
     ));
     if ui.put(jr, join).clicked() {
-        env.bridge.send(UiCommand::Chat(ChatCommand::JoinGroup(g)));
+        env.bridge.send(Command::Chat(ChatCommand::JoinGroup(g)));
     }
     if ui.put(dr, decline).clicked() {
-        env.bridge.send(UiCommand::Chat(ChatCommand::LeaveGroup(g)));
+        env.bridge.send(Command::Chat(ChatCommand::LeaveGroup(g)));
     }
 }
 
@@ -1109,7 +1108,7 @@ fn settle_deletes(state: &mut UiState, env: &mut Env<'_>) {
             continue;
         }
         state.undo.remove(&d.undo_key);
-        env.bridge.send(UiCommand::Chat(ChatCommand::Delete {
+        env.bridge.send(Command::Chat(ChatCommand::Delete {
             chat: d.chat,
             item: d.item,
         }));
@@ -1469,7 +1468,7 @@ fn transcript(
     {
         let q = env.bridge.query_id();
         state.chat.asked(q, true);
-        env.bridge.send(UiCommand::Chat(ChatCommand::LoadChat {
+        env.bridge.send(Command::Chat(ChatCommand::LoadChat {
             chat,
             before: Some(before),
             reply_to: q,
@@ -3181,7 +3180,7 @@ fn apply(
     act: Act,
     active: &mut Active,
 ) {
-    let send = |env: &mut Env<'_>, c: ChatCommand| env.bridge.send(UiCommand::Chat(c));
+    let send = |env: &mut Env<'_>, c: ChatCommand| env.bridge.send(Command::Chat(c));
     match act {
         Act::React { item, emoji, on } => {
             if on {
@@ -3211,7 +3210,10 @@ fn apply(
             state.toast(
                 s::DELETED_TOAST(),
                 ToastKind::Info,
-                Some(UiCommand::Chat(ChatCommand::Delete { chat, item })),
+                Some(UiCommand::Core(Command::Chat(ChatCommand::Delete {
+                    chat,
+                    item,
+                }))),
                 env.mono,
             );
             if let Some(key) = state.last_undo {
@@ -3434,7 +3436,7 @@ fn message_menu(
             (true, Some(friend)) => state.show_dialog(Dialog::Chat(ChatDialog::Block(friend))),
             _ => {
                 env.bridge
-                    .send(UiCommand::Chat(ChatCommand::SetMemberBlocked {
+                    .send(Command::Chat(ChatCommand::SetMemberBlocked {
                         group: g,
                         member,
                         on,
@@ -3443,11 +3445,13 @@ fn message_menu(
                     state.toast(
                         s::member_blocked(&author.short),
                         ToastKind::Info,
-                        Some(UiCommand::Chat(ChatCommand::SetMemberBlocked {
-                            group: g,
-                            member,
-                            on: false,
-                        })),
+                        Some(UiCommand::Core(Command::Chat(
+                            ChatCommand::SetMemberBlocked {
+                                group: g,
+                                member,
+                                on: false,
+                            },
+                        ))),
                         env.mono,
                     );
                 }

@@ -16,7 +16,7 @@ use super::Env;
 use super::avatar::{self, Shape as AvShape};
 use super::paint::{self, Cc};
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::Command;
 use crate::strings::chat::details as s;
 use crate::theme::palette::{self, Palette, fade, mix};
 use crate::theme::tokens::stroke;
@@ -181,7 +181,11 @@ fn two_lines(ui: &Ui, r: Rect, title: &str, sub: &str, p: &Palette, alpha: f32, 
         Id::unique(("chat.tray.text", r.min.y as i32)),
         Sense::hover(),
     );
-    crate::a11y::item(&spoken, egui::Role::Label, &crate::strings::chat::spoken(&[title, sub]));
+    crate::a11y::item(
+        &spoken,
+        egui::Role::Label,
+        &crate::strings::chat::spoken(&[title, sub]),
+    );
     let a = Type::BodyStrong.galley(ui, title, p.t1, r.width(), 1);
     let b = Type::Caption.numeric_galley(ui, sub, p.t3);
     let b = if b.size().x > r.width() {
@@ -340,17 +344,17 @@ fn call_tray(
     two_lines(ui, row.middle(), &title, &sub, &p, alpha, row.rtl);
     if mute.clicked() {
         env.bridge
-            .send(UiCommand::Chat(ChatCommand::CallMute(!call.muted)));
+            .send(Command::Chat(ChatCommand::CallMute(!call.muted)));
     }
     if deaf.clicked() {
         env.bridge
-            .send(UiCommand::Chat(ChatCommand::CallDeafen(!call.deafened)));
+            .send(Command::Chat(ChatCommand::CallDeafen(!call.deafened)));
     }
     if share.is_some_and(|r| r.clicked()) {
         super::dialogs::share_flow(state, env, snap, call.chat);
     }
     if end.clicked() {
-        env.bridge.send(UiCommand::Chat(ChatCommand::EndCall));
+        env.bridge.send(Command::Chat(ChatCommand::EndCall));
     }
 }
 
@@ -459,7 +463,7 @@ fn share_tray(
         row.rtl,
     );
     if stop {
-        env.bridge.send(UiCommand::Chat(ChatCommand::StopShare));
+        env.bridge.send(Command::Chat(ChatCommand::StopShare));
         state.toast(s::STOPPED_SHARING(), ToastKind::Info, None, env.mono);
     }
 }
@@ -616,14 +620,14 @@ fn stage(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, w: &Watching, inse
     );
     if sound.clicked() {
         env.bridge
-            .send(UiCommand::Chat(ChatCommand::WatchMute(!w.muted)));
+            .send(Command::Chat(ChatCommand::WatchMute(!w.muted)));
     }
     if size.clicked() {
         state.chat.stage_large = !large;
     }
     if stop.clicked() {
         state.chat.stage_large = false;
-        env.bridge.send(UiCommand::Chat(ChatCommand::StopWatch));
+        env.bridge.send(Command::Chat(ChatCommand::StopWatch));
     }
 }
 

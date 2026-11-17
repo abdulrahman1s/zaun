@@ -19,7 +19,7 @@ use super::Env;
 use super::debug::doctor::{self, Adopt};
 use super::settings::band;
 use crate::app::UiState;
-use crate::bridge::{CheckState, HandlerState, UiCommand};
+use crate::bridge::{CheckState, Command, HandlerState, UiCommand};
 use crate::route::Route;
 use crate::strings::onboarding as s;
 use crate::theme::tokens::{control, icon as icon_size, layout, stroke, travel};
@@ -146,7 +146,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         let i = (step.index() + 1).min(OnboardingStep::ALL.len() - 1);
         state.onboarding.step = OnboardingStep::ALL[i];
         if state.onboarding.step == OnboardingStep::SystemCheck {
-            env.bridge.send(UiCommand::RefreshHostFacts);
+            env.bridge.send(Command::RefreshHostFacts);
         }
     }
     if foot.skip {
@@ -319,7 +319,7 @@ fn check(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, host: &crate::brid
     if out.adopt {
         state.onboarding.adopting = true;
         for v in &rt.adoptable {
-            env.bridge.send(UiCommand::AdoptRuntime { variant: *v });
+            env.bridge.send(Command::AdoptRuntime { variant: *v });
         }
     }
     if host.checks.is_empty() || host.checks.iter().any(|c| c.state == CheckState::Pending) {
@@ -336,7 +336,7 @@ fn check(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, host: &crate::brid
     let again = super::statistics::on_axis(ui, |ui| ui.add(Button::ghost(s::CHECK_AGAIN())));
     if again.clicked() {
         state.onboarding.check_started = Some(env.mono);
-        env.bridge.send(UiCommand::RefreshHostFacts);
+        env.bridge.send(Command::RefreshHostFacts);
     }
 }
 
@@ -381,7 +381,7 @@ fn layer(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                 });
             if pressed {
                 state.onboarding.downloading = true;
-                env.bridge.send(UiCommand::ProvisionRuntime {
+                env.bridge.send(Command::ProvisionRuntime {
                     target: RuntimeRef::Default,
                 });
             }
@@ -406,8 +406,7 @@ fn handler(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, host: &crate::br
         })
     });
     if make {
-        env.bridge
-            .send(UiCommand::SetDefaultHandler { enable: true });
+        env.bridge.send(Command::SetDefaultHandler { enable: true });
     }
     SettingRow::new(s::ARTWORK_TITLE())
         .help(s::ARTWORK_HELP())

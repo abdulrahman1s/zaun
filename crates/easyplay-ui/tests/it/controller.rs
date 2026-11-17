@@ -8,7 +8,7 @@ use crate::common;
 use common::{Rig, rig, settle};
 use easyplay_core::ids::GameId;
 use easyplay_core::launch::LaunchState;
-use easyplay_ui::bridge::{UiCommand, UiEvent};
+use easyplay_ui::bridge::{Command, UiCommand, UiEvent};
 use easyplay_ui::input::gamepad::{PadButton, PadInput};
 use easyplay_ui::route::Route;
 use egui::Key;
@@ -85,7 +85,7 @@ fn uf15_dpad_moves_a_plays_y_favourites_x_opens() {
     let sent = r.fake.sent();
     assert!(
         sent.iter()
-            .any(|c| matches!(c, UiCommand::SetFavorite { id, .. } if *id == o[1])),
+            .any(|c| matches!(c, UiCommand::Core(Command::SetFavorite { id, .. }) if *id == o[1])),
         "{sent:?}"
     );
     assert!(

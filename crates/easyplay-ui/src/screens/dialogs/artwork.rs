@@ -15,7 +15,7 @@ use egui::{Context, Id, Rect, Sense, Ui, UiBuilder, pos2, vec2};
 
 use super::name_and_size;
 use crate::app::UiState;
-use crate::bridge::{ArtworkSource, UiCommand};
+use crate::bridge::{ArtworkSource, Command, UiCommand};
 use crate::input::dnd::DropTarget;
 use crate::input::picker::PickPurpose;
 use crate::route::Overlay;
@@ -155,7 +155,7 @@ fn ask(a: &mut ArtworkVm, env: &mut Env<'_>, term: Option<String>) {
     a.apps_q = Some(q);
     a.apps = AsyncValue::Loading { since: env.mono };
     a.fetch_error = None;
-    env.bridge.send(UiCommand::FindSteamApp {
+    env.bridge.send(Command::FindSteamApp {
         id: a.game,
         term,
         reply_to: q,

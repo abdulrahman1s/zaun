@@ -31,7 +31,7 @@ use egui::{
 use super::Env;
 use super::avatar::{self, Shape};
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::Command;
 use crate::route::{Route, SettingsTab};
 use crate::strings::chat::list as s;
 use crate::theme::palette::{self, fade, mix, over};
@@ -335,7 +335,7 @@ enum Act {
 }
 
 fn apply(state: &mut UiState, env: &mut Env<'_>, act: Act) {
-    let send = |env: &mut Env<'_>, c: ChatCommand| env.bridge.send(UiCommand::Chat(c));
+    let send = |env: &mut Env<'_>, c: ChatCommand| env.bridge.send(Command::Chat(c));
     match act {
         Act::Open(chat) => super::open_chat(state, env, chat),
         Act::Accept(id) => send(env, ChatCommand::Accept(id)),

@@ -204,34 +204,34 @@ pub fn rig(start: Route) -> Rig {
 
 /// Answer every query the UI has sent and not yet seen answered, with demo data.
 pub fn serve(r: &mut Rig) {
-    use easyplay_ui::bridge::{QueryPayload, SteamAction, UiCommand, UiEvent};
+    use easyplay_ui::bridge::{Command, QueryPayload, SteamAction, UiCommand, UiEvent};
     let lib = r.h.state().bridge().library().clone();
     let sent = r.fake.sent();
     r.fake.clear_sent();
     for c in &sent {
         let (id, payload) = match c {
-            UiCommand::LoadGame { id, reply_to } => (
+            UiCommand::Core(Command::LoadGame { id, reply_to }) => (
                 *reply_to,
                 QueryPayload::Game(Box::new(demo::game_detail(lib.get(*id).unwrap(), now()))),
             ),
-            UiCommand::QueryStats { request, reply_to } => (
+            UiCommand::Core(Command::QueryStats { request, reply_to }) => (
                 *reply_to,
                 QueryPayload::Stats(demo::stats(request, &lib, now())),
             ),
-            UiCommand::AboutGame { id, reply_to } => {
+            UiCommand::Core(Command::AboutGame { id, reply_to }) => {
                 let name = lib.get(*id).map(|g| g.name.to_string()).unwrap_or_default();
                 (
                     *reply_to,
                     QueryPayload::About(Box::new(demo::game_about(&name))),
                 )
             }
-            UiCommand::MeasurePrefix { reply_to, .. } => {
+            UiCommand::Core(Command::MeasurePrefix { reply_to, .. }) => {
                 (*reply_to, QueryPayload::PrefixSize(2_254_857_830))
             }
-            UiCommand::ScanFolder { folder, reply_to } => {
+            UiCommand::Core(Command::ScanFolder { folder, reply_to }) => {
                 (*reply_to, QueryPayload::Folder(demo::folder_scan(folder)))
             }
-            UiCommand::FindSteamApp { id, term, reply_to } => {
+            UiCommand::Core(Command::FindSteamApp { id, term, reply_to }) => {
                 let name = lib.get(*id).map(|g| g.name.to_string()).unwrap_or_default();
                 (
                     *reply_to,
@@ -245,11 +245,11 @@ pub fn serve(r: &mut Rig) {
                 }
             }
             // Chat (ADR-0033): the canned history of the sample conversations.
-            UiCommand::Chat(easyplay_core::service::ChatCommand::LoadChat {
+            UiCommand::Core(Command::Chat(easyplay_core::service::ChatCommand::LoadChat {
                 chat,
                 before,
                 reply_to,
-            }) => (
+            })) => (
                 *reply_to,
                 QueryPayload::Chat(easyplay_ui::demo_chat::page(*chat, *before, now())),
             ),
@@ -273,14 +273,16 @@ pub fn serve(r: &mut Rig) {
     for c in sent {
         if !matches!(
             c,
-            UiCommand::LoadGame { .. }
-                | UiCommand::AboutGame { .. }
-                | UiCommand::QueryStats { .. }
-                | UiCommand::MeasurePrefix { .. }
-                | UiCommand::ScanFolder { .. }
-                | UiCommand::FindSteamApp { .. }
+            UiCommand::Core(Command::LoadGame { .. })
+                | UiCommand::Core(Command::AboutGame { .. })
+                | UiCommand::Core(Command::QueryStats { .. })
+                | UiCommand::Core(Command::MeasurePrefix { .. })
+                | UiCommand::Core(Command::ScanFolder { .. })
+                | UiCommand::Core(Command::FindSteamApp { .. })
                 | UiCommand::Steam(SteamAction::Details { .. })
-                | UiCommand::Chat(easyplay_core::service::ChatCommand::LoadChat { .. })
+                | UiCommand::Core(Command::Chat(
+                    easyplay_core::service::ChatCommand::LoadChat { .. }
+                ))
         ) {
             r.fake.record(c);
         }

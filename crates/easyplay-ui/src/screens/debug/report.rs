@@ -8,6 +8,7 @@ use egui::{Align, Context, Id, Layout, Rect, Sense, Stroke, UiBuilder, pos2, vec
 
 use super::super::Env;
 use crate::app::UiState;
+use crate::bridge::Command;
 use crate::input::picker::PickPurpose;
 use crate::route::Overlay;
 use crate::strings::debug as s;
@@ -132,7 +133,7 @@ pub fn show(ctx: &Context, id: Id, state: &mut UiState, _env: &mut Env<'_>) {
 /// The save dialog returned a destination.
 pub fn save_to(state: &mut UiState, bridge: &crate::bridge::UiBridge, dest: std::path::PathBuf) {
     if let Some(files) = state.debug.report.as_ref().and_then(|r| r.files.clone()) {
-        bridge.send(crate::bridge::UiCommand::SaveReport { files, dest });
+        bridge.send(Command::SaveReport { files, dest });
         state.debug.report = None;
         state.nav.close(Overlay::Report);
     }

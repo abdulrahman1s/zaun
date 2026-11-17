@@ -41,7 +41,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::Env;
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::Command;
 use crate::i18n::{self, Dir};
 use crate::strings::chat::composer as s;
 use crate::theme::motion::{appear, ease_out, scale_about};
@@ -1450,7 +1450,7 @@ pub(super) fn picker(ctx: &Context, state: &mut UiState, env: &mut Env<'_>) {
                 if !mine {
                     bump(&mut state.chat.freq, e);
                 }
-                env.bridge.send(UiCommand::Chat(ChatCommand::React {
+                env.bridge.send(Command::Chat(ChatCommand::React {
                     chat,
                     item,
                     emoji: e.to_owned(),

@@ -9,7 +9,7 @@ use easyplay_core::stats::StatsRequest;
 use egui::{Id, Popup, Sense, Ui};
 
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::Command;
 use crate::screens::Env;
 use crate::screens::statistics::bars;
 use crate::strings;
@@ -33,7 +33,7 @@ fn load_page(state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
     let q = env.bridge.query_id();
     state.details.activity.history_q = Some(q);
     state.details.activity.history_failed = false;
-    env.bridge.send(UiCommand::QueryStats {
+    env.bridge.send(Command::QueryStats {
         request: StatsRequest::SessionHistory {
             game: Some(g.id),
             page: state.details.activity.next_page,
@@ -210,10 +210,10 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
     }
     if let Some(id) = remove {
         state.details.activity.history.retain(|r| r.id != id);
-        env.bridge.send(UiCommand::RemoveSession { id });
+        env.bridge.send(Command::RemoveSession { id });
     }
     if let Some(sid) = view_log {
-        env.bridge.send(UiCommand::ViewLog {
+        env.bridge.send(Command::ViewLog {
             session: Some(sid),
             game: Some(g.id),
         });

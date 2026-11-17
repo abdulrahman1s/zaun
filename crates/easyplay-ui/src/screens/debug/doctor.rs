@@ -11,7 +11,7 @@ use egui::{Align, Align2, CornerRadius, Layout, Rect, Sense, Ui, UiBuilder, pos2
 
 use super::super::Env;
 use crate::app::UiState;
-use crate::bridge::{CheckState, HostCheck, UiCommand};
+use crate::bridge::{CheckState, Command, HostCheck};
 use crate::strings::debug as s;
 use crate::theme::tokens::{control, icon as icon_size, layout, radius};
 use crate::theme::{self, Type, icons};
@@ -247,7 +247,7 @@ pub fn section(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     if out.adopt {
         state.onboarding.adopting = true;
         for v in &rt.adoptable {
-            env.bridge.send(UiCommand::AdoptRuntime { variant: *v });
+            env.bridge.send(Command::AdoptRuntime { variant: *v });
         }
     }
     if out.copied {
@@ -261,8 +261,8 @@ pub fn section(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     ui.add_space(theme::tokens::space::S2);
     super::super::statistics::on_axis(ui, |ui| {
         if ui.add(Button::ghost(s::CHECK_AGAIN())).clicked() {
-            env.bridge.send(UiCommand::RefreshHostFacts);
-            env.bridge.send(UiCommand::RunDoctor);
+            env.bridge.send(Command::RefreshHostFacts);
+            env.bridge.send(Command::RunDoctor);
         }
         if ui.add(Button::ghost(s::CREATE_REPORT())).clicked() {
             super::open_report(state, env, None, None);

@@ -25,7 +25,7 @@ use super::{
     setup, statistics,
 };
 use crate::app::UiState;
-use crate::bridge::{HostStatus, OpenOrigin, UiCommand};
+use crate::bridge::{Command, HostStatus, OpenOrigin, UiCommand};
 use crate::input::dnd::{self, DropAction, Payload};
 use crate::input::shortcuts::{self, Action, DispatchCtx, Here};
 use crate::route::{Overlay, Route, SettingsTab};
@@ -993,7 +993,7 @@ fn on_action(state: &mut UiState, env: &mut Env<'_>, route: Route, action: Actio
                 library::open_menu(state, id, at);
             }
         }
-        Action::Refresh => env.bridge.send(UiCommand::RescanMissing),
+        Action::Refresh => env.bridge.send(Command::RescanMissing),
         Action::Fullscreen => {
             let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
             ctx.send_viewport_cmd(ViewportCommand::Fullscreen(!full));
@@ -1068,7 +1068,7 @@ fn drop_zone(ctx: &egui::Context, state: &mut UiState, env: &mut Env<'_>) {
     if !dropped.is_empty() {
         let target = state.dnd.target_at(pos);
         match dnd::route(target, dropped) {
-            DropAction::Open(paths) => env.bridge.send(UiCommand::OpenPaths {
+            DropAction::Open(paths) => env.bridge.send(Command::OpenPaths {
                 paths,
                 origin: OpenOrigin::DragDrop,
             }),

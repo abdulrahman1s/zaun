@@ -21,7 +21,7 @@ use egui::{
 use super::avatar::{self, Shape};
 use super::{Env, paint};
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::{Command, UiCommand};
 use crate::route::Route;
 use crate::strings::chat::details as s;
 use crate::theme::palette::{Palette, fade, mix};
@@ -498,7 +498,7 @@ fn friend(
             ui.add_space(m::WATCH);
             let w = ui.available_width();
             if ui.add(Button::primary(s::WATCH()).min_width(w)).clicked() {
-                env.bridge.send(UiCommand::Chat(ChatCommand::Watch(chat)));
+                env.bridge.send(Command::Chat(ChatCommand::Watch(chat)));
             }
         }
     }
@@ -532,7 +532,7 @@ fn friend(
         let mut muted = f.muted;
         if switch_row(ui, s::MUTE_NOTIFICATIONS(), &mut muted, p) {
             env.bridge
-                .send(UiCommand::Chat(ChatCommand::SetMuted { chat, on: muted }));
+                .send(Command::Chat(ChatCommand::SetMuted { chat, on: muted }));
         }
     }
     let mut items = Vec::new();
@@ -743,7 +743,7 @@ fn group(
         let mut muted = g.muted;
         if switch_row(ui, s::MUTE_NOTIFICATIONS(), &mut muted, p) {
             env.bridge
-                .send(UiCommand::Chat(ChatCommand::SetMuted { chat, on: muted }));
+                .send(Command::Chat(ChatCommand::SetMuted { chat, on: muted }));
         }
     }
     if bad_buttons(ui, &[(s::LEAVE_GROUP().to_owned(), Variant::Warn)]).is_some() {
@@ -929,11 +929,11 @@ fn member_row(
             None => {
                 // Someone you are not friends with: their messages collapse in this group.
                 let cmd = |on| {
-                    UiCommand::Chat(ChatCommand::SetMemberBlocked {
+                    UiCommand::Core(Command::Chat(ChatCommand::SetMemberBlocked {
                         group: g.id,
                         member: mem.id,
                         on,
-                    })
+                    }))
                 };
                 env.bridge.send(cmd(on));
                 let (text, undo) = if on {
@@ -944,12 +944,10 @@ fn member_row(
                 state.toast(text, ToastKind::Success, undo, env.mono);
             }
         },
-        Some(MemberAction::Mute(f, on)) => {
-            env.bridge.send(UiCommand::Chat(ChatCommand::SetMuted {
-                chat: ChatRef::Direct(f),
-                on,
-            }))
-        }
+        Some(MemberAction::Mute(f, on)) => env.bridge.send(Command::Chat(ChatCommand::SetMuted {
+            chat: ChatRef::Direct(f),
+            on,
+        })),
         None => {}
     }
 }

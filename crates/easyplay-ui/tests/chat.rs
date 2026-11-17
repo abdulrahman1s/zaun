@@ -13,7 +13,7 @@ use std::sync::{Mutex, MutexGuard};
 use common::{ChatBackend, Rig, now, rig_chat, settle, settled_library};
 use easyplay_core::model::{ChatRef, ChatSnapshot, ChatStatus};
 use easyplay_core::service::ChatCommand;
-use easyplay_ui::bridge::{FakeBackend, UiCommand};
+use easyplay_ui::bridge::{FakeBackend, Command, UiCommand};
 use easyplay_ui::demo_chat::{self, CREW, INVITE, KIT_REQUEST, MIRA};
 use easyplay_ui::i18n::{self, Language};
 use easyplay_ui::route::Route;
@@ -73,7 +73,7 @@ fn chat_sent(r: &Rig) -> Vec<ChatCommand> {
         .sent()
         .into_iter()
         .filter_map(|c| match c {
-            UiCommand::Chat(c) => Some(c),
+            UiCommand::Core(Command::Chat(c)) => Some(c),
             _ => None,
         })
         .collect()
@@ -477,9 +477,9 @@ fn older_messages_load_at_the_top() {
     let answer = |r: &mut Rig, ids: std::ops::Range<i64>| -> Vec<Option<i64>> {
         let mut asked = Vec::new();
         for c in r.fake.sent() {
-            if let UiCommand::Chat(ChatCommand::LoadChat {
+            if let UiCommand::Core(Command::Chat(ChatCommand::LoadChat {
                 before, reply_to, ..
-            }) = c
+            })) = c
             {
                 asked.push(before);
                 r.fake.push_event(UiEvent::QueryResult {
@@ -2996,7 +2996,7 @@ mod composer_tests {
             !r.fake
                 .sent()
                 .iter()
-                .any(|c| matches!(c, UiCommand::OpenPaths { .. }))
+                .any(|c| matches!(c, UiCommand::Core(Command::OpenPaths { .. })))
         );
         assert!(field_focused(&r), "{:?}", focused(&r));
         r.h.get_by_label("Remove notes.txt").click();
@@ -3033,7 +3033,7 @@ mod composer_tests {
             r.fake
                 .sent()
                 .iter()
-                .all(|c| !matches!(c, UiCommand::OpenPaths { .. }))
+                .all(|c| !matches!(c, UiCommand::Core(Command::OpenPaths { .. })))
         );
     }
 
@@ -3047,7 +3047,7 @@ mod composer_tests {
         drop_files(&mut r, &["/home/sam/Downloads/Game.exe"]);
         assert!(r.fake.sent().iter().any(|c| matches!(
             c,
-            UiCommand::OpenPaths { paths, .. } if paths == &vec![std::path::PathBuf::from("/home/sam/Downloads/Game.exe")]
+            UiCommand::Core(Command::OpenPaths { paths, .. }) if paths == &vec![std::path::PathBuf::from("/home/sam/Downloads/Game.exe")]
         )));
         assert!(r.h.state().state.chat.attachments.is_empty());
     }

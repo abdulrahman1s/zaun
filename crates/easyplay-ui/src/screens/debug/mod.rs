@@ -17,7 +17,7 @@ use easyplay_core::ids::{GameId, QueryId, SessionId};
 
 use super::Env;
 use crate::app::UiState;
-use crate::bridge::{InspectTarget, LogFile, QueryPayload, UiCommand};
+use crate::bridge::{Command, InspectTarget, LogFile, QueryPayload};
 use crate::route::Overlay;
 use crate::screens::shell::Banner;
 use crate::strings::debug as s;
@@ -44,7 +44,7 @@ pub fn open_inspector(
     game: Option<GameId>,
 ) {
     let q = env.bridge.query_id();
-    env.bridge.send(UiCommand::Inspect {
+    env.bridge.send(Command::Inspect {
         target,
         reply_to: q,
     });
@@ -68,8 +68,7 @@ pub fn prepare_logs(
         .is_none_or(|l| l.game != Some(game));
     if fresh {
         let q = env.bridge.query_id();
-        env.bridge
-            .send(UiCommand::ListSessions { game, reply_to: q });
+        env.bridge.send(Command::ListSessions { game, reply_to: q });
         state.debug.logs = Some(LogViewerVm {
             game: Some(game),
             sessions_q: Some(q),
@@ -104,7 +103,7 @@ pub fn request_chunk(l: &mut LogViewerVm, env: &mut Env<'_>) {
     let q = env.bridge.query_id();
     l.query = Some(q);
     l.polled = Some(env.mono);
-    env.bridge.send(UiCommand::ReadLog {
+    env.bridge.send(Command::ReadLog {
         session,
         file,
         offset: l.offset,
@@ -120,7 +119,7 @@ pub fn open_report(
     session: Option<SessionId>,
 ) {
     let q = env.bridge.query_id();
-    env.bridge.send(UiCommand::BuildReport {
+    env.bridge.send(Command::BuildReport {
         game,
         session,
         reply_to: q,
@@ -214,7 +213,7 @@ pub fn banners(state: &mut UiState, env: &mut Env<'_>) {
     if diag.crash.is_some() && !state.debug.crash_dismissed {
         if state.banners.is_dismissed("crash") {
             state.debug.crash_dismissed = true;
-            env.bridge.send(UiCommand::DismissCrash);
+            env.bridge.send(Command::DismissCrash);
             state.banners.clear("crash");
         } else {
             state.banners.set(Banner {
@@ -243,7 +242,7 @@ pub fn banners(state: &mut UiState, env: &mut Env<'_>) {
     if std::mem::take(&mut state.debug.open_report) {
         if state.banners.top().is_some_and(|b| b.key == "crash") {
             state.debug.crash_dismissed = true;
-            env.bridge.send(UiCommand::DismissCrash);
+            env.bridge.send(Command::DismissCrash);
             state.banners.clear("crash");
         }
         open_report(state, env, None, None);

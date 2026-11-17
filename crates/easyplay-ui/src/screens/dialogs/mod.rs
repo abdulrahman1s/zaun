@@ -16,7 +16,7 @@ use egui::{Context, Id, Sense, Ui, pos2, vec2};
 use super::Env;
 use super::actions;
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::{Command, UiCommand};
 use crate::route::{DialogId, Overlay};
 use crate::strings;
 use crate::strings::dialogs as d;
@@ -145,7 +145,7 @@ fn confirm(
             }
             if o == DialogOutcome::Chose(1) {
                 for g in &ids {
-                    env.bridge.send(UiCommand::RemoveGame { id: *g, options });
+                    env.bridge.send(Command::RemoveGame { id: *g, options });
                 }
                 state.library.selection.clear();
             }
@@ -173,8 +173,7 @@ fn confirm(
                 *o2 = options;
             }
             if o == DialogOutcome::Chose(1) {
-                env.bridge
-                    .send(UiCommand::ResetPrefix { id: game, options });
+                env.bridge.send(Command::ResetPrefix { id: game, options });
             }
             o != DialogOutcome::Open
         }
@@ -241,7 +240,7 @@ fn confirm(
                 |_| {},
             );
             if o == DialogOutcome::Chose(1) {
-                env.bridge.send(UiCommand::RemoveRuntime { name });
+                env.bridge.send(Command::RemoveRuntime { name });
             }
             o != DialogOutcome::Open
         }
@@ -275,8 +274,8 @@ fn confirm(
             );
             if o == DialogOutcome::Chose(1) {
                 env.bridge.send(match game {
-                    Some(g) => UiCommand::ResetGameStatistics { id: g },
-                    None => UiCommand::ClearStatistics,
+                    Some(g) => UiCommand::Core(Command::ResetGameStatistics { id: g }),
+                    None => UiCommand::Core(Command::ClearStatistics),
                 });
             }
             o != DialogOutcome::Open
@@ -306,7 +305,7 @@ type PromptView<'a> = (String, String, Vec<(&'a str, Variant, PromptAnswer)>);
 
 fn answer(env: &mut Env<'_>, p: &PromptRequest, a: PromptAnswer) {
     debug_assert!(p.kind.accepts(&a));
-    env.bridge.send(UiCommand::AnswerPrompt {
+    env.bridge.send(Command::AnswerPrompt {
         prompt: p.id,
         answer: a,
     });

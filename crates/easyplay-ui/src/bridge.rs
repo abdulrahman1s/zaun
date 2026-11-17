@@ -28,36 +28,23 @@
 //! - [`Backend::preset_policy`]: `sandbox::apply_preset` with the current host facts.
 //!
 //! **Commands** ([`UiCommand`]) are queued and never answered synchronously. Their results
-//! arrive as snapshots or as events:
+//! arrive as snapshots or as events. `UiCommand::Core(Command)` carries any service command
+//! unchanged (`bridge.send(Command::RemoveGame { id, options })`); the service's own docs
+//! (ARCHITECTURE §6) say what each answers. The UI keeps a variant only where the mapping
+//! has UI-side logic:
 //!
-//! | Command | Service mapping | Result |
+//! | Variant | Service mapping | Result |
 //! |---|---|---|
-//! | `OpenPaths` | `Command::OpenPaths` | `SetupRequested`, `Prompt`, `Failure`, or a launch |
-//! | `ScanFolder` | folder scan of GAME_LIBRARY §11 | `QueryResult(Folder)` |
-//! | `CreateGame` | `Command::CreateGame` | `LibraryChanged` (+ `LaunchProgress` when `then = Launch`) |
-//! | `DiscardDraft` | `Command::DiscardDraft` | the next queued `SetupRequested` |
+//! | `CreateGame` | `Command::CreateGame`; `ApplyToRest` is UI-only (saves like `Nothing`) | `LibraryChanged` (+ `LaunchProgress` when `then = Launch`) |
 //! | `UpdateGame` | `Command::UpdateGame` with a [`GameEdit`] list | `LibraryChanged`, `QueryResult(Game)` refresh |
-//! | `RemoveGame`, `SetFavorite`, `SetHidden`, `SetTags`, `CreateTag` | library commands | `LibraryChanged` |
-//! | `ApplyPreset` | bulk preset change (GAME_LIBRARY §9) keeping folders and `game_dir` | `LibraryChanged`, `Toast` summary |
-//! | `AddExecutable`, `LocateExecutable`, `RescanMissing` | library commands | `LibraryChanged` |
-//! | `ImportArtwork`, `ClearArtwork`, `FetchSteamArtwork` | artwork commands (ADR-0018) | `LibraryChanged` or `ArtworkFailed` |
-//! | `Launch`, `CancelLaunch`, `Stop`, `RunTool` | launching | `LaunchProgress` |
-//! | `AnswerPrompt` | `Command::AnswerPrompt` | flow continues |
-//! | `ResetPrefix` | `Command::ResetPrefix` | `Toast` |
-//! | `ProvisionRuntime`, `RemoveRuntime`, `RefreshRuntimes`, `VerifyRuntime` | runtimes | `RuntimesChanged` |
+//! | `ApplyPreset` | one `UpdateGame(Preset)` per idle game (GAME_LIBRARY §9) | `LibraryChanged`, `Toast` summary |
+//! | `ImportArtwork`, `ClearArtwork`, `FetchSteamArtwork` | artwork commands (ADR-0018); clear = import `Generated` | `LibraryChanged` or `ArtworkFailed` |
+//! | `Launch`, `Stop` | `Launch` from the library; `StopSession` of the game's session | `LaunchProgress` |
 //! | `SetPreference` | `Command::SetPreference(patch)`; `preview` is the UI's optimistic result | `PreferencesChanged` |
-//! | `RefreshHostFacts`, `SetDefaultHandler`, `CompleteOnboarding` | host and integration | `HostChanged`, `PreferencesChanged` |
-//! | `QueryStats` | `Command::QueryStats` | `QueryResult(Stats)` |
-//! | `LoadGame` | the full `Game` row plus storage facts | `QueryResult(Game)` |
-//! | `AboutGame` | engine and hints from the game's files (job pool, ADR-0028) | `QueryResult(About)` |
-//! | `FindSteamApp` | Steam app ID on this computer and store search (job pool) | `QueryResult(SteamApps)` |
-//! | `MeasurePrefix`, `SearchFixes` | storage size (job pool), umu-database search (not yet) | `QueryResult(PrefixSize / Fixes)` |
-//! | `ClearStatistics`, `ResetGameStatistics`, `RemoveSession` | statistics edits | `LibraryChanged`, `Toast` |
-//! | `OpenFolder`, `ViewLog`, `CreateShortcut` | desktop actions done by the service | none / `Failure` |
-//! | `Inspect`, `ListSessions`, `ReadLog`, `ListProcesses` | Developer Mode queries (DEVELOPER_MODE §3) | `QueryResult(Inspector / Sessions / LogChunk / Processes)` |
-//! | `RunDoctor`, `BuildReport`, `SaveReport`, `DismissCrash`, `ResolveDatabase` | diagnostics (ERROR_HANDLING §5–7) | `DiagnosticsChanged`, `QueryResult(Report)`, `Toast` |
-//! | `Quit` | `Command::Shutdown` | window closes |
-//! | `Steam(SteamAction)` | `Command::Steam(SteamCommand)` (ADR-0031): the option, rescan, Update in Steam, Open in Steam, the Windows-storage actions, details | `PreferencesChanged` + `LibraryChanged`, `Toast`, `QueryResult(Steam)`, `Failure` |
+//! | `CompleteOnboarding` | sets `onboarding.completed` | `PreferencesChanged` |
+//! | `SearchFixes` | umu-database search (not yet) | `QueryResult(Fixes)` |
+//! | `Steam(SteamAction)` | `Command::Steam(SteamCommand)` (ADR-0031) | `PreferencesChanged` + `LibraryChanged`, `Toast`, `QueryResult(Steam)`, `Failure` |
+//! | `Quit` | none (the window closes) | none |
 //!
 //! **Steam games** (ADR-0031) are ordinary entries of the library snapshot with
 //! [`GameSummary::origin`] `GameOrigin::Steam(facts)` and the ID `GameId::steam(app_id)`.
@@ -85,17 +72,15 @@ use easyplay_core::artwork::{SearchCandidate, SteamAppIdSource};
 use easyplay_core::clock::Timestamp;
 use easyplay_core::config::{PreferencePatch, Preferences};
 use easyplay_core::error::UserError;
-use easyplay_core::ids::{
-    ExecutableId, GameId, PromptId, QueryId, RuntimeName, SessionId, TagName,
-};
+use easyplay_core::ids::{ExecutableId, GameId, QueryId};
 use easyplay_core::launch::LaunchState;
-use easyplay_core::library::{LibrarySnapshot, RemoveOptions, ResetOptions};
+use easyplay_core::library::LibrarySnapshot;
 use easyplay_core::model::{
-    ArtSlot, BasePreset, EntryKind, ExeRole, Game, GameSummary, LaunchConfig, PromptAnswer,
-    PromptRequest, RuntimeBuild, RuntimeRef, SandboxPolicy, SlrVariant, TagColor, Tool,
+    ArtSlot, BasePreset, EntryKind, ExeRole, Game, GameSummary, LaunchConfig, PromptRequest,
+    RuntimeBuild, RuntimeRef, SandboxPolicy, SlrVariant, TagColor,
 };
 use easyplay_core::sandbox::{AccessStatement, PolicyIssue};
-use easyplay_core::stats::{StatsRequest, StatsResult};
+use easyplay_core::stats::StatsResult;
 
 pub use easyplay_core::diagnostics::report::ReportFile;
 pub use easyplay_core::launch::InspectorData;
@@ -106,6 +91,7 @@ pub use easyplay_core::model::{
     SteamInstallKind, SteamRequest, SteamUpdate,
 };
 pub use easyplay_core::service::SteamDetail;
+pub use easyplay_core::service::{Command, FolderRequest, OpenOrigin};
 pub use easyplay_core::service::{
     DatabaseChoice, Diagnostics, InspectTarget, LogChunk, LogFile, RecoveryReason, RecoveryState,
 };
@@ -296,17 +282,6 @@ pub struct PolicyAssessment {
     pub issues: Vec<PolicyIssue>,
 }
 
-/// Where the paths of `OpenPaths` came from (LOGIC_SPECS §1).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum OpenOrigin {
-    /// The *Add game* picker or the add-game sheet.
-    Picker,
-    /// Dropped onto the window.
-    DragDrop,
-    /// The file manager (quick launch).
-    FileManager,
-}
-
 /// Where setup was started (the primary button differs, SCREEN_SPECS §6).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SetupOrigin {
@@ -379,25 +354,6 @@ pub enum ArtworkSource {
     File(PathBuf),
     /// The primary program's icon.
     ProgramIcon,
-}
-
-/// Folders the service opens in the file manager.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FolderTarget {
-    /// The game folder.
-    GameFolder(GameId),
-    /// The save data.
-    SaveData(GameId),
-    /// The private Windows storage.
-    Prefix(GameId),
-    /// A session's folder.
-    Session(SessionId),
-    /// EasyPlay's data folder.
-    DataFolder,
-    /// The library backups folder.
-    Backups,
-    /// Any path the user can already see (a granted folder).
-    Path(PathBuf),
 }
 
 /// What the add-game sheet lists (SCREEN_SPECS §5).
@@ -576,67 +532,25 @@ pub struct ToastMsg {
     pub undo: Option<Box<UiCommand>>,
 }
 
-/// Commands the UI sends (ARCHITECTURE §6 `Command`, see the module docs for the mapping).
+/// Commands the UI sends. Everything the service takes as is travels as `Core`; the other
+/// variants carry UI-side logic in the mapping (see the module docs).
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiCommand {
-    /// Open programs: setup, prompts or a launch follow.
-    OpenPaths {
-        /// Files or folders.
-        paths: Vec<PathBuf>,
-        /// Where they came from.
-        origin: OpenOrigin,
-    },
-    /// List programs in a folder (add-game sheet).
-    ScanFolder {
-        /// Folder.
-        folder: PathBuf,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
-    /// Save a draft from the setup sheet.
+    /// A service command, passed on unchanged.
+    Core(Command),
+    /// Save a draft from the setup sheet (`ApplyToRest` is UI-only).
     CreateGame {
         /// The edited draft.
         draft: Box<easyplay_core::library::GameDraft>,
         /// Then.
         then: AfterCreate,
     },
-    /// The setup sheet closed without saving (`Command::DiscardDraft`; the next queued
-    /// draft follows).
-    DiscardDraft,
     /// Change a game.
     UpdateGame {
         /// Game.
         id: GameId,
         /// Changes, applied together.
         edits: Vec<GameEdit>,
-    },
-    /// Remove a game.
-    RemoveGame {
-        /// Game.
-        id: GameId,
-        /// What to delete.
-        options: RemoveOptions,
-    },
-    /// Favourite.
-    SetFavorite {
-        /// Game.
-        id: GameId,
-        /// On.
-        favorite: bool,
-    },
-    /// Hide.
-    SetHidden {
-        /// Game.
-        id: GameId,
-        /// Hidden.
-        hidden: bool,
-    },
-    /// Replace a game's tags.
-    SetTags {
-        /// Game.
-        id: GameId,
-        /// Tags by name (new names create tags).
-        tags: Vec<TagName>,
     },
     /// Switch games to a preset, keeping folders and game-folder access; running games are
     /// skipped (GAME_LIBRARY §9).
@@ -646,26 +560,6 @@ pub enum UiCommand {
         /// Preset.
         preset: BasePreset,
     },
-    /// Add a program to a game.
-    AddExecutable {
-        /// Game.
-        id: GameId,
-        /// File.
-        path: PathBuf,
-        /// Role.
-        role: ExeRole,
-    },
-    /// Point a moved program at its new place (*Locate…*).
-    LocateExecutable {
-        /// Game.
-        id: GameId,
-        /// The program (`None` = the primary).
-        exe: Option<ExecutableId>,
-        /// New path.
-        new_path: PathBuf,
-    },
-    /// Re-check missing games (`F5`).
-    RescanMissing,
     /// Set artwork.
     ImportArtwork {
         /// Game.
@@ -689,26 +583,12 @@ pub enum UiCommand {
         /// User-entered app ID.
         app_id: Option<u32>,
     },
-    /// Which Steam app the game is (ADR-0024): answered with `QueryPayload::SteamApps`.
-    FindSteamApp {
-        /// Game.
-        id: GameId,
-        /// Words typed in the sheet; `None` = what the computer says, else the game name.
-        term: Option<String>,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
     /// Start a game.
     Launch {
         /// Game.
         id: GameId,
         /// A specific program (Launch options → run).
         exe: Option<ExecutableId>,
-    },
-    /// Cancel a launch before the game starts.
-    CancelLaunch {
-        /// Game.
-        id: GameId,
     },
     /// Stop a running game.
     Stop {
@@ -717,46 +597,6 @@ pub enum UiCommand {
         /// Force (after the grace period).
         force: bool,
     },
-    /// Run a tool in the game's storage.
-    RunTool {
-        /// Game.
-        id: GameId,
-        /// Tool.
-        tool: Tool,
-    },
-    /// Answer a prompt.
-    AnswerPrompt {
-        /// Prompt.
-        prompt: PromptId,
-        /// Answer.
-        answer: PromptAnswer,
-    },
-    /// Reset the private Windows storage.
-    ResetPrefix {
-        /// Game.
-        id: GameId,
-        /// Options.
-        options: ResetOptions,
-    },
-    /// Download a compatibility layer.
-    ProvisionRuntime {
-        /// What.
-        target: RuntimeRef,
-    },
-    /// Copy a runtime umu already installed into the store.
-    AdoptRuntime {
-        /// Variant.
-        variant: SlrVariant,
-    },
-    /// Delete an installed layer.
-    RemoveRuntime {
-        /// Build.
-        name: RuntimeName,
-    },
-    /// Check for layer updates.
-    RefreshRuntimes,
-    /// Verify the Steam Linux Runtime.
-    VerifyRuntime,
     /// Change preferences.
     SetPreference {
         /// The change (authoritative).
@@ -764,45 +604,10 @@ pub enum UiCommand {
         /// The UI's optimistic result of applying it.
         preview: Box<Preferences>,
     },
-    /// Re-run the system checks.
-    RefreshHostFacts,
-    /// Become (or stop being) the `.exe` handler.
-    SetDefaultHandler {
-        /// Enable.
-        enable: bool,
-    },
     /// Onboarding finished or skipped.
     CompleteOnboarding {
         /// Skipped with a failing check (leaves a banner).
         skipped: bool,
-    },
-    /// A statistics query.
-    QueryStats {
-        /// Request.
-        request: StatsRequest,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
-    /// Load a game's full record.
-    LoadGame {
-        /// Game.
-        id: GameId,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
-    /// What a game's files tell (ADR-0028).
-    AboutGame {
-        /// Game.
-        id: GameId,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
-    /// Measure the private storage.
-    MeasurePrefix {
-        /// Game.
-        id: GameId,
-        /// Reply ID.
-        reply_to: QueryId,
     },
     /// Search the game-fix database.
     SearchFixes {
@@ -811,94 +616,16 @@ pub enum UiCommand {
         /// Reply ID.
         reply_to: QueryId,
     },
-    /// Delete all play history.
-    ClearStatistics,
-    /// Delete one game's play history.
-    ResetGameStatistics {
-        /// Game.
-        id: GameId,
-    },
-    /// Delete one session from history.
-    RemoveSession {
-        /// Session.
-        id: SessionId,
-    },
-    /// Open a folder in the file manager.
-    OpenFolder(FolderTarget),
-    /// Open a session log.
-    ViewLog {
-        /// Session (`None`: the latest of the game).
-        session: Option<SessionId>,
-        /// Game.
-        game: Option<GameId>,
-    },
-    /// Add or remove the applications-menu shortcut.
-    SetShortcut {
-        /// Game.
-        id: GameId,
-        /// Create.
-        enable: bool,
-    },
-    /// Launch inspector data (dry run or session).
-    Inspect {
-        /// What.
-        target: InspectTarget,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
-    /// A game's recent sessions.
-    ListSessions {
-        /// Game.
-        game: GameId,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
-    /// Read a chunk of a session log file.
-    ReadLog {
-        /// Session.
-        session: SessionId,
-        /// File.
-        file: LogFile,
-        /// Offset.
-        offset: u64,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
-    /// A session's processes (the process tree, refreshed while visible).
-    ListProcesses {
-        /// Session.
-        session: SessionId,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
-    /// Run every Doctor check.
-    RunDoctor,
-    /// Collect the diagnostics report for the preview.
-    BuildReport {
-        /// The game to include.
-        game: Option<GameId>,
-        /// The session to include (default: the game's latest).
-        session: Option<SessionId>,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
-    /// Save the previewed report.
-    SaveReport {
-        /// The files.
-        files: Vec<ReportFile>,
-        /// Where.
-        dest: PathBuf,
-    },
-    /// Dismiss the crash banner.
-    DismissCrash,
-    /// Answer the damaged-library choice.
-    ResolveDatabase(DatabaseChoice),
     /// A Steam action (ADR-0031).
     Steam(SteamAction),
-    /// A Chat action (ADR-0033), passed to the service as is.
-    Chat(easyplay_core::service::ChatCommand),
     /// Quit EasyPlay (games keep running).
     Quit,
+}
+
+impl From<Command> for UiCommand {
+    fn from(c: Command) -> Self {
+        Self::Core(c)
+    }
 }
 
 /// Events the UI drains (ARCHITECTURE §6 `Event`).
@@ -1094,9 +821,9 @@ impl UiBridge {
         }
     }
 
-    /// Send a command (never blocks).
-    pub fn send(&self, cmd: UiCommand) {
-        self.backend.send(cmd);
+    /// Send a command (never blocks); a core `Command` goes as `UiCommand::Core`.
+    pub fn send(&self, cmd: impl Into<UiCommand>) {
+        self.backend.send(cmd.into());
     }
 
     /// A fresh query ID.
@@ -1369,8 +1096,8 @@ mod tests {
         assert_eq!(evs.len(), 3);
         assert_eq!(bridge.library().revision, 1);
         assert_eq!(bridge.host_status(), HostStatus::NeedsAttention);
-        bridge.send(UiCommand::RescanMissing);
-        assert_eq!(fake.sent(), vec![UiCommand::RescanMissing]);
+        bridge.send(Command::RescanMissing);
+        assert_eq!(fake.sent(), vec![UiCommand::Core(Command::RescanMissing)]);
         assert_ne!(bridge.query_id(), bridge.query_id());
     }
 

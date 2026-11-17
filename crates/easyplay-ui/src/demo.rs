@@ -40,10 +40,10 @@ use easyplay_core::stats::{
 use easyplay_core::umu::UmuPhase;
 
 use crate::bridge::{
-    AfterCreate, Backend, CheckState, DownloadInfo, FixEntry, FolderScan, GameDetail, GameEdit,
-    HandlerState, HostCheck, HostStatus, HostView, LayerInfo, PolicyAssessment, ProgramFound,
-    QueryPayload, RuntimesView, SetupContext, SetupOrigin, ShortcutInfo, ToastLevel, ToastMsg,
-    UiCommand, UiEvent, library_from,
+    AfterCreate, Backend, CheckState, Command, DownloadInfo, FixEntry, FolderScan, GameDetail,
+    GameEdit, HandlerState, HostCheck, HostStatus, HostView, LayerInfo, PolicyAssessment,
+    ProgramFound, QueryPayload, RuntimesView, SetupContext, SetupOrigin, ShortcutInfo, ToastLevel,
+    ToastMsg, UiCommand, UiEvent, library_from,
 };
 use crate::strings;
 
@@ -1770,13 +1770,13 @@ impl DemoBackend {
                 .unwrap_or_default()
         };
         match cmd {
-            UiCommand::SetFavorite { id, favorite } => {
+            UiCommand::Core(Command::SetFavorite { id, favorite }) => {
                 Self::update_game(s, id, |g| g.favorite = favorite);
             }
-            UiCommand::SetHidden { id, hidden } => {
+            UiCommand::Core(Command::SetHidden { id, hidden }) => {
                 Self::update_game(s, id, |g| g.hidden = hidden);
             }
-            UiCommand::SetTags { id, tags } => {
+            UiCommand::Core(Command::SetTags { id, tags }) => {
                 let mut infos = s.library.tags.clone();
                 let mut ids = Vec::new();
                 for t in &tags {
@@ -1902,7 +1902,7 @@ impl DemoBackend {
                     }
                 });
             }
-            UiCommand::RemoveGame { id, .. } => {
+            UiCommand::Core(Command::RemoveGame { id, .. }) => {
                 let name = name_of(s, id);
                 let now = s.now;
                 s.library = Arc::new(s.library.without_game(id, now));
@@ -1918,8 +1918,8 @@ impl DemoBackend {
                 s.cancelled.retain(|g| *g != id);
                 self.simulate_launch(id);
             }
-            UiCommand::CancelLaunch { id } if id.is_steam() => {}
-            UiCommand::CancelLaunch { id } => {
+            UiCommand::Core(Command::CancelLaunch { id }) if id.is_steam() => {}
+            UiCommand::Core(Command::CancelLaunch { id }) => {
                 s.cancelled.push(id);
                 s.events.push_back(UiEvent::LaunchProgress {
                     game: id,
@@ -1951,7 +1951,7 @@ impl DemoBackend {
                 let name = name_of(s, id);
                 Self::toast(s, strings::feedback::stopped(&name), None);
             }
-            UiCommand::OpenPaths { paths, origin } => {
+            UiCommand::Core(Command::OpenPaths { paths, origin }) => {
                 let _ = origin;
                 if paths.is_empty() {
                     return;
@@ -1989,7 +1989,7 @@ impl DemoBackend {
                 s.batch = s.setup_queue.len() as u32;
                 Self::next_setup(s);
             }
-            UiCommand::ScanFolder { folder, reply_to } => {
+            UiCommand::Core(Command::ScanFolder { folder, reply_to }) => {
                 s.events.push_back(UiEvent::QueryResult {
                     id: reply_to,
                     payload: QueryPayload::Folder(folder_scan(&folder)),
@@ -2020,7 +2020,7 @@ impl DemoBackend {
                 }
                 Self::next_setup(s);
             }
-            UiCommand::LoadGame { id, reply_to } => {
+            UiCommand::Core(Command::LoadGame { id, reply_to }) => {
                 let payload = match Self::detail(s, id) {
                     Some(d) => QueryPayload::Game(Box::new(d.clone())),
                     None => QueryPayload::Failed(launch_failure(id, "")),
@@ -2030,20 +2030,20 @@ impl DemoBackend {
                     payload,
                 });
             }
-            UiCommand::AboutGame { id, reply_to } => {
+            UiCommand::Core(Command::AboutGame { id, reply_to }) => {
                 let name = name_of(s, id);
                 s.events.push_back(UiEvent::QueryResult {
                     id: reply_to,
                     payload: QueryPayload::About(Box::new(game_about(&name))),
                 });
             }
-            UiCommand::MeasurePrefix { reply_to, .. } => {
+            UiCommand::Core(Command::MeasurePrefix { reply_to, .. }) => {
                 s.events.push_back(UiEvent::QueryResult {
                     id: reply_to,
                     payload: QueryPayload::PrefixSize(2_254_857_830),
                 });
             }
-            UiCommand::FindSteamApp { id, term, reply_to } => {
+            UiCommand::Core(Command::FindSteamApp { id, term, reply_to }) => {
                 let name = term.unwrap_or_else(|| name_of(s, id));
                 s.events.push_back(UiEvent::QueryResult {
                     id: reply_to,
@@ -2073,7 +2073,7 @@ impl DemoBackend {
                     payload: QueryPayload::Fixes(found),
                 });
             }
-            UiCommand::QueryStats { request, reply_to } => {
+            UiCommand::Core(Command::QueryStats { request, reply_to }) => {
                 let r = stats(&request, &s.library, s.now);
                 s.events.push_back(UiEvent::QueryResult {
                     id: reply_to,
@@ -2089,7 +2089,7 @@ impl DemoBackend {
                     Self::steam_enabled(s, steam);
                 }
             }
-            UiCommand::SetDefaultHandler { enable } => {
+            UiCommand::Core(Command::SetDefaultHandler { enable }) => {
                 let mut h = (*s.host).clone();
                 h.handler = if enable {
                     HandlerState::EasyPlay
@@ -2105,11 +2105,11 @@ impl DemoBackend {
                 s.prefs = Arc::new(p);
                 s.events.push_back(UiEvent::PreferencesChanged);
             }
-            UiCommand::RefreshHostFacts => {
+            UiCommand::Core(Command::RefreshHostFacts) => {
                 s.events.push_back(UiEvent::HostChanged);
             }
-            UiCommand::AnswerPrompt { .. } => {}
-            UiCommand::DiscardDraft => Self::next_setup(s),
+            UiCommand::Core(Command::AnswerPrompt { .. }) => {}
+            UiCommand::Core(Command::DiscardDraft) => Self::next_setup(s),
             UiCommand::ImportArtwork { id, slot, source } => {
                 if let crate::bridge::ArtworkSource::File(p) = &source
                     && p.to_string_lossy().contains("huge")
@@ -2144,21 +2144,21 @@ impl DemoBackend {
                 s.next += 1;
                 Self::update_game(s, id, |g| g.cover = Some(art_key(seed)));
             }
-            UiCommand::ResetPrefix { id, .. } => {
+            UiCommand::Core(Command::ResetPrefix { id, .. }) => {
                 let name = name_of(s, id);
                 Self::toast(s, strings::feedback::prefix_reset(&name), None);
             }
-            UiCommand::ClearStatistics => {
+            UiCommand::Core(Command::ClearStatistics) => {
                 Self::toast(s, strings::stats::CLEARED().to_owned(), None);
             }
-            UiCommand::RemoveRuntime { name } => {
+            UiCommand::Core(Command::RemoveRuntime { name }) => {
                 let mut r = (*s.runtimes).clone();
                 r.layers.retain(|l| l.build.name != name);
                 s.runtimes = Arc::new(r);
                 s.events.push_back(UiEvent::RuntimesChanged);
             }
-            UiCommand::RunTool { id, .. } if id.is_steam() => {}
-            UiCommand::RunTool { id, .. } => {
+            UiCommand::Core(Command::RunTool { id, .. }) if id.is_steam() => {}
+            UiCommand::Core(Command::RunTool { id, .. }) => {
                 // A tool that needs the internet asks first (UF-18).
                 let prompt = PromptRequest {
                     id: PromptId::from_uuid(uuid::Uuid::from_u128(0x9000 + s.next)),
@@ -2173,7 +2173,7 @@ impl DemoBackend {
                 s.next += 1;
                 s.events.push_back(UiEvent::Prompt(prompt));
             }
-            UiCommand::SetShortcut { id, enable } => {
+            UiCommand::Core(Command::SetShortcut { id, enable }) => {
                 let mut h = (*s.host).clone();
                 if enable {
                     let name = name_of(s, id);
@@ -2184,26 +2184,26 @@ impl DemoBackend {
                 s.host = Arc::new(h);
                 s.events.push_back(UiEvent::HostChanged);
             }
-            UiCommand::AddExecutable { .. }
-            | UiCommand::LocateExecutable { .. }
-            | UiCommand::RescanMissing
-            | UiCommand::ProvisionRuntime { .. }
-            | UiCommand::AdoptRuntime { .. }
-            | UiCommand::RefreshRuntimes
-            | UiCommand::VerifyRuntime
-            | UiCommand::ResetGameStatistics { .. }
-            | UiCommand::RemoveSession { .. }
-            | UiCommand::OpenFolder(_)
-            | UiCommand::ViewLog { .. }
-            | UiCommand::RunDoctor
-            | UiCommand::SaveReport { .. }
-            | UiCommand::DismissCrash
-            | UiCommand::ResolveDatabase(_)
+            UiCommand::Core(Command::AddExecutable { .. })
+            | UiCommand::Core(Command::LocateExecutable { .. })
+            | UiCommand::Core(Command::RescanMissing)
+            | UiCommand::Core(Command::ProvisionRuntime { .. })
+            | UiCommand::Core(Command::AdoptRuntime { .. })
+            | UiCommand::Core(Command::RefreshRuntimes)
+            | UiCommand::Core(Command::VerifyRuntime)
+            | UiCommand::Core(Command::ResetGameStatistics { .. })
+            | UiCommand::Core(Command::RemoveSession { .. })
+            | UiCommand::Core(Command::OpenFolder(_))
+            | UiCommand::Core(Command::ViewLog { .. })
+            | UiCommand::Core(Command::RunDoctor)
+            | UiCommand::Core(Command::SaveReport { .. })
+            | UiCommand::Core(Command::DismissCrash)
+            | UiCommand::Core(Command::ResolveDatabase(_))
             | UiCommand::Quit => {}
             UiCommand::Steam(a) => Self::steam(s, a),
             // Chat (ADR-0033): the sample changes as the service would change it; turning
             // it on or off is also a preference.
-            UiCommand::Chat(c) => {
+            UiCommand::Core(Command::Chat(c)) => {
                 if let easyplay_core::service::ChatCommand::SetEnabled { on, name } = &c {
                     let mut p = (*s.prefs).clone();
                     p.chat.enabled = *on;
@@ -2225,16 +2225,16 @@ impl DemoBackend {
                 s.events.extend(events);
                 self.tick_chat(s);
             }
-            UiCommand::ListSessions { reply_to, .. } => {
+            UiCommand::Core(Command::ListSessions { reply_to, .. }) => {
                 s.events.push_back(UiEvent::QueryResult {
                     id: reply_to,
                     payload: QueryPayload::Sessions(Vec::new()),
                 });
             }
-            UiCommand::Inspect { reply_to, .. }
-            | UiCommand::ReadLog { reply_to, .. }
-            | UiCommand::ListProcesses { reply_to, .. }
-            | UiCommand::BuildReport { reply_to, .. } => {
+            UiCommand::Core(Command::Inspect { reply_to, .. })
+            | UiCommand::Core(Command::ReadLog { reply_to, .. })
+            | UiCommand::Core(Command::ListProcesses { reply_to, .. })
+            | UiCommand::Core(Command::BuildReport { reply_to, .. }) => {
                 let e = easyplay_core::error::catalog::describe(
                     &easyplay_core::error::Error::new(ErrorCode::IntNotAvailable),
                     &easyplay_core::error::catalog::DescribeCtx::plain(),
@@ -2244,6 +2244,8 @@ impl DemoBackend {
                     payload: QueryPayload::Failed(e),
                 });
             }
+            // Service commands the UI never sends.
+            UiCommand::Core(_) => {}
         }
     }
 }
@@ -2328,9 +2330,9 @@ mod tests {
             .find(|g| matches!(g.activity, Activity::Running { .. }))
             .map(|g| (g.id, g.name.to_string()))
             .unwrap();
-        b.send(UiCommand::Chat(ChatCommand::StartShare(
+        b.send(UiCommand::Core(Command::Chat(ChatCommand::StartShare(
             crate::demo_chat::MIRA,
-        )));
+        ))));
         assert_eq!(
             b.chat().live.share.as_ref().map(|s| s.title.clone()),
             Some(running.1)
@@ -2340,7 +2342,9 @@ mod tests {
             force: false,
         });
         assert!(b.chat().live.share.is_none());
-        b.send(UiCommand::Chat(ChatCommand::Call(crate::demo_chat::DEV)));
+        b.send(UiCommand::Core(Command::Chat(ChatCommand::Call(
+            crate::demo_chat::DEV,
+        ))));
         assert!(
             b.chat()
                 .live

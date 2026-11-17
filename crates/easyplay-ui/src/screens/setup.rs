@@ -29,7 +29,7 @@ use super::add_game::{dialog_id, pending_id, stash_id};
 use super::details::launch_panel;
 use super::details::permissions::{USER_DIRS, issue_text};
 use crate::app::UiState;
-use crate::bridge::{AfterCreate, UiCommand};
+use crate::bridge::{AfterCreate, Command, UiCommand};
 use crate::input::dnd::DropTarget;
 use crate::input::picker::PickPurpose;
 use crate::route::Overlay;
@@ -583,7 +583,7 @@ fn launching_body(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         Some(g) => {
             if let Some(l) = state.launches.active(g).cloned() {
                 if launch_panel::progress_row(&mut col, &l, env.mono) {
-                    env.bridge.send(UiCommand::CancelLaunch { id: g });
+                    env.bridge.send(Command::CancelLaunch { id: g });
                 }
             } else if state.launches.failures.contains_key(&g) {
                 let err = state.launches.failures.get(&g).cloned();
@@ -783,7 +783,7 @@ pub fn show(ctx: &Context, _id: Id, state: &mut UiState, env: &mut Env<'_>) {
         }
         Foot::Background => finish(ctx, id, state, true),
         Foot::Back => {
-            env.bridge.send(UiCommand::DiscardDraft);
+            env.bridge.send(Command::DiscardDraft);
             let stash = stash.filter(|_| !batch);
             finish(ctx, id, state, stash.is_none());
             if let Some(a) = stash {
@@ -795,7 +795,7 @@ pub fn show(ctx: &Context, _id: Id, state: &mut UiState, env: &mut Env<'_>) {
         Foot::None => {
             if r.close_requested {
                 if editing {
-                    env.bridge.send(UiCommand::DiscardDraft);
+                    env.bridge.send(Command::DiscardDraft);
                 }
                 ctx.data_mut(|d| d.remove_temp::<AddGameVm>(stash_id()));
                 state.setup = None;

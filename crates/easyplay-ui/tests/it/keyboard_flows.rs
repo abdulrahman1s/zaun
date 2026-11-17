@@ -12,7 +12,7 @@ use std::path::Path;
 use common::{Rig, game_id, now, rebuild, rig, rig_on, settle, settled_library};
 use easyplay_core::launch::LaunchState;
 use easyplay_core::model::{Activity, Availability, PromptKind, PromptRequest};
-use easyplay_ui::bridge::{FakeBackend, SetupContext, SetupOrigin, UiCommand, UiEvent};
+use easyplay_ui::bridge::{Command, FakeBackend, SetupContext, SetupOrigin, UiCommand, UiEvent};
 use easyplay_ui::demo;
 use easyplay_ui::input::picker::PickPurpose;
 use easyplay_ui::route::Route;
@@ -250,7 +250,7 @@ fn uf5_installer_prompt_answers_with_enter() {
     assert!(
         sent(&r)
             .iter()
-            .any(|c| matches!(c, UiCommand::AnswerPrompt { .. })),
+            .any(|c| matches!(c, UiCommand::Core(Command::AnswerPrompt { .. }))),
         "{:?}",
         sent(&r)
     );
@@ -432,7 +432,7 @@ fn uf12_remove_from_the_library_by_keyboard() {
     assert!(
         sent(&r)
             .iter()
-            .any(|c| matches!(c, UiCommand::RemoveGame { id: g, .. } if *g == id)),
+            .any(|c| matches!(c, UiCommand::Core(Command::RemoveGame { id: g, .. }) if *g == id)),
         "{:?}",
         sent(&r)
     );
@@ -457,7 +457,7 @@ fn uf13_reset_private_storage_by_keyboard() {
     assert!(
         sent(&r)
             .iter()
-            .any(|c| matches!(c, UiCommand::ResetPrefix { id: g, .. } if *g == id)),
+            .any(|c| matches!(c, UiCommand::Core(Command::ResetPrefix { id: g, .. }) if *g == id)),
         "{:?}",
         sent(&r)
     );

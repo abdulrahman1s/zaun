@@ -17,7 +17,7 @@ use easyplay_core::model::{Activity, Availability, EntryKind};
 use easyplay_core::service::{Diagnostics, RecoveryReason, RecoveryState};
 use easyplay_testkit::FakeClock;
 use easyplay_ui::bridge::{
-    FakeBackend, LibraryView, OpenOrigin, UiBridge, UiCommand, library_from,
+    Command, FakeBackend, LibraryView, OpenOrigin, UiBridge, UiCommand, library_from,
 };
 use easyplay_ui::input::picker::FakePicker;
 use easyplay_ui::route::{Overlay, Route};
@@ -448,10 +448,10 @@ fn f_favourites_the_focused_cover_and_says_so() {
     let id = game_id(&demo::library(now()), "Lantern Keep");
     assert_eq!(
         r.fake.sent(),
-        vec![UiCommand::SetFavorite {
+        vec![UiCommand::Core(Command::SetFavorite {
             id,
             favorite: false
-        }]
+        })]
     );
     // The toast, and the live-region announcement of it (ACCESSIBILITY §4.3).
     assert_eq!(
@@ -479,7 +479,7 @@ fn undo_reverses_the_last_change() {
     let id = game_id(&demo::library(now()), "Lantern Keep");
     assert_eq!(
         r.fake.sent(),
-        vec![UiCommand::SetFavorite { id, favorite: true }]
+        vec![UiCommand::Core(Command::SetFavorite { id, favorite: true })]
     );
 }
 
@@ -527,7 +527,12 @@ fn ctrl_click_and_shift_click_build_a_selection_whose_line_acts_on_it() {
         .fake
         .sent()
         .iter()
-        .filter(|c| matches!(c, UiCommand::SetFavorite { favorite: true, .. }))
+        .filter(|c| {
+            matches!(
+                c,
+                UiCommand::Core(Command::SetFavorite { favorite: true, .. })
+            )
+        })
         .count();
     assert_eq!(favs, 4, "{:?}", r.fake.sent());
     r.h.get_by_role_and_label(Role::Button, "Hide").click();
@@ -536,7 +541,7 @@ fn ctrl_click_and_shift_click_build_a_selection_whose_line_acts_on_it() {
         .fake
         .sent()
         .iter()
-        .filter(|c| matches!(c, UiCommand::SetHidden { hidden: true, .. }))
+        .filter(|c| matches!(c, UiCommand::Core(Command::SetHidden { hidden: true, .. })))
         .count();
     assert_eq!(hidden, 4);
 }
@@ -594,7 +599,7 @@ fn removing_the_selection_asks_once_with_cancel_as_default() {
         !r.fake
             .sent()
             .iter()
-            .any(|c| matches!(c, UiCommand::RemoveGame { .. }))
+            .any(|c| matches!(c, UiCommand::Core(Command::RemoveGame { .. })))
     );
     assert!(r.h.state().state.nav.overlays().is_empty());
 }
@@ -618,7 +623,7 @@ fn the_game_menu_opens_by_keyboard_and_removes_with_confirmation() {
         r.fake
             .sent()
             .iter()
-            .any(|c| matches!(c, UiCommand::RemoveGame { id: g, .. } if *g == id))
+            .any(|c| matches!(c, UiCommand::Core(Command::RemoveGame { id: g, .. }) if *g == id))
     );
 }
 
@@ -670,7 +675,7 @@ fn the_game_menu_ticks_tags_and_makes_new_ones_in_place() {
         .sent()
         .iter()
         .filter_map(|c| match c {
-            UiCommand::SetTags { id: g, tags } if *g == id => {
+            UiCommand::Core(Command::SetTags { id: g, tags }) if *g == id => {
                 Some(tags.iter().map(|t| t.to_string()).collect())
             }
             _ => None,
@@ -718,10 +723,10 @@ fn dropping_a_program_goes_to_setup_and_never_launches() {
         .push(Arc::new(TestDrop("/home/sam/Downloads/Game.exe".into())));
     r.h.run();
     let sent = r.fake.sent();
-    assert!(sent.contains(&UiCommand::OpenPaths {
+    assert!(sent.contains(&UiCommand::Core(Command::OpenPaths {
         paths: vec!["/home/sam/Downloads/Game.exe".into()],
         origin: OpenOrigin::DragDrop,
-    }));
+    })));
     assert!(!sent.iter().any(|c| matches!(c, UiCommand::Launch { .. })));
 }
 

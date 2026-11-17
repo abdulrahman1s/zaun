@@ -25,16 +25,15 @@ use easyplay_core::ids::{GameId, QueryId};
 use easyplay_core::library::LibrarySnapshot;
 use easyplay_core::model::{Activity, BasePreset, RuntimeFamily, SandboxPolicy, UserDir};
 use easyplay_core::service::{
-    AfterCreate as SvcAfter, Command, Diagnostics, Event, FolderRequest, GameEdit as SvcEdit,
-    HostSnapshot, LaunchOrigin, Notice, OpenOrigin as SvcOrigin, QueryResult, RuntimesSnapshot,
-    ServiceHandle, StopMode,
+    AfterCreate as SvcAfter, Command, Diagnostics, Event, GameEdit as SvcEdit, HostSnapshot,
+    LaunchOrigin, Notice, QueryResult, RuntimesSnapshot, ServiceHandle, StopMode,
 };
 
 use crate::bridge::{
-    AfterCreate, ArtworkSource, Backend, CheckState, FolderScan, FolderTarget, GameDetail,
-    GameEdit, HandlerState, HostCheck, HostStatus, HostView, LayerInfo, OpenOrigin,
-    PolicyAssessment, ProgramFound, QueryPayload, RuntimesView, SetupContext, SetupOrigin,
-    ShortcutInfo, ToastLevel, ToastMsg, UiCommand, UiEvent,
+    AfterCreate, ArtworkSource, Backend, CheckState, FolderScan, GameDetail, GameEdit,
+    HandlerState, HostCheck, HostStatus, HostView, LayerInfo, PolicyAssessment, ProgramFound,
+    QueryPayload, RuntimesView, SetupContext, SetupOrigin, ShortcutInfo, ToastLevel, ToastMsg,
+    UiCommand, UiEvent,
 };
 use crate::strings::service as text;
 
@@ -444,19 +443,6 @@ fn steam_command(a: crate::bridge::SteamAction) -> easyplay_core::service::Steam
     }
 }
 
-/// The service's folder request for a UI folder target.
-fn folder_request(t: FolderTarget) -> FolderRequest {
-    match t {
-        FolderTarget::GameFolder(g) => FolderRequest::GameFolder(g),
-        FolderTarget::SaveData(g) => FolderRequest::SaveData(g),
-        FolderTarget::Prefix(g) => FolderRequest::Prefix(g),
-        FolderTarget::Session(s) => FolderRequest::Session(s),
-        FolderTarget::DataFolder => FolderRequest::DataFolder,
-        FolderTarget::Backups => FolderRequest::Backups,
-        FolderTarget::Path(p) => FolderRequest::Granted(p),
-    }
-}
-
 /// The host-status row from the facts (no I/O).
 pub fn host_status(facts: Option<&HostFacts>) -> HostStatus {
     match facts {
@@ -556,14 +542,7 @@ impl Backend for ServiceBackend {
     fn send(&self, cmd: UiCommand) {
         let h = &self.handle;
         match cmd {
-            UiCommand::OpenPaths { paths, origin } => h.send(Command::OpenPaths {
-                paths,
-                origin: match origin {
-                    OpenOrigin::Picker => SvcOrigin::Picker,
-                    OpenOrigin::DragDrop => SvcOrigin::DragDrop,
-                    OpenOrigin::FileManager => SvcOrigin::FileManager,
-                },
-            }),
+            UiCommand::Core(c) => h.send(c),
             UiCommand::CreateGame { draft, then } => h.send(Command::CreateGame {
                 draft,
                 then: match then {
@@ -571,14 +550,7 @@ impl Backend for ServiceBackend {
                     AfterCreate::Nothing | AfterCreate::ApplyToRest => SvcAfter::Nothing,
                 },
             }),
-            UiCommand::DiscardDraft => h.send(Command::DiscardDraft),
             UiCommand::UpdateGame { id, edits } => self.update(id, edits),
-            UiCommand::RemoveGame { id, options } => h.send(Command::RemoveGame { id, options }),
-            UiCommand::SetFavorite { id, favorite } => {
-                h.send(Command::SetFavorite { id, favorite });
-            }
-            UiCommand::SetHidden { id, hidden } => h.send(Command::SetHidden { id, hidden }),
-            UiCommand::SetTags { id, tags } => h.send(Command::SetTags { id, tags }),
             UiCommand::ApplyPreset { ids, preset } => {
                 let lib = h.hub.library.load();
                 let mut changed = 0;
@@ -628,9 +600,6 @@ impl Backend for ServiceBackend {
                 }
                 h.send(Command::FetchOnlineArtwork { id });
             }
-            UiCommand::FindSteamApp { id, term, reply_to } => {
-                h.send(Command::FindSteamApp { id, term, reply_to });
-            }
             UiCommand::Launch { id, exe } => h.send(Command::Launch {
                 id,
                 exe,
@@ -649,86 +618,13 @@ impl Backend for ServiceBackend {
                     });
                 }
             }
-            UiCommand::AnswerPrompt { prompt, answer } => {
-                h.send(Command::AnswerPrompt { prompt, answer });
-            }
-            UiCommand::ResetPrefix { id, options } => h.send(Command::ResetPrefix { id, options }),
-            UiCommand::ProvisionRuntime { target } => h.send(Command::ProvisionRuntime { target }),
-            UiCommand::AdoptRuntime { variant } => h.send(Command::AdoptRuntime { variant }),
-            UiCommand::RemoveRuntime { name } => h.send(Command::RemoveRuntime { name }),
-            UiCommand::RefreshRuntimes => h.send(Command::RefreshRuntimes),
-            UiCommand::VerifyRuntime => h.send(Command::VerifyRuntime),
             UiCommand::SetPreference { patch, .. } => self.set_pref(patch),
-            UiCommand::RefreshHostFacts => h.send(Command::RefreshHostFacts),
             UiCommand::CompleteOnboarding { .. } => {
                 self.set_pref(PreferencePatch::new().set("onboarding.completed", true));
             }
-            UiCommand::QueryStats { request, reply_to } => {
-                h.send(Command::QueryStats { request, reply_to });
-            }
-            UiCommand::LoadGame { id, reply_to } => h.send(Command::LoadGame { id, reply_to }),
-            UiCommand::AboutGame { id, reply_to } => h.send(Command::AboutGame { id, reply_to }),
-            UiCommand::ScanFolder { folder, reply_to } => {
-                h.send(Command::ScanFolder { folder, reply_to });
-            }
-            UiCommand::MeasurePrefix { id, reply_to } => {
-                h.send(Command::MeasurePrefix { id, reply_to });
-            }
             UiCommand::SearchFixes { reply_to, .. } => self.query_unsupported(reply_to),
             UiCommand::Quit => {}
-            UiCommand::AddExecutable { id, path, role } => {
-                h.send(Command::AddExecutable { id, path, role });
-            }
-            UiCommand::LocateExecutable { id, exe, new_path } => {
-                h.send(Command::LocateExecutable { id, exe, new_path });
-            }
-            UiCommand::CancelLaunch { id } => h.send(Command::CancelLaunch { id }),
-            UiCommand::RunTool { id, tool } => h.send(Command::RunTool { id, tool }),
-            UiCommand::ClearStatistics => h.send(Command::ClearStatistics),
-            UiCommand::ResetGameStatistics { id } => h.send(Command::ResetGameStatistics { id }),
-            UiCommand::RemoveSession { id } => h.send(Command::RemoveSession { id }),
-            UiCommand::RescanMissing => h.send(Command::RescanMissing),
-            UiCommand::SetDefaultHandler { enable } => {
-                h.send(Command::SetDefaultHandler { enable });
-            }
-            UiCommand::SetShortcut { id, enable } => h.send(Command::SetShortcut { id, enable }),
-            UiCommand::OpenFolder(t) => h.send(Command::OpenFolder(folder_request(t))),
-            UiCommand::ViewLog { session, game } => h.send(Command::ViewLog { session, game }),
-            UiCommand::Inspect { target, reply_to } => {
-                h.send(Command::Inspect { target, reply_to })
-            }
-            UiCommand::ListSessions { game, reply_to } => {
-                h.send(Command::ListSessions { game, reply_to });
-            }
-            UiCommand::ReadLog {
-                session,
-                file,
-                offset,
-                reply_to,
-            } => h.send(Command::ReadLog {
-                session,
-                file,
-                offset,
-                reply_to,
-            }),
-            UiCommand::ListProcesses { session, reply_to } => {
-                h.send(Command::ListProcesses { session, reply_to });
-            }
-            UiCommand::RunDoctor => h.send(Command::RunDoctor),
-            UiCommand::BuildReport {
-                game,
-                session,
-                reply_to,
-            } => h.send(Command::BuildReport {
-                game,
-                session,
-                reply_to,
-            }),
-            UiCommand::SaveReport { files, dest } => h.send(Command::SaveReport { files, dest }),
-            UiCommand::DismissCrash => h.send(Command::DismissCrash),
-            UiCommand::ResolveDatabase(c) => h.send(Command::ResolveDatabase(c)),
             UiCommand::Steam(a) => h.send(Command::Steam(steam_command(a))),
-            UiCommand::Chat(c) => h.send(Command::Chat(c)),
         }
     }
 

@@ -38,7 +38,7 @@ use egui::{
 use super::Env;
 use super::emoji;
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::Command;
 use crate::i18n::{self, Dir};
 use crate::input::picker::PickPurpose;
 use crate::strings::chat::composer as s;
@@ -183,7 +183,7 @@ pub fn show(
     let rtl = i18n::dir() == Dir::Rtl;
     // Messages with pictures, built off the UI thread, go out now (in order).
     for cmd in encoded(&ctx).take() {
-        env.bridge.send(UiCommand::Chat(cmd));
+        env.bridge.send(Command::Chat(cmd));
     }
     if !f.voice {
         state.chat.recording = None;
@@ -404,7 +404,7 @@ fn plate(
 fn blocked_bar(ui: &mut Ui, env: &mut Env<'_>, p: &Palette, friend: &Friend, can: bool, rtl: bool) {
     let text = s::blocked(first(&friend.name));
     if plate(ui, p, icons::PROHIBIT, &text, can.then(s::UNBLOCK), rtl) {
-        env.bridge.send(UiCommand::Chat(ChatCommand::SetBlocked {
+        env.bridge.send(Command::Chat(ChatCommand::SetBlocked {
             friend: friend.id,
             on: false,
         }));
@@ -690,7 +690,7 @@ fn recording(
         state.chat.focus_composer = true;
         let secs = (elapsed.round() as u32).clamp(1, m::REC_MAX_S as u32);
         env.bridge
-            .send(UiCommand::Chat(ChatCommand::SendVoice { chat, secs }));
+            .send(Command::Chat(ChatCommand::SendVoice { chat, secs }));
     } else {
         ctx.request_repaint_after(std::time::Duration::from_millis(90));
     }
@@ -1505,7 +1505,7 @@ fn send_attachments(
     let items = std::mem::take(&mut state.chat.attachments);
     if items.iter().all(|a| matches!(a, Attachment::File(_))) {
         for cmd in attachment_commands(chat, items, &caption) {
-            env.bridge.send(UiCommand::Chat(cmd));
+            env.bridge.send(Command::Chat(cmd));
         }
         return;
     }
@@ -2040,7 +2040,7 @@ fn send(ctx: &Context, state: &mut UiState, env: &mut Env<'_>, snap: &ChatSnapsh
     if let Some(item) = state.chat.edit.take() {
         let before = last_text(state, chat, item);
         if f.edit && before.as_deref() != Some(text.as_str()) {
-            env.bridge.send(UiCommand::Chat(ChatCommand::Edit {
+            env.bridge.send(Command::Chat(ChatCommand::Edit {
                 chat,
                 item,
                 text: text.clone(),
@@ -2054,7 +2054,7 @@ fn send(ctx: &Context, state: &mut UiState, env: &mut Env<'_>, snap: &ChatSnapsh
                 .unwrap_or_default(),
             _ => Vec::new(),
         };
-        env.bridge.send(UiCommand::Chat(ChatCommand::Send {
+        env.bridge.send(Command::Chat(ChatCommand::Send {
             chat,
             text: text.clone(),
             reply_to: state.chat.reply.filter(|_| f.replies),

@@ -17,7 +17,7 @@ use egui::{Align, Id, Layout, ScrollArea, Sense, Ui, pos2, vec2};
 
 use super::Env;
 use crate::app::{UiState, appearance_of};
-use crate::bridge::{FolderTarget, HandlerState, UiCommand};
+use crate::bridge::{Command, FolderRequest, HandlerState, UiCommand};
 use crate::i18n::{Language, LanguageChoice};
 use crate::input::picker::PickPurpose;
 use crate::route::{Overlay, Route, SettingsTab};
@@ -511,7 +511,7 @@ fn chat(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         let mut next = (*prefs).clone();
         next.chat.enabled = on;
         env.bridge
-            .send(UiCommand::Chat(ChatCommand::SetEnabled { on, name: None }));
+            .send(Command::Chat(ChatCommand::SetEnabled { on, name: None }));
         env.bridge.set_prefs_preview(next);
         state
             .settings
@@ -550,8 +550,7 @@ fn chat(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                     continue;
                 }
                 next.chat.name = typed.clone();
-                env.bridge
-                    .send(UiCommand::Chat(ChatCommand::SetName(typed)));
+                env.bridge.send(Command::Chat(ChatCommand::SetName(typed)));
                 env.bridge.set_prefs_preview(next);
                 state.settings.saved.insert(key.to_owned(), env.mono);
             } else {
@@ -1252,7 +1251,7 @@ fn layers(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         });
     }
     if verify {
-        env.bridge.send(UiCommand::VerifyRuntime);
+        env.bridge.send(Command::VerifyRuntime);
     }
     if let Some(l) = remove {
         state.show_dialog(Dialog::Confirm(Confirm::RemoveLayer {
@@ -1290,7 +1289,7 @@ fn layers(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         true,
         Button::new(s::CHECK_NOW()),
     ) {
-        env.bridge.send(UiCommand::RefreshRuntimes);
+        env.bridge.send(Command::RefreshRuntimes);
     }
     switch_row(
         ui,
@@ -1381,8 +1380,7 @@ fn integration(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         !ours,
         Button::new(s::USE_EASYPLAY()),
     ) {
-        env.bridge
-            .send(UiCommand::SetDefaultHandler { enable: true });
+        env.bridge.send(Command::SetDefaultHandler { enable: true });
     }
     // Kept from before: once EasyPlay is the default, the program it replaced can be
     // given back.
@@ -1396,7 +1394,7 @@ fn integration(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         )
     {
         env.bridge
-            .send(UiCommand::SetDefaultHandler { enable: false });
+            .send(Command::SetDefaultHandler { enable: false });
     }
     seg_row(
         ui,
@@ -1474,7 +1472,7 @@ fn integration(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
             }
         });
         if gone {
-            env.bridge.send(UiCommand::SetShortcut {
+            env.bridge.send(Command::SetShortcut {
                 id: sc.game,
                 enable: false,
             });
@@ -1751,7 +1749,7 @@ fn advanced(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         Button::new(s::OPEN()),
     ) {
         env.bridge
-            .send(UiCommand::OpenFolder(FolderTarget::DataFolder));
+            .send(Command::OpenFolder(FolderRequest::DataFolder));
     }
     note_key(ui, "onboarding.completed");
     if button_row(

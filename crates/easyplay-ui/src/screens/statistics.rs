@@ -23,7 +23,7 @@ use egui::{
 
 use super::Env;
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::Command;
 use crate::route::{Overlay, Route};
 use crate::strings;
 use crate::strings::stats as s;
@@ -133,7 +133,7 @@ fn request(state: &mut UiState, env: &mut Env<'_>) {
     {
         let q = env.bridge.query_id();
         state.stats.pending = Some((q, r, rev, env.mono));
-        env.bridge.send(UiCommand::QueryStats {
+        env.bridge.send(Command::QueryStats {
             request: StatsRequest::LibraryOverview { range: dr },
             reply_to: q,
         });
@@ -144,7 +144,7 @@ fn request(state: &mut UiState, env: &mut Env<'_>) {
         if !matches!(state.stats.recent, AsyncValue::Ready(_)) {
             state.stats.recent = AsyncValue::Loading { since: env.mono };
         }
-        env.bridge.send(UiCommand::QueryStats {
+        env.bridge.send(Command::QueryStats {
             request: StatsRequest::SessionHistory {
                 game: None,
                 page: 0,
@@ -166,7 +166,7 @@ fn request(state: &mut UiState, env: &mut Env<'_>) {
     {
         let q = env.bridge.query_id();
         state.stats.top_q = Some((q, range, rev));
-        env.bridge.send(UiCommand::QueryStats {
+        env.bridge.send(Command::QueryStats {
             request: StatsRequest::TopGames {
                 range: dr,
                 limit: layout::TOP_MAX as u32,
@@ -182,7 +182,7 @@ fn request(state: &mut UiState, env: &mut Env<'_>) {
         state.stats.weekdays = None;
         let q = env.bridge.query_id();
         state.stats.weekdays_q = Some(q);
-        env.bridge.send(UiCommand::QueryStats {
+        env.bridge.send(Command::QueryStats {
             request: StatsRequest::WeekdayDistribution { range: dr },
             reply_to: q,
         });
@@ -837,7 +837,7 @@ pub fn history_sheet(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'
 fn load_history(state: &mut UiState, env: &mut Env<'_>) {
     let q = env.bridge.query_id();
     state.stats.history_q = Some(q);
-    env.bridge.send(UiCommand::QueryStats {
+    env.bridge.send(Command::QueryStats {
         request: StatsRequest::SessionHistory {
             game: state.stats.history_game,
             page: state.stats.history_page,

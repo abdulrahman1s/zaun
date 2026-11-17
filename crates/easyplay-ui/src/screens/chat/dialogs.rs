@@ -18,7 +18,7 @@ use egui::{Align2, Context, CornerRadius, FontFamily, FontId, Id, Rect, Sense, U
 use super::avatar::{self, Shape};
 use super::{Env, paint};
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::{Command, UiCommand};
 use crate::strings::chat as c;
 use crate::strings::chat::details as s;
 use crate::theme::tokens::{layout, radius, space};
@@ -145,7 +145,7 @@ pub(super) fn share_flow(
     }
     if let Some(sh) = &snap.live.share {
         if sh.chat == chat {
-            env.bridge.send(UiCommand::Chat(ChatCommand::StopShare));
+            env.bridge.send(Command::Chat(ChatCommand::StopShare));
             state.toast(s::STOPPED_SHARING(), ToastKind::Info, None, env.mono);
         } else {
             let to = paint::short_name(snap, sh.chat);
@@ -177,7 +177,7 @@ pub(super) fn call_flow(
         }
         return;
     }
-    env.bridge.send(UiCommand::Chat(ChatCommand::Call(chat)));
+    env.bridge.send(Command::Chat(ChatCommand::Call(chat)));
 }
 
 /// Block `friend` (they are not told): the toast offers Undo; their open chat closes.
@@ -188,7 +188,7 @@ pub(super) fn set_blocked(state: &mut UiState, env: &mut Env<'_>, friend: i64, o
         .map(|f| paint::first_name(&f.name).to_owned())
         .unwrap_or_default();
     env.bridge
-        .send(UiCommand::Chat(ChatCommand::SetBlocked { friend, on }));
+        .send(Command::Chat(ChatCommand::SetBlocked { friend, on }));
     if on {
         if state
             .chat
@@ -199,7 +199,7 @@ pub(super) fn set_blocked(state: &mut UiState, env: &mut Env<'_>, friend: i64, o
             state.chat.close_chat();
             state.chat.focus_row = None;
         }
-        let undo = UiCommand::Chat(ChatCommand::SetBlocked { friend, on: false });
+        let undo = UiCommand::Core(Command::Chat(ChatCommand::SetBlocked { friend, on: false }));
         state.toast(
             s::blocked_toast(&name),
             ToastKind::Success,
@@ -244,7 +244,7 @@ fn confirm(
     match modal::choose(ctx, id, Spec::new(title).text(text), &actions, 0, |_| {}) {
         DialogOutcome::Open => false,
         DialogOutcome::Chose(1) => {
-            env.bridge.send(UiCommand::Chat(cmd()));
+            env.bridge.send(Command::Chat(cmd()));
             state.chat.close_chat();
             state.chat.focus_row = None;
             true
@@ -355,7 +355,7 @@ fn add_friend(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) -> 
     // A one-time invite is made when the dialog opens without one.
     if snap.invite.is_none() && !state.chat.invite_asked {
         state.chat.invite_asked = true;
-        env.bridge.send(UiCommand::Chat(ChatCommand::CreateInvite));
+        env.bridge.send(Command::Chat(ChatCommand::CreateInvite));
     }
     let mut connect_enter = false;
     let mut address = None;
@@ -480,8 +480,8 @@ fn add_friend(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) -> 
         state.toast(c::LINK_COPIED(), ToastKind::Success, None, env.mono);
     }
     match address {
-        Some(true) => env.bridge.send(UiCommand::Chat(ChatCommand::CreateAddress)),
-        Some(false) => env.bridge.send(UiCommand::Chat(ChatCommand::DeleteAddress)),
+        Some(true) => env.bridge.send(Command::Chat(ChatCommand::CreateAddress)),
+        Some(false) => env.bridge.send(Command::Chat(ChatCommand::DeleteAddress)),
         None => {}
     }
     let (done, connect) = shown.footer;
@@ -491,8 +491,7 @@ fn add_friend(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) -> 
         state.chat.invite_tab = 0;
     };
     if (connect || connect_enter) && !typed.is_empty() {
-        env.bridge
-            .send(UiCommand::Chat(ChatCommand::Connect(typed)));
+        env.bridge.send(Command::Chat(ChatCommand::Connect(typed)));
         state.toast(s::REQUEST_SENT(), ToastKind::Success, None, env.mono);
         modal::closed(ctx, id);
         reset(state);
@@ -592,7 +591,7 @@ fn new_group(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) -> b
             s::and_list(&firsts)
         });
         env.bridge
-            .send(UiCommand::Chat(ChatCommand::NewGroup(name.clone())));
+            .send(Command::Chat(ChatCommand::NewGroup(name.clone())));
         state.chat.pending_group = Some(PendingGroup {
             name,
             friends: picked,
@@ -753,12 +752,12 @@ fn invite_to_group(
         Some(true) => {
             state.chat.group_invite.link_asked = true;
             env.bridge
-                .send(UiCommand::Chat(ChatCommand::CreateGroupLink(group)));
+                .send(Command::Chat(ChatCommand::CreateGroupLink(group)));
         }
         Some(false) => {
             state.chat.group_invite.link_asked = false;
             env.bridge
-                .send(UiCommand::Chat(ChatCommand::DeleteGroupLink(group)));
+                .send(Command::Chat(ChatCommand::DeleteGroupLink(group)));
         }
         None => {}
     }
@@ -767,7 +766,7 @@ fn invite_to_group(
         let picked = std::mem::take(&mut state.chat.group_invite.pick);
         for &friend in &picked {
             env.bridge
-                .send(UiCommand::Chat(ChatCommand::AddMember { group, friend }));
+                .send(Command::Chat(ChatCommand::AddMember { group, friend }));
         }
         state.toast(
             s::invited(picked.len(), &g.name),
@@ -977,7 +976,7 @@ fn profile(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) -> boo
         let about: String = d.about.trim().chars().take(ABOUT_MAX).collect();
         save_name(env, &name);
         env.bridge
-            .send(UiCommand::Chat(ChatCommand::SetProfile(ChatProfile {
+            .send(Command::Chat(ChatCommand::SetProfile(ChatProfile {
                 name,
                 about,
                 // A colour that was never chosen stays the name's own.
@@ -1020,7 +1019,7 @@ fn verify(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>, friend:
     if state.chat.code_asked != Some(friend) {
         state.chat.code_asked = Some(friend);
         env.bridge
-            .send(UiCommand::Chat(ChatCommand::ShowCode(friend)));
+            .send(Command::Chat(ChatCommand::ShowCode(friend)));
     }
     let f = snap.friend(friend);
     let first = f
@@ -1059,7 +1058,7 @@ fn verify(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>, friend:
     let (ok, close) = shown.footer;
     if ok && let Some(code) = code {
         env.bridge
-            .send(UiCommand::Chat(ChatCommand::Verify { friend, code }));
+            .send(Command::Chat(ChatCommand::Verify { friend, code }));
         state.toast(
             s::verified_toast(&first),
             ToastKind::Success,
@@ -1232,7 +1231,7 @@ fn share(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>, chat: Ch
             env.bridge.set_prefs_preview(next);
         }
         env.bridge
-            .send(UiCommand::Chat(ChatCommand::StartShare(chat)));
+            .send(Command::Chat(ChatCommand::StartShare(chat)));
     }
     if go || cancel {
         modal::closed(ctx, id);
@@ -1512,7 +1511,7 @@ fn unsafe_link(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) ->
         DialogOutcome::Chose(1) => {
             state.chat.link_to_open = None;
             env.bridge
-                .send(UiCommand::Chat(ChatCommand::OpenLinkAnyway(link)));
+                .send(Command::Chat(ChatCommand::OpenLinkAnyway(link)));
             true
         }
         _ => {

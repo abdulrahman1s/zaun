@@ -33,7 +33,7 @@ use egui::{
 
 use super::{Env, emoji};
 use crate::app::UiState;
-use crate::bridge::UiCommand;
+use crate::bridge::Command;
 use crate::i18n::{self, Dir};
 use crate::strings::chat::services as s;
 use crate::theme::motion::{appear, ease_out, scale_about};
@@ -555,7 +555,7 @@ pub fn picker(ctx: &Context, state: &mut UiState, env: &mut Env<'_>) {
             g.asked = Some(String::new());
             g.pending = Some(q);
             env.bridge
-                .send(UiCommand::Chat(ChatCommand::GifTrending { reply_to: q }));
+                .send(Command::Chat(ChatCommand::GifTrending { reply_to: q }));
             ps.focus = 3;
         }
     }
@@ -868,7 +868,7 @@ pub fn picker(ctx: &Context, state: &mut UiState, env: &mut Env<'_>) {
             let reply_to = env.bridge.query_id();
             g.asked = Some(q.clone());
             g.pending = Some(reply_to);
-            env.bridge.send(UiCommand::Chat(if q.is_empty() {
+            env.bridge.send(Command::Chat(if q.is_empty() {
                 ChatCommand::GifTrending { reply_to }
             } else {
                 ChatCommand::GifSearch { query: q, reply_to }
@@ -889,7 +889,7 @@ pub fn picker(ctx: &Context, state: &mut UiState, env: &mut Env<'_>) {
         g.previews.insert(url.clone(), GifPicture::Asked);
         g.preview_q.insert(reply_to, url.clone());
         env.bridge
-            .send(UiCommand::Chat(ChatCommand::GifPreview { url, reply_to }));
+            .send(Command::Chat(ChatCommand::GifPreview { url, reply_to }));
     }
 
     let outside = ctx.input(|i| {
@@ -907,7 +907,7 @@ pub fn picker(ctx: &Context, state: &mut UiState, env: &mut Env<'_>) {
         match gif {
             Some(gif) => {
                 env.bridge
-                    .send(UiCommand::Chat(ChatCommand::SendGif { chat, gif }));
+                    .send(Command::Chat(ChatCommand::SendGif { chat, gif }));
                 close = true;
             }
             None => state.toast(s::TOO_LARGE(), ToastKind::Warning, None, env.mono),
