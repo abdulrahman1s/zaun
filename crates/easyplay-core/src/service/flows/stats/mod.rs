@@ -1,0 +1,3 @@
+//! Statistics queries.
+
+mod query;

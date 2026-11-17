@@ -3,15 +3,15 @@
 use ormlite::Model;
 
 use super::{
-    Arg, CloseOutcome, PlaytimePiece, SessionClose, SessionEvent, SessionRepo, conn, enum_parse,
-    exec_args, id_parse, int, ms_opt, runtime_name, ts, ts_opt, uint,
+    Arg, CloseOutcome, PlaytimePiece, SessionClose, SessionEvent, SessionRepo, changed, conn,
+    enum_parse, exec_args, find, id_parse, int, ms_opt, runtime_name, ts, ts_opt, uint,
 };
 use crate::clock::Timestamp;
 use crate::ids::{GameId, SessionId};
 use crate::model::{
     EndReason, GameKey, Preset, Session, SessionContext, SessionKind, SessionState, SupervisorIdent,
 };
-use crate::storage::db::{SqlConn, map_orm, map_sqlx};
+use crate::storage::db::SqlConn;
 use crate::storage::{StorageError, StorageResult, Store};
 
 /// A `sessions` row.
@@ -163,11 +163,7 @@ impl SessionRow {
 }
 
 async fn fetch_row(c: &mut SqlConn, id: SessionId) -> StorageResult<Option<SessionRow>> {
-    SessionRow::select()
-        .where_bind("id = ?", id.to_string())
-        .fetch_optional(&mut *c)
-        .await
-        .map_err(map_orm)
+    find(c, "id = ?", id.to_string()).await
 }
 
 fn rows_to_sessions(rows: Vec<SessionRow>) -> StorageResult<Vec<Session>> {
@@ -197,7 +193,7 @@ impl<S: Store + ?Sized> SessionRepo for S {
     fn insert_session(&mut self, session: &Session) -> StorageResult<()> {
         let row = SessionRow::from_session(session)?;
         conn(self).atomic(async move |c| {
-            row.insert(&mut *c).await.map_err(map_orm)?;
+            row.insert(&mut *c).await?;
             Ok(())
         })
     }
@@ -218,19 +214,18 @@ impl<S: Store + ?Sized> SessionRepo for S {
             ));
         }
         conn(self).atomic(async move |c| {
-            exec_args(
+            changed(
                 c,
                 "UPDATE sessions SET state = ? WHERE id = ? AND state != 'ended'",
                 &[Arg::text(state.as_str()), Arg::text(id.to_string())],
             )
             .await
-            .map(|n| n > 0)
         })
     }
 
     fn heartbeat(&mut self, id: SessionId, active_ms: u64, at: Timestamp) -> StorageResult<bool> {
         conn(self).atomic(async move |c| {
-            exec_args(
+            changed(
                 c,
                 "UPDATE sessions SET active_ms = ?, last_heartbeat_at = ? \
                  WHERE id = ? AND state != 'ended'",
@@ -241,7 +236,6 @@ impl<S: Store + ?Sized> SessionRepo for S {
                 ],
             )
             .await
-            .map(|n| n > 0)
         })
     }
 
@@ -252,7 +246,7 @@ impl<S: Store + ?Sized> SessionRepo for S {
         pid_ns: Option<u64>,
     ) -> StorageResult<bool> {
         conn(self).atomic(async move |c| {
-            exec_args(
+            changed(
                 c,
                 "UPDATE sessions SET sandbox_pid = ?, pid_ns = ? WHERE id = ? AND state != 'ended'",
                 &[
@@ -262,7 +256,6 @@ impl<S: Store + ?Sized> SessionRepo for S {
                 ],
             )
             .await
-            .map(|n| n > 0)
         })
     }
 
@@ -366,8 +359,7 @@ impl<S: Store + ?Sized> SessionRepo for S {
                     "SELECT * FROM sessions WHERE state != 'ended' ORDER BY started_at",
                 )
                 .fetch_all(&mut *c)
-                .await
-                .map_err(map_sqlx)?,
+                .await?,
             )
         })
     }
@@ -416,8 +408,7 @@ impl<S: Store + ?Sized> SessionRepo for S {
                 q.bind(int(limit))
                     .bind(int(offset))
                     .fetch_all(&mut *c)
-                    .await
-                    .map_err(map_sqlx)?,
+                    .await?,
             )
         })
     }
@@ -491,8 +482,7 @@ impl<S: Store + ?Sized> SessionRepo for S {
             .await?;
             let (id,): (i64,) = ormlite::query_as("SELECT last_insert_rowid()")
                 .fetch_one(&mut *c)
-                .await
-                .map_err(map_sqlx)?;
+                .await?;
             Ok(id)
         })
     }
@@ -505,8 +495,7 @@ impl<S: Store + ?Sized> SessionRepo for S {
             )
             .bind(session.to_string())
             .fetch_all(&mut *c)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
             rows.into_iter()
                 .map(|(id, sid, at, kind, data_json)| {
                     Ok(SessionEvent {

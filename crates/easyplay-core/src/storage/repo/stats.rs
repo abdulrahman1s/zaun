@@ -3,11 +3,12 @@
 use ormlite::Model;
 
 use super::{
-    Arg, DailyPlaytime, StatsRepo, conn, exec_args, id_parse, int, ms_opt, ts_opt, uint, uint32,
+    Arg, DailyPlaytime, StatsRepo, conn, exec_args, find, id_parse, int, ms_opt, ts_opt, uint,
+    uint32,
 };
 use crate::ids::GameId;
 use crate::model::{GameKey, GameStats, PlaytimeDay};
-use crate::storage::db::{SqlConn, map_orm, map_sqlx};
+use crate::storage::db::SqlConn;
 use crate::storage::{StorageError, StorageResult, Store};
 
 /// A `game_stats` row.
@@ -77,8 +78,7 @@ impl DayRow {
 pub(super) async fn fetch_all(c: &mut SqlConn) -> StorageResult<Vec<GameStats>> {
     StatsRow::query("SELECT * FROM game_stats ORDER BY game_id")
         .fetch_all(&mut *c)
-        .await
-        .map_err(map_sqlx)?
+        .await?
         .into_iter()
         .map(StatsRow::into_stats)
         .collect()
@@ -110,11 +110,8 @@ pub(super) async fn add_playtime(
 impl<S: Store + ?Sized> StatsRepo for S {
     fn game_stats(&mut self, game: GameId) -> StorageResult<Option<GameStats>> {
         conn(self).run(async move |c| {
-            StatsRow::select()
-                .where_bind("game_id = ?", game.to_string())
-                .fetch_optional(&mut *c)
-                .await
-                .map_err(map_orm)?
+            find::<StatsRow, _>(c, "game_id = ?", game.to_string())
+                .await?
                 .map(StatsRow::into_stats)
                 .transpose()
         })
@@ -133,7 +130,7 @@ impl<S: Store + ?Sized> StatsRepo for S {
                 &[Arg::text(row.game_id.clone())],
             )
             .await?;
-            row.insert(&mut *c).await.map_err(map_orm)?;
+            row.insert(&mut *c).await?;
             Ok(())
         })
     }
@@ -176,8 +173,7 @@ impl<S: Store + ?Sized> StatsRepo for S {
                 .bind(i64::from(to))
                 .fetch_all(&mut *c)
                 .await,
-            }
-            .map_err(map_sqlx)?;
+            }?;
             rows.into_iter().map(DayRow::into_day).collect()
         })
     }
@@ -194,8 +190,7 @@ impl<S: Store + ?Sized> StatsRepo for S {
             .bind(i64::from(from))
             .bind(i64::from(to))
             .fetch_all(&mut *c)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
             Ok(rows
                 .into_iter()
                 .map(|(day, ms, sessions)| DailyPlaytime {
@@ -230,8 +225,7 @@ impl<S: Store + ?Sized> StatsRepo for S {
                     .bind(i64::from(to))
                     .fetch_one(&mut *c)
                     .await,
-                }
-                .map_err(map_sqlx)?;
+                }?;
             Ok(uint(sum))
         })
     }
@@ -248,8 +242,7 @@ impl<S: Store + ?Sized> StatsRepo for S {
             .bind(i64::from(from))
             .bind(i64::from(to))
             .fetch_all(&mut *c)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
             rows.into_iter()
                 .map(|(k, ms)| {
                     let key = GameKey::from_column(&k).ok_or_else(|| {
@@ -273,8 +266,7 @@ impl<S: Store + ?Sized> StatsRepo for S {
             .bind(i64::from(from))
             .bind(i64::from(to))
             .fetch_all(&mut *c)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
             Ok(rows.into_iter().map(|(d,)| uint32(d)).collect())
         })
     }

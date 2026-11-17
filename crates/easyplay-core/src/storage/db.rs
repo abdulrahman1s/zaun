@@ -91,7 +91,7 @@ impl Conn {
         .foreign_keys(true)
         .busy_timeout(BUSY_TIMEOUT)
         .statement_cache_capacity(STATEMENT_CACHE);
-        let conn = block_on(&rt, options.connect()).map_err(map_sqlx)?;
+        let conn = block_on(&rt, options.connect())?;
         let mut c = Conn {
             rt,
             conn: Some(conn),
@@ -287,7 +287,7 @@ impl Conn {
     /// Close the connection (checkpointing the WAL when this was the last one).
     pub(crate) fn close(&mut self) -> StorageResult<()> {
         if let Some(conn) = self.conn.take() {
-            block_on(&self.rt, conn.close()).map_err(map_sqlx)?;
+            block_on(&self.rt, conn.close())?;
         }
         Ok(())
     }
@@ -344,10 +344,8 @@ fn on_network_fs(db_file: &Path) -> bool {
 
 /// Execute one or more statements without parameters.
 pub(crate) async fn exec(c: &mut SqlConn, sql: &str) -> StorageResult<()> {
-    c.execute(ormlite::AssertSqlSafe(sql.to_owned()))
-        .await
-        .map(|_| ())
-        .map_err(map_sqlx)
+    c.execute(ormlite::AssertSqlSafe(sql.to_owned())).await?;
+    Ok(())
 }
 
 /// Fetch the first column of the first row.
@@ -358,36 +356,36 @@ where
         + for<'r> ormlite::Decode<'r, ormlite::sqlite::Sqlite>
         + ormlite::types::Type<ormlite::sqlite::Sqlite>,
 {
-    ormlite::query_as::<_, (T,)>(ormlite::AssertSqlSafe(sql.to_owned()))
+    let (v,) = ormlite::query_as::<_, (T,)>(ormlite::AssertSqlSafe(sql.to_owned()))
         .fetch_one(c)
-        .await
-        .map(|(v,)| v)
-        .map_err(map_sqlx)
+        .await?;
+    Ok(v)
 }
 
-/// Map a driver error to a [`StorageError`].
-pub(crate) fn map_sqlx(e: ormlite::SqlxError) -> StorageError {
-    use ormlite::SqlxError as E;
-    match e {
-        E::Database(db) => {
-            let ext: i64 = db.code().and_then(|c| c.parse().ok()).unwrap_or(0);
-            let msg = db.message().to_owned();
-            classify(ext, &msg)
+impl From<ormlite::SqlxError> for StorageError {
+    fn from(e: ormlite::SqlxError) -> Self {
+        use ormlite::SqlxError as E;
+        match e {
+            E::Database(db) => {
+                let ext: i64 = db.code().and_then(|c| c.parse().ok()).unwrap_or(0);
+                classify(ext, db.message())
+            }
+            E::RowNotFound => StorageError::NotFound {
+                what: "row",
+                key: String::new(),
+            },
+            E::Io(io) if io.raw_os_error() == Some(28) => StorageError::DiskFull,
+            other => StorageError::Sql(other.to_string()),
         }
-        E::RowNotFound => StorageError::NotFound {
-            what: "row",
-            key: String::new(),
-        },
-        E::Io(io) if io.raw_os_error() == Some(28) => StorageError::DiskFull,
-        other => StorageError::Sql(other.to_string()),
     }
 }
 
-/// Map an ormlite error to a [`StorageError`].
-pub(crate) fn map_orm(e: ormlite::Error) -> StorageError {
-    match e {
-        ormlite::Error::SqlxError(e) => map_sqlx(e),
-        other => StorageError::Sql(other.to_string()),
+impl From<ormlite::Error> for StorageError {
+    fn from(e: ormlite::Error) -> Self {
+        match e {
+            ormlite::Error::SqlxError(e) => e.into(),
+            other => StorageError::Sql(other.to_string()),
+        }
     }
 }
 
@@ -809,7 +807,7 @@ mod tests {
                     .fetch_all(c)
                     .await
                     .map(|v| v.into_iter().map(|(k,)| k).collect())
-                    .map_err(map_sqlx)
+                    .map_err(StorageError::from)
             })
             .unwrap();
         assert_eq!(keys, vec!["b".to_owned()]);

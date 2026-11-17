@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use easyplay_core::clock::Clock;
+use easyplay_core::err;
 use easyplay_core::error::{Error, ErrorCode};
 use easyplay_core::ids::{GameId, SessionId};
 use easyplay_core::launch::{self, LaunchError, LaunchRequest, LaunchState, OrchestratorDeps};
@@ -135,7 +136,7 @@ fn upsert_temporary_game(hc: &HostContext, db: &mut Db, game: &Game) -> Result<G
         }
     }
     db.game(game.id)?
-        .ok_or_else(|| Error::new(ErrorCode::IntTaskFailed).with("detail", "game row vanished"))
+        .ok_or_else(|| err!(LibGameNotFound, game = game.id))
 }
 
 fn install_id(db: &mut Db) -> String {

@@ -30,9 +30,67 @@ macro_rules! ensure {
     };
 }
 
+/// A fieldless enum that is written as fixed words (`config.toml`, wire formats).
+///
+/// Generates the enum (serde by the word), `as_str`, `ALL` in declared order, `FromStr`
+/// (case-insensitive, `Err = ()`), `Display` and, with `default`, `Default`.
+///
+/// ```ignore
+/// str_enum! {
+///     /// `appearance.theme`.
+///     pub Theme { System = "system", HighContrast = "high-contrast" } default System
+/// }
+/// assert_eq!(Theme::HighContrast.as_str(), "high-contrast");
+/// ```
+#[macro_export]
+macro_rules! str_enum {
+    ($(#[$m:meta])* $vis:vis $name:ident { $($(#[$vm:meta])* $v:ident = $s:literal),+ $(,)? } $(default $d:ident)?) => {
+        $(#[$m])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, ::serde::Serialize, ::serde::Deserialize)]
+        $vis enum $name {
+            $( $(#[$vm])* #[serde(rename = $s)] $v, )+
+        }
+        impl $name {
+            /// Every value, in declared order.
+            pub const ALL: &'static [$name] = &[$($name::$v),+];
+            /// The word the value is written as.
+            pub const fn as_str(self) -> &'static str {
+                match self { $($name::$v => $s),+ }
+            }
+        }
+        $(impl ::core::default::Default for $name {
+            fn default() -> Self { $name::$d }
+        })?
+        impl ::core::str::FromStr for $name {
+            type Err = ();
+            fn from_str(s: &str) -> ::core::result::Result<Self, ()> {
+                Self::ALL.iter().copied().find(|v| v.as_str().eq_ignore_ascii_case(s)).ok_or(())
+            }
+        }
+        impl ::core::fmt::Display for $name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                f.write_str(self.as_str())
+            }
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{Error, ErrorCode, Result};
+
+    crate::str_enum! {
+        Mode { Fast = "fast", Slow = "slow" } default Fast
+    }
+
+    #[test]
+    fn str_enum_round_trips_its_words() {
+        assert_eq!(Mode::default(), Mode::Fast);
+        assert_eq!(Mode::ALL, &[Mode::Fast, Mode::Slow]);
+        assert_eq!("SLOW".parse(), Ok(Mode::Slow));
+        assert_eq!(Mode::Slow.to_string(), "slow");
+        assert!("x".parse::<Mode>().is_err());
+    }
 
     fn check(ok: bool) -> Result<u8> {
         crate::ensure!(ok, LibGameNotFound, game = 7, why = "gone");

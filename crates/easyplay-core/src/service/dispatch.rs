@@ -55,27 +55,13 @@ impl AppService {
             Command::CreateGame { draft, then } => self.create_game(*draft, then).into_result(),
             Command::DiscardDraft => self.setup_closed().into_result(),
             Command::RemoveGame { id, options } => self.remove_game(id, options).into_result(),
-            Command::SetFavorite { id, favorite } => {
-                let r = self.lib.set_favorite(&[id], favorite).map(|_| ());
-                self.after_library_edit(r);
-                Ok(())
-            }
-            Command::SetHidden { id, hidden } => {
-                let r = self.lib.set_hidden(&[id], hidden).map(|_| ());
-                self.after_library_edit(r);
-                Ok(())
-            }
-            Command::SetTags { id, tags } => {
-                let r = self.lib.set_tags(id, &tags).map(|_| ());
-                self.after_library_edit(r);
-                Ok(())
-            }
-            Command::UpdateGame { id, edits } => self.update_game(id, edits).into_result(),
-            Command::LoadGame { id, reply_to } => self.load_game(id, reply_to).into_result(),
+            Command::SetFavorite { id, favorite } => self.set_favorite(id, favorite),
+            Command::SetHidden { id, hidden } => self.set_hidden(id, hidden),
+            Command::SetTags { id, tags } => self.set_tags(id, &tags),
+            Command::UpdateGame { id, edits } => self.update_game(id, edits),
+            Command::LoadGame { id, reply_to } => self.load_game(id, reply_to),
             Command::AboutGame { id, reply_to } => self.about_game(id, reply_to).into_result(),
-            Command::QueryStats { request, reply_to } => {
-                self.query_stats(&request, reply_to).into_result()
-            }
+            Command::QueryStats { request, reply_to } => self.query_stats(&request, reply_to),
             Command::RescanMissing => self.check_availability().into_result(),
             Command::ClearStatistics => self.clear_statistics(None).into_result(),
             Command::ResetGameStatistics { id } => self.clear_statistics(Some(id)).into_result(),
@@ -112,8 +98,11 @@ impl AppService {
             Command::ProvisionRuntime { target } => self.provision_runtime(target).into_result(),
             Command::RemoveRuntime { name } => self.remove_runtime(name).into_result(),
             Command::VerifyRuntime => self.verify_runtimes().into_result(),
-            Command::SetPreference(patch) => self.set_preference(&patch).into_result(),
-            Command::RefreshHostFacts => self.probe_host(true).into_result(),
+            Command::SetPreference(patch) => self.set_preference(&patch),
+            Command::RefreshHostFacts => {
+                self.probe_host(true);
+                Ok(())
+            }
             Command::SetDefaultHandler { enable } => self.set_default_handler(enable).into_result(),
             Command::SetShortcut { id, enable } => self.set_shortcut(id, enable).into_result(),
             Command::OpenFolder(target) => self.open_folder(target).into_result(),
@@ -139,7 +128,7 @@ impl AppService {
             } => self.build_report(game, session, reply_to).into_result(),
             Command::SaveReport { files, dest } => self.save_report(files, dest).into_result(),
             Command::DismissCrash => self.dismiss_crash().into_result(),
-            Command::ResolveDatabase(choice) => self.resolve_database(&choice).into_result(),
+            Command::ResolveDatabase(choice) => self.resolve_database(&choice),
             // Handled by `steam_route`.
             Command::Steam(_) => Ok(()),
             Command::Chat(c) if chat_services::handles(&c) => {
@@ -169,7 +158,7 @@ impl AppService {
                 state,
             } => self.on_launch_state(game, launch, state).into_result(),
             Internal::LaunchDone(d) => self.on_launch_done(*d).into_result(),
-            Internal::HostFacts(f) => self.on_host_facts(f).into_result(),
+            Internal::HostFacts(f) => self.on_host_facts(f),
             Internal::Runtimes(c) => {
                 self.hub.runtimes.store(c);
                 self.emit(Event::RuntimesChanged);

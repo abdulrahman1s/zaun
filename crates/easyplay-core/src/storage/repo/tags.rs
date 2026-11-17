@@ -6,7 +6,7 @@ use super::{Arg, TagRepo, conn, exec_args, id_parse, not_found, tag_color, tag_n
 use crate::clock::Timestamp;
 use crate::ids::{GameId, TagId, TagName};
 use crate::model::{Tag, TagColor};
-use crate::storage::db::{SqlConn, map_sqlx};
+use crate::storage::db::SqlConn;
 use crate::storage::{StorageError, StorageResult, Store};
 
 /// Maximum number of tags in the library (GAME_LIBRARY §13).
@@ -40,8 +40,7 @@ impl TagRow {
 pub(super) async fn fetch_all(c: &mut SqlConn) -> StorageResult<Vec<Tag>> {
     TagRow::query("SELECT * FROM tags ORDER BY name COLLATE NOCASE, id")
         .fetch_all(&mut *c)
-        .await
-        .map_err(map_sqlx)?
+        .await?
         .into_iter()
         .map(TagRow::into_tag)
         .collect()
@@ -51,8 +50,7 @@ pub(super) async fn fetch_links(c: &mut SqlConn) -> StorageResult<Vec<(GameId, T
     let rows: Vec<(String, i64)> =
         ormlite::query_as("SELECT game_id, tag_id FROM game_tags ORDER BY game_id, tag_id")
             .fetch_all(&mut *c)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
     rows.into_iter()
         .map(|(g, t)| Ok((id_parse("game_tags.game_id", &g)?, TagId::new(t))))
         .collect()
@@ -75,8 +73,7 @@ async fn tag_exists(c: &mut SqlConn, id: TagId) -> StorageResult<bool> {
     let (n,): (i64,) = ormlite::query_as("SELECT count(*) FROM tags WHERE id = ?")
         .bind(id.get())
         .fetch_one(&mut *c)
-        .await
-        .map_err(map_sqlx)?;
+        .await?;
     Ok(n > 0)
 }
 
@@ -84,8 +81,7 @@ async fn tag_count_of(c: &mut SqlConn, game: GameId) -> StorageResult<usize> {
     let (n,): (i64,) = ormlite::query_as("SELECT count(*) FROM game_tags WHERE game_id = ?")
         .bind(game.to_string())
         .fetch_one(&mut *c)
-        .await
-        .map_err(map_sqlx)?;
+        .await?;
     Ok(usize::try_from(n).unwrap_or(usize::MAX))
 }
 
@@ -103,8 +99,7 @@ impl<S: Store + ?Sized> TagRepo for S {
             }
             let (n,): (i64,) = ormlite::query_as("SELECT count(*) FROM tags")
                 .fetch_one(&mut *c)
-                .await
-                .map_err(map_sqlx)?;
+                .await?;
             if usize::try_from(n).unwrap_or(usize::MAX) >= MAX_TAGS {
                 return Err(StorageError::Limit {
                     what: "tags",
@@ -118,8 +113,7 @@ impl<S: Store + ?Sized> TagRepo for S {
             .bind(i64::from(color.index()))
             .bind(now.as_millis())
             .fetch_one(&mut *c)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
             row.into_tag()
         })
     }
@@ -136,8 +130,7 @@ impl<S: Store + ?Sized> TagRepo for S {
                  WHERE g.deleted_at IS NULL GROUP BY gt.tag_id",
             )
             .fetch_all(&mut *c)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
             let counts: std::collections::HashMap<i64, i64> = counts.into_iter().collect();
             Ok(fetch_all(c)
                 .await?
@@ -236,8 +229,7 @@ impl<S: Store + ?Sized> TagRepo for S {
                 ormlite::query_as("SELECT tag_id FROM game_tags WHERE game_id = ? ORDER BY tag_id")
                     .bind(game.to_string())
                     .fetch_all(&mut *c)
-                    .await
-                    .map_err(map_sqlx)?;
+                    .await?;
             Ok(rows.into_iter().map(|(t,)| TagId::new(t)).collect())
         })
     }
@@ -286,8 +278,7 @@ impl<S: Store + ?Sized> TagRepo for S {
                 .bind(g.to_string())
                 .bind(tag.get())
                 .fetch_one(&mut *c)
-                .await
-                .map_err(map_sqlx)?;
+                .await?;
                 if has > 0 {
                     continue;
                 }

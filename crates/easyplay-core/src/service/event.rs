@@ -17,7 +17,6 @@ use crate::stats::StatsResult;
 /// The context of a setup dialog.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetupContext {
-    /// Where the file came from.
     pub origin: OpenOrigin,
     /// Further drafts waiting behind this one.
     pub queued: usize,
@@ -27,100 +26,47 @@ pub struct SetupContext {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
     /// A game was added.
-    GameAdded {
-        /// The game.
-        game: GameId,
-        /// Its name.
-        name: String,
-    },
+    GameAdded { game: GameId, name: String },
     /// The opened file belongs to a game already in the library.
-    AlreadyInLibrary {
-        /// The game.
-        game: GameId,
-    },
+    AlreadyInLibrary { game: GameId },
     /// A moved game was found in its new location.
-    FoundMoved {
-        /// The game.
-        game: GameId,
-    },
+    FoundMoved { game: GameId },
     /// More than 64 paths were opened; the rest were ignored.
-    OnlyFirstPaths {
-        /// How many were processed.
-        processed: usize,
-    },
+    OnlyFirstPaths { processed: usize },
     /// A game was removed.
     GameRemoved {
-        /// Its name.
         name: String,
         /// Where its save data was kept.
         saved_data: Option<PathBuf>,
     },
     /// The game's icon could not be stored; it keeps the generated cover.
-    ArtworkKeptPlaceholder {
-        /// The game.
-        game: GameId,
-    },
+    ArtworkKeptPlaceholder { game: GameId },
     /// Artwork was fetched from the Steam CDN.
-    ArtworkFetched {
-        /// The game.
-        game: GameId,
-        /// Slots stored.
-        slots: usize,
-    },
+    ArtworkFetched { game: GameId, slots: usize },
     /// A runtime variant was copied into the store.
     RuntimeAdopted {
-        /// The variant.
         variant: SlrVariant,
         /// Reflinked (no extra space used).
         reflinked: bool,
     },
     /// The private Windows storage was reset.
-    PrefixReset {
-        /// The game.
-        game: GameId,
-    },
+    PrefixReset { game: GameId },
     /// A stop was requested.
-    StopRequested {
-        /// The session.
-        session: SessionId,
-    },
+    StopRequested { session: SessionId },
     /// Play history was deleted (`None` = all games).
-    StatisticsCleared {
-        /// The game.
-        game: Option<GameId>,
-        /// Sessions deleted.
-        sessions: u64,
-    },
+    StatisticsCleared { game: Option<GameId>, sessions: u64 },
     /// One session was removed from history.
-    SessionRemoved {
-        /// The session.
-        session: SessionId,
-    },
+    SessionRemoved { session: SessionId },
     /// A program was added to a game.
-    ProgramAdded {
-        /// The game.
-        game: GameId,
-    },
+    ProgramAdded { game: GameId },
     /// A program was found at its new place.
-    ProgramLocated {
-        /// The game.
-        game: GameId,
-    },
+    ProgramLocated { game: GameId },
     /// A tool started in the game's private storage.
-    ToolStarted {
-        /// The game.
-        game: GameId,
-    },
+    ToolStarted { game: GameId },
     /// A launch was cancelled before the game started.
-    LaunchCancelled {
-        /// The game.
-        game: GameId,
-    },
+    LaunchCancelled { game: GameId },
     /// The diagnostics report was saved.
-    ReportSaved {
-        /// Where.
-        path: PathBuf,
-    },
+    ReportSaved { path: PathBuf },
     /// A request was handed to Steam (ADR-0031).
     SteamAsked {
         /// The game (`None` for the downloads page of every game).
@@ -129,10 +75,7 @@ pub enum Notice {
         request: crate::model::SteamRequest,
     },
     /// Steam's files were read on request.
-    SteamScanned {
-        /// Games listed.
-        games: usize,
-    },
+    SteamScanned { games: usize },
     /// New messages: received, or sent by the user (ADR-0033). Oldest first.
     ChatMessages(Vec<crate::model::ChatMessage>),
     /// Messages whose delivery or text changed.
@@ -157,13 +100,9 @@ pub enum Notice {
         folder: String,
     },
     /// A Steam game's launch options were written to Steam's settings (ADR-0031 §6a).
-    SteamLaunchOptionsSaved {
-        /// The game.
-        game: GameId,
-    },
+    SteamLaunchOptionsSaved { game: GameId },
     /// The damaged library was resolved (repaired, restored or replaced).
     LibraryRecovered {
-        /// What was done.
         how: RecoveredHow,
         /// History rows that could not be recovered, when known.
         history_rows_lost: Option<u64>,
@@ -186,9 +125,7 @@ pub enum RecoveredHow {
 /// A chunk of a session log file (`Command::ReadLog`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogChunk {
-    /// The session.
     pub session: SessionId,
-    /// The file.
     pub file: super::command::LogFile,
     /// Offset of `bytes`.
     pub offset: u64,
@@ -250,7 +187,6 @@ pub enum QueryResult {
 /// What a Steam game's page shows beyond its summary (ADR-0031).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SteamDetail {
-    /// The game.
     pub game: GameId,
     /// What Steam says (the summary's facts).
     pub facts: std::sync::Arc<crate::model::SteamFacts>,
@@ -273,7 +209,6 @@ pub struct SteamDetail {
 /// The answer to `ChatCommand::LoadChat`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatPage {
-    /// The conversation.
     pub chat: crate::model::ChatRef,
     /// Oldest first.
     pub messages: Vec<crate::model::ChatMessage>,
@@ -298,18 +233,13 @@ pub enum Event {
     ChatChanged,
     /// A launch advanced.
     LaunchProgress {
-        /// The game.
         game: GameId,
-        /// The launch.
         launch: LaunchId,
-        /// The state entered.
         state: LaunchState,
     },
     /// An unknown program needs the setup dialog.
     SetupRequested {
-        /// The proposal.
         draft: Box<GameDraft>,
-        /// Context.
         context: SetupContext,
     },
     /// A flow needs a decision.
@@ -317,12 +247,7 @@ pub enum Event {
     /// The UI should show this game's page (a known program was dropped or picked).
     ShowGame(GameId),
     /// A query answered (`LoadGame`, `QueryStats`).
-    QueryResult {
-        /// The request's ID.
-        id: QueryId,
-        /// Result.
-        result: QueryResult,
-    },
+    QueryResult { id: QueryId, result: QueryResult },
     /// A short notice.
     Notice(Notice),
     /// An error not attached to a launch.

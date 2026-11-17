@@ -6,8 +6,9 @@ use ormlite::Model;
 
 use super::executables::ExeRow;
 use super::{
-    Arg, GamePatch, GameRecord, GameRepo, LibraryRows, conn, dec_path_opt, enc_path_opt, exec_args,
-    id_parse, json_parse, json_text, ms_opt, not_found, runtime_name, ts, ts_opt, uint,
+    Arg, GamePatch, GameRecord, GameRepo, LibraryRows, changed, conn, dec_path_opt, enc_path_opt,
+    exec_args, find, id_parse, json_parse, json_text, ms_opt, not_found, runtime_name, ts, ts_opt,
+    uint,
 };
 use crate::clock::Timestamp;
 use crate::ids::GameId;
@@ -15,7 +16,7 @@ use crate::model::{
     ExeRole, Game, GameFlags, GameKey, Store as GameStore, parse_launch_config, parse_policy,
     sort_name_of,
 };
-use crate::storage::db::{SqlConn, map_orm, map_sqlx};
+use crate::storage::db::SqlConn;
 use crate::storage::{StorageResult, Store};
 
 /// A `games` row.
@@ -221,11 +222,7 @@ pub(super) fn sort_exes(v: &mut [crate::model::Executable]) {
 }
 
 async fn fetch_game_row(c: &mut SqlConn, id: GameId) -> StorageResult<Option<GameRow>> {
-    GameRow::select()
-        .where_bind("id = ?", id.to_string())
-        .fetch_optional(&mut *c)
-        .await
-        .map_err(map_orm)
+    find(c, "id = ?", id.to_string()).await
 }
 
 async fn fetch_record(c: &mut SqlConn, id: GameId) -> StorageResult<Option<GameRecord>> {
@@ -246,9 +243,9 @@ impl<S: Store + ?Sized> GameRepo for S {
             .map(|e| ExeRow::from_exe(game.id, e))
             .collect::<StorageResult<Vec<_>>>()?;
         conn(self).atomic(async move |c| {
-            row.insert(&mut *c).await.map_err(map_orm)?;
+            row.insert(&mut *c).await?;
             for e in exes {
-                e.insert(&mut *c).await.map_err(map_orm)?;
+                e.insert(&mut *c).await?;
             }
             Ok(())
         })
@@ -273,20 +270,19 @@ impl<S: Store + ?Sized> GameRepo for S {
                 .filter(|r| r.deleted_at.is_none())
                 .ok_or_else(|| not_found("game", id))?;
             row.apply(&patch, now)?;
-            row.update_all_fields(&mut *c).await.map_err(map_orm)?;
+            row.update_all_fields(&mut *c).await?;
             Ok(())
         })
     }
 
     fn set_game_deleted(&mut self, id: GameId, at: Option<Timestamp>) -> StorageResult<bool> {
         conn(self).atomic(async move |c| {
-            exec_args(
+            changed(
                 c,
                 "UPDATE games SET deleted_at = ? WHERE id = ?",
                 &[Arg::Int(ms_opt(at)), Arg::Text(Some(id.to_string()))],
             )
             .await
-            .map(|n| n > 0)
         })
     }
 
@@ -295,8 +291,7 @@ impl<S: Store + ?Sized> GameRepo for S {
             let rows: Vec<(String,)> =
                 ormlite::query_as("SELECT id FROM games WHERE deleted_at IS NOT NULL ORDER BY id")
                     .fetch_all(&mut *c)
-                    .await
-                    .map_err(map_sqlx)?;
+                    .await?;
             rows.iter().map(|(id,)| id_parse("games.id", id)).collect()
         })
     }
@@ -343,8 +338,7 @@ impl<S: Store + ?Sized> GameRepo for S {
                 "SELECT * FROM games WHERE deleted_at IS NULL ORDER BY sort_name, id",
             )
             .fetch_all(&mut *c)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
             let mut exes: HashMap<GameId, Vec<crate::model::Executable>> = HashMap::new();
             for (game, exe) in super::executables::fetch_all(c).await? {
                 exes.entry(game).or_default().push(exe);
@@ -385,19 +379,18 @@ impl<S: Store + ?Sized> GameRepo for S {
 
     fn set_prefix_tainted_at(&mut self, id: GameId, at: Option<Timestamp>) -> StorageResult<bool> {
         conn(self).atomic(async move |c| {
-            exec_args(
+            changed(
                 c,
                 "UPDATE games SET prefix_tainted_at = ? WHERE id = ?",
                 &[Arg::Int(ms_opt(at)), Arg::Text(Some(id.to_string()))],
             )
             .await
-            .map(|n| n > 0)
         })
     }
 
     fn set_last_launched_at(&mut self, id: GameId, at: Timestamp) -> StorageResult<bool> {
         conn(self).atomic(async move |c| {
-            exec_args(
+            changed(
                 c,
                 "UPDATE games SET last_launched_at = ? WHERE id = ?",
                 &[
@@ -406,7 +399,6 @@ impl<S: Store + ?Sized> GameRepo for S {
                 ],
             )
             .await
-            .map(|n| n > 0)
         })
     }
 
@@ -415,8 +407,7 @@ impl<S: Store + ?Sized> GameRepo for S {
             let (n,): (i64,) =
                 ormlite::query_as("SELECT count(*) FROM games WHERE deleted_at IS NULL")
                     .fetch_one(&mut *c)
-                    .await
-                    .map_err(map_sqlx)?;
+                    .await?;
             Ok(uint(n))
         })
     }

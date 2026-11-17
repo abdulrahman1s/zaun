@@ -1,26 +1,12 @@
-//! SQLite persistence (through `ormlite`/`sqlx` behind a synchronous facade, ADR-0017):
-//! connection setup, migrations, repositories, backups, integrity checks, the cross-process
-//! write lock.
+//! SQLite persistence behind a synchronous facade: connection, migrations, repositories, backups,
+//! integrity, the write lock (ADR-0017, MODULES §4, PERSISTENCE).
 //!
-//! Layer 3. Owns `library.db` and its schema. See MODULES §4 and PERSISTENCE.
-//!
-//! # Shape
-//!
-//! - [`Db`] is a read-write handle, [`ReadDb`] a read-only one (`query_only = ON`), and
-//!   [`Tx`] a `BEGIN IMMEDIATE` transaction borrowed from a [`Db`]. Each handle owns one
-//!   SQLite connection and a private `tokio` current-thread runtime; every method blocks the
-//!   calling thread until SQLite answers. No `ormlite`, `sqlx` or `tokio` type is public.
-//! - All three implement the sealed [`Store`] trait. The repository traits ([`GameRepo`],
-//!   [`ExecutableRepo`], [`TagRepo`], [`ArtworkRepo`], [`SessionRepo`], [`StatsRepo`],
-//!   [`RuntimeRepo`], [`KvRepo`]) are implemented once for every `Store`; a write through a
-//!   [`ReadDb`] fails with [`StorageError::ReadOnly`]. Multi-row writes are atomic on their
-//!   own and nest (as savepoints) inside a [`Tx`].
-//! - [`migrate`] creates and upgrades the schema, [`backup`] takes and rotates `VACUUM INTO`
-//!   snapshots, [`integrity`] runs `quick_check` and salvages damaged files, [`lock`] is the
-//!   advisory `library.lock`, [`path_codec`] stores paths losslessly.
-//!
-//! The module contains no business rules: callers decide *when* to back up, migrate, purge
-//! or count a session; storage only does it atomically.
+//! [`Db`] is read-write, [`ReadDb`] read-only, [`Tx`] a `BEGIN IMMEDIATE` transaction. Each handle
+//! owns one connection and a private current-thread tokio runtime; no `ormlite`, `sqlx` or `tokio`
+//! type is public. The repository traits are implemented once for every sealed [`Store`]; a write
+//! through a [`ReadDb`] fails with [`StorageError::ReadOnly`]. Multi-row writes are atomic and nest
+//! as savepoints inside a [`Tx`]. No business rules live here: callers decide when to back up,
+//! migrate or purge.
 
 pub mod backup;
 mod db;
@@ -57,7 +43,6 @@ pub enum ConstraintKind {
     Check,
     /// `NOT NULL`.
     NotNull,
-    /// Anything else.
     Other,
 }
 
@@ -205,8 +190,14 @@ impl StorageError {
             StorageError::Fs(e) => Error::from(clone_fs_error(e)).code,
             StorageError::Migration { .. } => ErrorCode::DbMigrationFailed,
             StorageError::Backup(_) => ErrorCode::DbBackupFailed,
+            StorageError::NotFound { what, .. } => match *what {
+                "game" => ErrorCode::LibGameNotFound,
+                "executable" | "program" => ErrorCode::LibExeNotFound,
+                "tag" => ErrorCode::LibTagNotFound,
+                "session" => ErrorCode::SesSessionNotFound,
+                _ => ErrorCode::IntTaskFailed,
+            },
             StorageError::ReadOnly
-            | StorageError::NotFound { .. }
             | StorageError::Decode(_)
             | StorageError::Closed
             | StorageError::Sql(_) => ErrorCode::IntTaskFailed,
@@ -230,6 +221,9 @@ impl From<StorageError> for Error {
             StorageError::Document { game, .. } => err.with("game", game),
             StorageError::Migration { step, .. } => err.with("step", step),
             StorageError::NewerSchema { found, .. } => err.with("version", found),
+            StorageError::NotFound { what, key } if e.code() != ErrorCode::IntTaskFailed => {
+                err.with(what, key)
+            }
             _ => err,
         };
         err.with_source(e)

@@ -59,7 +59,7 @@ pub use service::{Library, LibraryDeps, LibraryService, PolicyCheck};
 
 pub use prefix_ops::ResetOptions;
 
-use crate::error::{Error, ErrorCode};
+use crate::error::Error;
 use crate::model::{EntryKind, GameFlags, Problem, ValidationError};
 
 /// `games.flags` bit owned by the library: the entry is an installer that has not been
@@ -101,9 +101,21 @@ pub(crate) fn limit(field: &'static str, max: usize) -> Error {
     invalid(field, Problem::TooMany { max })
 }
 
-/// An unknown game (`EP-INT-001` with the game in the context).
 pub(crate) fn no_game(id: crate::ids::GameId) -> Error {
-    Error::new(ErrorCode::IntTaskFailed)
-        .with("game", id)
-        .with("reason", "no such game")
+    crate::err!(LibGameNotFound, game = id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::no_game;
+    use crate::error::ErrorCode;
+    use crate::ids::GameId;
+
+    #[test]
+    fn an_unknown_game_is_game_not_found_with_the_id() {
+        let id = GameId::from_uuid(uuid::Uuid::from_u128(7));
+        let err = no_game(id);
+        assert_eq!(err.code, ErrorCode::LibGameNotFound);
+        assert_eq!(err.context_value("game"), Some(id.to_string().as_str()));
+    }
 }

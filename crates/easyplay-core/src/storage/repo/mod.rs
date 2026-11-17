@@ -1,10 +1,8 @@
-//! Repositories: one trait per aggregate, implemented once for every [`Store`] (DATA_MODEL
-//! §6, MODULES §4).
+//! Repositories: one trait per aggregate, implemented once for every [`Store`] (DATA_MODEL §6,
+//! MODULES §4, ADR-0017).
 //!
-//! Row structs (deriving `ormlite::Model` where the table has a single-column key) are
-//! private to the files of this module and are converted to and from `model` types here.
-//! Methods that write several rows are atomic; inside a [`Tx`](super::Tx) they nest as
-//! savepoints. Repositories enforce constraints and count limits, never business rules.
+//! Row structs are private to this module's files and converted to `model` types there.
+//! Repositories enforce constraints and count limits, never business rules.
 
 mod artwork;
 mod executables;
@@ -34,37 +32,25 @@ use crate::model::{
     SessionState, Sha256, SlrVariant, Store as GameStore, Tag, TagColor,
 };
 
-// ---- Public record types -----------------------------------------------------------------
-
 /// A stored game as read from the database. The JSON documents are kept as results so that
 /// one unreadable document disables only that game (LOGIC_SPECS §15).
 #[derive(Clone, Debug, PartialEq)]
 pub struct GameRecord {
-    /// Identifier.
     pub id: GameId,
-    /// Display name.
     pub name: String,
-    /// Sort key.
     pub sort_name: String,
     /// Whether the user edited the name.
     pub name_is_user_set: bool,
-    /// Game folder.
     pub root: Option<PathBuf>,
-    /// When it was added.
     pub added_at: Timestamp,
-    /// Last change.
     pub updated_at: Timestamp,
     /// Soft-delete marker (LOGIC_SPECS §11 "Detach").
     pub deleted_at: Option<Timestamp>,
-    /// Favourite.
     pub favorite: bool,
-    /// Hidden.
     pub hidden: bool,
-    /// Notes.
     pub notes: String,
     /// The policy document, upgraded in memory if it was older.
     pub policy: Result<SandboxPolicy, crate::model::DocError>,
-    /// When the policy last changed.
     pub policy_updated_at: Timestamp,
     /// The launch document, upgraded in memory if it was older.
     pub launch: Result<LaunchConfig, crate::model::DocError>,
@@ -72,19 +58,14 @@ pub struct GameRecord {
     pub umu_id: Option<String>,
     /// umu `STORE`.
     pub store: Option<GameStore>,
-    /// Compatibility layer.
     pub runtime: RuntimeRef,
     /// Whether a channel reference follows new builds.
     pub runtime_follow_updates: bool,
-    /// Last resolution.
     pub runtime_last_resolved: Option<RuntimeName>,
-    /// Prefix taint time.
     pub prefix_tainted_at: Option<Timestamp>,
     /// Build the prefix was prepared with.
     pub prefix_prepared_with: Option<RuntimeName>,
-    /// Flags.
     pub flags: GameFlags,
-    /// Last launch.
     pub last_launched_at: Option<Timestamp>,
     /// Steam app ID for artwork (ADR-0018).
     pub steam_app_id: Option<u32>,
@@ -148,11 +129,9 @@ impl GameRecord {
 pub struct LibraryRows {
     /// Games ordered by `sort_name`, executables attached.
     pub games: Vec<GameRecord>,
-    /// All tags by name.
     pub tags: Vec<Tag>,
     /// `game_tags` links.
     pub game_tags: Vec<(GameId, TagId)>,
-    /// Artwork rows.
     pub artwork: Vec<ArtworkRef>,
     /// `game_stats` rows.
     pub stats: Vec<GameStats>,
@@ -164,37 +143,25 @@ pub struct LibraryRows {
 #[derive(Clone, Debug, Default, PartialEq)]
 #[allow(clippy::option_option)]
 pub struct GamePatch {
-    /// Name.
     pub name: Option<String>,
     /// Sort key (derived from `name` when `None` and `name` is set).
     pub sort_name: Option<String>,
-    /// Name edited by the user.
     pub name_is_user_set: Option<bool>,
-    /// Game folder.
     pub root: Option<Option<PathBuf>>,
-    /// Favourite.
     pub favorite: Option<bool>,
-    /// Hidden.
     pub hidden: Option<bool>,
-    /// Notes.
     pub notes: Option<String>,
-    /// Policy.
     pub policy: Option<SandboxPolicy>,
-    /// Launch configuration.
     pub launch: Option<LaunchConfig>,
     /// umu `GAMEID`.
     pub umu_id: Option<Option<String>>,
     /// umu `STORE`.
     pub store: Option<Option<GameStore>>,
-    /// Compatibility layer.
     pub runtime: Option<RuntimeRef>,
-    /// Follow updates.
     pub runtime_follow_updates: Option<bool>,
-    /// Last resolution.
     pub runtime_last_resolved: Option<Option<RuntimeName>>,
     /// Build the prefix was prepared with.
     pub prefix_prepared_with: Option<Option<RuntimeName>>,
-    /// Flags.
     pub flags: Option<GameFlags>,
     /// Steam app ID for artwork (`Some(None)` clears it).
     pub steam_app_id: Option<Option<u32>>,
@@ -208,17 +175,12 @@ pub type NewSession = Session;
 /// The end of a session, decided by the caller (`stats::recorder`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionClose {
-    /// Session.
     pub id: SessionId,
     /// End (wall clock).
     pub ended_at: Timestamp,
-    /// Monotonic duration.
     pub duration_ms: u64,
-    /// Why it ended.
     pub end_reason: EndReason,
-    /// Raw exit status.
     pub exit_status: Option<i32>,
-    /// Whether it counts towards statistics.
     pub counted: bool,
     /// The duration split into local days (`stats::rollup::split`); used only when counted.
     pub pieces: Vec<PlaytimePiece>,
@@ -229,7 +191,6 @@ pub struct SessionClose {
 pub struct PlaytimePiece {
     /// Local date `YYYYMMDD`.
     pub day: u32,
-    /// Milliseconds on that day.
     pub ms: u64,
     /// Whether the session started on that day.
     pub starts_here: bool,
@@ -247,7 +208,6 @@ pub enum CloseOutcome {
     },
     /// The row was already closed by someone else; nothing changed.
     AlreadyClosed,
-    /// No such session.
     NotFound,
 }
 
@@ -256,13 +216,10 @@ pub enum CloseOutcome {
 pub struct SessionEvent {
     /// Row key (assigned by the database; ignored on insert).
     pub id: i64,
-    /// Session.
     pub session_id: SessionId,
-    /// When.
     pub at: Timestamp,
     /// `phase`, `state`, `stop_requested`, `error`, `note`.
     pub kind: String,
-    /// JSON payload.
     pub data_json: String,
 }
 
@@ -271,41 +228,30 @@ pub struct SessionEvent {
 pub struct DailyPlaytime {
     /// Local date `YYYYMMDD`.
     pub day: u32,
-    /// Milliseconds.
     pub ms: u64,
-    /// Sessions started that day.
     pub sessions: u32,
 }
 
 /// A `slr_installs` row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SlrInstall {
-    /// Variant.
     pub variant: SlrVariant,
-    /// Installed version.
     pub version: String,
-    /// Directory.
     pub path: PathBuf,
-    /// Platform directory name.
     pub platform_dir: PathBuf,
     /// Tree hash of the integrity manifest.
     pub manifest_tree_sha256: Option<Sha256>,
-    /// When the manifest was built.
     pub manifest_built_at: Option<Timestamp>,
-    /// Size on disk.
     pub size_bytes: Option<u64>,
 }
 
 /// A `runtime_audit` row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuditState {
-    /// Variant.
     pub variant: SlrVariant,
     /// An audit is pending (set by supervisors after untrusted sessions).
     pub pending: bool,
-    /// Last audit run.
     pub last_run_at: Option<Timestamp>,
-    /// Last clean result.
     pub last_clean_at: Option<Timestamp>,
     /// `clean`, `tampered` or `missing`.
     pub last_result: Option<String>,
@@ -316,13 +262,11 @@ pub struct AuditState {
 pub struct RuntimeEvent {
     /// Row key (assigned by the database; ignored on insert).
     pub id: i64,
-    /// When.
     pub at: Timestamp,
     /// Variant, if the event concerns one.
     pub variant: Option<SlrVariant>,
     /// `provisioned`, `updated`, `audit_clean`, `audit_tampered`, `quarantined`, `removed`.
     pub kind: String,
-    /// JSON summary.
     pub summary_json: String,
 }
 
@@ -350,8 +294,6 @@ impl MetaKey {
         }
     }
 }
-
-// ---- Traits ------------------------------------------------------------------------------
 
 /// Games (`games`) and the library snapshot.
 pub trait GameRepo {
@@ -389,7 +331,6 @@ pub trait ExecutableRepo {
     fn update_executable(&mut self, exe: &Executable) -> StorageResult<()>;
     /// Remove an executable; the primary cannot be removed.
     fn remove_executable(&mut self, id: ExecutableId) -> StorageResult<bool>;
-    /// An executable and its game.
     fn executable(&mut self, id: ExecutableId) -> StorageResult<Option<(GameId, Executable)>>;
     /// Executables of a game, primary first.
     fn executables_of(&mut self, game: GameId) -> StorageResult<Vec<Executable>>;
@@ -418,13 +359,11 @@ pub trait TagRepo {
     fn tags_with_counts(&mut self) -> StorageResult<Vec<(Tag, u32)>>;
     /// Rename; fails with `DuplicateTag` when another tag has the name (merge instead).
     fn rename_tag(&mut self, id: TagId, name: &TagName) -> StorageResult<()>;
-    /// Change the colour.
     fn set_tag_color(&mut self, id: TagId, color: TagColor) -> StorageResult<()>;
     /// Move every link of `from` to `into` and delete `from`; returns the games affected.
     fn merge_tags(&mut self, from: TagId, into: TagId) -> StorageResult<u32>;
     /// Delete a tag; returns the number of games it was removed from.
     fn delete_tag(&mut self, id: TagId) -> StorageResult<u32>;
-    /// Tags of a game.
     fn tags_of(&mut self, game: GameId) -> StorageResult<Vec<TagId>>;
     /// Replace a game's tags atomically (at most 16).
     fn set_game_tags(&mut self, game: GameId, tags: &[TagId]) -> StorageResult<()>;
@@ -437,9 +376,7 @@ pub trait TagRepo {
 pub trait ArtworkRepo {
     /// Insert or replace the picture of a slot.
     fn upsert_artwork(&mut self, art: &ArtworkRef) -> StorageResult<()>;
-    /// Pictures of a game.
     fn artwork_of(&mut self, game: GameId) -> StorageResult<Vec<ArtworkRef>>;
-    /// Remove a slot's picture.
     fn delete_artwork(&mut self, game: GameId, slot: ArtSlot) -> StorageResult<bool>;
     /// Every hash referenced by a row.
     fn referenced_artwork_hashes(&mut self) -> StorageResult<BTreeSet<Sha256>>;
@@ -449,9 +386,7 @@ pub trait ArtworkRepo {
 
 /// Sessions (`sessions`, `session_events`).
 pub trait SessionRepo {
-    /// Insert a new session row.
     fn insert_session(&mut self, session: &Session) -> StorageResult<()>;
-    /// A session by ID.
     fn session(&mut self, id: SessionId) -> StorageResult<Option<Session>>;
     /// Change the state of an open session; `false` if it is ended or unknown.
     fn set_session_state(&mut self, id: SessionId, state: SessionState) -> StorageResult<bool>;
@@ -481,7 +416,6 @@ pub trait SessionRepo {
     /// Delete a session; if it was counted, subtract it (with its `pieces`) from the
     /// aggregates and recompute `longest_ms`, `first_played_at`, `last_played_at`.
     fn delete_session(&mut self, id: SessionId, pieces: &[PlaytimePiece]) -> StorageResult<bool>;
-    /// Append an event.
     fn add_session_event(
         &mut self,
         session: SessionId,
@@ -497,7 +431,6 @@ pub trait SessionRepo {
 
 /// Aggregates (`game_stats`, `playtime_daily`).
 pub trait StatsRepo {
-    /// The aggregates of one game.
     fn game_stats(&mut self, game: GameId) -> StorageResult<Option<GameStats>>;
     /// Every `game_stats` row.
     fn all_game_stats(&mut self) -> StorageResult<Vec<GameStats>>;
@@ -544,17 +477,12 @@ pub trait RuntimeRepo {
     ) -> StorageResult<()>;
     /// The catalogue ordered by family and version key, newest first.
     fn runtimes(&mut self) -> StorageResult<Vec<RuntimeBuild>>;
-    /// One build.
     fn runtime(&mut self, name: &RuntimeName) -> StorageResult<Option<RuntimeBuild>>;
-    /// Record use by a launch.
     fn set_runtime_last_used(&mut self, name: &RuntimeName, at: Timestamp) -> StorageResult<bool>;
     /// Insert or replace an SLR install.
     fn put_slr_install(&mut self, install: &SlrInstall) -> StorageResult<()>;
-    /// All SLR installs.
     fn slr_installs(&mut self) -> StorageResult<Vec<SlrInstall>>;
-    /// Remove an SLR install.
     fn delete_slr_install(&mut self, variant: SlrVariant) -> StorageResult<bool>;
-    /// Audit state of a variant.
     fn audit_state(&mut self, variant: SlrVariant) -> StorageResult<Option<AuditState>>;
     /// Mark an audit pending (supervisors).
     fn set_audit_pending(&mut self, variant: SlrVariant) -> StorageResult<()>;
@@ -565,9 +493,7 @@ pub trait RuntimeRepo {
         at: Timestamp,
         result: &str,
     ) -> StorageResult<()>;
-    /// Append a runtime event.
     fn add_runtime_event(&mut self, event: &RuntimeEvent) -> StorageResult<i64>;
-    /// Newest events first.
     fn runtime_events(&mut self, limit: u64) -> StorageResult<Vec<RuntimeEvent>>;
 }
 
@@ -586,8 +512,6 @@ pub trait KvRepo {
     /// Set a `meta` value.
     fn meta_set(&mut self, key: MetaKey, value: &str) -> StorageResult<()>;
 }
-
-// ---- Conversion helpers shared by the repository files -----------------------------------
 
 pub(crate) fn path_err(e: PathCodecError) -> StorageError {
     StorageError::Decode(format!("path: {e}"))
@@ -735,10 +659,39 @@ pub(crate) async fn exec_args(
             Arg::Blob(v) => q.bind(v.clone()),
         };
     }
-    q.execute(&mut *c)
-        .await
-        .map(|r| r.rows_affected())
-        .map_err(super::db::map_sqlx)
+    Ok(q.execute(&mut *c).await?.rows_affected())
+}
+
+/// Run an `UPDATE`/`DELETE`; whether it changed any row.
+pub(crate) async fn changed(
+    c: &mut super::db::SqlConn,
+    sql: &str,
+    args: &[Arg],
+) -> StorageResult<bool> {
+    Ok(exec_args(c, sql, args).await? > 0)
+}
+
+/// The first row of `T` matching `clause` (one `?` bound to `key`).
+pub(crate) async fn find<T, K>(
+    c: &mut super::db::SqlConn,
+    clause: &'static str,
+    key: K,
+) -> StorageResult<Option<T>>
+where
+    T: ormlite::Model<ormlite::sqlite::Sqlite>
+        + Send
+        + Sync
+        + Unpin
+        + for<'r> ormlite::FromRow<'r, ormlite::sqlite::SqliteRow>
+        + 'static,
+    K: Send
+        + ormlite::types::Type<ormlite::sqlite::Sqlite>
+        + for<'q> ormlite::Encode<'q, ormlite::sqlite::Sqlite>,
+{
+    Ok(T::select()
+        .where_bind(clause, key)
+        .fetch_optional(&mut *c)
+        .await?)
 }
 
 /// Run a closure on the store's connection (shorthand used by every repository file).

@@ -19,15 +19,8 @@ use crate::library::{RemoveFiles, RemoveJob, RemoveOptions, ResetOptions};
 use crate::model::{PromptAnswer, PromptKind};
 
 impl AppService {
-    fn running_session(&self, id: GameId) -> Option<crate::ids::SessionId> {
-        self.sessions
-            .values()
-            .find(|s| s.game_id == Some(id))
-            .map(|s| s.id)
-    }
-
     pub(crate) fn remove_game(&mut self, id: GameId, options: RemoveOptions) {
-        if self.running_session(id).is_some() || self.launching.contains_key(&id) {
+        if self.is_busy(id) {
             let req = self.prompts.park(
                 &*self.deps.clock,
                 PromptKind::RemoveRunningGame { game: id },
@@ -95,7 +88,7 @@ impl AppService {
     }
 
     pub(crate) fn reset_prefix(&mut self, id: GameId, options: ResetOptions) {
-        if self.running_session(id).is_some() || self.launching.contains_key(&id) {
+        if self.is_busy(id) {
             return self.fail(Error::new(ErrorCode::SesAlreadyRunning).with("game", id));
         }
         if let Err(e) = self.lib.begin_flow(id) {

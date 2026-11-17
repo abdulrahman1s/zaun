@@ -6,7 +6,6 @@ use super::tags::MAX_TAGS_PER_GAME;
 use super::{Arg, conn, exec_args, ts};
 use crate::clock::Timestamp;
 use crate::ids::TagId;
-use crate::storage::db::map_sqlx;
 use crate::storage::{StorageError, StorageResult, Store};
 
 /// One Steam game's row with its tags.
@@ -67,14 +66,12 @@ impl<S: Store + ?Sized> SteamRepo for S {
                  FROM steam_games ORDER BY app_id",
             )
             .fetch_all(&mut *c)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
             let tags: Vec<(i64, i64)> = ormlite::query_as(
                 "SELECT app_id, tag_id FROM steam_game_tags ORDER BY app_id, tag_id",
             )
             .fetch_all(&mut *c)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
             Ok(rows
                 .into_iter()
                 .filter_map(|(id, seen, upd, fav, hid, notes)| {

@@ -2,9 +2,8 @@
 
 use ormlite::Model;
 
-use super::{Arg, KvRepo, MetaKey, conn, exec_args};
+use super::{Arg, KvRepo, MetaKey, changed, conn, exec_args, find};
 use crate::clock::Timestamp;
-use crate::storage::db::{map_orm, map_sqlx};
 use crate::storage::{StorageResult, Store};
 
 /// A `kv` row.
@@ -29,14 +28,8 @@ struct MetaRow {
 impl<S: Store + ?Sized> KvRepo for S {
     fn kv_get(&mut self, key: &str) -> StorageResult<Option<String>> {
         let key = key.to_owned();
-        conn(self).run(async move |c| {
-            Ok(KvRow::select()
-                .where_bind("key = ?", key)
-                .fetch_optional(&mut *c)
-                .await
-                .map_err(map_orm)?
-                .map(|r| r.value))
-        })
+        conn(self)
+            .run(async move |c| Ok(find::<KvRow, _>(c, "key = ?", key).await?.map(|r| r.value)))
     }
 
     fn kv_set(&mut self, key: &str, value: &str, now: Timestamp) -> StorageResult<()> {
@@ -55,11 +48,7 @@ impl<S: Store + ?Sized> KvRepo for S {
 
     fn kv_delete(&mut self, key: &str) -> StorageResult<bool> {
         let args = [Arg::text(key)];
-        conn(self).atomic(async move |c| {
-            exec_args(c, "DELETE FROM kv WHERE key = ?", &args)
-                .await
-                .map(|n| n > 0)
-        })
+        conn(self).atomic(async move |c| changed(c, "DELETE FROM kv WHERE key = ?", &args).await)
     }
 
     fn kv_with_prefix(&mut self, prefix: &str) -> StorageResult<Vec<(String, String)>> {
@@ -70,8 +59,7 @@ impl<S: Store + ?Sized> KvRepo for S {
                     .bind(prefix.clone())
                     .bind(prefix)
                     .fetch_all(&mut *c)
-                    .await
-                    .map_err(map_sqlx)?
+                    .await?
                     .into_iter()
                     .map(|r| (r.key, r.value))
                     .collect(),
@@ -81,11 +69,8 @@ impl<S: Store + ?Sized> KvRepo for S {
 
     fn meta_get(&mut self, key: MetaKey) -> StorageResult<Option<String>> {
         conn(self).run(async move |c| {
-            Ok(MetaRow::select()
-                .where_bind("key = ?", key.as_str())
-                .fetch_optional(&mut *c)
-                .await
-                .map_err(map_orm)?
+            Ok(find::<MetaRow, _>(c, "key = ?", key.as_str())
+                .await?
                 .map(|r| r.value))
         })
     }

@@ -30,7 +30,7 @@ use crate::artwork::http::HttpClient;
 use crate::artwork::steam::{AppIdFile, AttemptTracker};
 use crate::artwork::{ArtIndex, IconSource, ImageCodec};
 use crate::clock::Clock;
-use crate::config::{LoadOptions, Preferences};
+use crate::config::Preferences;
 use crate::error::catalog::{self, DescribeCtx};
 use crate::error::{Error, ErrorCode, UserError};
 use crate::fsx::{Fs, MountTable};
@@ -38,10 +38,9 @@ use crate::host::{HostFacts, HostProbe};
 use crate::identity::SharedLocations;
 use crate::identity::pe::PeInspector;
 use crate::ids::{GameId, LaunchId, SessionId};
-use crate::jobs::{JobLabel, JobPool, JobPriority};
+use crate::jobs::JobPool;
 use crate::launch::{HostEnv, PrefixLocks};
 use crate::library::draft::UmuTitleMatch;
-use crate::library::service::HostPolicyCheck;
 use crate::library::{DefaultRuntimeInfo, GameDraft, Library, LibraryDeps, PolicyCheck};
 use crate::model::{Activity, EnvVar, Game, UserDir};
 use crate::paths::AppPaths;
@@ -62,23 +61,16 @@ pub type Waker = Arc<dyn Fn() + Send + Sync>;
 /// Process-wide planning inputs, owned (the borrowed [`HostEnv`] is built per launch).
 #[derive(Clone, Debug)]
 pub struct LaunchEnv {
-    /// User ID.
     pub uid: u32,
-    /// Primary group ID.
     pub gid: u32,
-    /// User name.
     pub user_name: String,
-    /// Primary group name.
     pub group_name: String,
-    /// Real home.
     pub home: PathBuf,
     /// The launcher's environment.
     pub host_env: BTreeMap<String, String>,
     /// Host path of `easyplay-init`.
     pub init_binary: PathBuf,
-    /// Mount table.
     pub mounts: MountTable,
-    /// XDG user directories.
     pub user_dirs: Vec<(UserDir, PathBuf)>,
     /// A seccomp program can be built.
     pub seccomp_available: bool,
@@ -119,33 +111,22 @@ impl LaunchEnv {
 
 /// Every seam the service uses, injected at construction (ARCHITECTURE §7).
 pub struct ServiceDeps {
-    /// Filesystem.
     pub fs: Arc<dyn Fs>,
-    /// Time.
     pub clock: Arc<dyn Clock>,
-    /// Locations.
     pub paths: AppPaths,
-    /// Job pool.
     pub jobs: Arc<JobPool>,
-    /// `/proc`.
     pub proc: Arc<dyn ProcSource>,
-    /// Starts and stops supervisors.
     pub launcher: Arc<dyn SessionLauncher>,
     /// Prefix lock probe.
     pub locks: Arc<dyn PrefixLocks>,
-    /// Compatibility layers.
     pub runtimes: Arc<dyn RuntimeService>,
-    /// Host facts.
     pub host: Arc<dyn HostProbe>,
-    /// PE reader.
     pub pe: Arc<dyn PeInspector>,
     /// Icon extraction for drafts.
     pub icons: Arc<dyn IconSource>,
     /// Image codec; `None` = no artwork is stored.
     pub codec: Option<Arc<dyn ImageCodec>>,
-    /// Planning inputs.
     pub launch_env: LaunchEnv,
-    /// Preferences as loaded.
     pub prefs: Preferences,
     /// Desktop integration (handler, shortcuts, opening folders); `None` disables it.
     pub desktop: Option<Arc<crate::desktop::DesktopServices>>,
@@ -201,7 +182,6 @@ pub(crate) enum Internal {
 /// The handle the UI (and the IPC listener) holds.
 pub struct ServiceHandle {
     tx: Sender<Msg>,
-    /// The snapshots.
     pub hub: Arc<SnapshotHub>,
     /// Policy explanations for the UI thread (`Backend::assess`).
     pub explainer: Arc<super::explainer::Explainer>,
@@ -278,7 +258,7 @@ impl std::fmt::Debug for CommandSender {
 
 /// A host-dependent policy check that becomes real once the host facts arrive.
 pub(crate) struct HostCheckCell {
-    inner: Mutex<Option<Arc<dyn PolicyCheck>>>,
+    pub(super) inner: Mutex<Option<Arc<dyn PolicyCheck>>>,
 }
 
 impl PolicyCheck for HostCheckCell {
@@ -335,13 +315,13 @@ pub struct AppService {
     pub(super) flow: super::flows::FlowState,
     sessions_rev: u64,
     pub(super) stopping: bool,
-    headless_rx: Option<Receiver<Msg>>,
+    pub(super) headless_rx: Option<Receiver<Msg>>,
     /// The salvaged library waiting for "Use the repaired library" (recovery mode).
     pub(super) repaired_db: Option<PathBuf>,
 }
 
 /// The library's dependencies from the service's.
-fn lib_deps(deps: &ServiceDeps, check: &Arc<HostCheckCell>) -> LibraryDeps {
+pub(super) fn lib_deps(deps: &ServiceDeps, check: &Arc<HostCheckCell>) -> LibraryDeps {
     LibraryDeps {
         fs: Arc::clone(&deps.fs),
         clock: Arc::clone(&deps.clock),
@@ -365,7 +345,7 @@ pub fn open_db(fs: &dyn Fs, paths: &AppPaths, clock: &dyn Clock) -> Result<Db, E
         now: clock.now(),
     };
     match db.migrate(&opts)? {
-        MigrationOutcome::RefusedNewer { .. } => Err(Error::new(ErrorCode::DbNewerVersion)),
+        MigrationOutcome::RefusedNewer { .. } => Err(err!(DbNewerVersion)),
         _ => Ok(db),
     }
 }
@@ -403,7 +383,7 @@ impl AppService {
         ))
     }
 
-    fn open(
+    pub(super) fn open(
         deps: ServiceDeps,
         tx: Sender<Msg>,
         events: Sender<Event>,
@@ -488,7 +468,7 @@ impl AppService {
     }
 
     /// The rest of the start-up sequence (on the service thread).
-    fn after_start(&mut self) {
+    pub(super) fn after_start(&mut self) {
         let keep_history = self.prefs.statistics.keep_history_of_removed;
         if let Err(e) = self
             .lib
@@ -576,8 +556,6 @@ impl AppService {
         self.emit(Event::QuitRequested);
     }
 
-    // ---- plumbing -----------------------------------------------------------------------
-
     /// Post a message to the loop from a job.
     pub(super) fn poster(&self) -> impl Fn(Internal) + Send + Sync + 'static {
         let tx = self.tx.clone();
@@ -643,13 +621,6 @@ impl AppService {
         self.sync_shortcuts();
     }
 
-    pub(crate) fn after_library_edit(&mut self, r: Result<(), Error>) {
-        match r {
-            Ok(()) => self.publish_library(),
-            Err(e) => self.fail(e),
-        }
-    }
-
     pub(super) fn publish_sessions(&mut self) {
         self.sessions_rev += 1;
         let snap = ActiveSessions {
@@ -694,355 +665,20 @@ impl AppService {
         self.refresh_accents(Some(&[id]));
     }
 
+    /// The open session of game `id`, if any.
+    pub(super) fn running_session(&self, id: GameId) -> Option<SessionId> {
+        self.sessions
+            .values()
+            .find(|s| s.game_id == Some(id))
+            .map(|s| s.id)
+    }
+
+    /// Whether game `id` has a session open or a launch under way.
+    pub(super) fn is_busy(&self, id: GameId) -> bool {
+        self.running_session(id).is_some() || self.launching.contains_key(&id)
+    }
+
     pub(super) fn set_activity(&mut self, id: GameId, a: Activity) {
         self.lib.set_activity(id, a);
-    }
-
-    // ---- game page (UI seam) ------------------------------------------------------------
-
-    pub(super) fn update_game(&mut self, id: GameId, edits: Vec<super::command::GameEdit>) {
-        use super::command::GameEdit as E;
-        let mut patch = crate::storage::GamePatch::default();
-        let mut program_edits = Vec::new();
-        for e in edits {
-            match e {
-                E::Name(n) => {
-                    patch.name = Some(n);
-                    patch.name_is_user_set = Some(true);
-                }
-                E::Notes(n) => patch.notes = Some(n),
-                E::Policy(p) => {
-                    let mut p = *p;
-                    p.preset = crate::sandbox::classify(&p);
-                    patch.policy = Some(p);
-                }
-                E::Launch(l) => patch.launch = Some(*l),
-                E::Runtime { reference, follow } => {
-                    patch.runtime = Some(reference);
-                    patch.runtime_follow_updates = Some(follow);
-                }
-                E::UmuId(u) => patch.umu_id = Some(u),
-                E::SteamAppId(a) => {
-                    patch.steam_app_id = Some(a);
-                    patch.steam_app_id_is_user_set = Some(a.is_some());
-                }
-                E::ResetName => match self.lib.game(id) {
-                    Ok(g) => {
-                        let Some(exe) = g.primary() else { continue };
-                        let n = crate::identity::naming::derive_name(
-                            &exe.pe,
-                            g.root.as_deref(),
-                            &exe.canonical_path,
-                        );
-                        patch.sort_name = Some(crate::identity::naming::sort_name(&n));
-                        patch.name = Some(n);
-                        patch.name_is_user_set = Some(false);
-                    }
-                    Err(e) => return self.fail(e),
-                },
-                E::Kind(k) => {
-                    let flags = match patch.flags {
-                        Some(f) => f,
-                        None => match self.lib.game(id) {
-                            Ok(g) => g.flags,
-                            Err(e) => return self.fail(e),
-                        },
-                    };
-                    patch.flags = Some(crate::library::with_entry_kind(flags, k));
-                }
-                E::ExeRole(..) | E::ExeLabel(..) | E::ExeArgs(..) | E::RemoveExe(_) => {
-                    program_edits.push(e);
-                }
-                E::Preset(b) => {
-                    let base = match patch.policy.take() {
-                        Some(p) => p,
-                        None => match self.lib.game(id) {
-                            Ok(g) => g.policy,
-                            Err(e) => return self.fail(e),
-                        },
-                    };
-                    let host = self
-                        .host
-                        .as_deref()
-                        .cloned()
-                        .unwrap_or_else(|| HostFacts::empty(self.deps.clock.now()));
-                    patch.policy = Some(crate::sandbox::apply_preset(&base, b, &host));
-                }
-            }
-        }
-        let mut r = if patch == crate::storage::GamePatch::default() {
-            Ok(())
-        } else {
-            self.lib.update(id, patch).map(|_| ())
-        };
-        for e in program_edits {
-            if r.is_err() {
-                break;
-            }
-            r = match e {
-                E::ExeRole(x, role) => self.lib.set_program_role(id, x, role),
-                E::ExeLabel(x, label) => self.lib.set_program_label(id, x, label),
-                E::ExeArgs(x, args) => self.lib.set_program_args(id, x, args),
-                E::RemoveExe(x) => self.lib.remove_program(id, x),
-                _ => Ok(()),
-            };
-        }
-        self.after_library_edit(r);
-    }
-
-    pub(super) fn load_game(&mut self, id: GameId, reply_to: crate::ids::QueryId) {
-        let result = match self.lib.game(id) {
-            Ok(g) => super::event::QueryResult::Game(Box::new(g)),
-            Err(e) => super::event::QueryResult::Failed(Box::new(self.describe(&e, Some(id)))),
-        };
-        self.emit(Event::QueryResult {
-            id: reply_to,
-            result,
-        });
-    }
-
-    pub(super) fn query_stats(
-        &mut self,
-        req: &crate::stats::StatsRequest,
-        reply_to: crate::ids::QueryId,
-    ) {
-        use crate::stats::StatsRequest as R;
-        let now = self.deps.clock.now();
-        // The UI computes ranges in local time; their end date is "today" for streaks.
-        let today = match req {
-            R::LibraryOverview { range }
-            | R::GameOverview { range, .. }
-            | R::TopGames { range, .. }
-            | R::WeekdayDistribution { range } => Some(range.to),
-            R::SessionHistory { .. } => None,
-        }
-        .or_else(|| crate::stats::rollup::key_date(crate::stats::rollup::local_day(now, 0)));
-        let Some(today) = today else {
-            return;
-        };
-        let week_start = match self.prefs.statistics.week_starts_on {
-            crate::config::schema::WeekStart::Sunday => jiff::civil::Weekday::Sunday,
-            _ => jiff::civil::Weekday::Monday,
-        };
-        let ctx = crate::stats::QueryContext { today, week_start };
-        // Off the service thread (PERFORMANCE §2): a read-only connection on the job pool.
-        let db = Arc::clone(&self.flow.stats_db);
-        let file = self.deps.paths.db_file.clone();
-        let req = req.clone();
-        let post = self.poster();
-        let _ = self.deps.jobs.submit(
-            JobPriority::Interactive,
-            JobLabel("stats-query"),
-            move |_| {
-                let mut guard = db.lock().unwrap_or_else(PoisonError::into_inner);
-                if guard.is_none() {
-                    match crate::storage::ReadDb::open(&file) {
-                        Ok(d) => *guard = Some(d),
-                        Err(e) => tracing::warn!(error = %e, "statistics connection failed"),
-                    }
-                }
-                let result = match guard.as_mut() {
-                    Some(d) => crate::stats::queries::run(d, &ctx, &req).map_err(Error::from),
-                    None => Err(Error::new(ErrorCode::DbBusy)),
-                };
-                let result = match result {
-                    Ok(r) => super::event::QueryResult::Stats(r),
-                    Err(e) => {
-                        let redact = |s: &str| s.to_owned();
-                        let u = catalog::describe(
-                            &e,
-                            &DescribeCtx {
-                                game: None,
-                                session: None,
-                                redact: &redact,
-                            },
-                        );
-                        super::event::QueryResult::Failed(Box::new(u))
-                    }
-                };
-                post(Internal::Flow(Box::new(super::flows::FlowDone::Query {
-                    id: reply_to,
-                    result,
-                })));
-            },
-        );
-    }
-
-    // ---- host and preferences (SVC-009) -----------------------------------------------
-
-    pub(super) fn probe_host(&self, fresh: bool) {
-        let host = Arc::clone(&self.deps.host);
-        let post = self.poster();
-        let _ = self.deps.jobs.submit(
-            JobPriority::Interactive,
-            JobLabel("host-probe"),
-            move |_| {
-                let f = if fresh { host.refresh() } else { host.facts() };
-                post(Internal::HostFacts(f));
-            },
-        );
-    }
-
-    pub(super) fn on_host_facts(&mut self, f: Arc<HostFacts>) {
-        self.host = Some(Arc::clone(&f));
-        self.install_policy_check();
-        self.hub.host.store(Arc::new(Some((*f).clone())));
-        self.emit(Event::HostFactsChanged);
-        // The full Doctor report follows the first probe and every re-probe.
-        self.run_doctor();
-    }
-
-    /// The host-dependent policy check, with the current Developer Mode preference (called
-    /// when the host facts or the preference change).
-    pub(super) fn install_policy_check(&mut self) {
-        let Some(f) = self.host.clone() else { return };
-        if self.deps.policy_check.is_none() {
-            let e = &self.deps.launch_env;
-            let c = HostPolicyCheck {
-                fs: Arc::clone(&self.deps.fs),
-                mounts: e.mounts.clone(),
-                paths: self.deps.paths.clone(),
-                host: (*f).clone(),
-                home: e.home.clone(),
-                uid: e.uid,
-                user_name: e.user_name.clone(),
-                user_dirs: e.user_dirs.clone(),
-                developer_mode: self.prefs.advanced.developer_mode,
-                global_env: self.prefs.launch.global_env.clone(),
-            };
-            *self
-                .check
-                .inner
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(c));
-        }
-    }
-
-    pub(super) fn set_preference(&mut self, patch: &crate::config::PreferencePatch) {
-        let next = match self
-            .prefs
-            .apply(patch, &*self.deps.fs, &LoadOptions { env_rule: None })
-        {
-            Ok(p) => p,
-            Err(e) => return self.fail(e.into()),
-        };
-        if let Err(e) = crate::config::save(&*self.deps.fs, &self.deps.paths.config_file, &next) {
-            return self.fail(e.into());
-        }
-        let recheck = self.prefs.advanced.developer_mode != next.advanced.developer_mode
-            || self.prefs.launch.global_env != next.launch.global_env;
-        self.prefs = next.clone();
-        self.hub.prefs.store(Arc::new(next));
-        if recheck {
-            self.install_policy_check();
-        }
-        self.emit(Event::PreferencesChanged);
-        self.steam_preference_changed();
-        self.chat_preference_changed();
-    }
-
-    // ---- headless use ------------------------------------------------------------------
-
-    /// The service without a thread, for the headless CLI and tests: start-up runs, then
-    /// the caller drives [`AppService::handle`] and [`AppService::pump`]. No watcher.
-    pub fn open_headless(mut deps: ServiceDeps) -> Result<(Self, Receiver<Event>), Error> {
-        deps.watch_sessions = false;
-        let (tx, rx) = channel::<Msg>();
-        let (ev_tx, ev_rx) = channel::<Event>();
-        let mut svc = Self::open(deps, tx, ev_tx, Arc::new(Mutex::new(None)))?;
-        svc.headless_rx = Some(rx);
-        svc.after_start();
-        Ok((svc, ev_rx))
-    }
-
-    /// Headless: handle the next internal message (job completion), waiting at most
-    /// `timeout`. Returns whether one was handled.
-    pub fn pump(&mut self, timeout: std::time::Duration) -> bool {
-        let Some(rx) = self.headless_rx.take() else {
-            return false;
-        };
-        let got = match rx.recv_timeout(timeout) {
-            Ok(Msg::Internal(i)) => {
-                self.handle_internal(i);
-                true
-            }
-            Ok(Msg::Cmd(c)) => {
-                self.handle(c);
-                true
-            }
-            Err(_) => false,
-        };
-        self.headless_rx = Some(rx);
-        got
-    }
-
-    /// Headless: feed a watcher poll by hand (tests; the CLI waits through the database).
-    pub fn poll_sessions_now(&mut self) {
-        let mut tracked: std::collections::BTreeSet<SessionId> =
-            self.launches.keys().copied().collect();
-        if let Some(p) = super::session_watch::poll(self.lib.db_mut(), &mut tracked) {
-            self.on_sessions(p);
-        }
-    }
-
-    /// The current snapshots.
-    pub fn hub(&self) -> &Arc<SnapshotHub> {
-        &self.hub
-    }
-
-    /// The library (headless read access).
-    pub fn library(&mut self) -> &mut Library {
-        &mut self.lib
-    }
-}
-
-// ---- recovery mode (ERR-004) -------------------------------------------------------------
-
-impl AppService {
-    /// `ResolveDatabase`: carry out the choice, reopen the library, leave recovery mode.
-    pub(super) fn resolve_database(&mut self, choice: &super::command::DatabaseChoice) {
-        let damaged = matches!(
-            self.hub
-                .diagnostics
-                .load()
-                .recovery
-                .as_ref()
-                .map(|r| &r.reason),
-            Some(super::snapshot::RecoveryReason::Damaged { .. })
-        );
-        if !damaged {
-            return;
-        }
-        let r = super::recovery::resolve(
-            &*self.deps.fs,
-            &self.deps.paths,
-            &*self.deps.clock,
-            choice,
-            self.repaired_db.as_deref(),
-        );
-        let (db, how) = match r {
-            Ok(v) => v,
-            Err(e) => return self.fail(e),
-        };
-        self.repaired_db = None;
-        *self
-            .flow
-            .stats_db
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = None;
-        match Library::open(db, lib_deps(&self.deps, &self.check)) {
-            Ok(lib) => self.lib = lib,
-            Err(e) => return self.fail(e),
-        }
-        self.update_diagnostics(|d| d.recovery = None);
-        if let Err(e) = self.lib.sweep_orphans() {
-            tracing::warn!(error = %e, "orphan sweep after recovery failed");
-        }
-        self.refresh_art_index();
-        self.publish_library();
-        self.notice(Notice::LibraryRecovered {
-            how,
-            history_rows_lost: None,
-        });
     }
 }

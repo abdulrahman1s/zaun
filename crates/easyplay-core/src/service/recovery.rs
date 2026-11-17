@@ -1,5 +1,5 @@
-//! Opening the library when it is damaged or cannot be updated (ERR-004; PERSISTENCE §8,
-//! LOGIC_SPECS §15, ERROR_HANDLING §4.12–4.13 and §5).
+//! Opening a damaged or not updatable library, and leaving recovery mode (ERR-004;
+//! PERSISTENCE §8, LOGIC_SPECS §15, ERROR_HANDLING §4.12–4.13 and §5).
 //!
 //! [`open_library`] runs at start-up before anything reads the library:
 //!
@@ -16,17 +16,21 @@
 //! In recovery mode library writes and launches are refused with the recovery error
 //! (`AppService::refuse_in_recovery`); preferences, the Doctor, reports and stopping running
 //! sessions keep working. Running sessions are never affected: their supervisors write
-//! `final.json` if the database rejects their writes.
+//! `final.json` if the database rejects their writes. `AppService::resolve_database` carries
+//! out the user's choice and reopens the library.
 
 use std::path::{Path, PathBuf};
+use std::sync::PoisonError;
 
+use super::app_service::{AppService, lib_deps};
 use super::command::DatabaseChoice;
-use super::event::RecoveredHow;
+use super::event::{Notice, RecoveredHow};
 use super::snapshot::{RecoveryReason, RecoveryState};
 use crate::clock::{Clock, Timestamp};
 use crate::error::catalog::{self, DescribeCtx};
 use crate::error::{Error, ErrorCode};
 use crate::fsx::Fs;
+use crate::library::Library;
 use crate::paths::AppPaths;
 use crate::storage::integrity::{self, IntegrityReport};
 use crate::storage::{Db, LibraryFiles, MigrateOptions, MigrationOutcome, StorageError, backup};
@@ -136,7 +140,7 @@ pub fn open_library(fs: &dyn Fs, paths: &AppPaths, clock: &dyn Clock) -> Result<
                         .as_deref()
                         .map(|r| missing_games(&paths.db_file, r))
                         .unwrap_or_default();
-                    let err = Error::new(ErrorCode::DbCorrupt).with("detail", problem);
+                    let err = err!(DbCorrupt, detail = problem);
                     return Ok(Opened {
                         db: empty_db()?,
                         recovery: Some(RecoveryState {
@@ -167,9 +171,7 @@ pub fn open_library(fs: &dyn Fs, paths: &AppPaths, clock: &dyn Clock) -> Result<
                 reason: RecoveryReason::MigrationFailed { step },
                 error: user(
                     ErrorCode::DbMigrationFailed,
-                    Error::new(ErrorCode::DbMigrationFailed)
-                        .with("step", step)
-                        .with("detail", error),
+                    err!(DbMigrationFailed, step = step, detail = error),
                 ),
             })
         }
@@ -179,9 +181,7 @@ pub fn open_library(fs: &dyn Fs, paths: &AppPaths, clock: &dyn Clock) -> Result<
                 reason: RecoveryReason::NewerVersion,
                 error: user(
                     ErrorCode::DbNewerVersion,
-                    Error::new(ErrorCode::DbNewerVersion)
-                        .with("version", found)
-                        .with("supported", supported),
+                    err!(DbNewerVersion, version = found, supported = supported),
                 ),
             })
         }
@@ -209,17 +209,17 @@ pub fn resolve(
     let how = match choice {
         DatabaseChoice::RestoreBackup(p) => {
             // Only files in the backups folder can be restored from here.
-            if p.parent() != Some(paths.backups_dir.as_path()) {
-                return Err(Error::new(ErrorCode::FsReadDenied)
-                    .with("detail", "not a backup of this library"));
-            }
+            ensure!(
+                p.parent() == Some(paths.backups_dir.as_path()),
+                FsReadDenied,
+                detail = "not a backup of this library"
+            );
             backup::restore(&files, p, now)?;
             RecoveredHow::Restored
         }
         DatabaseChoice::UseRepaired => {
-            let r = repaired.ok_or_else(|| {
-                Error::new(ErrorCode::DbCorrupt).with("detail", "nothing could be repaired")
-            })?;
+            let r =
+                repaired.ok_or_else(|| err!(DbCorrupt, detail = "nothing could be repaired"))?;
             integrity::swap_in(&files, r, now)?;
             RecoveredHow::UsedRepaired
         }
@@ -237,15 +237,52 @@ pub fn resolve(
         now,
     })? {
         MigrationOutcome::Ready | MigrationOutcome::Migrated { .. } => {}
-        other => {
-            return Err(
-                Error::new(ErrorCode::DbMigrationFailed).with("detail", format!("{other:?}"))
-            );
-        }
+        other => bail!(DbMigrationFailed, detail = format!("{other:?}")),
     }
     // Statistics are derived data: rebuild them from the sessions that survived.
     if let Err(e) = crate::stats::rebuild::check_and_repair(&mut db) {
         tracing::warn!("statistics rebuild after recovery failed: {e}");
     }
     Ok((db, how))
+}
+
+impl AppService {
+    /// `ResolveDatabase`: carry out the choice, reopen the library, leave recovery mode.
+    pub(super) fn resolve_database(&mut self, choice: &DatabaseChoice) -> Result<(), Error> {
+        let reason = self
+            .hub
+            .diagnostics
+            .load()
+            .recovery
+            .as_ref()
+            .map(|r| matches!(r.reason, RecoveryReason::Damaged { .. }));
+        if reason != Some(true) {
+            return Ok(());
+        }
+        let (db, how) = resolve(
+            &*self.deps.fs,
+            &self.deps.paths,
+            &*self.deps.clock,
+            choice,
+            self.repaired_db.as_deref(),
+        )?;
+        self.repaired_db = None;
+        *self
+            .flow
+            .stats_db
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        self.lib = Library::open(db, lib_deps(&self.deps, &self.check))?;
+        self.update_diagnostics(|d| d.recovery = None);
+        if let Err(e) = self.lib.sweep_orphans() {
+            tracing::warn!(error = %e, "orphan sweep after recovery failed");
+        }
+        self.refresh_art_index();
+        self.publish_library();
+        self.notice(Notice::LibraryRecovered {
+            how,
+            history_rows_lost: None,
+        });
+        Ok(())
+    }
 }

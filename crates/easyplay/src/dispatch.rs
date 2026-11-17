@@ -21,7 +21,7 @@ use easyplay_core::desktop::instance::{
     self, InstanceTransport, RaiseThen, Request, SocketTransport, StreamEvent, WireOrigin,
 };
 use easyplay_core::paths::{AppPaths, PathEnv};
-use easyplay_core::{Error, ErrorCode};
+use easyplay_core::{Error, ErrorCode, err};
 
 use crate::cli::{Cli, Command, LaunchArgs, exit};
 use crate::{gen_assets, headless, library_verbs, run_gui, run_service, run_supervisor};
@@ -173,9 +173,9 @@ pub fn request_for(cli: &Cli, env: &PathEnv) -> Result<Request, Error> {
             let exe = match exe {
                 Some(a) => {
                     use easyplay_core::storage::GameRepo;
-                    let g = db.game(id)?.ok_or_else(|| {
-                        Error::new(ErrorCode::LibInvalidField).with("detail", "no such game")
-                    })?;
+                    let g = db
+                        .game(id)?
+                        .ok_or_else(|| err!(LibGameNotFound, game = id))?;
                     Some(library_verbs::resolve_exe(&g, a)?.to_string())
                 }
                 None => None,

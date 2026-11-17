@@ -136,7 +136,7 @@ pub fn snapshot_to(store: &mut (impl Store + ?Sized), dest: &Path) -> StorageRes
             .execute(&mut *c)
             .await
             .map(|_| ())
-            .map_err(super::db::map_sqlx);
+            .map_err(StorageError::from);
         if read_only {
             exec(c, "PRAGMA query_only = ON").await?;
         }

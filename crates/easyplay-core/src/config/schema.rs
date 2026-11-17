@@ -11,96 +11,70 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+use super::custom;
 use crate::consts::CONFIG_SCHEMA_VERSION;
 use crate::ids::RuntimeName;
 use crate::model::{BasePreset, EnvVar};
 
-macro_rules! words {
-    ($(#[$m:meta])* $name:ident { $($(#[$vm:meta])* $v:ident = $s:literal),+ $(,)? } default $d:ident) => {
-        $(#[$m])*
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-        pub enum $name {
-            $( $(#[$vm])* #[serde(rename = $s)] $v, )+
-        }
-        impl $name {
-            /// Every value, in documented order.
-            pub const ALL: &'static [$name] = &[$($name::$v),+];
-            /// The word used in `config.toml`.
-            pub const fn as_str(self) -> &'static str {
-                match self { $($name::$v => $s),+ }
-            }
-        }
-        impl Default for $name {
-            fn default() -> Self { $name::$d }
-        }
-        impl FromStr for $name {
-            type Err = ();
-            fn from_str(s: &str) -> Result<Self, ()> {
-                Self::ALL.iter().copied().find(|v| v.as_str().eq_ignore_ascii_case(s)).ok_or(())
-            }
-        }
-    };
-}
-
-words!(
+str_enum!(
     /// `general.close_behavior`.
-    CloseBehavior { Quit = "quit", AskIfRunning = "ask-if-running" } default Quit
+    pub CloseBehavior { Quit = "quit", AskIfRunning = "ask-if-running" } default Quit
 );
-words!(
+str_enum!(
     /// `appearance.theme`.
-    Theme { System = "system", Dark = "dark", Light = "light", HighContrast = "high-contrast" } default System
+    pub Theme { System = "system", Dark = "dark", Light = "light", HighContrast = "high-contrast" } default System
 );
-words!(
+str_enum!(
     /// `appearance.accent`.
-    Accent { Tide = "tide", Ember = "ember", Iris = "iris", Moss = "moss" } default Tide
+    pub Accent { Tide = "tide", Ember = "ember", Iris = "iris", Moss = "moss" } default Tide
 );
-words!(
+str_enum!(
     /// `appearance.reduce_motion`.
-    ReduceMotion { System = "system", On = "on", Off = "off" } default System
+    pub ReduceMotion { System = "system", On = "on", Off = "off" } default System
 );
-words!(
+str_enum!(
     /// `appearance.library_view`.
-    LibraryView { Grid = "grid", List = "list" } default Grid
+    pub LibraryView { Grid = "grid", List = "list" } default Grid
 );
-words!(
+str_enum!(
     /// `appearance.grid_density`.
-    GridDensity { Compact = "compact", Comfortable = "comfortable", Large = "large" } default Comfortable
+    pub GridDensity { Compact = "compact", Comfortable = "comfortable", Large = "large" } default Comfortable
 );
-words!(
+str_enum!(
     /// `artwork.online`: where artwork may be fetched from (ADR-0018).
-    ArtworkOnline { Off = "off", Steam = "steam" } default Off
+    pub ArtworkOnline { Off = "off", Steam = "steam" } default Off
 );
-words!(
+str_enum!(
     /// `protection.controller_access_default`.
-    ControllerDefault { Detected = "detected", AllWhenSafe = "all-when-safe" } default Detected
+    pub ControllerDefault { Detected = "detected", AllWhenSafe = "all-when-safe" } default Detected
 );
-words!(
+str_enum!(
     /// `statistics.week_starts_on`.
-    WeekStart { System = "system", Monday = "monday", Sunday = "sunday" } default System
+    pub WeekStart { System = "system", Monday = "monday", Sunday = "sunday" } default System
 );
-words!(
+str_enum!(
     /// `logging.level`.
-    LogLevel { Error = "error", Warn = "warn", Info = "info", Debug = "debug", Trace = "trace" } default Info
+    pub LogLevel { Error = "error", Warn = "warn", Info = "info", Debug = "debug", Trace = "trace" } default Info
 );
-words!(
+str_enum!(
     /// `integration.handle_exe`.
-    HandleExe { Ask = "ask", Yes = "yes", No = "no" } default Ask
+    pub HandleExe { Ask = "ask", Yes = "yes", No = "no" } default Ask
 );
-words!(
+str_enum!(
     /// `advanced.renderer`.
-    RendererPref { Auto = "auto", Wgpu = "wgpu", Glow = "glow" } default Auto
+    pub RendererPref { Auto = "auto", Wgpu = "wgpu", Glow = "glow" } default Auto
 );
-words!(
+str_enum!(
     /// `chat.emoji`: how emoji are drawn (Twemoji everywhere, or the system's emoji font).
-    ChatEmoji { Twemoji = "twemoji", System = "system" } default Twemoji
+    pub ChatEmoji { Twemoji = "twemoji", System = "system" } default Twemoji
 );
-words!(
+str_enum!(
     /// `chat.send_with`: the key that sends a message (the other one breaks the line).
-    ChatSendWith { Enter = "enter", CtrlEnter = "ctrl_enter" } default Enter
+    pub ChatSendWith { Enter = "enter", CtrlEnter = "ctrl_enter" } default Enter
 );
-words!(
+str_enum!(
     /// `chat.share_quality`: the picture of a shared game.
-    ShareQuality { P720 = "720", P1080 = "1080", Source = "source" } default P1080
+    pub ShareQuality { P720 = "720", P1080 = "1080", Source = "source" } default P1080
 );
 
 /// `runtime.default`: `umu-proton`, `ge-proton`, `pinned:<name>`, `external:<path>`.
@@ -169,40 +143,184 @@ impl From<RuntimeDefault> for String {
     }
 }
 
-/// `[general]`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct General {
-    /// `"system"` or a BCP-47 tag.
-    pub language: String,
-    /// Window close behaviour.
-    pub close_behavior: CloseBehavior,
-    /// Confirm before removing a game.
-    pub confirm_remove: bool,
-    /// Show tool sessions in history.
-    pub show_tool_sessions_in_history: bool,
-    /// Re-check missing games when the window gains focus.
-    pub check_missing_on_focus: bool,
-}
+settings! {
+    /// `[general]`.
+    General "general" {
+        /// `"system"` or a BCP-47 tag.
+        language: String = "system".into() => custom(custom::language),
+        close_behavior: CloseBehavior = CloseBehavior::Quit => word,
+        confirm_remove: bool = true => bool,
+        show_tool_sessions_in_history: bool = false => bool,
+        /// Re-check missing games when the window gains focus.
+        check_missing_on_focus: bool = true => bool,
+    }
 
-/// `[appearance]`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct Appearance {
-    /// Theme.
-    pub theme: Theme,
-    /// Accent colour.
-    pub accent: Accent,
-    /// `0.75 ..= 2.0`, multiplies the system scale.
-    pub ui_scale: f64,
-    /// Reduced motion.
-    pub reduce_motion: ReduceMotion,
-    /// Initial library view.
-    pub library_view: LibraryView,
-    /// Grid density.
-    pub grid_density: GridDensity,
-    /// Playtime on cards.
-    pub show_playtime_on_cards: bool,
-    /// Widths of the library list's optional columns (absent = the default width).
-    pub list_column_widths: Vec<ColumnWidth>,
+    /// `[appearance]`.
+    Appearance "appearance" {
+        theme: Theme = Theme::System => word,
+        accent: Accent = Accent::Tide => word,
+        /// `0.75 ..= 2.0`, multiplies the system scale.
+        ui_scale: f64 = 1.0 => float(0.75, 2.0),
+        reduce_motion: ReduceMotion = ReduceMotion::System => word,
+        /// Initial library view.
+        library_view: LibraryView = LibraryView::Grid => word,
+        grid_density: GridDensity = GridDensity::Comfortable => word,
+        show_playtime_on_cards: bool = true => bool,
+        /// Widths of the library list's optional columns (absent = the default width).
+        list_column_widths: Vec<ColumnWidth> = Vec::new() => custom(custom::column_widths),
+    }
+
+    /// `[artwork]` (ADR-0018).
+    ArtworkPrefs "artwork" {
+        /// `"off"` (never contact a server) or `"steam"` (fetch from the Steam CDN).
+        online: ArtworkOnline = ArtworkOnline::Off => word,
+        /// With `online = "steam"` and no known app ID, the game's display name may be sent
+        /// to Steam's store search.
+        name_search: bool = true => bool,
+    }
+
+    /// `[steam]` (ADR-0031).
+    SteamPrefs "steam" {
+        /// "Show my Steam games": list the games installed with Steam on this computer.
+        /// While off, nothing of Steam's is read.
+        show_games: bool = false => bool,
+    }
+
+    /// `[chat]` (ADR-0033).
+    ChatPrefs "chat" {
+        /// The chat engine starts with EasyPlay and reaches the relays. While off, nothing
+        /// is sent anywhere.
+        enabled: bool = false => bool,
+        /// The name friends see, used when the chat profile is made (the first start);
+        /// later changes go through the profile.
+        name: String = String::new() => string,
+        /// `smp://…` relays and `xftp://…` file servers; empty = the preset public ones.
+        relays: Vec<String> = Vec::new() => custom(custom::relays),
+        /// A desktop notification for a new message while no EasyPlay window has focus.
+        notify: bool = true => bool,
+        /// The notification includes the message's text (otherwise only who wrote).
+        notify_preview: bool = false => bool,
+        /// Friends see the game's name while it runs (hidden games never).
+        show_playing: bool = true => bool,
+        emoji: ChatEmoji = ChatEmoji::Twemoji => word,
+        /// Enter or Ctrl+Enter sends.
+        send_with: ChatSendWith = ChatSendWith::Enter => word,
+        /// GIFs play by themselves (otherwise on click).
+        gif_autoplay: bool = true => bool,
+        /// The typed search words go to the GIF service (Giphy, through a relay).
+        gif_search: bool = true => bool,
+        /// Links the user sends get a preview (the sender fetches the page).
+        link_previews: bool = false => bool,
+        /// Before a link opens, Google Safe Browsing is asked about its site (which tells
+        /// Google the site's name).
+        check_links: bool = false => bool,
+        /// The Giphy API key (`crate::gifs::key`); by default Signal's public key, empty =
+        /// no GIF search. Never logged; `<set>` in reports.
+        gif_key: String = crate::consts::GIF_DEFAULT_KEY.to_owned() => string,
+        /// The HTTP CONNECT proxy GIF search goes through (`http://host:port`); by default
+        /// Signal's content proxy, empty = directly to Giphy.
+        gif_proxy: String = crate::consts::GIF_DEFAULT_PROXY.to_owned() => string,
+        /// The microphone for calls (empty = the system default).
+        mic: String = String::new() => string,
+        /// The speakers for calls (empty = the system default).
+        speakers: String = String::new() => string,
+        noise_suppression: bool = true => bool,
+        /// Calls and shared games pass through a relay, so friends never learn the address.
+        relay_calls: bool = true => bool,
+        share_quality: ShareQuality = ShareQuality::P1080 => word,
+        share_sound: bool = true => bool,
+        /// Sharing pauses (a still picture) while the game is not in front.
+        share_pause: bool = true => bool,
+        notify_calls: bool = true => bool,
+    }
+
+    /// `[protection]`.
+    Protection "protection" {
+        /// Preset for new games (only the three presets).
+        default_preset: BasePreset = BasePreset::Offline => custom(custom::base_preset),
+        always_isolate_runtime: bool = false => bool,
+        /// Network during first-time preparation of a pristine prefix.
+        prepare_online: bool = true => bool,
+        seccomp_default: bool = true => bool,
+        warn_on_x11: bool = true => bool,
+        controller_access_default: ControllerDefault = ControllerDefault::Detected => word,
+    }
+
+    /// `[runtime]`.
+    RuntimePrefs "runtime" {
+        /// Launcher-wide compatibility layer.
+        default: RuntimeDefault = RuntimeDefault::UmuProton => custom(custom::runtime_default),
+        auto_update: bool = true => bool,
+        /// `6 ..= 720`.
+        auto_update_interval_hours: u32 = 24 => int(6, 720),
+        auto_remove_unused: bool = false => bool,
+        /// Additional directories scanned for Proton builds (absolute, at most 16).
+        extra_search_dirs: Vec<PathBuf> = Vec::new() => custom(custom::search_dirs),
+    }
+
+    /// `[launch]`.
+    LaunchPrefs "launch" {
+        /// `3 ..= 60`.
+        stop_grace_secs: u8 = 10 => int(3, 60),
+        /// `UMU_LOG=1`.
+        verbose_launch_log: bool = false => bool,
+        /// Variables for every game (at most 32).
+        global_env: Vec<EnvVar> = Vec::new() => custom(custom::global_env),
+        /// Small progress window when started from the file manager.
+        quick_launch_window: bool = true => bool,
+        notify_on_exit: bool = false => bool,
+        notify_on_crash: bool = true => bool,
+    }
+
+    /// `[statistics]`.
+    StatisticsPrefs "statistics" {
+        enabled: bool = true => bool,
+        keep_history_of_removed: bool = true => bool,
+        week_starts_on: WeekStart = WeekStart::System => word,
+        /// `0 ..= 300`.
+        min_session_secs: u32 = 5 => int(0, 300),
+    }
+
+    /// `[logging]`.
+    LoggingPrefs "logging" {
+        level: LogLevel = LogLevel::Info => word,
+        /// `1 ..= 512`.
+        session_log_cap_mb: u32 = 32 => int(1, 512),
+        /// Session logs kept per game.
+        keep_session_logs: u32 = 10 => int(1, 1000),
+        /// Maximum age of session logs.
+        keep_session_logs_days: u32 = 30 => int(1, 3650),
+    }
+
+    /// `[integration]`.
+    IntegrationPrefs "integration" {
+        /// Whether EasyPlay handles `.exe` (records the choice only).
+        handle_exe: HandleExe = HandleExe::Ask => word,
+        /// Clicking a card starts the game.
+        single_click_play: bool = false => bool,
+        gamepad_navigation: bool = true => bool,
+        single_key_shortcuts: bool = true => bool,
+    }
+
+    /// `[advanced]`.
+    AdvancedPrefs "advanced" {
+        developer_mode: bool = false => bool,
+        /// Takes effect on the next start.
+        renderer: RendererPref = RendererPref::Auto => word,
+    }
+
+    /// `[paths]`: overrides of detection; `None` is the empty string in the file.
+    PathPrefs "paths" {
+        #[serde(serialize_with = "path_or_empty")]
+        umu_run: Option<PathBuf> = None => custom(custom::executable),
+        #[serde(serialize_with = "path_or_empty")]
+        bwrap: Option<PathBuf> = None => custom(custom::executable),
+    }
+
+    /// `[onboarding]`.
+    OnboardingPrefs "onboarding" {
+        completed: bool = false => bool,
+    }
 }
 
 /// One entry of `appearance.list_column_widths`: `{ column = "last_played", width = 120 }`.
@@ -245,228 +363,11 @@ impl ColumnWidth {
     }
 }
 
-/// `[artwork]` (ADR-0018).
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct ArtworkPrefs {
-    /// `"off"` (never contact a server) or `"steam"` (fetch from the Steam CDN).
-    pub online: ArtworkOnline,
-    /// With `online = "steam"` and no known app ID, the game's display name may be sent to
-    /// Steam's store search.
-    pub name_search: bool,
-}
-
-/// `[steam]` (ADR-0031).
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
-pub struct SteamPrefs {
-    /// "Show my Steam games": list the games installed with Steam on this computer. Off by
-    /// default; while off, nothing of Steam's is read.
-    pub show_games: bool,
-}
-
-/// `[chat]` (ADR-0033).
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct ChatPrefs {
-    /// Chat runs: the chat engine starts with EasyPlay and reaches the relays. Off by
-    /// default; while off, nothing is sent anywhere.
-    pub enabled: bool,
-    /// The name friends see, used when the chat profile is made (the first start); later
-    /// changes go through the profile.
-    pub name: String,
-    /// Relay addresses (`smp://…`) and file server addresses (`xftp://…`); empty = the
-    /// preset public ones.
-    pub relays: Vec<String>,
-    /// A desktop notification for a new message while no EasyPlay window has focus.
-    pub notify: bool,
-    /// The notification includes the message's text (otherwise only who wrote).
-    pub notify_preview: bool,
-    /// Friends see the game's name while it runs (hidden games never).
-    pub show_playing: bool,
-    /// Twemoji or the system's emoji font.
-    pub emoji: ChatEmoji,
-    /// Enter or Ctrl+Enter sends.
-    pub send_with: ChatSendWith,
-    /// GIFs play by themselves (otherwise on click).
-    pub gif_autoplay: bool,
-    /// GIF search: the typed search words go to the GIF service (Giphy, through a relay).
-    pub gif_search: bool,
-    /// Links the user sends get a preview (the page is fetched by the sender).
-    pub link_previews: bool,
-    /// Before a link from a message opens, Google Safe Browsing is asked about its site
-    /// (which tells Google the site's name). Off by default.
-    pub check_links: bool,
-    /// The Giphy API key for GIF search (`crate::gifs::key`); by default Signal's public
-    /// key, empty = no GIF search. Never logged; `<set>` in reports.
-    pub gif_key: String,
-    /// The HTTP CONNECT proxy GIF search goes through (`http://host:port`); by default
-    /// Signal's content proxy, empty = directly to Giphy.
-    pub gif_proxy: String,
-    /// The microphone for calls (empty = the system default).
-    pub mic: String,
-    /// The speakers for calls (empty = the system default).
-    pub speakers: String,
-    /// Reduce background noise in calls.
-    pub noise_suppression: bool,
-    /// Calls and shared games pass through a relay, so friends never learn the address.
-    pub relay_calls: bool,
-    /// The picture of a shared game.
-    pub share_quality: ShareQuality,
-    /// A shared game includes its sound.
-    pub share_sound: bool,
-    /// Sharing pauses (a still picture) while the game is not in front.
-    pub share_pause: bool,
-    /// A desktop notification for an incoming call.
-    pub notify_calls: bool,
-}
-
-impl Default for ChatPrefs {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            name: String::new(),
-            relays: Vec::new(),
-            notify: true,
-            notify_preview: false,
-            show_playing: true,
-            emoji: ChatEmoji::Twemoji,
-            send_with: ChatSendWith::Enter,
-            gif_autoplay: true,
-            gif_search: true,
-            link_previews: false,
-            check_links: false,
-            gif_key: crate::consts::GIF_DEFAULT_KEY.to_owned(),
-            gif_proxy: crate::consts::GIF_DEFAULT_PROXY.to_owned(),
-            mic: String::new(),
-            speakers: String::new(),
-            noise_suppression: true,
-            relay_calls: true,
-            share_quality: ShareQuality::P1080,
-            share_sound: true,
-            share_pause: true,
-            notify_calls: true,
-        }
-    }
-}
-
-/// `[protection]`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct Protection {
-    /// Preset for new games (only the three presets).
-    pub default_preset: BasePreset,
-    /// Force Isolated runtime mode.
-    pub always_isolate_runtime: bool,
-    /// Network during first-time preparation of a pristine prefix.
-    pub prepare_online: bool,
-    /// seccomp filter by default.
-    pub seccomp_default: bool,
-    /// Warn when a game uses X11.
-    pub warn_on_x11: bool,
-    /// Controller access for new games.
-    pub controller_access_default: ControllerDefault,
-}
-
-/// `[runtime]`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct RuntimePrefs {
-    /// Launcher-wide compatibility layer.
-    pub default: RuntimeDefault,
-    /// Update automatically.
-    pub auto_update: bool,
-    /// `6 ..= 720`.
-    pub auto_update_interval_hours: u32,
-    /// Remove unused builds.
-    pub auto_remove_unused: bool,
-    /// Additional directories scanned for Proton builds (absolute, at most 16).
-    pub extra_search_dirs: Vec<PathBuf>,
-}
-
-/// `[launch]`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct LaunchPrefs {
-    /// `3 ..= 60`.
-    pub stop_grace_secs: u8,
-    /// `UMU_LOG=1`.
-    pub verbose_launch_log: bool,
-    /// Variables for every game (at most 32).
-    pub global_env: Vec<EnvVar>,
-    /// Small progress window when started from the file manager.
-    pub quick_launch_window: bool,
-    /// Notify when a game ends in the background.
-    pub notify_on_exit: bool,
-    /// Notify on crash.
-    pub notify_on_crash: bool,
-}
-
-/// `[statistics]`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct StatisticsPrefs {
-    /// Statistics shown and aggregated.
-    pub enabled: bool,
-    /// Keep history of removed games.
-    pub keep_history_of_removed: bool,
-    /// First day of the week.
-    pub week_starts_on: WeekStart,
-    /// `0 ..= 300`.
-    pub min_session_secs: u32,
-}
-
-/// `[logging]`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct LoggingPrefs {
-    /// Level.
-    pub level: LogLevel,
-    /// `1 ..= 512`.
-    pub session_log_cap_mb: u32,
-    /// Session logs kept per game.
-    pub keep_session_logs: u32,
-    /// Maximum age of session logs.
-    pub keep_session_logs_days: u32,
-}
-
-/// `[integration]`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct IntegrationPrefs {
-    /// Whether EasyPlay handles `.exe` (records the choice only).
-    pub handle_exe: HandleExe,
-    /// Clicking a card starts the game.
-    pub single_click_play: bool,
-    /// Gamepad navigation.
-    pub gamepad_navigation: bool,
-    /// Single-key shortcuts.
-    pub single_key_shortcuts: bool,
-}
-
-/// `[advanced]`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct AdvancedPrefs {
-    /// Developer Mode.
-    pub developer_mode: bool,
-    /// Renderer (next start).
-    pub renderer: RendererPref,
-}
-
-/// `[paths]`: overrides of detection; `None` is the empty string in the file.
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
-pub struct PathPrefs {
-    /// `umu-run`.
-    #[serde(serialize_with = "path_or_empty")]
-    pub umu_run: Option<PathBuf>,
-    /// `bwrap`.
-    #[serde(serialize_with = "path_or_empty")]
-    pub bwrap: Option<PathBuf>,
-}
-
 fn path_or_empty<S: serde::Serializer>(p: &Option<PathBuf>, s: S) -> Result<S::Ok, S::Error> {
     match p {
         Some(p) => s.serialize_str(&p.to_string_lossy()),
         None => s.serialize_str(""),
     }
-}
-
-/// `[onboarding]`.
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
-pub struct OnboardingPrefs {
-    /// Onboarding finished.
-    pub completed: bool,
 }
 
 /// Keys of `config.toml` this build does not know, kept for rewrite.
@@ -536,74 +437,18 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             schema_version: CONFIG_SCHEMA_VERSION,
-            general: General {
-                language: "system".into(),
-                close_behavior: CloseBehavior::Quit,
-                confirm_remove: true,
-                show_tool_sessions_in_history: false,
-                check_missing_on_focus: true,
-            },
-            appearance: Appearance {
-                theme: Theme::System,
-                accent: Accent::Tide,
-                ui_scale: 1.0,
-                reduce_motion: ReduceMotion::System,
-                library_view: LibraryView::Grid,
-                grid_density: GridDensity::Comfortable,
-                show_playtime_on_cards: true,
-                list_column_widths: Vec::new(),
-            },
-            artwork: ArtworkPrefs {
-                online: ArtworkOnline::Off,
-                name_search: true,
-            },
-            steam: SteamPrefs { show_games: false },
+            general: General::default(),
+            appearance: Appearance::default(),
+            artwork: ArtworkPrefs::default(),
+            steam: SteamPrefs::default(),
             chat: ChatPrefs::default(),
-            protection: Protection {
-                default_preset: BasePreset::Offline,
-                always_isolate_runtime: false,
-                prepare_online: true,
-                seccomp_default: true,
-                warn_on_x11: true,
-                controller_access_default: ControllerDefault::Detected,
-            },
-            runtime: RuntimePrefs {
-                default: RuntimeDefault::UmuProton,
-                auto_update: true,
-                auto_update_interval_hours: 24,
-                auto_remove_unused: false,
-                extra_search_dirs: Vec::new(),
-            },
-            launch: LaunchPrefs {
-                stop_grace_secs: 10,
-                verbose_launch_log: false,
-                global_env: Vec::new(),
-                quick_launch_window: true,
-                notify_on_exit: false,
-                notify_on_crash: true,
-            },
-            statistics: StatisticsPrefs {
-                enabled: true,
-                keep_history_of_removed: true,
-                week_starts_on: WeekStart::System,
-                min_session_secs: 5,
-            },
-            logging: LoggingPrefs {
-                level: LogLevel::Info,
-                session_log_cap_mb: 32,
-                keep_session_logs: 10,
-                keep_session_logs_days: 30,
-            },
-            integration: IntegrationPrefs {
-                handle_exe: HandleExe::Ask,
-                single_click_play: false,
-                gamepad_navigation: true,
-                single_key_shortcuts: true,
-            },
-            advanced: AdvancedPrefs {
-                developer_mode: false,
-                renderer: RendererPref::Auto,
-            },
+            protection: Protection::default(),
+            runtime: RuntimePrefs::default(),
+            launch: LaunchPrefs::default(),
+            statistics: StatisticsPrefs::default(),
+            logging: LoggingPrefs::default(),
+            integration: IntegrationPrefs::default(),
+            advanced: AdvancedPrefs::default(),
             paths: PathPrefs::default(),
             onboarding: OnboardingPrefs::default(),
             unknown: UnknownKeys::default(),

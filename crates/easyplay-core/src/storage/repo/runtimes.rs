@@ -3,13 +3,13 @@
 use ormlite::Model;
 
 use super::{
-    Arg, AuditState, RuntimeEvent, RuntimeRepo, SlrInstall, conn, dec_path, enc_path, enum_parse,
-    exec_args, hash32, int, ms_opt, runtime_name, ts, ts_opt, uint,
+    Arg, AuditState, RuntimeEvent, RuntimeRepo, SlrInstall, changed, conn, dec_path, enc_path,
+    enum_parse, exec_args, find, hash32, int, ms_opt, runtime_name, ts, ts_opt, uint,
 };
 use crate::clock::Timestamp;
 use crate::ids::RuntimeName;
 use crate::model::{RuntimeBuild, SlrVariant};
-use crate::storage::db::{SqlConn, map_orm, map_sqlx};
+use crate::storage::db::SqlConn;
 use crate::storage::{StorageError, StorageResult, Store};
 
 /// A `runtimes` row.
@@ -109,11 +109,7 @@ fn platform_text(p: &std::path::Path) -> StorageResult<String> {
 }
 
 async fn fetch_audit(c: &mut SqlConn, v: SlrVariant) -> StorageResult<Option<AuditRow>> {
-    AuditRow::select()
-        .where_bind("variant = ?", v.as_str())
-        .fetch_optional(&mut *c)
-        .await
-        .map_err(map_orm)
+    find(c, "variant = ?", v.as_str()).await
 }
 
 impl<S: Store + ?Sized> RuntimeRepo for S {
@@ -125,7 +121,7 @@ impl<S: Store + ?Sized> RuntimeRepo for S {
         conn(self).atomic(async move |c| {
             exec_args(c, "DELETE FROM runtimes", &[]).await?;
             for r in rows {
-                r.insert(&mut *c).await.map_err(map_orm)?;
+                r.insert(&mut *c).await?;
             }
             Ok(())
         })
@@ -151,7 +147,7 @@ impl<S: Store + ?Sized> RuntimeRepo for S {
                 .await?;
             }
             for r in rows {
-                r.insert(&mut *c).await.map_err(map_orm)?;
+                r.insert(&mut *c).await?;
             }
             Ok(())
         })
@@ -161,8 +157,7 @@ impl<S: Store + ?Sized> RuntimeRepo for S {
         conn(self).run(async |c| {
             RuntimeRow::query("SELECT * FROM runtimes ORDER BY family, version_key DESC, name")
                 .fetch_all(&mut *c)
-                .await
-                .map_err(map_sqlx)?
+                .await?
                 .into_iter()
                 .map(RuntimeRow::into_build)
                 .collect()
@@ -172,11 +167,8 @@ impl<S: Store + ?Sized> RuntimeRepo for S {
     fn runtime(&mut self, name: &RuntimeName) -> StorageResult<Option<RuntimeBuild>> {
         let key = name.to_string();
         conn(self).run(async move |c| {
-            RuntimeRow::select()
-                .where_bind("name = ?", key)
-                .fetch_optional(&mut *c)
-                .await
-                .map_err(map_orm)?
+            find::<RuntimeRow, _>(c, "name = ?", key)
+                .await?
                 .map(RuntimeRow::into_build)
                 .transpose()
         })
@@ -185,13 +177,12 @@ impl<S: Store + ?Sized> RuntimeRepo for S {
     fn set_runtime_last_used(&mut self, name: &RuntimeName, at: Timestamp) -> StorageResult<bool> {
         let args = [Arg::int(at.as_millis()), Arg::text(name.to_string())];
         conn(self).atomic(async move |c| {
-            exec_args(
+            changed(
                 c,
                 "UPDATE runtimes SET last_used_at = ? WHERE name = ?",
                 &args,
             )
             .await
-            .map(|n| n > 0)
         })
     }
 
@@ -212,7 +203,7 @@ impl<S: Store + ?Sized> RuntimeRepo for S {
                 &[Arg::text(row.variant.clone())],
             )
             .await?;
-            row.insert(&mut *c).await.map_err(map_orm)?;
+            row.insert(&mut *c).await?;
             Ok(())
         })
     }
@@ -221,8 +212,7 @@ impl<S: Store + ?Sized> RuntimeRepo for S {
         conn(self).run(async |c| {
             SlrRow::query("SELECT * FROM slr_installs ORDER BY variant")
                 .fetch_all(&mut *c)
-                .await
-                .map_err(map_sqlx)?
+                .await?
                 .into_iter()
                 .map(|r| {
                     Ok(SlrInstall {
@@ -245,13 +235,12 @@ impl<S: Store + ?Sized> RuntimeRepo for S {
 
     fn delete_slr_install(&mut self, v: SlrVariant) -> StorageResult<bool> {
         conn(self).atomic(async move |c| {
-            exec_args(
+            changed(
                 c,
                 "DELETE FROM slr_installs WHERE variant = ?",
                 &[Arg::text(v.as_str())],
             )
             .await
-            .map(|n| n > 0)
         })
     }
 
@@ -333,8 +322,7 @@ impl<S: Store + ?Sized> RuntimeRepo for S {
             .await?;
             let (id,): (i64,) = ormlite::query_as("SELECT last_insert_rowid()")
                 .fetch_one(&mut *c)
-                .await
-                .map_err(map_sqlx)?;
+                .await?;
             Ok(id)
         })
     }
@@ -347,8 +335,7 @@ impl<S: Store + ?Sized> RuntimeRepo for S {
             )
             .bind(int(limit))
             .fetch_all(&mut *c)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
             rows.into_iter()
                 .map(|(id, at, v, kind, summary_json)| {
                     Ok(RuntimeEvent {

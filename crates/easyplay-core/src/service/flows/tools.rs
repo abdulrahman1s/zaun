@@ -20,16 +20,12 @@ use crate::model::{NetworkAccess, PromptAnswer, PromptKind, Tool};
 use crate::runtime::Resolution;
 
 impl AppService {
-    fn busy(&self, id: GameId) -> bool {
-        self.sessions.values().any(|s| s.game_id == Some(id)) || self.launching.contains_key(&id)
-    }
-
     /// `RunTool`; `network` is the consent given through `ToolNeedsNetwork`.
     pub(crate) fn run_tool(&mut self, id: GameId, tool: Tool, network: Option<NetworkAccess>) {
         if let Err(e) = tool.validate() {
             return self.fail(e.into());
         }
-        if self.busy(id) {
+        if self.is_busy(id) {
             return self.fail(Error::new(ErrorCode::SesAlreadyRunning).with("game", id));
         }
         let game = match self.lib.game(id) {

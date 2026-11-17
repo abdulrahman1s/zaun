@@ -2,10 +2,10 @@
 
 use std::collections::BTreeSet;
 
-use super::{Arg, ArtworkRepo, conn, exec_args, hash32, id_parse, ts, uint32};
+use super::{Arg, ArtworkRepo, changed, conn, exec_args, hash32, id_parse, ts, uint32};
 use crate::ids::GameId;
 use crate::model::{ArtOrigin, ArtSlot, ArtworkRef, Sha256};
-use crate::storage::db::{SqlConn, map_sqlx};
+use crate::storage::db::SqlConn;
 use crate::storage::{StorageError, StorageResult, Store};
 
 #[derive(ormlite::FromRow)]
@@ -57,8 +57,7 @@ impl ArtRow {
 pub(super) async fn fetch_all(c: &mut SqlConn) -> StorageResult<Vec<ArtworkRef>> {
     ormlite::query_as::<_, ArtRow>("SELECT * FROM artwork ORDER BY game_id, slot")
         .fetch_all(&mut *c)
-        .await
-        .map_err(map_sqlx)?
+        .await?
         .into_iter()
         .map(ArtRow::into_ref)
         .collect()
@@ -102,8 +101,7 @@ impl<S: Store + ?Sized> ArtworkRepo for S {
             ormlite::query_as::<_, ArtRow>("SELECT * FROM artwork WHERE game_id = ? ORDER BY slot")
                 .bind(game.to_string())
                 .fetch_all(&mut *c)
-                .await
-                .map_err(map_sqlx)?
+                .await?
                 .into_iter()
                 .map(ArtRow::into_ref)
                 .collect()
@@ -112,13 +110,12 @@ impl<S: Store + ?Sized> ArtworkRepo for S {
 
     fn delete_artwork(&mut self, game: GameId, slot: ArtSlot) -> StorageResult<bool> {
         conn(self).atomic(async move |c| {
-            exec_args(
+            changed(
                 c,
                 "DELETE FROM artwork WHERE game_id = ? AND slot = ?",
                 &[Arg::text(game.to_string()), Arg::text(slot.as_str())],
             )
             .await
-            .map(|n| n > 0)
         })
     }
 
@@ -126,8 +123,7 @@ impl<S: Store + ?Sized> ArtworkRepo for S {
         conn(self).run(async |c| {
             let rows: Vec<(Vec<u8>,)> = ormlite::query_as("SELECT DISTINCT hash FROM artwork")
                 .fetch_all(&mut *c)
-                .await
-                .map_err(map_sqlx)?;
+                .await?;
             rows.iter().map(|(h,)| hash32("artwork.hash", h)).collect()
         })
     }

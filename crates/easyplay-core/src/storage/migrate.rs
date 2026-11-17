@@ -271,7 +271,7 @@ mod tests {
             )
             .fetch_all(&mut *c)
             .await
-            .map_err(crate::storage::db::map_sqlx)
+            .map_err(StorageError::from)
         })
         .unwrap()
     }

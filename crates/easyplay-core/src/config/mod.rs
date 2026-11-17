@@ -11,9 +11,14 @@
 //!
 //! `config` stores no per-game data, secrets or UI layout state (that is `KvRepo`).
 
+#[macro_use]
+mod settings;
+
+mod custom;
 pub mod env;
 pub mod load;
 pub mod migrate;
+mod reader;
 pub mod schema;
 
 pub use env::{EnvOverrides, EnvWarning, LogFormat, RendererOverride};

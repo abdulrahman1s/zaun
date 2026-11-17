@@ -763,3 +763,33 @@ fn steam_app_id_round_trips_and_patches() {
         Err(StorageError::Invalid(_))
     ));
 }
+
+#[test]
+fn a_missing_row_maps_to_the_entity_not_found_code() {
+    use easyplay_core::error::{Error, ErrorCode};
+
+    let mut db = mem();
+    let game = games::game_id(99);
+    let err = db
+        .update_game(game, &GamePatch::default(), t(1))
+        .unwrap_err();
+    let err = Error::from(err);
+    assert_eq!(err.code, ErrorCode::LibGameNotFound);
+    assert_eq!(err.context_value("game"), Some(game.to_string().as_str()));
+
+    let tag = easyplay_core::ids::TagId::new(4242);
+    let name = TagName::new("gone").unwrap();
+    let err = Error::from(db.rename_tag(tag, &name).unwrap_err());
+    assert_eq!(err.code, ErrorCode::LibTagNotFound);
+
+    let code = |what| {
+        Error::from(StorageError::NotFound {
+            what,
+            key: "k".into(),
+        })
+        .code
+    };
+    assert_eq!(code("session"), ErrorCode::SesSessionNotFound);
+    assert_eq!(code("executable"), ErrorCode::LibExeNotFound);
+    assert_eq!(code("row"), ErrorCode::IntTaskFailed);
+}

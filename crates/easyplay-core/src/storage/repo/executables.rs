@@ -5,13 +5,13 @@ use std::path::Path;
 use ormlite::Model;
 
 use super::{
-    Arg, ExecutableRepo, conn, dec_path, dec_path_opt, enc_path, enc_path_opt, exec_args,
+    Arg, ExecutableRepo, conn, dec_path, dec_path_opt, enc_path, enc_path_opt, exec_args, find,
     fingerprint_parts, hash32, id_parse, json_parse, json_text, not_found, ts, uint,
 };
 use crate::consts::MAX_EXECUTABLES_PER_GAME;
 use crate::ids::{ExecutableId, GameId};
 use crate::model::{ExeRole, Executable, Fingerprint, Sha256};
-use crate::storage::db::{SqlConn, map_orm, map_sqlx};
+use crate::storage::db::SqlConn;
 use crate::storage::path_codec;
 use crate::storage::{StorageError, StorageResult, Store};
 
@@ -112,8 +112,7 @@ pub(super) async fn fetch_of(c: &mut SqlConn, game: GameId) -> StorageResult<Vec
     let rows = ExeRow::select()
         .where_bind("game_id = ?", game.to_string())
         .fetch_all(&mut *c)
-        .await
-        .map_err(map_orm)?;
+        .await?;
     let mut out = rows
         .into_iter()
         .map(|r| r.into_exe().map(|(_, e)| e))
@@ -126,27 +125,21 @@ pub(super) async fn fetch_of(c: &mut SqlConn, game: GameId) -> StorageResult<Vec
 pub(super) async fn fetch_all(c: &mut SqlConn) -> StorageResult<Vec<(GameId, Executable)>> {
     ExeRow::query("SELECT * FROM executables")
         .fetch_all(&mut *c)
-        .await
-        .map_err(map_sqlx)?
+        .await?
         .into_iter()
         .map(ExeRow::into_exe)
         .collect()
 }
 
 async fn fetch_one(c: &mut SqlConn, id: ExecutableId) -> StorageResult<Option<ExeRow>> {
-    ExeRow::select()
-        .where_bind("id = ?", id.to_string())
-        .fetch_optional(&mut *c)
-        .await
-        .map_err(map_orm)
+    find(c, "id = ?", id.to_string()).await
 }
 
 async fn count_of(c: &mut SqlConn, game: GameId) -> StorageResult<usize> {
     let (n,): (i64,) = ormlite::query_as("SELECT count(*) FROM executables WHERE game_id = ?")
         .bind(game.to_string())
         .fetch_one(&mut *c)
-        .await
-        .map_err(map_sqlx)?;
+        .await?;
     Ok(usize::try_from(n).unwrap_or(usize::MAX))
 }
 
@@ -161,7 +154,7 @@ impl<S: Store + ?Sized> ExecutableRepo for S {
                     max: MAX_EXECUTABLES_PER_GAME,
                 });
             }
-            row.insert(&mut *c).await.map_err(map_orm)?;
+            row.insert(&mut *c).await?;
             Ok(())
         })
     }
@@ -176,7 +169,7 @@ impl<S: Store + ?Sized> ExecutableRepo for S {
                 .ok_or_else(|| not_found("executable", id))?;
             let game: GameId = id_parse("executables.game_id", &old.game_id)?;
             let row = ExeRow::from_exe(game, &exe)?;
-            row.update_all_fields(&mut *c).await.map_err(map_orm)?;
+            row.update_all_fields(&mut *c).await?;
             Ok(())
         })
     }
@@ -192,7 +185,7 @@ impl<S: Store + ?Sized> ExecutableRepo for S {
                     crate::model::Problem::ExactlyOnePrimary { found: 0 },
                 )));
             }
-            row.delete(&mut *c).await.map_err(map_orm)?;
+            row.delete(&mut *c).await?;
             Ok(true)
         })
     }
@@ -211,11 +204,8 @@ impl<S: Store + ?Sized> ExecutableRepo for S {
     ) -> StorageResult<Option<(GameId, Executable)>> {
         let key = enc_path(path)?;
         conn(self).run(async move |c| {
-            ExeRow::select()
-                .where_bind("canonical_path = ?", key)
-                .fetch_optional(&mut *c)
-                .await
-                .map_err(map_orm)?
+            find::<ExeRow, _>(c, "canonical_path = ?", key)
+                .await?
                 .map(ExeRow::into_exe)
                 .transpose()
         })
@@ -233,8 +223,7 @@ impl<S: Store + ?Sized> ExecutableRepo for S {
             )
             .bind(key)
             .fetch_all(&mut *c)
-            .await
-            .map_err(map_sqlx)?
+            .await?
             .into_iter()
             .map(ExeRow::into_exe)
             .collect()

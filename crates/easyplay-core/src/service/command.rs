@@ -56,7 +56,6 @@ pub enum LaunchOrigin {
     Cli,
 }
 
-/// A command for the AppService.
 /// One change to a game, as plain data (the UI's game page). Mapped onto
 /// `storage::GamePatch` by the service; several edits apply together.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,12 +69,7 @@ pub enum GameEdit {
     /// The whole launch configuration.
     Launch(Box<LaunchConfig>),
     /// Compatibility layer and whether to follow its channel.
-    Runtime {
-        /// Reference.
-        reference: RuntimeRef,
-        /// Follow updates.
-        follow: bool,
-    },
+    Runtime { reference: RuntimeRef, follow: bool },
     /// Game-fix entry (`None` = no fix).
     UmuId(Option<String>),
     /// User-set Steam app ID for artwork (`None` clears it).
@@ -122,7 +116,6 @@ pub enum FolderRequest {
 pub enum InspectTarget {
     /// A dry run of the game's next launch (`Command::DryRunPlan` of the spec).
     NextLaunch {
-        /// The game.
         game: GameId,
         /// The program (default: primary).
         exe: Option<ExecutableId>,
@@ -175,7 +168,6 @@ pub enum ChatCommand {
     /// Turn Chat on (with the name friends see, for a first start) or off
     /// (`chat.enabled`, `chat.name`).
     SetEnabled {
-        /// On or off.
         on: bool,
         /// The name for a first start (`None` = keep `chat.name`).
         name: Option<String>,
@@ -196,74 +188,58 @@ pub enum ChatCommand {
     DeleteAddress,
     /// Send text.
     Send {
-        /// Where.
         chat: crate::model::ChatRef,
-        /// What.
         text: String,
         /// The message it answers.
         reply_to: Option<i64>,
         /// Members named with @ (name as written, member number).
         mentions: Vec<(String, i64)>,
     },
-    /// Send a voice message recorded in the composer (the composer agent; the preview plays
+    /// Send a voice message recorded in the composer (the preview plays
     /// it, the real service ignores it until recording is carried).
     SendVoice {
-        /// Where.
         chat: crate::model::ChatRef,
         /// Its length in seconds (1 to 300).
         secs: u32,
     },
-    /// Send a picture or GIF file (core agent). The service copies it into the Chat folder
+    /// Send a picture or GIF file. The service copies it into the Chat folder
     /// (the only folder the engine's sandbox sees) and sends the copy; `.gif` goes as a GIF,
     /// anything else as a picture. Files over `chat::MAX_FILE` (1 MiB, what friends receive
     /// without asking) are refused. Gated by `ChatFeatures::files` (and `gifs` for GIFs).
     SendFile {
-        /// Where.
         chat: crate::model::ChatRef,
         /// The file on this computer.
         path: PathBuf,
         /// A caption (empty = none).
         text: String,
     },
-    /// Fetch a file a friend offered (core agent, round 3).
+    /// Fetch a file a friend offered.
     ReceiveFile {
-        /// Where.
         chat: crate::model::ChatRef,
-        /// The message carrying it.
         item: i64,
     },
     /// Stop sending or fetching a file.
     CancelFile {
-        /// Where.
         chat: crate::model::ChatRef,
-        /// The message carrying it.
         item: i64,
     },
     /// Open a received or sent file with the desktop's default application.
     OpenFile {
-        /// Where.
         chat: crate::model::ChatRef,
-        /// The message carrying it.
         item: i64,
     },
     /// Save a copy of a received or sent file at `to` (the user chose it in a save dialog).
     /// Only a file inside the Chat folder is copied; the copy happens off the service thread.
     SaveFile {
-        /// Where.
         chat: crate::model::ChatRef,
-        /// The message carrying it.
         item: i64,
-        /// The copy's path.
         to: PathBuf,
     },
     /// Send a picture from the clipboard: the service writes it into the Chat folder and
     /// sends it like `SendFile`.
     SendClipboard {
-        /// Where.
         chat: crate::model::ChatRef,
-        /// The picture's bytes.
         bytes: Vec<u8>,
-        /// What they are.
         kind: ClipKind,
         /// A caption (empty = none).
         text: String,
@@ -274,59 +250,36 @@ pub enum ChatCommand {
     DeleteGroupLink(i64),
     /// Change the text of one of the user's messages.
     Edit {
-        /// Where.
         chat: crate::model::ChatRef,
-        /// Which message.
         item: i64,
-        /// The new text.
         text: String,
     },
     /// Delete one of the user's messages for everyone.
     Delete {
-        /// Where.
         chat: crate::model::ChatRef,
-        /// Which message.
         item: i64,
     },
     /// Add or take back a reaction.
     React {
-        /// Where.
         chat: crate::model::ChatRef,
-        /// Which message.
         item: i64,
-        /// The emoji.
         emoji: String,
         /// Add (or remove).
         on: bool,
     },
     /// Mute or unmute a conversation's notifications.
     SetMuted {
-        /// Which.
         chat: crate::model::ChatRef,
-        /// Muted.
         on: bool,
     },
     /// Block or unblock a friend (they are not told).
-    SetBlocked {
-        /// The friend.
-        friend: i64,
-        /// Blocked.
-        on: bool,
-    },
+    SetBlocked { friend: i64, on: bool },
     /// Block or unblock a group member (their messages collapse).
-    SetMemberBlocked {
-        /// The group.
-        group: i64,
-        /// The member.
-        member: i64,
-        /// Blocked.
-        on: bool,
-    },
+    SetMemberBlocked { group: i64, member: i64, on: bool },
     /// Fetch a friend's security code into `ChatSnapshot::code`.
     ShowCode(i64),
     /// The codes matched: mark the friend verified.
     Verify {
-        /// The friend.
         friend: i64,
         /// The code that was compared.
         code: String,
@@ -366,53 +319,35 @@ pub enum ChatCommand {
     /// Search Giphy for GIFs (only the words are sent; `crate::gifs`), answered with
     /// `QueryResult::Gifs` to `reply_to`. Nothing is sent while `chat.gif_search` is off or
     /// no key is known (the answer says why).
-    GifSearch {
-        /// The words typed.
-        query: String,
-        /// Where the answer goes.
-        reply_to: QueryId,
-    },
+    GifSearch { query: String, reply_to: QueryId },
     /// Giphy's trending GIFs, answered with `QueryResult::Gifs` (same rules as search).
-    GifTrending {
-        /// Where the answer goes.
-        reply_to: QueryId,
-    },
+    GifTrending { reply_to: QueryId },
     /// A picker picture from Giphy's media hosts, answered with `QueryResult::GifPreview`.
     GifPreview {
         /// `crate::gifs::Gif::preview_url`.
         url: String,
-        /// Where the answer goes.
         reply_to: QueryId,
     },
     /// Send a GIF: one from Giphy is downloaded first (at most `crate::gifs::MAX_SEND`) and
     /// sent as a file (`SendFile`), so friends never contact Giphy. A failure comes back as
     /// `Notice::ChatGifNotSent`.
     SendGif {
-        /// Where.
         chat: crate::model::ChatRef,
-        /// Which.
         gif: crate::gifs::GifPick,
     },
     /// Everything in the conversation was seen.
     MarkRead(crate::model::ChatRef),
     /// Messages of a conversation, answered with `QueryResult::Chat` to `reply_to`.
     LoadChat {
-        /// Which.
         chat: crate::model::ChatRef,
         /// Only older than this message (`None` = the latest).
         before: Option<i64>,
-        /// Where the answer goes.
         reply_to: QueryId,
     },
     /// Make a group.
     NewGroup(String),
     /// Invite a friend into a group.
-    AddMember {
-        /// The group.
-        group: i64,
-        /// The friend.
-        friend: i64,
-    },
+    AddMember { group: i64, friend: i64 },
     /// Join a group the user was invited to.
     JoinGroup(i64),
     /// Leave a group.
@@ -440,11 +375,9 @@ pub enum SteamCommand {
     /// `QueryResult::Steam` to `reply_to` (the value as it now is); a refusal also emits a
     /// failure, a change `Notice::SteamLaunchOptionsSaved`.
     SetLaunchOptions {
-        /// The game.
         id: GameId,
         /// The whole text (`%command%` stands for the game; empty = none).
         options: String,
-        /// Reply ID.
         reply_to: QueryId,
     },
     /// "Close Steam": ask the running client of the game's installation to close itself
@@ -456,19 +389,12 @@ pub enum SteamCommand {
     /// it, inside EasyPlay's protection, only while the game is not running (ADR-0031 §6).
     /// `Tool::Winecfg` is "Windows settings"; `Tool::RunExe` "Run another program".
     RunInPrefix {
-        /// The game.
         id: GameId,
-        /// The tool.
         tool: crate::model::Tool,
     },
     /// What Steam says about the game, with the notes kept here; answered with
     /// `QueryResult::Steam`.
-    Details {
-        /// The game.
-        id: GameId,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
+    Details { id: GameId, reply_to: QueryId },
 }
 
 /// What to do with a damaged library (PERSISTENCE §8, the `EP-DB-001` choices).
@@ -482,14 +408,15 @@ pub enum DatabaseChoice {
     StartEmpty,
 }
 
-#[derive(Clone, Debug)]
+/// A command for the AppService. The log name is the variant in snake_case.
+#[derive(Clone, Debug, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum Command {
     // ---- entry points
     /// Open up to 64 paths (LOGIC_SPECS §1).
     OpenPaths {
         /// The paths, in order.
         paths: Vec<PathBuf>,
-        /// Where they come from.
         origin: OpenOrigin,
     },
     // ---- library
@@ -497,65 +424,31 @@ pub enum Command {
     CreateGame {
         /// The draft as edited in the setup dialog.
         draft: Box<GameDraft>,
-        /// Launch afterwards.
         then: AfterCreate,
     },
     /// The setup dialog was closed without adding (the next queued draft is shown).
     DiscardDraft,
     /// Remove a game (LOGIC_SPECS §11).
-    RemoveGame {
-        /// The game.
-        id: GameId,
-        /// Dialog options.
-        options: RemoveOptions,
-    },
+    RemoveGame { id: GameId, options: RemoveOptions },
     /// Favourite on/off (idempotent).
-    SetFavorite {
-        /// The game.
-        id: GameId,
-        /// New value.
-        favorite: bool,
-    },
+    SetFavorite { id: GameId, favorite: bool },
     /// Replace a game's tags.
     SetTags {
-        /// The game.
         id: GameId,
         /// The tags (unknown ones are created).
         tags: Vec<TagName>,
     },
     /// Hidden on/off.
-    SetHidden {
-        /// The game.
-        id: GameId,
-        /// New value.
-        hidden: bool,
-    },
+    SetHidden { id: GameId, hidden: bool },
     /// Change a game (validated as a whole; `Event::Failure` on a refused change).
-    UpdateGame {
-        /// Game.
-        id: GameId,
-        /// Changes.
-        edits: Vec<GameEdit>,
-    },
+    UpdateGame { id: GameId, edits: Vec<GameEdit> },
     /// Load a game's full record; answered with `Event::QueryResult`.
-    LoadGame {
-        /// Game.
-        id: GameId,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
+    LoadGame { id: GameId, reply_to: QueryId },
     /// What a game's files tell (ADR-0028); answered with `QueryResult::About`.
-    AboutGame {
-        /// Game.
-        id: GameId,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
+    AboutGame { id: GameId, reply_to: QueryId },
     /// A statistics query; answered with `Event::QueryResult`.
     QueryStats {
-        /// Request.
         request: StatsRequest,
-        /// Reply ID.
         reply_to: QueryId,
     },
     /// Check again which games' main programs are there (LOGIC_SPECS §9).
@@ -563,79 +456,48 @@ pub enum Command {
     /// Delete all play history (STATISTICS §9).
     ClearStatistics,
     /// Delete one game's play history.
-    ResetGameStatistics {
-        /// The game.
-        id: GameId,
-    },
+    ResetGameStatistics { id: GameId },
     /// Delete one ended session from history.
-    RemoveSession {
-        /// The session.
-        id: SessionId,
-    },
+    RemoveSession { id: SessionId },
     /// Add a program to a game (`AddExecutable`).
     AddExecutable {
-        /// The game.
         id: GameId,
-        /// The file.
         path: PathBuf,
-        /// Its role.
         role: crate::model::ExeRole,
     },
     /// Point a moved program at its new place (*Locate…*, LOGIC_SPECS §8). `exe` defaults
     /// to the primary.
     LocateExecutable {
-        /// The game.
         id: GameId,
-        /// The program.
         exe: Option<ExecutableId>,
-        /// The new path.
         new_path: PathBuf,
     },
     /// List the programs in a folder (GAME_LIBRARY §11); answered with `QueryResult::Folder`.
-    ScanFolder {
-        /// The folder.
-        folder: PathBuf,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
+    ScanFolder { folder: PathBuf, reply_to: QueryId },
     /// Measure the private Windows storage; answered with `QueryResult::PrefixSize`.
-    MeasurePrefix {
-        /// The game.
-        id: GameId,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
+    MeasurePrefix { id: GameId, reply_to: QueryId },
     // ---- artwork
     /// Import artwork for one slot. `ArtSource::SteamCdn(0)` means "find the Steam app ID"
     /// (the chain of ADR-0018; only with `artwork.online = "steam"`).
     ImportArtwork {
-        /// The game.
         id: GameId,
-        /// The slot.
         slot: ArtSlot,
-        /// Where from.
         source: ArtSource,
     },
     /// Fetch every slot from the Steam CDN on request ("Find artwork online").
-    FetchOnlineArtwork {
-        /// The game.
-        id: GameId,
-    },
+    FetchOnlineArtwork { id: GameId },
     /// The artwork sheet asks which Steam app the game is (ADR-0024 §1); answered with
     /// `QueryResult::SteamApps`. Without `term`, what the computer says (no network) and,
     /// when nothing does, a store search for the game name; with `term`, a store search.
     FindSteamApp {
-        /// The game.
         id: GameId,
         /// Words typed in the sheet.
         term: Option<String>,
-        /// Reply ID.
         reply_to: QueryId,
     },
     // ---- launching
     /// Launch a game (LOGIC_SPECS §3).
     Launch {
-        /// The game.
         id: GameId,
         /// Which program (default: primary).
         exe: Option<ExecutableId>,
@@ -644,56 +506,30 @@ pub enum Command {
     },
     /// Cancel a launch before its game starts (LOGIC_SPECS §3 "Cancellation"); from
     /// `Starting` on it stops the session.
-    CancelLaunch {
-        /// The game.
-        id: GameId,
-    },
+    CancelLaunch { id: GameId },
     /// Run a tool in the game's private storage (SVC-005, a `Tool` session).
     RunTool {
-        /// The game.
         id: GameId,
-        /// The tool.
         tool: crate::model::Tool,
     },
     /// Stop a session (always accepted, idempotent; LOGIC_SPECS §6).
-    StopSession {
-        /// The session.
-        session: SessionId,
-        /// Graceful or forced.
-        mode: StopMode,
-    },
+    StopSession { session: SessionId, mode: StopMode },
     /// Answer a prompt raised by a parked flow.
     AnswerPrompt {
-        /// The prompt.
         prompt: PromptId,
-        /// The decision.
         answer: PromptAnswer,
     },
     // ---- prefix
     /// Reset the private Windows storage (LOGIC_SPECS §12).
-    ResetPrefix {
-        /// The game.
-        id: GameId,
-        /// Dialog options.
-        options: ResetOptions,
-    },
+    ResetPrefix { id: GameId, options: ResetOptions },
     // ---- runtimes
     /// Install a build or runtime in a Provision session (a channel: check for updates).
-    ProvisionRuntime {
-        /// What.
-        target: RuntimeRef,
-    },
+    ProvisionRuntime { target: RuntimeRef },
     /// Copy a Steam Linux Runtime variant that umu installed for the user into the store
     /// (`runtime::adopt`). Never writes outside the store.
-    AdoptRuntime {
-        /// The variant.
-        variant: SlrVariant,
-    },
+    AdoptRuntime { variant: SlrVariant },
     /// Remove a store build (refused for external, newest or used builds).
-    RemoveRuntime {
-        /// The build.
-        name: RuntimeName,
-    },
+    RemoveRuntime { name: RuntimeName },
     /// Rescan compatibility layers.
     RefreshRuntimes,
     /// Audit every installed runtime now; a modified one is quarantined.
@@ -711,7 +547,6 @@ pub enum Command {
     },
     /// Add or remove a game's applications-menu shortcut.
     SetShortcut {
-        /// The game.
         id: GameId,
         /// Create (`false`: remove).
         enable: bool,
@@ -720,42 +555,27 @@ pub enum Command {
     OpenFolder(FolderRequest),
     /// Open a session log (the game's latest when `session` is `None`).
     ViewLog {
-        /// The session.
         session: Option<SessionId>,
-        /// The game.
         game: Option<GameId>,
     },
     // ---- Developer Mode and diagnostics (DEVELOPER_MODE, ERROR_HANDLING §6–7)
     /// Inspector data; answered with `QueryResult::Inspector`.
     Inspect {
-        /// What.
         target: InspectTarget,
-        /// Reply ID.
         reply_to: QueryId,
     },
     /// A game's recent sessions (newest first, all kinds); `QueryResult::Sessions`.
-    ListSessions {
-        /// The game.
-        game: GameId,
-        /// Reply ID.
-        reply_to: QueryId,
-    },
+    ListSessions { game: GameId, reply_to: QueryId },
     /// Read a chunk of a session log file from `offset`; `QueryResult::LogChunk`.
     ReadLog {
-        /// The session.
         session: SessionId,
-        /// Which file.
         file: LogFile,
-        /// Byte offset.
         offset: u64,
-        /// Reply ID.
         reply_to: QueryId,
     },
     /// The processes of an open session now; `QueryResult::Processes`.
     ListProcesses {
-        /// The session.
         session: SessionId,
-        /// Reply ID.
         reply_to: QueryId,
     },
     /// Run every Doctor check (D-01…D-17) on a job; the report arrives in the diagnostics
@@ -767,14 +587,11 @@ pub enum Command {
         game: Option<GameId>,
         /// The session whose logs are included (default: the game's latest).
         session: Option<SessionId>,
-        /// Reply ID.
         reply_to: QueryId,
     },
     /// Write the previewed files as a `.tar.gz` to `dest` (chosen in the save dialog).
     SaveReport {
-        /// The files, as previewed.
         files: Vec<crate::diagnostics::report::ReportFile>,
-        /// Destination.
         dest: PathBuf,
     },
     /// The crash banner was dismissed.
@@ -795,58 +612,313 @@ pub enum Command {
 impl Command {
     /// A short name for logs.
     pub fn name(&self) -> &'static str {
-        match self {
-            Command::OpenPaths { .. } => "open_paths",
-            Command::CreateGame { .. } => "create_game",
-            Command::DiscardDraft => "discard_draft",
-            Command::RemoveGame { .. } => "remove_game",
-            Command::SetFavorite { .. } => "set_favorite",
-            Command::SetTags { .. } => "set_tags",
-            Command::SetHidden { .. } => "set_hidden",
-            Command::UpdateGame { .. } => "update_game",
-            Command::LoadGame { .. } => "load_game",
-            Command::AboutGame { .. } => "about_game",
-            Command::QueryStats { .. } => "query_stats",
-            Command::RescanMissing => "rescan_missing",
-            Command::ClearStatistics => "clear_statistics",
-            Command::ResetGameStatistics { .. } => "reset_game_statistics",
-            Command::RemoveSession { .. } => "remove_session",
-            Command::AddExecutable { .. } => "add_executable",
-            Command::LocateExecutable { .. } => "locate_executable",
-            Command::ScanFolder { .. } => "scan_folder",
-            Command::MeasurePrefix { .. } => "measure_prefix",
-            Command::CancelLaunch { .. } => "cancel_launch",
-            Command::RunTool { .. } => "run_tool",
-            Command::ImportArtwork { .. } => "import_artwork",
-            Command::FetchOnlineArtwork { .. } => "fetch_online_artwork",
-            Command::FindSteamApp { .. } => "find_steam_app",
-            Command::Launch { .. } => "launch",
-            Command::StopSession { .. } => "stop_session",
-            Command::AnswerPrompt { .. } => "answer_prompt",
-            Command::ResetPrefix { .. } => "reset_prefix",
-            Command::ProvisionRuntime { .. } => "provision_runtime",
-            Command::AdoptRuntime { .. } => "adopt_runtime",
-            Command::RemoveRuntime { .. } => "remove_runtime",
-            Command::RefreshRuntimes => "refresh_runtimes",
-            Command::VerifyRuntime => "verify_runtime",
-            Command::SetPreference(_) => "set_preference",
-            Command::RefreshHostFacts => "refresh_host_facts",
-            Command::SetDefaultHandler { .. } => "set_default_handler",
-            Command::SetShortcut { .. } => "set_shortcut",
-            Command::OpenFolder(_) => "open_folder",
-            Command::ViewLog { .. } => "view_log",
-            Command::Inspect { .. } => "inspect",
-            Command::ListSessions { .. } => "list_sessions",
-            Command::ReadLog { .. } => "read_log",
-            Command::ListProcesses { .. } => "list_processes",
-            Command::RunDoctor => "run_doctor",
-            Command::BuildReport { .. } => "build_report",
-            Command::SaveReport { .. } => "save_report",
-            Command::DismissCrash => "dismiss_crash",
-            Command::ResolveDatabase(_) => "resolve_database",
-            Command::Steam(_) => "steam",
-            Command::Chat(_) => "chat",
-            Command::Shutdown => "shutdown",
+        self.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::game_root::{GameRootProposal, RootKind, RootReason};
+    use crate::model::{ExeRole, PeInfo, Tool};
+    use crate::stats::DateRange;
+
+    fn draft() -> GameDraft {
+        GameDraft {
+            path: PathBuf::from("/g/a.exe"),
+            canonical_path: PathBuf::from("/g/a.exe"),
+            mount_point: None,
+            fingerprint: crate::model::Fingerprint {
+                size: 0,
+                mtime_ns: 0,
+                quick_hash: [0; 32],
+                full_hash: None,
+            },
+            pe: PeInfo::default(),
+            imports: Vec::new(),
+            name: String::new(),
+            name_is_user_set: false,
+            proposal: GameRootProposal {
+                kind: RootKind::LooseFile,
+                root: None,
+                candidates: Vec::new(),
+                reason: RootReason::ExecutableFolder,
+            },
+            root: None,
+            policy: crate::sandbox::presets::offline(),
+            launch: LaunchConfig::default(),
+            runtime: RuntimeRef::Default,
+            kind: crate::model::EntryKind::Game,
+            icon: None,
+            hints: Default::default(),
+            umu_id: None,
+            tags: Vec::new(),
+            issues: Vec::new(),
+        }
+    }
+
+    /// Every command with the name logs have always shown for it.
+    fn every_command() -> Vec<(Command, &'static str)> {
+        let uuid = uuid::Uuid::nil();
+        let (game, session) = (GameId::from_uuid(uuid), SessionId::from_uuid(uuid));
+        let (prompt, reply_to) = (PromptId::from_uuid(uuid), QueryId::from_uuid(uuid));
+        let path = PathBuf::from("/x");
+        let range = DateRange {
+            from: None,
+            to: jiff::civil::date(2026, 1, 1),
+        };
+        vec![
+            (
+                Command::OpenPaths {
+                    paths: vec![],
+                    origin: OpenOrigin::Cli,
+                },
+                "open_paths",
+            ),
+            (
+                Command::CreateGame {
+                    draft: Box::new(draft()),
+                    then: AfterCreate::Nothing,
+                },
+                "create_game",
+            ),
+            (Command::DiscardDraft, "discard_draft"),
+            (
+                Command::RemoveGame {
+                    id: game,
+                    options: RemoveOptions::default(),
+                },
+                "remove_game",
+            ),
+            (
+                Command::SetFavorite {
+                    id: game,
+                    favorite: true,
+                },
+                "set_favorite",
+            ),
+            (
+                Command::SetTags {
+                    id: game,
+                    tags: vec![],
+                },
+                "set_tags",
+            ),
+            (
+                Command::SetHidden {
+                    id: game,
+                    hidden: true,
+                },
+                "set_hidden",
+            ),
+            (
+                Command::UpdateGame {
+                    id: game,
+                    edits: vec![],
+                },
+                "update_game",
+            ),
+            (Command::LoadGame { id: game, reply_to }, "load_game"),
+            (Command::AboutGame { id: game, reply_to }, "about_game"),
+            (
+                Command::QueryStats {
+                    request: StatsRequest::WeekdayDistribution { range },
+                    reply_to,
+                },
+                "query_stats",
+            ),
+            (Command::RescanMissing, "rescan_missing"),
+            (Command::ClearStatistics, "clear_statistics"),
+            (
+                Command::ResetGameStatistics { id: game },
+                "reset_game_statistics",
+            ),
+            (Command::RemoveSession { id: session }, "remove_session"),
+            (
+                Command::AddExecutable {
+                    id: game,
+                    path: path.clone(),
+                    role: ExeRole::Primary,
+                },
+                "add_executable",
+            ),
+            (
+                Command::LocateExecutable {
+                    id: game,
+                    exe: None,
+                    new_path: path.clone(),
+                },
+                "locate_executable",
+            ),
+            (
+                Command::ScanFolder {
+                    folder: path.clone(),
+                    reply_to,
+                },
+                "scan_folder",
+            ),
+            (
+                Command::MeasurePrefix { id: game, reply_to },
+                "measure_prefix",
+            ),
+            (Command::CancelLaunch { id: game }, "cancel_launch"),
+            (
+                Command::RunTool {
+                    id: game,
+                    tool: Tool::Winecfg,
+                },
+                "run_tool",
+            ),
+            (
+                Command::ImportArtwork {
+                    id: game,
+                    slot: ArtSlot::Cover,
+                    source: ArtSource::Generated,
+                },
+                "import_artwork",
+            ),
+            (
+                Command::FetchOnlineArtwork { id: game },
+                "fetch_online_artwork",
+            ),
+            (
+                Command::FindSteamApp {
+                    id: game,
+                    term: None,
+                    reply_to,
+                },
+                "find_steam_app",
+            ),
+            (
+                Command::Launch {
+                    id: game,
+                    exe: None,
+                    origin: LaunchOrigin::Library,
+                },
+                "launch",
+            ),
+            (
+                Command::StopSession {
+                    session,
+                    mode: StopMode::Graceful,
+                },
+                "stop_session",
+            ),
+            (
+                Command::AnswerPrompt {
+                    prompt,
+                    answer: PromptAnswer::Cancel,
+                },
+                "answer_prompt",
+            ),
+            (
+                Command::ResetPrefix {
+                    id: game,
+                    options: ResetOptions::default(),
+                },
+                "reset_prefix",
+            ),
+            (
+                Command::ProvisionRuntime {
+                    target: RuntimeRef::Default,
+                },
+                "provision_runtime",
+            ),
+            (
+                Command::AdoptRuntime {
+                    variant: SlrVariant::Steamrt3,
+                },
+                "adopt_runtime",
+            ),
+            (
+                Command::RemoveRuntime {
+                    name: RuntimeName::new("GE-Proton9-1").expect("a valid name"),
+                },
+                "remove_runtime",
+            ),
+            (Command::RefreshRuntimes, "refresh_runtimes"),
+            (Command::VerifyRuntime, "verify_runtime"),
+            (
+                Command::SetPreference(PreferencePatch::default()),
+                "set_preference",
+            ),
+            (Command::RefreshHostFacts, "refresh_host_facts"),
+            (
+                Command::SetDefaultHandler { enable: true },
+                "set_default_handler",
+            ),
+            (
+                Command::SetShortcut {
+                    id: game,
+                    enable: true,
+                },
+                "set_shortcut",
+            ),
+            (
+                Command::OpenFolder(FolderRequest::DataFolder),
+                "open_folder",
+            ),
+            (
+                Command::ViewLog {
+                    session: None,
+                    game: None,
+                },
+                "view_log",
+            ),
+            (
+                Command::Inspect {
+                    target: InspectTarget::Session(session),
+                    reply_to,
+                },
+                "inspect",
+            ),
+            (Command::ListSessions { game, reply_to }, "list_sessions"),
+            (
+                Command::ReadLog {
+                    session,
+                    file: LogFile::Game,
+                    offset: 0,
+                    reply_to,
+                },
+                "read_log",
+            ),
+            (
+                Command::ListProcesses { session, reply_to },
+                "list_processes",
+            ),
+            (Command::RunDoctor, "run_doctor"),
+            (
+                Command::BuildReport {
+                    game: None,
+                    session: None,
+                    reply_to,
+                },
+                "build_report",
+            ),
+            (
+                Command::SaveReport {
+                    files: vec![],
+                    dest: path,
+                },
+                "save_report",
+            ),
+            (Command::DismissCrash, "dismiss_crash"),
+            (
+                Command::ResolveDatabase(DatabaseChoice::UseRepaired),
+                "resolve_database",
+            ),
+            (Command::Steam(SteamCommand::Rescan), "steam"),
+            (Command::Chat(ChatCommand::Connect(String::new())), "chat"),
+            (Command::Shutdown, "shutdown"),
+        ]
+    }
+
+    #[test]
+    fn every_command_keeps_the_log_name_it_always_had() {
+        let all = every_command();
+        assert_eq!(all.len(), 51, "a command was added: list its log name here");
+        for (cmd, name) in &all {
+            assert_eq!(cmd.name(), *name);
         }
     }
 }

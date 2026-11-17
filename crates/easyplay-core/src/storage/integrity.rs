@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::db::{SqlConn, exec, map_sqlx};
+use super::db::{SqlConn, exec};
 use super::migrate::MigrateOptions;
 use super::{Db, LibraryFiles, MigrationOutcome, ReadDb, StorageError, StorageResult, Store};
 use crate::clock::Timestamp;
@@ -36,8 +36,7 @@ async fn check(c: &mut SqlConn, pragma: &str) -> StorageResult<IntegrityReport> 
     let rows: Vec<(String,)> =
         ormlite::query_as(ormlite::AssertSqlSafe(format!("PRAGMA {pragma}(100)")))
             .fetch_all(&mut *c)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
     let lines: Vec<String> = rows.into_iter().map(|(l,)| l).collect();
     Ok(if lines.len() == 1 && lines[0] == "ok" {
         IntegrityReport::Ok
@@ -206,32 +205,28 @@ async fn columns(c: &mut SqlConn, schema: &str, table: &str) -> StorageResult<Ve
         "SELECT name FROM pragma_table_info('{table}', '{schema}') ORDER BY cid"
     )))
     .fetch_all(&mut *c)
-    .await
-    .map_err(map_sqlx)?;
+    .await?;
     Ok(rows.into_iter().map(|(n,)| n).collect())
 }
 
 async fn count(c: &mut SqlConn, sql: &str) -> StorageResult<u64> {
     let (n,): (i64,) = ormlite::query_as(ormlite::AssertSqlSafe(sql.to_owned()))
         .fetch_one(&mut *c)
-        .await
-        .map_err(map_sqlx)?;
+        .await?;
     Ok(u64::try_from(n).unwrap_or(0))
 }
 
 async fn changes(c: &mut SqlConn, sql: &str) -> StorageResult<u64> {
-    ormlite::query(ormlite::AssertSqlSafe(sql.to_owned()))
+    let done = ormlite::query(ormlite::AssertSqlSafe(sql.to_owned()))
         .execute(&mut *c)
-        .await
-        .map(|r| r.rows_affected())
-        .map_err(map_sqlx)
+        .await?;
+    Ok(done.rows_affected())
 }
 
 async fn next_key(c: &mut SqlConn, sql: &str) -> StorageResult<Option<String>> {
     let row: Option<(String,)> = ormlite::query_as(ormlite::AssertSqlSafe(sql.to_owned()))
         .fetch_optional(&mut *c)
-        .await
-        .map_err(map_sqlx)?;
+        .await?;
     Ok(row.map(|(k,)| k))
 }
 
@@ -422,8 +417,7 @@ pub fn salvage(damaged: &Path, out: &Path, now: Timestamp) -> StorageResult<Salv
         ormlite::query("ATTACH DATABASE ? AS old")
             .bind(uri)
             .execute(&mut *c)
-            .await
-            .map_err(map_sqlx)?;
+            .await?;
         // Reading the attached schema fails when the damaged file's header or schema page is
         // unreadable: then nothing can be recovered.
         let readable = count(c, "SELECT count(*) FROM old.sqlite_schema").await;

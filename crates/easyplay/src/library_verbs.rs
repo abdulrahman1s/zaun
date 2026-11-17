@@ -10,6 +10,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use easyplay_core::clock::{Clock, SystemClock};
+use easyplay_core::err;
 use easyplay_core::error::{Error, ErrorCode, UserError};
 use easyplay_core::fsx::{Fs, RealFs};
 use easyplay_core::ids::{ExecutableId, GameId};
@@ -469,7 +470,7 @@ pub fn show(arg: &str, json: bool) -> Result<u8, Error> {
     let id = resolve(&snap, arg)?;
     let game = db
         .game(id)?
-        .ok_or_else(|| Error::new(ErrorCode::LibInvalidField).with("detail", "no such game"))?;
+        .ok_or_else(|| err!(LibGameNotFound, game = id))?;
     let summary = snap.get(id);
     let sessions = db.session_history(Some(id), &[], 0, 10)?;
     if json {
@@ -554,7 +555,7 @@ pub fn export(arg: &str, output: Option<&Path>) -> Result<u8, Error> {
     let id = resolve(&snap, arg)?;
     let game = db
         .game(id)?
-        .ok_or_else(|| Error::new(ErrorCode::LibInvalidField).with("detail", "no such game"))?;
+        .ok_or_else(|| err!(LibGameNotFound, game = id))?;
     let mine = db.tags_of(id)?;
     let tags: Vec<_> = db
         .tags_with_counts()?
