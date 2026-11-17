@@ -131,18 +131,55 @@ pub struct Parsed {
     pub recovered: u32,
 }
 
+/// One token of the text form.
 #[derive(Debug, PartialEq, Eq)]
-enum Tok {
+pub(crate) enum Tok {
+    /// A key or a string value, unescaped.
     Str(Vec<u8>),
+    /// `{`.
     Open,
+    /// `}`.
     Close,
 }
 
-struct Lexer<'a> {
+/// The tokenizer shared by [`parse`] and the editor (`steam::launch_options`), so the two
+/// never disagree about where a token is.
+pub(crate) struct Lexer<'a> {
     b: &'a [u8],
     i: usize,
     max_token: usize,
     recovered: u32,
+}
+
+impl<'a> Lexer<'a> {
+    /// A tokenizer over all of `b` (no byte limit; a byte-order mark is skipped), keeping
+    /// at most `max_token` bytes of a string.
+    pub(crate) fn new(b: &'a [u8], max_token: usize) -> Self {
+        let i = if b.starts_with(b"\xEF\xBB\xBF") { 3 } else { 0 };
+        Lexer {
+            b,
+            i,
+            max_token,
+            recovered: 0,
+        }
+    }
+
+    /// Repairs made so far (an unterminated string, a truncated token).
+    pub(crate) fn recovered(&self) -> u32 {
+        self.recovered
+    }
+
+    /// The next token with its byte range in the input: from its first byte (the opening
+    /// quote of a quoted string) to just after its last (the closing quote).
+    pub(crate) fn next_spanned(&mut self) -> Option<(Tok, usize, usize)> {
+        loop {
+            let start = self.i;
+            let tok = self.next_here()?;
+            if let Some(t) = tok {
+                return Some((t, start, self.i));
+            }
+        }
+    }
 }
 
 impl Lexer<'_> {
@@ -166,39 +203,48 @@ impl Lexer<'_> {
 
     fn next(&mut self) -> Option<Tok> {
         loop {
-            let c = *self.b.get(self.i)?;
-            match c {
-                b'{' => {
-                    self.i += 1;
-                    return Some(Tok::Open);
-                }
-                b'}' => {
-                    self.i += 1;
-                    return Some(Tok::Close);
-                }
-                b'/' if self.b.get(self.i + 1) == Some(&b'/') => self.skip_line(),
-                b'#' => self.skip_line(),
-                b'[' => {
-                    // A platform conditional such as [$WIN32]: skipped up to `]` or the line end.
-                    self.i += 1;
-                    while let Some(&c) = self.b.get(self.i) {
-                        if c == b'\n' {
-                            break;
-                        }
-                        self.i += 1;
-                        if c == b']' {
-                            break;
-                        }
-                    }
-                }
-                b'"' => {
-                    self.i += 1;
-                    return Some(Tok::Str(self.quoted()));
-                }
-                c if c.is_ascii_whitespace() => self.i += 1,
-                _ => return Some(Tok::Str(self.bare())),
+            if let Some(t) = self.next_here()? {
+                return Some(t);
             }
         }
+    }
+
+    /// At the current byte: `None` at the end, `Some(None)` after skipping white space, a
+    /// comment or a conditional, `Some(Some(token))` after reading a token.
+    fn next_here(&mut self) -> Option<Option<Tok>> {
+        let c = *self.b.get(self.i)?;
+        match c {
+            b'{' => {
+                self.i += 1;
+                return Some(Some(Tok::Open));
+            }
+            b'}' => {
+                self.i += 1;
+                return Some(Some(Tok::Close));
+            }
+            b'/' if self.b.get(self.i + 1) == Some(&b'/') => self.skip_line(),
+            b'#' => self.skip_line(),
+            b'[' => {
+                // A platform conditional such as [$WIN32]: skipped up to `]` or the line end.
+                self.i += 1;
+                while let Some(&c) = self.b.get(self.i) {
+                    if c == b'\n' {
+                        break;
+                    }
+                    self.i += 1;
+                    if c == b']' {
+                        break;
+                    }
+                }
+            }
+            b'"' => {
+                self.i += 1;
+                return Some(Some(Tok::Str(self.quoted())));
+            }
+            c if c.is_ascii_whitespace() => self.i += 1,
+            _ => return Some(Some(Tok::Str(self.bare()))),
+        }
+        Some(None)
     }
 
     fn quoted(&mut self) -> Vec<u8> {
@@ -249,7 +295,7 @@ impl Lexer<'_> {
     }
 }
 
-fn text(v: Vec<u8>) -> String {
+pub(crate) fn text(v: Vec<u8>) -> String {
     match String::from_utf8(v) {
         Ok(s) => s,
         Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),

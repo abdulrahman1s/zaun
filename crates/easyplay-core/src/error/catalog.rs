@@ -527,6 +527,16 @@ pub const fn entry(code: ErrorCode) -> Entry {
             "This game is run by Steam, so this is changed in Steam. Open the game in Steam to change it.",
             &[A::Dismiss],
         ),
+        C::StmSteamOpen => e(
+            "Steam is open",
+            "Steam rewrites its settings when it closes, so launch options can be changed only while Steam is closed. Close Steam, then save again.",
+            &[A::Dismiss],
+        ),
+        C::StmSettingsUnwritable => e(
+            "Steam's settings could not be changed",
+            "EasyPlay could not find or safely change the settings file of your Steam account. Nothing was changed; set the launch options in Steam instead.",
+            &[A::CopyDetails],
+        ),
 
         // ---- Integration and internal ----
         C::DskDefaultHandlerFailed => e(

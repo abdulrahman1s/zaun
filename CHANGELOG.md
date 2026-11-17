@@ -51,6 +51,10 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   the window. A game's page keeps its cover on the left with thirty days of play under it.
   New dark, light and high-contrast themes; the accent colour marks only Play, selection
   and focus.
+- A game's Protection tab is one list read top to bottom: each thing a game can use has an
+  icon that lights up while it is allowed, a line saying what it is, and a switch; folders
+  show their full path. Levels are no longer shown on the game's page: under its title it
+  says *Offline* or *Online*, and the Overview lists what is *Allowed* and *Blocked*.
 - Movement explains what changed: covers slide to their new places when the library is
   filtered or sorted, and the cover you open flies to the game's page. With *Reduce motion*
   on, everything is a short fade.
@@ -61,6 +65,13 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   Steam" hand over to Steam; programs such as mod installers can be run in a Steam game's
   Windows storage inside EasyPlay's protection, without internet. Off by default; nothing
   leaves the computer. New command `easyplay steam scan|on|off|update|open`.
+- A Steam game's page has a *Launch options* tab: the same setting as Steam › Properties ›
+  Launch options, changed in Steam's own settings file while Steam is closed (the tab
+  offers to close Steam, and keeps a backup `localconfig.vdf.easyplay-bak`), with a
+  *Performance overlay (MangoHud)* switch that adds or removes `mangohud %command%`.
+  `easyplay steam launch-options <GAME> [--set TEXT] [--mangohud on|off]` does the same.
+- Steam games carry a small Steam mark on their cover. The library's Filter menu lists
+  only EasyPlay's own compatibility layers and gains a *Source* group (EasyPlay, Steam).
 
 ### For packagers
 

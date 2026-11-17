@@ -74,6 +74,26 @@ impl PresetFilter {
     }
 }
 
+/// Where a library entry comes from, as the library's filter has it (ADR-0031 §4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SourceFilter {
+    /// Added to EasyPlay.
+    EasyPlay,
+    /// Installed with Steam and run by Steam.
+    Steam,
+}
+
+impl SourceFilter {
+    /// The source of `g`.
+    pub fn of(g: &GameSummary) -> Self {
+        if g.is_steam() {
+            SourceFilter::Steam
+        } else {
+            SourceFilter::EasyPlay
+        }
+    }
+}
+
 /// Filter chips: AND across groups, OR within a group; an empty group does not filter.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Filters {
@@ -89,6 +109,8 @@ pub struct Filters {
     pub layers: Vec<Arc<str>>,
     /// Kinds.
     pub kinds: Vec<EntryKind>,
+    /// Sources: EasyPlay's own games, Steam's.
+    pub sources: Vec<SourceFilter>,
 }
 
 impl Filters {
@@ -99,7 +121,8 @@ impl Filters {
             && self.network.is_none()
             && self.availability.is_empty()
             && self.layers.is_empty()
-            && self.kinds.is_empty())
+            && self.kinds.is_empty()
+            && self.sources.is_empty())
     }
 
     fn matches(&self, g: &GameSummary) -> bool {
@@ -110,8 +133,11 @@ impl Filters {
                 || (!g.is_steam() && self.presets.contains(&PresetFilter::of(g.preset))))
             && self.network.is_none_or(|n| !g.is_steam() && n == g.network)
             && (self.availability.is_empty() || self.availability.contains(&g.availability))
-            && (self.layers.is_empty() || self.layers.iter().any(|l| **l == *g.runtime_label))
+            // Compatibility layers are EasyPlay's: a Steam game's Proton is Steam's choice.
+            && (self.layers.is_empty()
+                || (!g.is_steam() && self.layers.iter().any(|l| **l == *g.runtime_label)))
             && (self.kinds.is_empty() || self.kinds.contains(&g.kind))
+            && (self.sources.is_empty() || self.sources.contains(&SourceFilter::of(g)))
     }
 }
 

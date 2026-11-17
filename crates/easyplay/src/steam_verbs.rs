@@ -344,5 +344,59 @@ pub fn run(verb: &SteamVerb) -> Result<u8, Error> {
             println!("{said}");
             Ok(exit::OK)
         }
+        SteamVerb::LaunchOptions {
+            game,
+            set,
+            mangohud,
+        } => launch_options(&paths, game, set.as_deref(), *mangohud),
     }
+}
+
+/// `steam launch-options <GAME> [--set TEXT] [--mangohud on|off]` (ADR-0031 §6a): prints
+/// the launch options as Steam has them, or changes them while Steam is closed.
+#[allow(clippy::print_stdout)]
+fn launch_options(
+    paths: &AppPaths,
+    game: &str,
+    set: Option<&str>,
+    mangohud: Option<crate::cli::SwitchArg>,
+) -> Result<u8, Error> {
+    use easyplay_core::steam::launch_options as lo;
+    if !enabled(paths) {
+        println!(
+            "Steam games are not shown, so Steam's files are not read. Turn it on with `easyplay steam on`."
+        );
+        return Ok(exit::USAGE);
+    }
+    let g = steam_game(game)?.ok_or_else(|| {
+        Error::new(ErrorCode::StmGameGone).with("detail", format!("no Steam game {game:?}"))
+    })?;
+    let app = g.steam_app_id.unwrap_or(0);
+    let scan = scan_now(paths).ok_or_else(|| Error::new(ErrorCode::StmNotFound))?;
+    let root = scan
+        .game(app)
+        .map(|s| s.root.clone())
+        .ok_or_else(|| Error::new(ErrorCode::StmGameGone).with("app_id", app))?;
+    let fs = RealFs::new();
+    let current = lo::read(&fs, &root, app);
+    if set.is_none() && mangohud.is_none() {
+        let v = current.ok_or_else(|| {
+            Error::new(ErrorCode::StmSettingsUnwritable).with("reason", "no account settings")
+        })?;
+        println!("{v}");
+        return Ok(exit::OK);
+    }
+    let mut next = set.map_or_else(|| current.unwrap_or_default(), str::to_owned);
+    if let Some(m) = mangohud {
+        next = lo::with_mangohud(&next, m == crate::cli::SwitchArg::On);
+    }
+    let proc = RealProc::new(Arc::new(RealFs::new()));
+    match lo::write(&fs, &proc, &root, app, &next)? {
+        lo::Written::Unchanged => println!("The launch options of {} are already so.", g.name),
+        lo::Written::Changed { .. } => println!(
+            "Launch options of {} saved. Steam uses them the next time it starts the game.",
+            g.name
+        ),
+    }
+    Ok(exit::OK)
 }

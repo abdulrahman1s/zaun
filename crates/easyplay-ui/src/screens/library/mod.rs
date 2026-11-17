@@ -182,6 +182,7 @@ fn chip_label(lib: &LibraryView, c: &FilterChip) -> String {
         FilterChip::Availability(a) => strings::library::availability_filter(*a).to_owned(),
         FilterChip::Layer(l) => l.to_string(),
         FilterChip::Kind(k) => strings::library::kind_filter(*k).to_owned(),
+        FilterChip::Source(s) => crate::vm::library::source_label(*s).to_owned(),
     }
 }
 
@@ -306,8 +307,13 @@ fn filter_menu(ui: &mut Ui, state: &mut UiState, lib: &LibraryView) {
         false,
         &mut first,
     );
-    let mut layers: Vec<std::sync::Arc<str>> =
-        lib.games.iter().map(|g| g.runtime_label.clone()).collect();
+    // EasyPlay's own layers only: a Steam game's Proton is Steam's choice (ADR-0031).
+    let mut layers: Vec<std::sync::Arc<str>> = lib
+        .games
+        .iter()
+        .filter(|g| !g.is_steam())
+        .map(|g| g.runtime_label.clone())
+        .collect();
     layers.sort();
     layers.dedup();
     filter_section(
@@ -330,6 +336,10 @@ fn filter_menu(ui: &mut Ui, state: &mut UiState, lib: &LibraryView) {
         false,
         &mut first,
     );
+    if let Some(chips) = crate::vm::library::source_chips(lib) {
+        let title = strings::steam::filter::SOURCE();
+        filter_section(ui, state, lib, title, chips, false, &mut first);
+    }
 }
 
 /// The sort menu: sort by, the two orders of the current key, group by.

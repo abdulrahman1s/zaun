@@ -69,3 +69,6 @@ caret.left      caret-left              extra
 arrow.up        arrow-up                extra
 arrow.down      arrow-down              extra
 check.circle    check-circle            extra
+wifi            wifi-high               extra
+hard.drive      hard-drive              extra
+steam           steam-logo              extra

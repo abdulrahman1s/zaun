@@ -234,6 +234,33 @@ impl<U: Uploader> TextureCache<U> {
         TexState::Pending(self.dominant.get(&key.art).copied())
     }
 
+    /// Look up `key` like [`Self::get`]; while it is not ready, paint the same artwork at the
+    /// other cover size if that one is cached (a cover growing from the wall to the game page,
+    /// or shrinking back, keeps its picture instead of flashing its placeholder).
+    pub fn get_or_other_size(
+        &mut self,
+        key: TexKey,
+        pin: bool,
+        source: &dyn ArtSource,
+    ) -> TexState {
+        let state = self.get(key, pin, source);
+        if !matches!(state, TexState::Pending(_)) {
+            return state;
+        }
+        let other = match key.size {
+            ThumbSize::Cover240 => ThumbSize::Cover480,
+            ThumbSize::Cover480 => ThumbSize::Cover240,
+            _ => return state,
+        };
+        match self.entries.get_mut(&TexKey { size: other, ..key }) {
+            Some(e) => {
+                e.last_used = self.frame;
+                TexState::Ready(U::id(&e.handle))
+            }
+            None => state,
+        }
+    }
+
     /// Look up `key` like [`Self::get`] but never start a request: for a frame in which
     /// what is on screen will not stay (the page jumped further than its own height).
     /// A texture already cached is returned and kept fresh; a request already in flight is
@@ -640,6 +667,37 @@ mod tests {
         c.begin_frame();
         assert!(matches!(c.get(k, true, &src), TexState::Ready(_)));
         assert_eq!(c.bytes(), COVER);
+    }
+
+    #[test]
+    fn a_growing_cover_keeps_its_smaller_picture_until_the_larger_arrives() {
+        let src = Inline::tiny();
+        let mut c = TextureCache::new(FakeUploader::default(), Limits::default());
+        c.begin_frame();
+        let (small, large) = (key(1, ThumbSize::Cover240), key(1, ThumbSize::Cover480));
+        c.get(small, true, &src);
+        c.end_frame(&src);
+        c.begin_frame();
+        let TexState::Ready(shown) = c.get(small, true, &src) else {
+            panic!("the wall's cover is cached");
+        };
+        // The larger size is asked for, and the cached one is painted meanwhile.
+        assert_eq!(
+            c.get_or_other_size(large, true, &src),
+            TexState::Ready(shown)
+        );
+        assert_eq!(*src.requests.borrow(), 2);
+        // Another game's artwork never stands in.
+        assert_eq!(
+            c.get_or_other_size(key(2, ThumbSize::Cover480), true, &src),
+            TexState::Pending(None)
+        );
+        c.end_frame(&src);
+        c.begin_frame();
+        assert!(matches!(
+            c.get_or_other_size(large, true, &src),
+            TexState::Ready(t) if t != shown
+        ));
     }
 
     #[test]

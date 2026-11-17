@@ -1,5 +1,10 @@
 //! Translate tokens into `egui::Style` / `Visuals` (UI_DESIGN_SYSTEM §8).
 
+/// Points one wheel notch scrolls (a browser's 100 px).
+pub const LINE_SCROLL: f32 = 100.0;
+/// The fastest a smooth scroll moves, in points a second.
+pub const SCROLL_SPEED: f32 = 4000.0;
+
 use egui::style::{ScrollStyle, Selection, WidgetVisuals, Widgets};
 use egui::{CornerRadius, Margin, Shadow, Stroke, Style, Vec2, Visuals};
 
@@ -94,10 +99,30 @@ pub fn style(theme: &Theme) -> Style {
     s.spacing.window_margin = Margin::same(layout::SHEET_PAD as i8);
     s.spacing.icon_spacing = control::BUTTON_GAP;
     s.spacing.tooltip_width = layout::TIP_MAX_W;
-    // Thin bars that take no room from the page.
-    s.spacing.scroll = ScrollStyle::thin();
+    // Thin bars that take no room from the page (so a page never narrows when one appears),
+    // always visible while there is more to scroll: a quiet thumb in the text colour on no
+    // track, like the design's `scrollbar-width: thin; scrollbar-color: var(--o3) transparent`.
+    s.spacing.scroll = ScrollStyle {
+        floating: true,
+        bar_width: 8.0,
+        floating_width: 4.0,
+        floating_allocated_width: 0.0,
+        bar_outer_margin: 2.0,
+        handle_min_length: 32.0,
+        foreground_color: true,
+        dormant_background_opacity: 0.0,
+        active_background_opacity: 0.0,
+        interact_background_opacity: 0.0,
+        dormant_handle_opacity: 0.32,
+        active_handle_opacity: 0.5,
+        interact_handle_opacity: 0.75,
+        ..ScrollStyle::thin()
+    };
     // A page ends at the edge it scrolls under: nothing fades there.
     s.spacing.scroll.fade.strength = 0.0;
+    // A spun wheel keeps up: egui's 1000 points a second lagged behind quick notches.
+    s.scroll_animation =
+        egui::style::ScrollAnimation::new(SCROLL_SPEED, egui::Rangef::new(0.06, 0.18));
     s.interaction.selectable_labels = false;
     s.interaction.tooltip_delay = timing::TOOLTIP_DELAY;
     s.interaction.show_tooltips_only_when_still = false;

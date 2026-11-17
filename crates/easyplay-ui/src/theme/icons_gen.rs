@@ -120,6 +120,12 @@ pub const ARROW_UP: Icon = Icon::new("arrow.up", '\u{E038}', '\u{E138}', false);
 pub const ARROW_DOWN: Icon = Icon::new("arrow.down", '\u{E039}', '\u{E139}', false);
 /// `check.circle` (Phosphor `check-circle`, extra).
 pub const CHECK_CIRCLE: Icon = Icon::new("check.circle", '\u{E03A}', '\u{E13A}', false);
+/// `wifi` (Phosphor `wifi-high`, extra).
+pub const WIFI: Icon = Icon::new("wifi", '\u{E03B}', '\u{E13B}', false);
+/// `hard.drive` (Phosphor `hard-drive`, extra).
+pub const HARD_DRIVE: Icon = Icon::new("hard.drive", '\u{E03C}', '\u{E13C}', false);
+/// `steam` (Phosphor `steam-logo`, extra).
+pub const STEAM: Icon = Icon::new("steam", '\u{E03D}', '\u{E13D}', false);
 
 /// Every icon, in manifest order.
 pub const ALL: &[Icon] = &[
@@ -182,4 +188,7 @@ pub const ALL: &[Icon] = &[
     ARROW_UP,
     ARROW_DOWN,
     CHECK_CIRCLE,
+    WIFI,
+    HARD_DRIVE,
+    STEAM,
 ];

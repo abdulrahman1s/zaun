@@ -438,6 +438,13 @@ pub fn steam_detail(g: &GameSummary) -> Option<crate::bridge::SteamDetail> {
         notes: String::new(),
         running,
         client_found: true,
+        // The first sample has options Steam was given, the others none.
+        launch_options: Some(if g.name.starts_with("Ridgeline") {
+            "PROTON_LOG=1 %command%".to_owned()
+        } else {
+            String::new()
+        }),
+        steam_open: false,
     })
 }
 
@@ -1418,6 +1425,8 @@ struct DemoState {
     steam_off: Vec<GameSummary>,
     /// The notes of Steam games (the preview keeps no record for them).
     steam_notes: HashMap<GameId, String>,
+    /// The launch options of Steam games, as saved in the preview (ADR-0031 §6a).
+    steam_launch: HashMap<GameId, String>,
 }
 
 /// A preview backend over the sample library. Edits stay in memory; launches are simulated
@@ -1461,6 +1470,7 @@ impl DemoBackend {
                 batch: 0,
                 steam_off: Vec::new(),
                 steam_notes: HashMap::new(),
+                steam_launch: HashMap::new(),
             })),
             step: Duration::from_millis(900),
         }
@@ -1592,6 +1602,9 @@ impl DemoBackend {
                 let payload = match s.library.get(id).and_then(steam_detail) {
                     Some(mut d) => {
                         d.notes = s.steam_notes.get(&id).cloned().unwrap_or_default();
+                        if let Some(l) = s.steam_launch.get(&id) {
+                            d.launch_options = Some(l.clone());
+                        }
                         QueryPayload::Steam(Box::new(d))
                     }
                     None => QueryPayload::Failed(launch_failure(id, "")),
@@ -1601,6 +1614,18 @@ impl DemoBackend {
                     payload,
                 });
             }
+            // The preview's Steam is closed: the options are kept for the page.
+            A::SetLaunchOptions {
+                id,
+                options,
+                reply_to,
+            } => {
+                s.steam_launch.insert(id, options);
+                let n = name(s, id).unwrap_or_default();
+                Self::toast(s, strings::steam::launch::saved(&n), None);
+                Self::steam(s, A::Details { id, reply_to });
+            }
+            A::CloseSteam(_) => Self::toast(s, strings::steam::asked_to_close().to_owned(), None),
             // A file manager or a program in the game's Windows storage: nothing to show in
             // the preview, as for the folders of the other games.
             A::OpenStorageFolder(_) | A::WindowsSettings(_) | A::RunProgram { .. } => {}

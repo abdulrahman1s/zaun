@@ -470,15 +470,32 @@ pub fn advanced(changed: usize) -> String {
     }
 }
 
-/// How many advanced fields differ.
+/// How many advanced fields differ: the switches under Advanced, including how far the home
+/// folders shared in both and removable drives may go.
 pub fn advanced_changes(a: &SandboxPolicy, b: &SandboxPolicy) -> usize {
     let advanced = Permissions::COMPUTER_NAME
         | Permissions::MACHINE_ID
         | Permissions::HARDWARE_IDS
         | Permissions::UNFILTERED_SYSCALLS
         | Permissions::DIRECT_SOUND;
-    let flags = (a.permissions() ^ b.permissions()) & advanced;
+    let mut flags = (a.permissions() ^ b.permissions()) & advanced;
+    if a.permissions().contains(Permissions::REMOVABLE)
+        && b.permissions().contains(Permissions::REMOVABLE)
+    {
+        flags |= (a.permissions() ^ b.permissions()) & Permissions::REMOVABLE_WRITE;
+    }
+    let folders = b
+        .folders
+        .iter()
+        .filter(|f| matches!(f.origin, easyplay_core::model::GrantOrigin::WellKnown(_)))
+        .filter(|f| {
+            a.folders
+                .iter()
+                .any(|x| x.canonical == f.canonical && x.access != f.access)
+        })
+        .count();
     flags.bits().count_ones() as usize
+        + folders
         + usize::from(a.hardening.runtime_isolation != b.hardening.runtime_isolation)
 }
 
@@ -937,6 +954,133 @@ pub fn reset_to(b: BasePreset) -> String {
 texts! {
     /// Degree of the game folder.
     CAN_ONLY_READ = "details.can_only_read";
+}
+
+// ---- The Protection tab as a grouped list (ADR-0030) ---------------------------------------
+
+texts! {
+    /// The sentence at the top of the Protection tab.
+    PROT_LEDE = "details.prot.lede";
+    /// Group heading.
+    OWN_FILES = "details.prot.own_files";
+    /// Group heading.
+    YOUR_FILES = "details.prot.your_files";
+    /// The count of *Your files* when nothing is shared.
+    NONE_SHARED = "details.prot.none_shared";
+    /// What a row is for.
+    INTERNET_LINE = "details.prot.internet_line";
+    /// What a row is for.
+    SOUND_LINE = "details.prot.sound_line";
+    /// What a row is for.
+    MICROPHONE_LINE = "details.prot.microphone_line";
+    /// What a row is for.
+    CONTROLLERS_LINE = "details.prot.controllers_line";
+    /// What a row is for.
+    CAMERA_LINE = "details.prot.camera_line";
+    /// What a row is for.
+    SAVES_LINE = "details.prot.saves_line";
+    /// What a row is for.
+    REMOVABLE_LINE = "details.prot.removable_line";
+    /// How a choice reads in its row.
+    CONNECTED_AT_START = "details.prot.connected_at_start";
+    /// How a choice reads in its row.
+    ALL_DEVICES = "details.prot.all_devices";
+    /// How a choice reads in its row.
+    READ_AND_CHANGE = "details.prot.read_and_change";
+    /// How a choice reads in its row.
+    READ_ONLY_SHORT = "details.prot.read_only";
+    /// How a choice reads in its row.
+    KEPT_APART = "details.prot.kept_apart";
+    /// How a choice reads in its row.
+    PRIVATE_SHORT = "details.prot.private";
+    /// The select of a folder the user shared.
+    SHARED = "details.prot.shared";
+    /// Menu item of a shared folder.
+    STOP_SHARING = "details.prot.stop_sharing";
+    /// A shared folder that can't be found.
+    FOLDER_MISSING = "details.prot.missing";
+    /// A folder the game may change.
+    CAN_CHANGE_HERE = "details.prot.can_change";
+    /// Text button under the list.
+    SHARE_ANOTHER = "details.prot.share_another";
+    /// Advanced: the degree of the home folders and removable drives.
+    CHANGING_FILES = "details.prot.changing_files";
+    /// Advanced: help of [`CHANGING_FILES`].
+    CHANGING_FILES_HELP = "details.prot.changing_files_help";
+    /// A reach item.
+    REACH_REMOVABLE = "details.prot.reach_removable";
+}
+
+/// "Offline" or "Online": the one shorthand of protection outside the Protection tab.
+pub fn net_word(online: bool) -> &'static str {
+    use easyplay_core::model::Preset;
+    super::shield::preset_name(if online {
+        Preset::Online
+    } else {
+        Preset::Offline
+    })
+}
+
+/// "2 of 5 allowed".
+pub fn devices_allowed(n: usize, of: usize) -> String {
+    crate::i18n::plural::counted_args(
+        "details.prot.devices_allowed",
+        n as u64,
+        &[("m", &of.to_string())],
+    )
+}
+
+/// "None shared", "1 folder shared".
+pub fn folders_shared(n: usize) -> String {
+    if n == 0 {
+        NONE_SHARED().to_owned()
+    } else {
+        crate::i18n::plural::counted("details.prot.folders_shared", n as u64)
+    }
+}
+
+/// "Pictures folder": a folder is never a bare word.
+pub fn folder_named(name: &str) -> String {
+    rust_i18n::t!("details.prot.folder_named", name = name).into_owned()
+}
+
+/// "Mods folder options".
+pub fn shared_options(name: &str) -> String {
+    rust_i18n::t!("details.prot.shared_options", name = name).into_owned()
+}
+
+/// "Pictures folder: can change files".
+pub fn can_change_name(name: &str) -> String {
+    rust_i18n::t!("details.prot.can_change_name", name = name).into_owned()
+}
+
+/// The name of a home folder ("Pictures"), whatever the folder is called on disk.
+pub fn user_dir(d: easyplay_core::model::UserDir) -> &'static str {
+    use easyplay_core::model::UserDir as D;
+    crate::i18n::text(match d {
+        D::Downloads => "details.prot.downloads",
+        D::Documents => "details.prot.documents",
+        D::Pictures => "details.prot.pictures",
+        D::Music => "details.prot.music",
+        D::Videos => "details.prot.videos",
+        D::Desktop => "details.prot.desktop",
+    })
+}
+
+/// A reach item for the home folders allowed: "your Pictures folder", "your Pictures and
+/// Music folders", from three "3 of your home folders".
+pub fn reach_home(names: &[&str]) -> String {
+    match names {
+        [] => String::new(),
+        [a] => rust_i18n::t!("details.prot.reach_home_one", name = a).into_owned(),
+        [a, b] => rust_i18n::t!("details.prot.reach_home_two", a = a, b = b).into_owned(),
+        many => crate::i18n::plural::counted("details.prot.reach_home_many", many.len() as u64),
+    }
+}
+
+/// A reach item for a folder the user shared: "the Mods folder".
+pub fn reach_shared(name: &str) -> String {
+    rust_i18n::t!("details.prot.reach_shared", name = name).into_owned()
 }
 
 // ---- Compatibility, as designed --------------------------------------------------------------

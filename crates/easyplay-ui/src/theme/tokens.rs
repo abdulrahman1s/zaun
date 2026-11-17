@@ -838,16 +838,40 @@ pub mod game {
     pub const TOOL_LINE: f32 = 20.0;
     /// The reach lists inside a door: space above them.
     pub const REACH_TOP: f32 = 5.0;
-    /// Protection: space above "Custom, based on …".
-    pub const CUSTOM_TOP: f32 = 10.0;
-    /// Protection: space above the reach lists.
-    pub const REACH_LISTS_TOP: f32 = 12.0;
-    /// Protection: space above the two columns of switches.
-    pub const SWITCHES_TOP: f32 = 26.0;
-    /// "+ Add folder…", "+ Add program…": space above, and how far they hang left.
+    /// "+ Add program…": space above, and how far it hangs left.
     pub const ROW_BUTTONS: [f32; 2] = [4.0, 10.0];
-    /// The small picker under a label: how far it hangs left, and space above it.
-    pub const PICKER_HANG: [f32; 2] = [8.0, 1.0];
+
+    /// Protection (`.lede-s`): space under the sentence at the top of the tab.
+    pub const PROT_LEDE_GAP: f32 = 4.0;
+    /// Protection (`.ph`): space under a group's heading.
+    pub const PROT_HEADING: f32 = 4.0;
+    /// Protection: a group's heading with a count stands this much taller (the count sits
+    /// on the title's baseline, which deepens the line box in the design by a pixel).
+    pub const PROT_COUNT_DEPTH: f32 = 1.0;
+    /// Protection row (`.pr`): least height, padding above and below, and how far its plate
+    /// reaches past the column on both sides (so the text stays on the column).
+    pub const PROT_ROW: [f32; 3] = [52.0, 8.0, 8.0];
+    /// Protection row: corner of its plate.
+    pub const PROT_ROW_RADIUS: u8 = 10;
+    /// Protection row (`.pr-i`): the icon tile's side, its corner, and its glyph.
+    pub const PROT_TILE: [f32; 2] = [32.0, 16.0];
+    /// Protection row: corner of the icon tile.
+    pub const PROT_TILE_RADIUS: u8 = 8;
+    /// Protection row: gap between the tile, the text and the control.
+    pub const PROT_GAP: f32 = 14.0;
+    /// Protection row (`.pr-c`): gap between a select and the switch.
+    pub const PROT_CONTROL_GAP: f32 = 12.0;
+    /// Protection row: a folder's path, size and line height (mono).
+    pub const PROT_PATH: [f32; 2] = [11.0, 16.0];
+    /// "+ Share another folder…" (`.pr-add`): space above, and gap after the plus.
+    pub const PROT_ADD: [f32; 2] = [6.0, 6.0];
+    /// The text buttons under the list hang this far left of the column.
+    pub const PROT_HANG: f32 = 8.0;
+    /// "Changes apply the next time the game starts.": space above.
+    pub const PROT_FINE_TOP: f32 = 12.0;
+    /// The Advanced disclosure (`.disc`): space above, gap after the caret, and space under
+    /// it while open.
+    pub const PROT_DISC: [f32; 3] = [18.0, 5.0, 4.0];
 
     /// Fine print: line height.
     pub const FINE_LINE: f32 = 17.0;

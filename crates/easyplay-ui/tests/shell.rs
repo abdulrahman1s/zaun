@@ -890,7 +890,8 @@ fn a_caption_near_the_right_edge_hangs_from_the_covers_right_side() {
         false
     };
     assert!(
-        !inked(cover.right() + 2.0, WINDOW.x - 1.0),
+        // Up to the scroll bar, which stays visible at the window's right edge.
+        !inked(cover.right() + 2.0, WINDOW.x - 12.0),
         "the caption runs past the cover's right side"
     );
     assert!(

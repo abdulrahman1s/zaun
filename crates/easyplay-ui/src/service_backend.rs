@@ -68,6 +68,8 @@ pub struct ServiceBackend {
     state: Mutex<State>,
     home: PathBuf,
     user_dirs: Vec<(UserDir, PathBuf)>,
+    /// MangoHud is on the `PATH` (the performance overlay can be offered).
+    mangohud: bool,
 }
 
 impl ServiceBackend {
@@ -85,6 +87,12 @@ impl ServiceBackend {
         .into_iter()
         .map(|d| (d, home.join(crate::demo::user_dir_name(d))))
         .collect();
+        let mangohud = easyplay_core::host::exec::find_in(
+            &easyplay_core::fsx::RealFs::new(),
+            &easyplay_core::host::exec::path_dirs(std::env::var_os("PATH").as_deref()),
+            "mangohud",
+        )
+        .is_some();
         Self {
             handle,
             state: Mutex::new(State {
@@ -95,6 +103,7 @@ impl ServiceBackend {
             }),
             home,
             user_dirs,
+            mangohud,
         }
     }
 
@@ -332,9 +341,13 @@ fn notice_text(n: &Notice, lib: &LibrarySnapshot) -> String {
                 R::Run(_) => crate::strings::steam::asked_to_play(n.as_deref().unwrap_or("")),
                 R::Downloads => crate::strings::steam::opened_downloads(n.as_deref()),
                 R::Details(_) => crate::strings::steam::opened_in_steam(n.as_deref().unwrap_or("")),
+                R::Shutdown => crate::strings::steam::asked_to_close().to_owned(),
             }
         }
         Notice::SteamScanned { games } => crate::strings::steam::found(*games),
+        Notice::SteamLaunchOptionsSaved { game } => {
+            crate::strings::steam::launch::saved(&name(game))
+        }
     }
 }
 
@@ -378,6 +391,16 @@ fn steam_command(a: crate::bridge::SteamAction) -> easyplay_core::service::Steam
         A::Rescan => C::Rescan,
         A::Update(id) => C::Update(id),
         A::OpenInSteam(id) => C::OpenInSteam(id),
+        A::SetLaunchOptions {
+            id,
+            options,
+            reply_to,
+        } => C::SetLaunchOptions {
+            id,
+            options,
+            reply_to,
+        },
+        A::CloseSteam(id) => C::CloseSteam(id),
         A::OpenStorageFolder(id) => C::OpenPrefixFolder(id),
         A::WindowsSettings(id) => C::RunInPrefix {
             id,
@@ -741,7 +764,7 @@ impl Backend for ServiceBackend {
                 .collect(),
             reflinks: false,
             input_readable: false,
-            mangohud: false,
+            mangohud: self.mangohud,
             x11: false,
             sound_includes_microphone: f.is_some_and(|f| !f.audio.playback_only()),
             version: env!("CARGO_PKG_VERSION").to_owned(),

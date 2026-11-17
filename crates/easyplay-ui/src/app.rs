@@ -583,7 +583,11 @@ impl EasyPlayApp {
                 None => Box::new(NoPicker),
             });
         }
-        ctx.options_mut(|o| o.zoom_with_keyboard = true);
+        ctx.options_mut(|o| {
+            o.zoom_with_keyboard = true;
+            // One wheel notch moves the page as far as a browser does (egui's 40 felt slow).
+            o.input_options.line_scroll_speed = theme::apply::LINE_SCROLL;
+        });
         self.installed = true;
     }
 

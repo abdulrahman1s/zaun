@@ -510,9 +510,20 @@ pub enum SteamAction {
     Rescan,
     /// "Update in Steam": opens Steam's downloads (no request updates one game on demand).
     Update(GameId),
-    /// "Open in Steam": the game in Steam's library, whose Properties hold the Proton choice
-    /// and launch options.
+    /// "Open in Steam": the game in Steam's library, whose Properties hold the Proton choice.
     OpenInSteam(GameId),
+    /// Save the game's launch options (Steam's own setting, ADR-0031 §6a); refused while
+    /// Steam is open. Answered with `QueryPayload::Steam` (the value as it now is).
+    SetLaunchOptions {
+        /// Game.
+        id: GameId,
+        /// The whole text.
+        options: String,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// "Close Steam": ask the running Steam client to close itself.
+    CloseSteam(GameId),
     /// "Open Windows storage folder" (`compatdata/<appid>/pfx`).
     OpenStorageFolder(GameId),
     /// "Windows settings" (winecfg) in the game's Windows storage, inside EasyPlay's

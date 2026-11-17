@@ -333,12 +333,13 @@ fn paint_flight(
         state.flight.flying = None;
         return;
     };
-    if t >= 1.0 {
+    // The pass it lands in still paints it, at its place: both ends have already left it
+    // out of this pass, and leaving it out here too blinks the cover for a frame.
+    let landed = t >= 1.0;
+    if landed {
         state.flight.flying = None;
-        ctx.request_repaint();
-        return;
     }
-    let e = motion::ease_out(t);
+    let e = motion::ease_out(t.min(1.0));
     let rect = Rect::from_min_max(f.from.min.lerp(f.to.min, e), f.from.max.lerp(f.to.max, e));
     let source = match game.cover {
         Some(art) => {
@@ -347,7 +348,7 @@ fn paint_flight(
                 art,
                 size: ThumbSize::cover_for(px),
             };
-            match env.textures.get(key, true, env.art) {
+            match env.textures.get_or_other_size(key, true, env.art) {
                 TexState::Ready(t) => CoverSource::Texture(t, 1.0),
                 TexState::Pending(c) => c.map_or(CoverSource::Placeholder, CoverSource::Pending),
             }
@@ -361,17 +362,15 @@ fn paint_flight(
     // It arrives with the shadow of the place it is going to.
     let shade = if f.to_page { e } else { 1.0 - e };
     cover::paint_shadow(&painter, rect, theme.palette.shade_cover, shade);
-    cover::paint(
-        &painter,
-        rect,
-        source,
-        &game.name,
-        CoverLook {
-            mark: !game.is_steam(),
-            ..CoverLook::default()
-        },
-        theme,
-    );
+    let look = CoverLook {
+        mark: !game.is_steam(),
+        ..CoverLook::default()
+    };
+    cover::paint(&painter, rect, source, &game.name, look, theme);
+    // A Steam game keeps its badge on the way, as both of its places draw it.
+    if game.is_steam() {
+        cover::paint_steam_badge(&painter, rect, source, &game.name, look, theme);
+    }
     ctx.request_repaint();
 }
 

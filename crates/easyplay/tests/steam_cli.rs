@@ -209,3 +209,22 @@ fn tree(dir: &Path) -> Vec<(PathBuf, u64, std::time::SystemTime)> {
     out.sort();
     out
 }
+
+#[test]
+fn launch_options_are_read_from_steam_s_settings() {
+    let w = World::new();
+    // Off: nothing of Steam's is read.
+    let o = w.run(&["steam", "launch-options", "steam:1174180"]);
+    assert!(!o.status.success());
+    w.ok(&["steam", "on"]);
+    assert_eq!(
+        w.ok(&["steam", "launch-options", "steam:1174180"])
+            .trim_end(),
+        "PROTON_LOG=1 %command%"
+    );
+    // A game without a value prints an empty line.
+    assert_eq!(
+        w.ok(&["steam", "launch-options", "steam:440"]).trim_end(),
+        ""
+    );
+}

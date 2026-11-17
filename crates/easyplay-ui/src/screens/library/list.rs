@@ -493,18 +493,16 @@ pub fn show(
                 } else {
                     painter.clone()
                 };
-                cover::paint(
-                    &thumb_painter,
-                    thumb,
-                    thumb_source(env, g, jumped),
-                    &g.name,
-                    CoverLook {
-                        missing: is_missing(g),
-                        mark: !g.is_steam(),
-                        opacity: 1.0,
-                    },
-                    &theme,
-                );
+                let src = thumb_source(env, g, jumped);
+                let look = CoverLook {
+                    missing: is_missing(g),
+                    mark: !g.is_steam(),
+                    opacity: 1.0,
+                };
+                cover::paint(&thumb_painter, thumb, src, &g.name, look, &theme);
+                if g.is_steam() {
+                    cover::paint_steam_badge(&thumb_painter, thumb, src, &g.name, look, &theme);
+                }
             }
             let gap = space::S3;
             if let Some((x0, x1)) = cells[0] {

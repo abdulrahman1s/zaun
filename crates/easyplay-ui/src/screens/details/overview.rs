@@ -1,10 +1,11 @@
 //! Overview tab (easyplay-redesign.html `tabOverview`): four groups under headings.
-//! *How it runs*: three doors (protection with what the game can and can't use, the
-//! compatibility layer, the launch options), then the game's other programs as small boxed
-//! buttons. *Where it lives*: two doors that open the file manager (the game folder, the
-//! save data). *Notes*: a field that grows with its text, saved half a second after typing
-//! stops ("Saved" stays 1.6 s at the heading's end). *What it is* (ADR-0028): what EasyPlay
-//! knows of the game from its files; a fact with nothing to say is left out.
+//! *How it runs*: three doors (protection: "Offline" or "Online", then what the game is
+//! allowed and what is blocked; the compatibility layer; the launch options), then the
+//! game's other programs as small boxed buttons. *Where it lives*: two doors that open the
+//! file manager (the game folder, the save data). *Notes*: a field that grows with its
+//! text, saved half a second after typing stops ("Saved" stays 1.6 s at the heading's end).
+//! *What it is* (ADR-0028): what EasyPlay knows of the game from its files; a fact with
+//! nothing to say is left out.
 
 use std::time::Duration;
 
@@ -22,7 +23,7 @@ use crate::strings::details as s;
 use crate::theme::tokens::{control, game as gm, timing};
 use crate::theme::{self, Type, icons};
 use crate::vm::AsyncValue;
-use crate::vm::details::{DetailsTab, range_for, reach};
+use crate::vm::details::{DetailsTab, is_online, range_for, reach};
 use crate::vm::dialogs::AfterDiscard;
 use crate::widgets::button::{Button, Size, Variant};
 use crate::widgets::rows::{self, Leads};
@@ -161,21 +162,14 @@ fn how_it_runs(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSumm
     }
     let mut to: Option<DetailsTab> = None;
 
-    // Protection: the level, then what it comes to.
+    // Protection: whether it can go online, then what it is allowed and what is blocked.
     let policy = state
         .details
         .protection
         .as_ref()
         .map(|e| e.draft.clone())
         .or_else(|| state.details.record().map(|d| d.game.policy.clone()));
-    let custom = policy
-        .as_ref()
-        .map_or(g.preset.is_custom(), |x| x.preset.is_custom());
-    let level = if custom {
-        s::CUSTOM()
-    } else {
-        strings::shield::preset_name(g.preset)
-    };
+    let level = s::net_word(is_online(&state.details, g));
     let attention = (g.flags.needs_attention || g.flags.suspected_tamper)
         .then_some(strings::shield::ATTENTION());
     let lists = policy.as_ref().map(reach);

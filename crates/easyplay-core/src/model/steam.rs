@@ -99,16 +99,26 @@ pub enum SteamRequest {
     Downloads,
     /// Show a game in Steam's library ("Open in Steam").
     Details(u32),
+    /// Ask the running client to close ("Close Steam", so its settings can be changed;
+    /// ADR-0031 §6a). Steam closes itself; EasyPlay never signals it.
+    Shutdown,
 }
 
 impl SteamRequest {
-    /// The `steam://` URL (digits only besides the fixed text).
-    pub fn url(self) -> String {
+    /// What is handed to the Steam client: a `steam://` URL (digits only besides the fixed
+    /// text), or for [`SteamRequest::Shutdown`] the client's documented `-shutdown` option.
+    pub fn argument(self) -> String {
         match self {
             SteamRequest::Run(id) => format!("steam://rungameid/{id}"),
             SteamRequest::Downloads => "steam://open/downloads".to_owned(),
             SteamRequest::Details(id) => format!("steam://nav/games/details/{id}"),
+            SteamRequest::Shutdown => "-shutdown".to_owned(),
         }
+    }
+
+    /// The same as [`SteamRequest::argument`] (kept for the existing callers).
+    pub fn url(self) -> String {
+        self.argument()
     }
 }
 

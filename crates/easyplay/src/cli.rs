@@ -278,11 +278,32 @@ pub enum SteamVerb {
         /// The game.
         game: GameArg,
     },
-    /// Show the game in Steam (its properties hold the Proton choice and launch options).
+    /// Show the game in Steam (its properties hold the Proton choice).
     Open {
         /// The game.
         game: GameArg,
     },
+    /// Show or change the game's launch options (Steam › Properties › Launch options).
+    /// Changing them needs Steam to be closed.
+    LaunchOptions {
+        /// The game.
+        game: GameArg,
+        /// The new launch options (`%command%` stands for the game; "" for none).
+        #[arg(long, value_name = "TEXT")]
+        set: Option<String>,
+        /// Turn the performance overlay (MangoHud) on or off in them.
+        #[arg(long, value_enum)]
+        mangohud: Option<SwitchArg>,
+    },
+}
+
+/// `steam launch-options --mangohud`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum SwitchArg {
+    /// On.
+    On,
+    /// Off.
+    Off,
 }
 
 /// `runtimes adopt --variant`.

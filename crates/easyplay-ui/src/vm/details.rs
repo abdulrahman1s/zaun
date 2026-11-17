@@ -58,12 +58,15 @@ impl DetailsTab {
 }
 
 /// The tabs of a Steam game's page (ADR-0031), kept apart from [`DetailsTab`]: a game Steam
-/// runs has no Protection, Compatibility, Launch options, Activity or Logs.
+/// runs has no Protection, Compatibility, Activity or Logs, and its Launch options are
+/// Steam's own (ADR-0031 §6a).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum SteamTab {
     /// Overview.
     #[default]
     Overview,
+    /// Launch options: Steam's setting and the MangoHud switch.
+    LaunchOptions,
     /// Windows storage (a game Steam runs through Proton).
     Storage,
 }
@@ -299,6 +302,9 @@ pub struct DetailsVm {
     pub steam_rev: u64,
     /// The tab of a Steam game's page.
     pub steam_tab: SteamTab,
+    /// A Steam game's launch options as typed and not yet saved (`None`: as Steam has
+    /// them).
+    pub steam_launch: Option<String>,
 }
 
 /// What is edited about one program.
@@ -343,13 +349,15 @@ pub fn record_days(o: &GameOverview, n: usize) -> Vec<u64> {
     out
 }
 
-/// What a game can and can't use, as two short lists ("Can use", "Can't use"), each a comma
-/// list with its first letter capitalised; an empty "Can't use" reads "Nothing is held
-/// back". Items, in order: the internet and local network · its own folder · the shared
-/// folders by name · your personal files (or your other personal files, when some are
-/// shared; left out when all are) · controllers · sound · microphone · camera. Every summary
-/// of protection is built from this: the Overview, the top of the Protection tab, the
-/// setup dialog.
+/// What a game is allowed and what is blocked, as two short lists ("Allowed", "Blocked"),
+/// each a comma list with its first letter capitalised; an empty "Blocked" reads "Nothing".
+/// Items, in order (easyplay-redesign.html `reach`): the internet and local network · its
+/// own folder · the home folders ("your Pictures folder", "your Pictures and Music
+/// folders", from three "3 of your home folders"; a folder is always called a folder) ·
+/// removable drives · the folders the user shared ("the Mods folder") · your personal files
+/// (or your other personal files, when a home folder or removable drives are allowed; left
+/// out when all are) · controllers · sound · microphone · camera. Every summary of
+/// protection is built from this: the Overview and the setup dialog.
 pub fn reach(policy: &SandboxPolicy) -> (String, String) {
     use crate::strings::details as s;
     use easyplay_core::model::{GameDirAccess, Permissions};
@@ -371,10 +379,9 @@ pub fn reach(policy: &SandboxPolicy) -> (String, String) {
             s::REACH_OWN_FOLDER()
         },
     );
-    // The well-known folders first, in the Protection tab's order, then the folders the
-    // user chose, then removable drives.
-    let well_known = USER_DIRS;
-    let mut shared: Vec<String> = well_known
+    // The home folders in the Protection tab's order, then removable drives, then the
+    // folders the user chose.
+    let home: Vec<&str> = USER_DIRS
         .iter()
         .filter(|d| {
             policy
@@ -382,28 +389,27 @@ pub fn reach(policy: &SandboxPolicy) -> (String, String) {
                 .iter()
                 .any(|f| f.origin == GrantOrigin::WellKnown(**d))
         })
-        .map(|d| crate::demo::user_dir_name(*d).to_owned())
+        .map(|d| s::user_dir(*d))
         .collect();
-    let known = shared.len();
-    shared.extend(
-        policy
-            .folders
-            .iter()
-            .filter(|f| f.origin == GrantOrigin::UserChosen)
-            .map(crate::demo::grant_name),
-    );
+    if !home.is_empty() {
+        put(true, &s::reach_home(&home));
+    }
     let removable = granted.contains(Permissions::REMOVABLE);
     if removable {
-        shared.push(s::REMOVABLE().to_owned());
+        put(true, s::REACH_REMOVABLE());
     }
-    let personal = known + usize::from(removable);
-    for name in &shared {
-        put(true, name);
+    for f in policy
+        .folders
+        .iter()
+        .filter(|f| f.origin == GrantOrigin::UserChosen)
+    {
+        put(true, &s::reach_shared(&crate::demo::grant_name(f)));
     }
-    if personal < well_known.len() + 1 {
+    let personal = home.len() + usize::from(removable);
+    if personal < USER_DIRS.len() + 1 {
         put(
             false,
-            if shared.is_empty() {
+            if personal == 0 {
                 s::REACH_PERSONAL()
             } else {
                 s::REACH_OTHER_PERSONAL()
@@ -426,6 +432,23 @@ pub fn reach(policy: &SandboxPolicy) -> (String, String) {
         s::comma_list(&cant)
     };
     (s::comma_list(&can), cant)
+}
+
+/// Whether the game shown can go online: the one shorthand of protection shown outside the
+/// Protection tab ("Offline" / "Online"), derived from the internet permission and never
+/// stored. The draft decides while the Protection tab edits it, then the saved record, then
+/// the library's summary.
+pub fn is_online(d: &DetailsVm, g: &easyplay_core::model::GameSummary) -> bool {
+    use easyplay_core::model::{NetworkAccess, Permissions};
+    match (&d.protection, d.record()) {
+        (Some(e), _) if d.game == Some(g.id) => {
+            e.draft.permissions().contains(Permissions::INTERNET)
+        }
+        (_, Some(r)) if r.game.id == g.id => {
+            r.game.policy.permissions().contains(Permissions::INTERNET)
+        }
+        _ => g.network == NetworkAccess::Full,
+    }
 }
 
 /// The four ranges of the Activity tab and Statistics screen.
@@ -609,8 +632,54 @@ mod tests {
             demo::baseline_now(),
         );
         let (can, cant) = reach(&e.draft);
-        assert!(can.contains("Its own folder, Pictures"), "{can}");
+        assert!(
+            can.contains("Its own folder, your Pictures folder"),
+            "{can}"
+        );
         assert!(cant.contains("your other personal files"), "{cant}");
+        // Two home folders are named together; from three they are counted.
+        let home = |e: &mut PolicyEditor, d: UserDir| {
+            e.toggle_user_dir(d, PathBuf::from("/home/sam/x"), demo::baseline_now());
+        };
+        home(&mut e, UserDir::Music);
+        let (can, _) = reach(&e.draft);
+        assert!(can.contains("your Pictures and Music folders"), "{can}");
+        home(&mut e, UserDir::Videos);
+        let (can, _) = reach(&e.draft);
+        assert!(can.contains("3 of your home folders"), "{can}");
+        // A folder the user shared is called a folder; it holds nothing personal back.
+        let mut e = editor();
+        e.add_folder(PathBuf::from("/home/sam/Games/Mods"), demo::baseline_now());
+        let (can, cant) = reach(&e.draft);
+        assert!(can.contains("the Mods folder"), "{can}");
+        assert!(cant.contains("your personal files"), "{cant}");
+        assert!(!cant.contains("other"), "{cant}");
+    }
+
+    #[test]
+    fn reach_says_nothing_when_nothing_is_blocked() {
+        use easyplay_core::model::Permissions;
+        let mut e = editor();
+        e.draft.set_permissions(
+            e.draft.permissions()
+                | Permissions::INTERNET
+                | Permissions::MICROPHONE
+                | Permissions::CAMERA
+                | Permissions::REMOVABLE,
+        );
+        for d in USER_DIRS {
+            e.toggle_user_dir(
+                d,
+                PathBuf::from(format!("/home/sam/{d:?}")),
+                demo::baseline_now(),
+            );
+        }
+        let (can, cant) = reach(&e.draft);
+        assert!(
+            can.contains("6 of your home folders, removable drives"),
+            "{can}"
+        );
+        assert_eq!(cant, "Nothing");
     }
 
     #[test]

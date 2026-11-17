@@ -160,6 +160,8 @@ fn same_on_purpose(key: &str, text: &str) -> bool {
             "steam.scope",
             "steam.origin",
             "steam.page.proton",
+            "steam.filter.easyplay",
+            "steam.filter.steam",
             "settings.from_steam",
             "settings.lang_english",
             "settings.licence_rows.phosphor_icons",

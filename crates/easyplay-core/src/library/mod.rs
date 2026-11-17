@@ -51,7 +51,7 @@ pub use installer::InstalledProgram;
 pub use missing::{ScanTarget, ScanThrottle, ScanTrigger};
 pub use query::{
     Collection, Filters, GroupSpan, Grouping, LibraryQuery, PresetFilter, QueryResult, SortKey,
-    run_query,
+    SourceFilter, run_query,
 };
 pub use relink::{RelinkOutcome, Verdict};
 pub use remove::{RemoveFiles, RemoveJob, RemoveOptions, RemoveReport};

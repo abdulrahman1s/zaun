@@ -386,14 +386,6 @@ pub(crate) fn fine(ui: &mut Ui, text: &str, color: Color32) -> egui::Response {
     Type::Caption.paragraph_lh(ui, text, color, false, Some(gm::FINE_LINE))
 }
 
-/// The width of the page's own scrolling column (its content box): the two columns of
-/// switches and the tabs' gap are decided by it.
-pub(super) fn content_width(ui: &Ui) -> f32 {
-    ui.ctx()
-        .data(|d| d.get_temp::<f32>(Id::unique("details.content_w")))
-        .unwrap_or_else(|| ui.available_width())
-}
-
 /// A column of controls (Compatibility, Launch options): at most 620 wide, at the left.
 pub(super) fn column<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let w = ui.available_width().min(layout::COL_MAX);
@@ -429,7 +421,7 @@ fn cover(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary, r
     state.flight.note_page(g.id, rect);
     if !state.flight.hides(g.id) {
         let src = match g.cover {
-            Some(a) => match env.textures.get(
+            Some(a) => match env.textures.get_or_other_size(
                 TexKey {
                     art: a,
                     size: ThumbSize::cover_for(rect.width() * ui.ctx().pixels_per_point()),
@@ -822,20 +814,12 @@ fn balanced_width(ui: &Ui, text: &str, style: Type, full: f32) -> f32 {
     hi.ceil().min(full)
 }
 
-/// Under the title: the protection level (to the Protection tab), the tags and "+ Tag" (to
+/// Under the title: "Offline" or "Online" (to the Protection tab), the tags and "+ Tag" (to
 /// the tag menu). The row starts 8 left of the axis, so the words' text keeps it.
 fn meta_row(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
-    // The draft decides while the Protection tab edits it: the row follows the switches.
-    let custom = state
-        .details
-        .protection
-        .as_ref()
-        .map_or(g.preset.is_custom(), |e| e.draft.preset.is_custom());
-    let level = if custom {
-        s::CUSTOM()
-    } else {
-        strings::shield::preset_name(g.preset)
-    };
+    // Derived from the internet permission, never stored; the draft decides while the
+    // Protection tab edits it, so the word follows the switch.
+    let level = s::net_word(crate::vm::details::is_online(&state.details, g));
     let top = ui.cursor().min;
     let w = ui.available_width() + layout::WORD_PAD;
     let mut row = ui.new_child(

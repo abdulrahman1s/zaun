@@ -302,7 +302,20 @@ pub fn wall_card(
         return out;
     }
     let keyboard = resp.has_focus() && focus_visible(ui.ctx());
-    let hot = resp.contains_pointer() || keyboard || look.menu_open;
+    let pointed = resp.contains_pointer();
+    // One cover is hot at a time: while the pointer is on another cover, the focused one
+    // keeps only its ring (its caption and Play would collide with the pointed one's).
+    let pointer_key = Id::unique("card.pointed");
+    let frame = ui.ctx().cumulative_pass_nr();
+    let elsewhere = ui
+        .ctx()
+        .data(|d| d.get_temp::<(u64, Id)>(pointer_key))
+        .is_some_and(|(at, other)| other != id && frame.saturating_sub(at) <= 1);
+    if pointed {
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(pointer_key, (frame, id)));
+    }
+    let hot = pointed || (keyboard && !elsewhere) || look.menu_open;
     let shade_t =
         ui.ctx()
             .animate_bool_with_time(id.with("shade"), hot, theme.motion.fade(Dur::Fast));
@@ -346,19 +359,17 @@ pub fn wall_card(
             (None, Some(c)) => CoverSource::Pending(c),
             (None, None) => CoverSource::Placeholder,
         };
-        cover::paint(
-            &painter,
-            drawn,
-            source,
-            &g.name,
-            CoverLook {
-                missing: unavailable(g),
-                // EasyPlay's mark (a shield) is not put on a game Steam runs (ADR-0031).
-                mark: !selected && !g.is_steam(),
-                opacity: 1.0,
-            },
-            &theme,
-        );
+        let cover_look = CoverLook {
+            missing: unavailable(g),
+            // EasyPlay's mark (a shield) is not put on a game Steam runs (ADR-0031).
+            mark: !selected && !g.is_steam(),
+            opacity: 1.0,
+        };
+        cover::paint(&painter, drawn, source, &g.name, cover_look, &theme);
+        // Steam's mark takes that corner instead, unless the selection check is there.
+        if g.is_steam() && !selected {
+            cover::paint_steam_badge(&painter, drawn, source, &g.name, cover_look, &theme);
+        }
         // The star yields to Play: Play takes that corner whenever it shows.
         let play_corner = hot || look.big || running || ctx.controller;
         if g.favorite && !play_corner {

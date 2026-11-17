@@ -7,6 +7,7 @@
   stdenv,
   makeRustPlatform,
   makeWrapper,
+  patchelf,
   installShellFiles,
   removeReferencesTo,
   pkg-config,
@@ -152,6 +153,7 @@ rustPlatform.buildRustPackage {
     makeWrapper
     installShellFiles
     removeReferencesTo
+    patchelf
   ];
   # libsqlite3-sys currently resolves without its `bundled` feature and links the system
   # library through pkg-config; when the workspace bundles SQLite this is simply unused.
@@ -218,6 +220,14 @@ rustPlatform.buildRustPackage {
       --set DISABLE_MANGOHUD 1 \
       --prefix PATH : ${lib.makeBinPath hostTools} \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath runtimeLibs}
+  '';
+
+  # The wrapper's LD_LIBRARY_PATH reaches only the process it starts: the session supervisor
+  # runs with a cleared environment and still has to dlopen libwayland-client (the Wayland
+  # security context, EP-SBX-001 otherwise). The run path is added after fixup, whose
+  # shrink step would drop it again (no DT_NEEDED entry names these libraries).
+  postFixup = ''
+    patchelf --add-rpath ${lib.makeLibraryPath runtimeLibs} $out/bin/.easyplay-wrapped
   '';
 
   disallowedReferences = [ rustToolchain ];

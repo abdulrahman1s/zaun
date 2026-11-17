@@ -850,3 +850,120 @@ fn a_tool_can_be_planned_in_a_steam_prefix() {
     assert!(!args.iter().any(|a| a == &own), "not EasyPlay's own prefix");
     assert!(planned.sandbox.namespaces.net, "offline");
 }
+
+// ---- Launch options (ADR-0031 §6a) ---------------------------------------------------------
+
+fn steam_detail_of(evs: &[Event]) -> Option<easyplay_core::service::SteamDetail> {
+    evs.iter().find_map(|e| match e {
+        Event::QueryResult {
+            result: QueryResult::Steam(d),
+            ..
+        } => Some((**d).clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn launch_options_are_steams_and_written_only_while_steam_is_closed() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut w = World::new(true);
+    let config =
+        w.fx.root
+            .join("userdata")
+            .join(steam_root::ACCOUNT)
+            .join("config");
+    let file = config.join("localconfig.vdf");
+    let backup = config.join("localconfig.vdf.easyplay-bak");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
+    let original = std::fs::read(&file).unwrap();
+    let q = |n: u128| easyplay_core::ids::QueryId::from_uuid(uuid::Uuid::from_u128(n));
+
+    // The page reads Steam's value.
+    let evs = w.send(Command::Steam(SteamCommand::Details {
+        id: RDR,
+        reply_to: q(1),
+    }));
+    let d = steam_detail_of(&evs).expect("details");
+    assert_eq!(d.launch_options.as_deref(), Some("PROTON_LOG=1 %command%"));
+    assert!(!d.steam_open);
+
+    // Steam is open: refused, nothing written, and the page hears the value as it is.
+    w.proc.insert(proc_entry(900, 1, "steamwebhelper", 1));
+    let evs = w.send(Command::Steam(SteamCommand::SetLaunchOptions {
+        id: RDR,
+        options: "mangohud %command%".into(),
+        reply_to: q(2),
+    }));
+    assert_eq!(failure(&evs), Some(ErrorCode::StmSteamOpen));
+    let d = steam_detail_of(&evs).expect("answered");
+    assert!(d.steam_open);
+    assert_eq!(d.launch_options.as_deref(), Some("PROTON_LOG=1 %command%"));
+    assert_eq!(std::fs::read(&file).unwrap(), original);
+    assert!(!backup.exists());
+
+    // "Close Steam" asks the client of the game's installation to close itself.
+    let evs = w.send(Command::Steam(SteamCommand::CloseSteam(RDR)));
+    assert_eq!(failure(&evs), None);
+    assert!(
+        w.handed()
+            .last()
+            .is_some_and(|argv| argv.last().map(String::as_str) == Some("-shutdown"))
+    );
+    w.proc.remove(900);
+
+    // Closed: written, with a backup of the file as it was and the same permissions.
+    let evs = w.send(Command::Steam(SteamCommand::SetLaunchOptions {
+        id: RDR,
+        options: "PROTON_LOG=1 mangohud %command%".into(),
+        reply_to: q(3),
+    }));
+    assert_eq!(failure(&evs), None);
+    assert!(evs.iter().any(|e| matches!(
+        e,
+        Event::Notice(Notice::SteamLaunchOptionsSaved { game }) if *game == RDR
+    )));
+    let d = steam_detail_of(&evs).expect("answered");
+    assert_eq!(
+        d.launch_options.as_deref(),
+        Some("PROTON_LOG=1 mangohud %command%")
+    );
+    assert_eq!(std::fs::read(&backup).unwrap(), original);
+    let now = std::fs::read(&file).unwrap();
+    let want = String::from_utf8(original.clone()).unwrap().replace(
+        "\"PROTON_LOG=1 %command%\"",
+        "\"PROTON_LOG=1 mangohud %command%\"",
+    );
+    assert_eq!(
+        String::from_utf8(now).unwrap(),
+        want,
+        "only the value changed"
+    );
+    assert_eq!(
+        std::fs::metadata(&file).unwrap().permissions().mode() & 0o7777,
+        0o640
+    );
+
+    // A game without the key gets one in its block; the backup is the previous file.
+    let second = std::fs::read(&file).unwrap();
+    w.send(Command::Steam(SteamCommand::SetLaunchOptions {
+        id: GameId::steam(440),
+        options: "-novid".into(),
+        reply_to: q(4),
+    }));
+    let now = std::fs::read(&file).unwrap();
+    assert_eq!(
+        easyplay_core::steam::launch_options::read_value(&now, 440).as_deref(),
+        Some("-novid")
+    );
+    assert_eq!(std::fs::read(&backup).unwrap(), second);
+
+    // Nothing else under the Steam root was written: the settings file and its backup only
+    // (the temporary files of the atomic writes are renamed over them).
+    let written: Vec<PathBuf> =
+        w.fs.touched(&w.fx.root, true)
+            .into_iter()
+            .filter(|p| p != &file && p != &backup)
+            .collect();
+    assert!(written.is_empty(), "{written:?}");
+    assert!(w.fs.touched(&w.fx.library, true).is_empty());
+}

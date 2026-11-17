@@ -133,6 +133,11 @@ pub enum Notice {
         /// Games listed.
         games: usize,
     },
+    /// A Steam game's launch options were written to Steam's settings (ADR-0031 §6a).
+    SteamLaunchOptionsSaved {
+        /// The game.
+        game: GameId,
+    },
     /// The damaged library was resolved (repaired, restored or replaced).
     LibraryRecovered {
         /// What was done.
@@ -229,6 +234,11 @@ pub struct SteamDetail {
     /// The Windows-storage actions are possible now: Proton, a prefix, the Proton build
     /// that last ran it present, the game not running.
     pub prefix_tools: bool,
+    /// The game's launch options as Steam has them (`Some("")`: none set); `None` when the
+    /// account's settings file cannot be found or read (ADR-0031 §6a).
+    pub launch_options: Option<String>,
+    /// A Steam client runs now: the launch options cannot be changed until it is closed.
+    pub steam_open: bool,
 }
 
 /// An announcement from the AppService.

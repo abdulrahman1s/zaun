@@ -5,8 +5,9 @@
 //! renamable), the meta row that starts with "Run by Steam" — without the shield, which marks
 //! a protection level — then the tags; Play (no Stop: the quiet Play while Steam runs it),
 //! favourite, more; the notes (an update waiting, paused or running; files Steam reports
-//! missing; Steam not found; a library drive not connected); then the tabs *Overview* and,
-//! for a game Steam runs through Proton, *Windows storage*.
+//! missing; Steam not found; a library drive not connected); then the tabs *Overview*,
+//! *Launch options* (Steam's own setting and the MangoHud switch, ADR-0031 §6a) and, for a
+//! game Steam runs through Proton, *Windows storage*. The cover carries Steam's badge.
 //!
 //! The page asks only `SteamAction::Details` (once on arrival, again when the library
 //! changes): never `LoadGame`, `AboutGame` or the statistics, which do not apply.
@@ -38,6 +39,7 @@ use crate::widgets::cover::{self, CoverLook, CoverSource};
 use crate::widgets::icon_button::IconButton;
 use crate::widgets::rows::{self, Leads, SettingRow};
 use crate::widgets::tabs::Tabs;
+use crate::widgets::text_field::TextField;
 use crate::widgets::tooltip;
 use crate::widgets::word::Word;
 
@@ -60,7 +62,10 @@ fn is_proton(f: &SteamFacts) -> bool {
 
 /// The tabs of the page, in order, with their names.
 fn tabs(f: &SteamFacts) -> Vec<(SteamTab, &'static str)> {
-    let mut out = vec![(SteamTab::Overview, s::tab(DetailsTab::Overview))];
+    let mut out = vec![
+        (SteamTab::Overview, s::tab(DetailsTab::Overview)),
+        (SteamTab::LaunchOptions, s::tab(DetailsTab::LaunchOptions)),
+    ];
     if is_proton(f) {
         out.push((SteamTab::Storage, st::page::STORAGE_TAB()));
     }
@@ -106,7 +111,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
     let Some(facts) = g.steam() else {
         return;
     };
-    if !is_proton(facts) {
+    if !is_proton(facts) && state.details.steam_tab == SteamTab::Storage {
         state.details.steam_tab = SteamTab::Overview;
     }
     let page = ui.available_rect_before_wrap();
@@ -189,18 +194,13 @@ fn cover(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary, r
         None => CoverSource::Placeholder,
     };
     cover::paint_shadow(ui.painter(), rect, theme.palette.shade_cover, 1.0);
-    cover::paint(
-        ui.painter(),
-        rect,
-        src,
-        &g.name,
-        // EasyPlay's mark (a shield) is not put on a game Steam runs.
-        CoverLook {
-            mark: false,
-            ..CoverLook::default()
-        },
-        &theme,
-    );
+    // EasyPlay's mark (a shield) is not put on a game Steam runs; Steam's is.
+    let look = CoverLook {
+        mark: false,
+        ..CoverLook::default()
+    };
+    cover::paint(ui.painter(), rect, src, &g.name, look, &theme);
+    cover::paint_steam_badge(ui.painter(), rect, src, &g.name, look, &theme);
 }
 
 /// What the play record says.
@@ -583,6 +583,9 @@ fn column_body(
         });
         risen(ui, body_in, |ui| match state.details.steam_tab {
             SteamTab::Overview => overview(ui, state, env, g, facts, detail.as_deref()),
+            SteamTab::LaunchOptions => {
+                super::column(ui, |ui| launch(ui, state, env, g, detail.as_deref()));
+            }
             SteamTab::Storage => storage(ui, state, env, g, facts, detail.as_deref()),
         });
         (slot, pinned)
@@ -785,6 +788,134 @@ fn overview(
         s::ADDED(),
         s::date_label(g.added_at, env.now, env.utc_offset_s),
     );
+}
+
+// ---- Launch options ------------------------------------------------------------------------
+
+/// Hand `text` to Steam's settings as the game's launch options; the answer is the page's
+/// detail with the value as Steam's file now has it.
+fn save_launch(state: &mut UiState, env: &mut Env<'_>, id: GameId, text: String) {
+    let q = env.bridge.query_id();
+    state.details.steam_q = Some(q);
+    state.details.steam_rev = env.bridge.library().revision;
+    state.details.steam_launch = Some(text.clone());
+    env.bridge
+        .send(UiCommand::Steam(SteamAction::SetLaunchOptions {
+            id,
+            options: text,
+            reply_to: q,
+        }));
+}
+
+/// Launch options (ADR-0031 §6a), in the 620 column as the Launch options tab of every game
+/// reads: while Steam is open, a note that offers to close it; the field with Save and what
+/// it is under it; then the performance overlay's switch, which adds or takes out
+/// `mangohud` and saves at once.
+fn launch(
+    ui: &mut Ui,
+    state: &mut UiState,
+    env: &mut Env<'_>,
+    g: &GameSummary,
+    detail: Option<&SteamDetail>,
+) {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let id = g.id;
+    let Some(d) = detail else {
+        if state.details.steam.show_skeleton(env.mono) {
+            super::skeleton_lines(ui, 3);
+        }
+        return;
+    };
+    let pending = state.details.steam_q.is_some();
+    let Some(saved) = d.launch_options.clone() else {
+        // The account's settings file cannot be found or read: Steam's own Properties.
+        rows::heading(ui, st::launch::FIELD(), true);
+        fine(ui, st::launch::UNREADABLE(), p.t3);
+        ui.add_space(gm::ROW_BUTTONS[0]);
+        if ui.add(Button::ghost(st::action::OPEN_IN_STEAM())).clicked() {
+            env.bridge
+                .send(UiCommand::Steam(SteamAction::OpenInSteam(id)));
+        }
+        return;
+    };
+    // A save went through: the field shows Steam's value again.
+    if !pending && state.details.steam_launch.as_deref() == Some(saved.as_str()) {
+        state.details.steam_launch = None;
+    }
+    if d.steam_open {
+        let shown = Note::new(Severity::Info, st::launch::OPEN_TEXT())
+            .title(st::launch::OPEN_TITLE())
+            .actions(&[st::launch::CLOSE_STEAM(), s::CHECK_AGAIN()])
+            .show(ui);
+        match shown.clicked {
+            Some(0) => env
+                .bridge
+                .send(UiCommand::Steam(SteamAction::CloseSteam(id))),
+            Some(1) => {
+                let rev = env.bridge.library().revision;
+                ask(state, env, id, rev);
+            }
+            _ => {}
+        }
+        ui.add_space(gm::NOTE_TOP);
+    }
+
+    // The tab says what this is; the field follows it without a heading of the same words.
+    let mut text = state
+        .details
+        .steam_launch
+        .clone()
+        .unwrap_or_else(|| saved.clone());
+    let before = text.clone();
+    let valid = easyplay_core::steam::launch_options::valid_value(&text);
+    let save = ui
+        .horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space::S2;
+            let save_w = Button::new(st::launch::SAVE()).width(ui);
+            let field = TextField::new(&mut text, "steam.launch_options")
+                .accessible_name(st::launch::FIELD())
+                .hint(s::ARGS_NONE())
+                .mono()
+                .width((ui.available_width() - save_w - space::S2).max(space::S16))
+                .show(ui)
+                .response;
+            let can = text != saved && valid && !pending;
+            let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let pressed = ui
+                .add_enabled(can, Button::new(st::launch::SAVE()))
+                .clicked();
+            pressed || (enter && can)
+        })
+        .inner;
+    if text != before {
+        state.details.steam_launch = Some(text.clone());
+    }
+    ui.add_space(gm::FINE_TOP);
+    fine(ui, st::launch::HELP(), p.t3);
+    if save {
+        save_launch(state, env, id, text.clone());
+    }
+
+    // The performance overlay: `mangohud` before `%command%`.
+    ui.add_space(space::S2);
+    let mango = env.bridge.host().mangohud;
+    let mut on = easyplay_core::steam::launch_options::has_mangohud(&text);
+    let was = on;
+    // Left on when MangoHud is gone, the switch can still be turned off.
+    let row = SettingRow::new(st::launch::OVERLAY())
+        .help(if mango {
+            st::launch::OVERLAY_HELP()
+        } else {
+            s::MANGOHUD_MISSING()
+        })
+        .enabled((mango || on) && !pending);
+    row.show(ui, |ui| {
+        crate::widgets::toggle::switch(ui, &mut on, st::launch::OVERLAY());
+    });
+    if on != was {
+        let next = easyplay_core::steam::launch_options::with_mangohud(&text, on);
+        save_launch(state, env, id, next);
+    }
 }
 
 // ---- Windows storage -----------------------------------------------------------------------

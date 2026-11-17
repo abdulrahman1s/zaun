@@ -405,6 +405,103 @@ pub fn paint(
     );
 }
 
+/// The largest Steam badge glyph, in points (a wall cover, the game page).
+pub const STEAM_BADGE_MAX: f32 = 16.0;
+/// The smallest (a list thumbnail).
+pub const STEAM_BADGE_MIN: f32 = 9.0;
+/// The badge glyph's size as a fraction of the cover's width, between the two.
+pub const STEAM_BADGE_SHARE: f32 = 0.1;
+/// Opacity of the glyph on artwork.
+pub const STEAM_BADGE_INK: f32 = 0.7;
+/// Opacity of the disc under it on artwork.
+pub const STEAM_BADGE_DISC: f32 = 0.6;
+
+/// Where the Steam badge of a cover occupying `rect` sits, and its glyph size: the top-left
+/// corner, where an EasyPlay poster has its mark (a game Steam runs has none, ADR-0031), at
+/// the inset of the cover's other badges; away from the poster's title (the bottom) and
+/// from Play and the favourite (the top right).
+pub fn steam_badge_at(rect: Rect) -> (Pos2, f32) {
+    let w = rect.width();
+    let size = (w * STEAM_BADGE_SHARE).clamp(STEAM_BADGE_MIN, STEAM_BADGE_MAX);
+    let radius = size * 0.62;
+    let inset = if w >= layout::POSTER_MIN_W {
+        crate::theme::tokens::control::DISC_INSET
+    } else {
+        (w * measure::INSET_X).max(1.5)
+    };
+    (rect.min + vec2(inset + radius, inset + radius), size)
+}
+
+/// Steam's logo on the cover of a game Steam runs (ADR-0031): small and quiet. On artwork,
+/// [`Palette::on_art`](crate::theme::palette::Palette) over a translucent disc of the
+/// favourite's colour; on a poster, in the colour of the poster's own mark. Callers leave it
+/// out while the selection check takes that corner.
+pub fn paint_steam_badge(
+    painter: &Painter,
+    rect: Rect,
+    source: CoverSource,
+    title: &str,
+    look: CoverLook,
+    theme: &Theme,
+) {
+    let (c, size) = steam_badge_at(rect);
+    let p = &theme.palette;
+    let f = |col: Color32, a: f32| fade(col, a * look.opacity);
+    let glyph = crate::theme::icons::STEAM.text(false);
+    let font = crate::theme::icons::font(size);
+    let w = rect.width();
+    match source {
+        // Exactly where, and as large as, an EasyPlay poster's mark: the posters of a wall
+        // keep one line.
+        CoverSource::Placeholder if w >= layout::POSTER_MIN_W => {
+            let Paper { paper, ink } = palette::paper_for(title);
+            let (paper, ink) = if look.missing {
+                (dimmed(paper), dimmed(ink))
+            } else {
+                (paper, ink)
+            };
+            let side = w * measure::MARK;
+            let at = rect.min + vec2(w * measure::INSET_X, w * measure::INSET_X);
+            painter.text(
+                at + vec2(side / 2.0, side / 2.0),
+                Align2::CENTER_CENTER,
+                glyph,
+                crate::theme::icons::font(side.min(STEAM_BADGE_MAX)),
+                f(mix(paper, ink, alpha::POSTER_MARK), 1.0),
+            );
+        }
+        CoverSource::Placeholder => {
+            let Paper { paper, ink } = palette::paper_for(title);
+            let (paper, ink) = if look.missing {
+                (dimmed(paper), dimmed(ink))
+            } else {
+                (paper, ink)
+            };
+            painter.text(
+                c,
+                Align2::CENTER_CENTER,
+                glyph,
+                font,
+                f(mix(paper, ink, alpha::POSTER_MARK), 1.0),
+            );
+        }
+        CoverSource::Pending(_) | CoverSource::Texture(..) => {
+            let t = match source {
+                CoverSource::Texture(_, t) => t,
+                _ => 1.0,
+            };
+            painter.circle_filled(c, size * 0.62, f(p.badge, STEAM_BADGE_DISC * t));
+            painter.text(
+                c,
+                Align2::CENTER_CENTER,
+                glyph,
+                font,
+                f(p.on_art, STEAM_BADGE_INK * t),
+            );
+        }
+    }
+}
+
 /// A drop shadow under a cover occupying `rect` (the lift under the pointer, the cover of
 /// the game page), at `opacity`.
 pub fn paint_shadow(painter: &Painter, rect: Rect, shade: Shade, opacity: f32) {

@@ -18,7 +18,8 @@ use std::time::Duration;
 use easyplay_core::ids::{GameId, TagId};
 use easyplay_core::library::index::natural_cmp;
 use easyplay_core::library::{
-    Filters, Grouping, LibraryQuery, LibrarySnapshot, PresetFilter, SortKey, run_query,
+    Filters, Grouping, LibraryQuery, LibrarySnapshot, PresetFilter, SortKey, SourceFilter,
+    run_query,
 };
 use easyplay_core::model::{
     Activity, Availability, BasePreset, EntryKind, GameSummary, NetworkAccess, Preset,
@@ -235,10 +236,12 @@ pub enum FilterChip {
     Network(NetworkAccess),
     /// Availability.
     Availability(Availability),
-    /// Layer label.
+    /// Layer label (EasyPlay's own layers: a Steam game's Proton is Steam's choice).
     Layer(Arc<str>),
     /// Entry kind.
     Kind(EntryKind),
+    /// Where the game comes from: EasyPlay or Steam (ADR-0031).
+    Source(SourceFilter),
 }
 
 impl FilterChip {
@@ -250,10 +253,29 @@ impl FilterChip {
             FilterChip::Preset(p) => !g.is_steam() && preset_matches(*p, g.preset),
             FilterChip::Network(n) => !g.is_steam() && g.network == *n,
             FilterChip::Availability(a) => g.availability == *a,
-            FilterChip::Layer(l) => **l == *g.runtime_label,
+            FilterChip::Layer(l) => !g.is_steam() && **l == *g.runtime_label,
             FilterChip::Kind(k) => g.kind == *k,
+            FilterChip::Source(s) => SourceFilter::of(g) == *s,
         }
     }
+}
+
+/// The words of the source filter.
+pub fn source_label(s: SourceFilter) -> &'static str {
+    match s {
+        SourceFilter::EasyPlay => strings::steam::filter::EASYPLAY(),
+        SourceFilter::Steam => strings::steam::filter::STEAM(),
+    }
+}
+
+/// The filter menu's *Source* group (EasyPlay, Steam), offered while the library holds
+/// Steam games (ADR-0031).
+pub fn source_chips(lib: &LibrarySnapshot) -> Option<Vec<FilterChip>> {
+    lib.games.iter().any(GameSummary::is_steam).then(|| {
+        [SourceFilter::EasyPlay, SourceFilter::Steam]
+            .map(FilterChip::Source)
+            .to_vec()
+    })
 }
 
 /// The protection filter: a level matches the games at that level, customised or not.
@@ -679,6 +701,7 @@ impl LibraryVm {
         out.extend(f.availability.iter().map(|a| FilterChip::Availability(*a)));
         out.extend(f.layers.iter().map(|l| FilterChip::Layer(l.clone())));
         out.extend(f.kinds.iter().map(|k| FilterChip::Kind(*k)));
+        out.extend(f.sources.iter().map(|s| FilterChip::Source(*s)));
         out
     }
 
@@ -706,6 +729,7 @@ impl LibraryVm {
             FilterChip::Availability(a) => flip(&mut f.availability, a),
             FilterChip::Layer(l) => flip(&mut f.layers, l),
             FilterChip::Kind(k) => flip(&mut f.kinds, k),
+            FilterChip::Source(s) => flip(&mut f.sources, s),
         }
     }
 

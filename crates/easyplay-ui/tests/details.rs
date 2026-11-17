@@ -88,16 +88,16 @@ fn page_renders_from_the_summary_and_fills_in() {
     assert!(r.h.state().state.details.record().is_some());
 }
 
-/// What "Can use" / "Can't use" say for a game at the Offline level.
-const OFFLINE_REACH: &str = "Can use: Its own folder, controllers, sound. Can't use: Internet \
+/// What "Allowed" / "Blocked" say for a game that starts from the usual list, offline.
+const OFFLINE_REACH: &str = "Allowed: Its own folder, controllers, sound. Blocked: Internet \
      and local network, your personal files, microphone, camera.";
 
-/// What the reach lists on screen say ("Can use: …. Can't use: ….").
+/// What the reach lists on screen say ("Allowed: …. Blocked: ….").
 fn reach_said(r: &Rig) -> Vec<String> {
     // A text node: kittest reads its words (its value) as its label.
-    r.h.query_all_by_label_contains("Can use:")
+    r.h.query_all_by_label_contains("Allowed:")
         .filter_map(|n| n.accesskit_node().value())
-        .filter(|l| l.starts_with("Can use:"))
+        .filter(|l| l.starts_with("Allowed:"))
         .collect()
 }
 
@@ -295,22 +295,35 @@ fn protection_edit_shows_the_widening_sentence_and_saves() {
         tall(),
         ThemeChoice::Dark,
     );
-    flip(&mut r, "Music");
-    // The level reads Custom, with the way back; the lists follow the switch.
-    r.h.get_by_label_contains("Custom, based on Offline.");
-    r.h.get_by_role_and_label(Role::Link, "Reset to Offline");
-    let said = reach_said(&r);
-    assert!(
-        said.iter().any(
-            |l| l.starts_with("Can use: Its own folder, Music, controllers, sound.")
-                && l.contains("your other personal files")
-        ),
-        "{said:?}"
-    );
+    // No levels anywhere on the tab: the list is the game's own.
+    for level in ["Offline", "Online", "Standard"] {
+        assert!(
+            r.h.query_by_role_and_label(Role::RadioButton, level)
+                .is_none()
+        );
+    }
+    assert!(r.h.query_by_label_contains("Custom").is_none());
+    // A folder is never a bare word: its switch says "folder", its line its full path.
+    flip(&mut r, "Music folder");
     r.h.get_by_label_contains("will get this access");
     // The switch is on and marked until it is saved; the folder may be read.
-    assert_eq!(described(&r, "Music"), "changed");
-    r.h.get_by_role_and_label(Role::ComboBox, "Music: Can read");
+    assert_eq!(described(&r, "Music folder"), "/home/sam/Music. changed");
+    // The group's count follows at once.
+    let heading = r.h.get_by_role_and_label(Role::Heading, "Your files");
+    assert_eq!(
+        heading.accesskit_node().description().unwrap_or_default(),
+        "1 folder shared"
+    );
+    // What the game is allowed, on the Overview, follows the switch too.
+    r.h.state_mut().state.details.tab = DetailsTab::Overview;
+    r.h.run_steps(2);
+    let said = reach_said(&r);
+    assert!(
+        said.iter().any(|l| l
+            .starts_with("Allowed: Its own folder, your Music folder, controllers, sound.")
+            && l.contains("your other personal files")),
+        "{said:?}"
+    );
     r.h.get_by_role_and_label(Role::Button, "Save").click();
     r.h.run();
     let saved = r.fake.sent().into_iter().find_map(|c| match c {
@@ -324,37 +337,50 @@ fn protection_edit_shows_the_widening_sentence_and_saves() {
 }
 
 #[test]
-fn a_custom_level_says_what_it_is_based_on_and_goes_back_to_it() {
+fn the_internet_switch_is_the_word_under_the_title() {
     let (mut r, _) = page(
         "Lantern Keep",
         DetailsTab::Protection,
         tall(),
         ThemeChoice::Dark,
     );
-    assert_eq!(reach_said(&r), vec![OFFLINE_REACH.to_owned()]);
-    assert!(r.h.query_by_label_contains("Custom, based on").is_none());
-    // A switch that differs from the level makes the game Custom; no level is chosen.
-    flip(&mut r, "Camera");
-    r.h.get_by_label_contains("Custom, based on Offline.");
-    for level in ["Offline", "Online", "Standard"] {
-        let b = r.h.get_by_role_and_label(Role::RadioButton, level);
-        assert!(
-            !b.accesskit_node().is_selected().unwrap_or(false),
-            "{level}"
-        );
-    }
-    let said = reach_said(&r);
-    assert!(
-        said[0].starts_with("Can use: Its own folder, controllers, sound, camera."),
-        "{said:?}"
-    );
-    // Reset to Offline puts every switch back.
-    r.h.get_by_role_and_label(Role::Link, "Reset to Offline")
-        .click();
+    let devices = |r: &Rig| {
+        r.h.get_by_role_and_label(Role::Heading, "Internet and devices")
+            .accesskit_node()
+            .description()
+            .unwrap_or_default()
+    };
+    r.h.get_by_label("Offline");
+    assert_eq!(devices(&r), "2 of 5 allowed");
+    // "Offline" / "Online" is derived from the internet switch, never stored.
+    flip(&mut r, "Internet and local network");
+    r.h.get_by_label("Online");
+    assert!(r.h.query_by_label("Offline").is_none());
+    assert_eq!(devices(&r), "3 of 5 allowed");
+    // A whole row is the switch's target, not only the switch.
+    let row = r.h.get_by_label("Camera").rect();
+    r.h.input_mut()
+        .events
+        .push(egui::Event::PointerMoved(egui::pos2(
+            row.center().x - 300.0,
+            row.center().y,
+        )));
     r.h.run();
-    assert!(r.h.query_by_label_contains("Custom, based on").is_none());
-    assert_eq!(reach_said(&r), vec![OFFLINE_REACH.to_owned()]);
+    for pressed in [true, false] {
+        r.h.input_mut().events.push(egui::Event::PointerButton {
+            pos: egui::pos2(row.center().x - 300.0, row.center().y),
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        r.h.run();
+    }
+    assert_eq!(devices(&r), "4 of 5 allowed");
+    // Taking it back leaves nothing to save.
+    flip(&mut r, "Internet and local network");
+    flip(&mut r, "Camera");
     assert!(!r.h.state().state.details.dirty());
+    r.h.get_by_label("Offline");
 }
 
 #[test]
@@ -495,20 +521,23 @@ fn a_denied_folder_never_enters_the_list() {
         ThemeChoice::Dark,
     );
     r.picker.answer(vec!["/home/sam".into()]);
-    r.h.get_by_label("Add folder…").click();
+    r.h.get_by_label("Share another folder…").click();
     r.h.run();
     r.h.run();
     let draft = &r.h.state().state.details.protection.as_ref().unwrap().draft;
     assert!(draft.folders.is_empty());
     r.h.get_by_label_contains("can't be shared: Your whole home folder");
-    // An allowed folder appears.
+    // An allowed folder appears, with its full path.
     r.picker.answer(vec!["/home/sam/Mods".into()]);
-    r.h.get_by_label("Add folder…").click();
+    r.h.get_by_label("Share another folder…").click();
     r.h.run();
     r.h.run();
     let draft = &r.h.state().state.details.protection.as_ref().unwrap().draft;
     assert_eq!(draft.folders.len(), 1);
-    assert_eq!(described(&r, "Mods"), "in Home. changed");
+    assert_eq!(
+        described(&r, "Mods folder options"),
+        "/home/sam/Mods. changed"
+    );
 }
 
 #[test]
@@ -569,8 +598,15 @@ fn every_permission_is_a_switch_and_some_have_degrees() {
             | Permissions::CONTROLLERS
             | Permissions::REMOVABLE
     );
-    // A switch that is on shows how far it goes; the degree is a choice of its own.
-    degree(&mut r, "Removable drives: Can read", "Can read and change");
+    // How far removable drives go is decided under Advanced; the row then says so.
+    r.h.get_by_role_and_label(Role::Button, "Advanced").click();
+    r.h.run();
+    flip(&mut r, "Removable drives: can change files");
+    assert_eq!(
+        described(&r, "Removable drives"),
+        "USB sticks and external drives. It can also change files here. changed"
+    );
+    // Controllers and the game folder carry their choice in the row.
     degree(
         &mut r,
         "Game controllers: Connected when the game starts",
@@ -599,7 +635,7 @@ fn every_permission_is_a_switch_and_some_have_degrees() {
 }
 
 #[test]
-fn a_folder_that_is_switched_off_keeps_its_row_until_saved() {
+fn a_shared_folder_has_its_own_menu_and_a_home_folder_its_switch() {
     let (mut r, _) = page(
         "Hollow Bell",
         DetailsTab::Protection,
@@ -608,30 +644,93 @@ fn a_folder_that_is_switched_off_keeps_its_row_until_saved() {
     );
     let dirty = |r: &Rig| r.h.state().state.details.dirty();
     // Hollow Bell shares Music. Its switch goes off where it stands, marked.
-    flip(&mut r, "Music");
+    flip(&mut r, "Music folder");
     assert!(dirty(&r));
-    assert_eq!(described(&r, "Music"), "changed");
+    assert_eq!(described(&r, "Music folder"), "/home/sam/Music. changed");
     // On again, it is as it was saved: no change at all.
-    flip(&mut r, "Music");
+    flip(&mut r, "Music folder");
     assert!(!dirty(&r));
-    // A folder of the user's choosing has a row only while it is shared; switched off, the
-    // row waits until the change is saved.
-    r.picker.answer(vec!["/home/sam/Mods".into()]);
-    r.h.get_by_label("Add folder…").click();
-    r.h.run();
-    r.h.run();
-    degree(&mut r, "Mods: Can read", "Can read and change");
-    r.h.get_by_role_and_label(Role::Button, "Save").click();
-    r.h.run();
-    assert!(!dirty(&r));
-    r.h.get_by_role_and_label(Role::Switch, "Mods").focus();
+    // Delete takes a home folder away, as switching it off does.
+    r.h.get_by_role_and_label(Role::Switch, "Music folder")
+        .focus();
     r.h.run();
     r.h.key_press(Key::Delete);
     r.h.run();
     assert!(dirty(&r));
-    flip(&mut r, "Mods");
+    flip(&mut r, "Music folder");
     assert!(!dirty(&r));
-    r.h.get_by_role_and_label(Role::ComboBox, "Mods: Can read and change");
+    // A folder of the user's choosing has a row only while it is shared. Its select reads
+    // "Shared"; its menu says how far it goes, and stops the sharing.
+    r.picker.answer(vec!["/home/sam/Mods".into()]);
+    r.h.get_by_label("Share another folder…").click();
+    r.h.run();
+    r.h.run();
+    degree(&mut r, "Mods folder options", "Can read and change");
+    assert_eq!(
+        described(&r, "Mods folder options"),
+        // With internet allowed, a folder it can change is a warning.
+        "/home/sam/Mods. With internet access, a program can upload or alter these files. \
+         changed"
+    );
+    r.h.get_by_role_and_label(Role::Button, "Save").click();
+    r.h.run();
+    assert!(!dirty(&r));
+    r.h.get_by_role_and_label(Role::ComboBox, "Mods folder options")
+        .click();
+    r.h.run();
+    assert!(
+        r.h.query_by_role_and_label(Role::MenuItem, "Locate…")
+            .is_none(),
+        "only a folder that can't be found is located"
+    );
+    r.h.get_by_role_and_label(Role::MenuItem, "Stop sharing")
+        .click();
+    r.h.run();
+    assert!(dirty(&r));
+    assert!(
+        r.h.query_by_role_and_label(Role::ComboBox, "Mods folder options")
+            .is_none()
+    );
+    r.h.get_by_role_and_label(Role::Button, "Discard").click();
+    r.h.run();
+    r.h.get_by_role_and_label(Role::ComboBox, "Mods folder options");
+}
+
+#[test]
+fn a_shared_folder_that_cannot_be_found_says_so_and_can_be_located() {
+    let (mut r, id) = page(
+        "Tidewater",
+        DetailsTab::Protection,
+        tall(),
+        ThemeChoice::Dark,
+    );
+    share_missing_mods(&mut r);
+    assert_eq!(
+        described(&r, "Mods folder options"),
+        "/media/sam/Games/Mods. Can't be found. It may have been moved, or its drive isn't \
+         connected."
+    );
+    r.h.get_by_role_and_label(Role::ComboBox, "Mods folder options")
+        .click();
+    r.h.run();
+    r.h.get_by_role_and_label(Role::MenuItem, "Locate…").click();
+    r.h.run();
+    r.h.run();
+    assert!(r.picker.asked().iter().any(|p| matches!(
+        p,
+        easyplay_ui::input::picker::PickPurpose::RelocateFolder(g, _) if *g == id
+    )));
+}
+
+/// Tidewater shares a Mods folder on a drive that is not connected.
+fn share_missing_mods(r: &mut Rig) {
+    {
+        let s = &mut r.h.state_mut().state;
+        let e = s.details.protection.as_mut().unwrap();
+        e.add_folder("/media/sam/Games/Mods".into(), now());
+        e.saved = e.draft.clone();
+    }
+    r.h.run_steps(3);
 }
 
 #[test]
@@ -642,16 +741,20 @@ fn what_advanced_opens_up_is_listed_and_leads_there() {
         tall(),
         ThemeChoice::Dark,
     );
-    r.h.get_by_role_and_label(Role::RadioButton, "Standard")
-        .click();
-    r.h.run();
+    // A stored policy that shows the computer's identity.
+    {
+        let s = &mut r.h.state_mut().state;
+        let e = s.details.protection.as_mut().unwrap();
+        e.draft = demo::preset_policy(easyplay_core::model::BasePreset::Standard, &e.draft);
+    }
+    r.h.run_steps(2);
     let advanced = |r: &Rig| {
         let e = r.h.state().state.details.protection.as_ref().unwrap();
         e.advanced
     };
     assert!(!advanced(&r));
-    // Standard shows the computer's identity: said among the allowed things, in the
-    // statement's own words, and decided under Advanced.
+    // Said under the closed disclosure, in the statement's own words, and decided under
+    // Advanced.
     r.h.get_by_role_and_label(Role::Button, "Can see this computer's name and ID")
         .click();
     r.h.run();
@@ -672,11 +775,13 @@ fn a_choice_that_cannot_be_made_says_why() {
     host.x11 = true;
     r.fake.publish_host(host);
     settle(&mut r);
-    // On an X11 desktop the page says what that means for every game.
+    // On an X11 desktop the page says what that means for every game: under the closed
+    // Advanced, and on its Screen row.
+    r.h.get_by_role_and_label(Role::Button, "Advanced").click();
+    r.h.run();
     assert!(described(&r, "Screen").contains("not isolated"));
-    // All input devices is not offered where the account can read keyboards directly, and
-    // the row says why.
-    assert!(described(&r, "Game controllers").contains("can read keyboards directly"));
+    // All input devices is not offered where the account can read keyboards directly; the
+    // menu says why.
     r.h.get_by_role_and_label(
         Role::ComboBox,
         "Game controllers: Connected when the game starts",
@@ -686,6 +791,13 @@ fn a_choice_that_cannot_be_made_says_why() {
     assert!(
         r.h.query_by_role_and_label(Role::MenuItemRadio, "All input devices")
             .is_none()
+    );
+    assert!(
+        r.h.get_by_role_and_label(Role::MenuItem, "All input devices")
+            .accesskit_node()
+            .description()
+            .unwrap_or_default()
+            .contains("can read keyboards directly")
     );
 }
 
@@ -718,7 +830,7 @@ fn leaving_with_unsaved_changes_asks_and_keeps_editing_by_default() {
         tall(),
         ThemeChoice::Dark,
     );
-    flip(&mut r, "Music");
+    flip(&mut r, "Music folder");
     r.h.key_press_modifiers(Modifiers::ALT, Key::ArrowLeft);
     r.h.run();
     r.h.get_by_role_and_label(Role::Dialog, "Discard your changes?");
@@ -1008,9 +1120,42 @@ fn snapshot_page_protection_dark() {
         Vec2::new(1280.0, 1400.0),
         ThemeChoice::Dark,
     );
-    flip(&mut r, "Pictures");
+    flip(&mut r, "Pictures folder");
     r.h.run_steps(4);
     r.h.snapshot("game_protection_dark_1280x1400");
+}
+
+#[test]
+fn snapshot_page_protection_online_with_a_missing_folder() {
+    let (mut r, _) = page(
+        "Tidewater",
+        DetailsTab::Protection,
+        Vec2::new(1280.0, 1500.0),
+        ThemeChoice::Dark,
+    );
+    share_missing_mods(&mut r);
+    r.h.run_steps(8);
+    r.h.snapshot("game_protection_missing_dark_1280x1500");
+}
+
+#[test]
+fn snapshot_page_protection_running() {
+    let lib = settled_library();
+    let lib = rebuild(&lib, |g| {
+        if &*g.name == "Lantern Keep" {
+            g.activity = Activity::Running { since: now() };
+        }
+    });
+    let (mut r, _) = page_in(
+        lib,
+        "Lantern Keep",
+        DetailsTab::Protection,
+        Vec2::new(1280.0, 1500.0),
+        ThemeChoice::Dark,
+    );
+    r.h.run_steps(8);
+    r.h.get_by_label("Changes apply the next time the game starts.");
+    r.h.snapshot("game_protection_running_dark_1280x1500");
 }
 
 #[test]
@@ -1120,4 +1265,85 @@ fn snapshot_page_problem_panel() {
     r.h.run_steps(4);
     r.h.snapshot("game_problem_dark_1280x900");
     let _ = now();
+}
+
+/// Renders for the side-by-sides with the design's Protection tab (target/review/cmp2).
+#[test]
+#[ignore = "review render"]
+fn review_protection_renders() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/review/cmp2");
+    std::fs::create_dir_all(&dir).unwrap();
+    let size = Vec2::new(1280.0, 1500.0);
+    let save = |r: &mut Rig, name: &str| {
+        r.h.run_steps(8);
+        let image = r.h.render().expect("render");
+        image.save(dir.join(format!("app-{name}.png"))).unwrap();
+    };
+    for (choice, theme) in [(ThemeChoice::Dark, "dark"), (ThemeChoice::Light, "light")] {
+        let (mut r, _) = page("Ninefold Arena", DetailsTab::Protection, size, choice);
+        save(&mut r, &format!("protection-online-{theme}"));
+        let (mut r, _) = page("Tidewater", DetailsTab::Protection, size, choice);
+        share_missing_mods(&mut r);
+        save(&mut r, &format!("protection-tidewater-{theme}"));
+        let (mut r, _) = page("Lantern Keep", DetailsTab::Protection, size, choice);
+        save(&mut r, &format!("protection-offline-{theme}"));
+    }
+    let lib = rebuild(&settled_library(), |g| {
+        if &*g.name == "Lantern Keep" {
+            g.activity = Activity::Running { since: now() };
+        }
+    });
+    let (mut r, _) = page_in(
+        lib,
+        "Lantern Keep",
+        DetailsTab::Protection,
+        size,
+        ThemeChoice::Dark,
+    );
+    save(&mut r, "protection-running-dark");
+    let (mut r, _) = page(
+        "Hollow Bell",
+        DetailsTab::Protection,
+        size,
+        ThemeChoice::Dark,
+    );
+    r.h.get_by_role_and_label(Role::Button, "Advanced").click();
+    save(&mut r, "protection-hollowbell-dark");
+}
+
+/// The tab in Arabic, with a home folder whose name on disk is Arabic: paths stay left to
+/// right (target/review/cmp2/app-protection-ar-dark.png).
+#[test]
+#[ignore = "review render"]
+fn review_protection_arabic() {
+    use easyplay_core::model::UserDir;
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/review/cmp2");
+    std::fs::create_dir_all(&dir).unwrap();
+    let lib = settled_library();
+    let id = game_id(&lib, "Tidewater");
+    let fake = easyplay_ui::bridge::FakeBackend::new(lib);
+    let mut prefs = demo::preferences();
+    prefs.general.language = "ar".into();
+    fake.publish_prefs(prefs);
+    let mut host = demo::host_view();
+    for (d, p) in &mut host.user_dirs {
+        if *d == UserDir::Pictures {
+            *p = "/home/sam/الصور".into();
+        }
+    }
+    fake.publish_host(host);
+    let mut r = common::rig_on(
+        fake,
+        Route::Game(id),
+        Vec2::new(1280.0, 1500.0),
+        ThemeChoice::Dark,
+    );
+    r.h.state_mut().state.details.tab = DetailsTab::Protection;
+    settle(&mut r);
+    r.h.run_steps(30);
+    share_missing_mods(&mut r);
+    r.h.run_steps(30);
+    let image = r.h.render().expect("render");
+    image.save(dir.join("app-protection-ar-dark.png")).unwrap();
+    easyplay_ui::i18n::set(easyplay_ui::i18n::Language::English);
 }

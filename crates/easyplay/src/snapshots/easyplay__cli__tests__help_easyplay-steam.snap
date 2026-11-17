@@ -7,12 +7,13 @@ Games installed with Steam (shown when "Show my Steam games" is on)
 Usage: easyplay steam [OPTIONS] <COMMAND>
 
 Commands:
-  scan    Read Steam's files now and list what was found (changes nothing)
-  on      Show the games installed with Steam in EasyPlay
-  off     Stop showing them (what you set for them is kept)
-  update  Open Steam's downloads, where the game's update is started
-  open    Show the game in Steam (its properties hold the Proton choice and launch options)
-  help    Print this message or the help of the given subcommand(s)
+  scan            Read Steam's files now and list what was found (changes nothing)
+  on              Show the games installed with Steam in EasyPlay
+  off             Stop showing them (what you set for them is kept)
+  update          Open Steam's downloads, where the game's update is started
+  open            Show the game in Steam (its properties hold the Proton choice)
+  launch-options  Show or change the game's launch options (Steam › Properties › Launch options). Changing them needs Steam to be closed
+  help            Print this message or the help of the given subcommand(s)
 
 Options:
   -v, --verbose...  Increase log verbosity (-v debug, -vv trace)

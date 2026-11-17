@@ -35,12 +35,12 @@ fn request_setup(r: &Rig, path: &str, origin: SetupOrigin) {
     });
 }
 
-/// What the reach lists on screen say ("Can use: …. Can't use: ….").
+/// What the reach lists on screen say ("Allowed: …. Blocked: ….").
 fn reach_said(r: &Rig) -> Vec<String> {
     // A text node: kittest reads its words (its value) as its label.
-    r.h.query_all_by_label_contains("Can use:")
+    r.h.query_all_by_label_contains("Allowed:")
         .filter_map(|n| n.accesskit_node().value())
-        .filter(|l| l.starts_with("Can use:"))
+        .filter(|l| l.starts_with("Allowed:"))
         .collect()
 }
 
@@ -61,7 +61,7 @@ fn uf2_enter_plays_from_the_file_manager_and_shows_progress() {
     let said = reach_said(&r);
     assert!(
         said.iter()
-            .any(|l| l.contains("Can't use: Internet and local network")),
+            .any(|l| l.contains("Blocked: Internet and local network")),
         "{said:?}"
     );
     r.h.key_press(Key::Enter);
@@ -123,7 +123,7 @@ fn alt_digits_switch_presets_and_the_summary_follows() {
     let said = reach_said(&r);
     assert!(
         said.iter()
-            .any(|l| l.starts_with("Can use: Internet and local network, its own folder")),
+            .any(|l| l.starts_with("Allowed: Internet and local network, its own folder")),
         "{said:?}"
     );
     let draft = &r.h.state().state.setup.as_ref().unwrap().draft;

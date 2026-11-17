@@ -11,6 +11,9 @@
 //! - **Windows storage**: a tool runs as an EasyPlay `Tool` session in the game's
 //!   `compatdata/<appid>` with the Proton build that last ran it — inside EasyPlay's
 //!   protection (Offline preset), and only while the game is not running.
+//! - **Launch options** (ADR-0031 §6a): Steam's own per-app value in the account's
+//!   `localconfig.vdf`, read for the page and written on the job pool only while no Steam
+//!   client runs (`steam::launch_options`); "Close Steam" asks the client to close itself.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -97,6 +100,15 @@ pub(crate) enum SteamDone {
         request: SteamRequest,
         /// Whether it was handed over.
         result: Result<()>,
+    },
+    /// The launch options were written (or not).
+    LaunchOptions {
+        /// The game.
+        game: GameId,
+        /// Where the page's answer goes.
+        reply_to: QueryId,
+        /// What happened.
+        result: Result<crate::steam::launch_options::Written>,
     },
 }
 
@@ -282,7 +294,62 @@ impl AppService {
                     self.emit(Event::Failure(Box::new(u)));
                 }
             },
+            SteamDone::LaunchOptions {
+                game,
+                reply_to,
+                result,
+            } => {
+                match result {
+                    Ok(crate::steam::launch_options::Written::Changed { .. }) => {
+                        tracing::info!(app = game.steam_app_id(), "steam launch options written");
+                        self.notice(Notice::SteamLaunchOptionsSaved { game });
+                    }
+                    Ok(crate::steam::launch_options::Written::Unchanged) => {}
+                    Err(e) => {
+                        let u = self.describe(&e, Some(game));
+                        self.emit(Event::Failure(Box::new(u)));
+                    }
+                }
+                // The page shows the value as Steam's file now has it.
+                self.steam_details(game, reply_to);
+            }
         }
+    }
+
+    /// Write the launch options of the Steam game `id` on the job pool (ADR-0031 §6a).
+    fn steam_set_launch_options(&mut self, id: GameId, options: String, reply_to: QueryId) {
+        let root = match self.steam_summary(id).and_then(|_| {
+            let app = id.steam_app_id().unwrap_or(0);
+            self.lib
+                .steam_scan()
+                .and_then(|s| s.game(app).map(|g| g.root.clone()))
+                .ok_or_else(|| crate::library::steam::not_listed(app))
+        }) {
+            Ok(r) => r,
+            Err(e) => {
+                self.fail(e);
+                return self.steam_details(id, reply_to);
+            }
+        };
+        let app = id.steam_app_id().unwrap_or(0);
+        let fs = Arc::clone(&self.deps.fs);
+        let proc = Arc::clone(&self.deps.proc);
+        let post = self.poster();
+        let _ = self.deps.jobs.submit(
+            JobPriority::Interactive,
+            JobLabel("steam-launch-options"),
+            move |_| {
+                let result =
+                    crate::steam::launch_options::write(&*fs, &*proc, &root, app, &options);
+                post(Internal::Flow(Box::new(FlowDone::Steam(
+                    SteamDone::LaunchOptions {
+                        game: id,
+                        reply_to,
+                        result,
+                    },
+                ))));
+            },
+        );
     }
 
     fn on_steam_scanned(&mut self, scan: SteamScan, announce: bool) {
@@ -551,6 +618,19 @@ impl AppService {
                 Some(app) => self.steam_ask(Some(id), SteamRequest::Details(app)),
                 None => self.fail(Error::new(ErrorCode::StmGameGone)),
             },
+            SteamCommand::SetLaunchOptions {
+                id,
+                options,
+                reply_to,
+            } => self.steam_set_launch_options(id, options, reply_to),
+            SteamCommand::CloseSteam(id) => {
+                // `-shutdown` with no client running could start one: only while one runs.
+                if crate::steam::client::client_running(&*self.deps.proc) {
+                    self.steam_ask(Some(id), SteamRequest::Shutdown);
+                } else {
+                    tracing::debug!("close steam: no client runs");
+                }
+            }
             SteamCommand::OpenPrefixFolder(id) => self.steam_open_folder(id, true),
             SteamCommand::RunInPrefix { id, tool } => self.steam_run_in_prefix(id, tool),
             SteamCommand::Details { id, reply_to } => self.steam_details(id, reply_to),
@@ -668,6 +748,12 @@ impl AppService {
                     ..
                 }
             );
+        let launch_options = self
+            .lib
+            .steam_scan()
+            .and_then(|s| s.game(app).map(|g| g.root.clone()))
+            .and_then(|root| crate::steam::launch_options::read(&*self.deps.fs, &root, app));
+        let steam_open = crate::steam::client::client_running(&*self.deps.proc);
         Ok(SteamDetail {
             game: id,
             facts,
@@ -675,6 +761,8 @@ impl AppService {
             running,
             client_found,
             prefix_tools,
+            launch_options,
+            steam_open,
         })
     }
 

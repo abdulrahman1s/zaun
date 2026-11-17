@@ -433,7 +433,14 @@ fn the_page_has_overview_and_windows_storage_and_no_protection() {
         r.h.query_all_by_role(Role::Tab)
             .filter_map(|n| n.accesskit_node().label())
             .collect();
-    assert_eq!(tabs, ["Overview", strings::steam::page::STORAGE_TAB()]);
+    assert_eq!(
+        tabs,
+        [
+            "Overview",
+            strings::details::tab(easyplay_ui::vm::details::DetailsTab::LaunchOptions),
+            strings::steam::page::STORAGE_TAB()
+        ]
+    );
     // No protection level, no switch, no shield word anywhere on the page.
     for level in ["Offline", "Online", "Standard", "Custom"] {
         assert!(r.h.query_by_label(level).is_none(), "{level}");
@@ -458,7 +465,7 @@ fn the_page_has_overview_and_windows_storage_and_no_protection() {
         r.h.query_all_by_role(Role::Tab)
             .filter_map(|n| n.accesskit_node().label())
             .collect();
-    assert_eq!(tabs, ["Overview"]);
+    assert_eq!(tabs, ["Overview", "Launch options"]);
     r.h.get_by_label_contains(strings::steam::page::NATIVE());
 }
 
@@ -818,23 +825,32 @@ fn snapshot_steam_game_storage_light() {
 #[test]
 fn ctrl_tab_moves_between_the_tabs_of_a_steam_game() {
     let (mut r, _) = page(steam_idle(), RIDGELINE, SteamTab::Overview, big());
-    r.h.key_press_modifiers(egui::Modifiers::COMMAND, Key::Tab);
-    r.h.run();
-    assert_eq!(r.h.state().state.details.steam_tab, SteamTab::Storage);
-    r.h.key_press_modifiers(egui::Modifiers::COMMAND, Key::Tab);
-    r.h.run();
-    assert_eq!(r.h.state().state.details.steam_tab, SteamTab::Overview);
-    // A game Steam runs natively has one tab: it stays.
+    for want in [
+        SteamTab::LaunchOptions,
+        SteamTab::Storage,
+        SteamTab::Overview,
+    ] {
+        r.h.key_press_modifiers(egui::Modifiers::COMMAND, Key::Tab);
+        r.h.run();
+        assert_eq!(r.h.state().state.details.steam_tab, want);
+    }
+    // A game Steam runs natively has no Windows storage: two tabs.
     let (mut r, _) = page(steam_idle(), BRASS, SteamTab::Overview, big());
-    r.h.key_press_modifiers(egui::Modifiers::COMMAND, Key::Tab);
-    r.h.run();
-    assert_eq!(r.h.state().state.details.steam_tab, SteamTab::Overview);
+    for want in [SteamTab::LaunchOptions, SteamTab::Overview] {
+        r.h.key_press_modifiers(egui::Modifiers::COMMAND, Key::Tab);
+        r.h.run();
+        assert_eq!(r.h.state().state.details.steam_tab, want);
+    }
 }
 
 #[test]
 fn the_steam_pages_settle() {
     // Nothing on either tab keeps asking for frames.
-    for tab in [SteamTab::Overview, SteamTab::Storage] {
+    for tab in [
+        SteamTab::Overview,
+        SteamTab::LaunchOptions,
+        SteamTab::Storage,
+    ] {
         let (mut r, _) = page(steam_idle(), RIDGELINE, tab, big());
         r.h.run();
         let steps = r.h.run();
@@ -872,4 +888,230 @@ fn the_preview_window_shows_steam_games_until_the_option_is_turned_off() {
         h.query_by_label_contains(&format!("{RIDGELINE}. "))
             .is_none()
     );
+}
+
+// ---- Launch options (ADR-0031 §6a) ----------------------------------------------------------
+
+/// The page's MangoHud on the host, as the backend reports it.
+fn with_mangohud(r: &mut Rig, installed: bool) {
+    let mut h = (*Backend::host(&r.fake)).clone();
+    h.mangohud = installed;
+    r.fake.publish_host(h);
+    r.h.run_steps(2);
+}
+
+fn launch_sets(r: &Rig) -> Vec<String> {
+    sent_steam(r)
+        .into_iter()
+        .filter_map(|a| match a {
+            SteamAction::SetLaunchOptions { options, .. } => Some(options),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn launch_options_show_steam_s_value_and_save_it() {
+    let (mut r, id) = page(steam_idle(), RIDGELINE, SteamTab::LaunchOptions, big());
+    with_mangohud(&mut r, true);
+    let field =
+        r.h.get_by_role_and_label(Role::TextInput, strings::steam::launch::FIELD());
+    assert_eq!(
+        field.accesskit_node().value().as_deref(),
+        Some("PROTON_LOG=1 %command%")
+    );
+    r.h.get_by_label_contains("Use %command% for the game itself");
+    // Nothing changed yet: Save waits.
+    let save =
+        r.h.get_by_role_and_label(Role::Button, strings::steam::launch::SAVE());
+    assert!(save.accesskit_node().is_disabled());
+    r.fake.clear_sent();
+    let field =
+        r.h.get_by_role_and_label(Role::TextInput, strings::steam::launch::FIELD());
+    field.focus();
+    field.type_text(" -novid");
+    r.h.run_steps(2);
+    r.h.get_by_role_and_label(Role::Button, strings::steam::launch::SAVE())
+        .click();
+    r.h.run_steps(2);
+    let sent = sent_steam(&r);
+    assert!(sent.iter().any(|a| matches!(
+        a,
+        SteamAction::SetLaunchOptions { id: g, options, .. }
+            if *g == id && options == "PROTON_LOG=1 %command% -novid"
+    )));
+    // The answer says Steam has it now: the draft is gone, Save waits again.
+    settle_steps(&mut r);
+    assert_eq!(r.h.state().state.details.steam_launch, None);
+    assert_eq!(
+        r.h.state()
+            .state
+            .details
+            .steam
+            .ready()
+            .and_then(|d| d.launch_options.clone())
+            .as_deref(),
+        Some("PROTON_LOG=1 %command% -novid")
+    );
+}
+
+#[test]
+fn the_overlay_switch_adds_mangohud_and_saves_at_once() {
+    let (mut r, _) = page(steam_idle(), BRASS, SteamTab::LaunchOptions, big());
+    with_mangohud(&mut r, true);
+    let switch =
+        r.h.get_by_role_and_label(Role::Switch, strings::steam::launch::OVERLAY());
+    assert_eq!(
+        switch.accesskit_node().toggled(),
+        Some(egui::accesskit::Toggled::False)
+    );
+    r.fake.clear_sent();
+    switch.click();
+    r.h.run_steps(2);
+    assert_eq!(launch_sets(&r), ["mangohud %command%"]);
+    settle_steps(&mut r);
+    let switch =
+        r.h.get_by_role_and_label(Role::Switch, strings::steam::launch::OVERLAY());
+    assert_eq!(
+        switch.accesskit_node().toggled(),
+        Some(egui::accesskit::Toggled::True)
+    );
+    // Off again: back to nothing.
+    r.fake.clear_sent();
+    switch.click();
+    r.h.run_steps(2);
+    assert_eq!(launch_sets(&r), [""]);
+}
+
+#[test]
+fn without_mangohud_the_switch_says_so_and_waits() {
+    let (mut r, _) = page(steam_idle(), BRASS, SteamTab::LaunchOptions, big());
+    with_mangohud(&mut r, false);
+    let switch =
+        r.h.get_by_role_and_label(Role::Switch, strings::steam::launch::OVERLAY());
+    assert!(switch.accesskit_node().is_disabled());
+}
+
+#[test]
+fn while_steam_is_open_the_tab_offers_to_close_it() {
+    let (mut r, id) = page(steam_idle(), RIDGELINE, SteamTab::LaunchOptions, big());
+    {
+        let d = &mut r.h.state_mut().state.details;
+        let mut detail = (**d.steam.ready().unwrap()).clone();
+        detail.steam_open = true;
+        d.steam = easyplay_ui::vm::AsyncValue::Ready(Box::new(detail));
+    }
+    r.h.run_steps(4);
+    r.h.get_by_label_contains(strings::steam::launch::OPEN_TITLE());
+    r.fake.clear_sent();
+    r.h.get_by_role_and_label(Role::Button, strings::steam::launch::CLOSE_STEAM())
+        .click();
+    r.h.run_steps(2);
+    assert_eq!(sent_steam(&r), vec![SteamAction::CloseSteam(id)]);
+}
+
+#[test]
+fn snapshot_steam_game_launch_options_dark() {
+    let (mut r, _) = page(steam_idle(), RIDGELINE, SteamTab::LaunchOptions, big());
+    with_mangohud(&mut r, true);
+    r.h.run_steps(4);
+    r.h.snapshot("game_steam_launch_options_dark_1280x900");
+}
+
+// ---- The filter menu ----------------------------------------------------------------------
+
+#[test]
+fn the_filter_menu_lists_easyplay_layers_only_and_a_source_group() {
+    let lib = steam_idle();
+    let mut r = rig_with(
+        lib.clone(),
+        Route::Library,
+        Vec2::new(1280.0, 900.0),
+        ThemeChoice::Dark,
+    );
+    r.h.run_steps(4);
+    r.h.get_by_label("Filter").click();
+    r.h.run_steps(10);
+    let items: Vec<String> =
+        r.h.query_all_by_role(Role::MenuItemCheckBox)
+            .chain(r.h.query_all_by_role(Role::MenuItem))
+            .filter_map(|n| n.accesskit_node().label())
+            .collect();
+    assert!(
+        !items
+            .iter()
+            .any(|l| l.contains("Steam:") || l.contains("Steam (")),
+        "{items:?}"
+    );
+    r.h.get_by_label(strings::steam::filter::SOURCE());
+    // The Source filter shows Steam's games, or EasyPlay's own.
+    let vm = &mut r.h.state_mut().state.library;
+    vm.toggle_filter(FilterChip::Source(
+        easyplay_core::library::SourceFilter::Steam,
+    ));
+    let shown = vm.visible(&lib);
+    assert_eq!(shown.len(), 3);
+    assert!(shown.iter().all(|i| lib.games[*i as usize].is_steam()));
+    vm.toggle_filter(FilterChip::Source(
+        easyplay_core::library::SourceFilter::Steam,
+    ));
+    vm.toggle_filter(FilterChip::Source(
+        easyplay_core::library::SourceFilter::EasyPlay,
+    ));
+    let shown = vm.visible(&lib);
+    assert!(!shown.is_empty());
+    assert!(shown.iter().all(|i| !lib.games[*i as usize].is_steam()));
+    // A layer filter never matches a Steam game, even by its old label.
+    let steam_label = lib
+        .games
+        .iter()
+        .find(|g| g.is_steam())
+        .map(|g| g.runtime_label.clone())
+        .unwrap();
+    assert!(
+        !FilterChip::Layer(steam_label).matches(lib.games.iter().find(|g| g.is_steam()).unwrap())
+    );
+}
+
+/// The Steam badge on artwork (a cover Steam cached), at the wall's, the page's and the
+/// list's sizes, over a light and a dark picture; and on posters for comparison.
+#[test]
+fn snapshot_steam_badge_on_artwork() {
+    use easyplay_ui::widgets::cover::{self, CoverLook, CoverSource};
+    let mut h = egui_kittest::Harness::builder()
+        .with_size(Vec2::new(720.0, 460.0))
+        .with_context_setup(|ctx| {
+            easyplay_ui::theme::install(
+                ctx,
+                &easyplay_ui::theme::Appearance {
+                    theme: ThemeChoice::Dark,
+                    ..easyplay_ui::theme::Appearance::default()
+                },
+            );
+        })
+        .build_ui(|ui| {
+            let theme = easyplay_ui::theme::theme(ui.ctx());
+            let painter = ui.painter().clone();
+            let look = CoverLook {
+                mark: false,
+                ..CoverLook::default()
+            };
+            let sources = [
+                CoverSource::Pending(egui::Color32::from_rgb(222, 214, 196)),
+                CoverSource::Pending(egui::Color32::from_rgb(28, 34, 52)),
+                CoverSource::Placeholder,
+            ];
+            let mut x = 16.0;
+            for (i, src) in sources.into_iter().enumerate() {
+                for (w, h) in [(190.0, 285.0), (24.0, 36.0)] {
+                    let y = if w < 100.0 { 320.0 } else { 16.0 };
+                    let r = egui::Rect::from_min_size(egui::pos2(x, y), Vec2::new(w, h));
+                    cover::paint(&painter, r, src, "Glass Garden", look, &theme);
+                    cover::paint_steam_badge(&painter, r, src, "Glass Garden", look, &theme);
+                }
+                x += 206.0 + if i == 2 { 0.0 } else { 16.0 };
+            }
+        });
+    h.run();
+    h.snapshot("steam_badge_on_artwork_dark");
 }

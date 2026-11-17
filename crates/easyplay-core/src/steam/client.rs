@@ -9,6 +9,7 @@
 //! | Play | `steam://rungameid/<appid>` | starts the game as if Play were pressed in Steam (starts Steam first when it is not running) |
 //! | Update in Steam | `steam://open/downloads` | shows Steam's downloads, where waiting updates are started or resumed |
 //! | Open in Steam | `steam://nav/games/details/<appid>` | shows the game in Steam's library (its Properties hold the Proton choice and launch options) |
+//! | Close Steam | `-shutdown` (the client's option, not a URL) | the running client closes itself, so its settings file can be changed (ADR-0031 §6a) |
 //!
 //! No `steam://` request updates one installed game on demand (TECHNICAL_RESEARCH §8, ADR-0031
 //! §7), so "Update in Steam" opens the downloads page.
@@ -61,7 +62,7 @@ pub fn command(
     let dirs =
         crate::host::exec::path_dirs(env.get("PATH").map(|s| std::ffi::OsStr::new(s.as_str())));
     let find = |name: &str| crate::host::exec::find_in(fs, &dirs, name);
-    let url = request.url();
+    let url = request.argument();
     let (program, mut args): (PathBuf, Vec<OsString>) = match kind {
         SteamInstallKind::Native => {
             let program = find("steam").or_else(|| {
@@ -132,6 +133,24 @@ pub fn running_games(proc: &dyn ProcSource) -> BTreeMap<u32, ProcIdentity> {
     out
 }
 
+/// Process names (`comm`, at most 15 bytes) of a running Steam client: the client itself
+/// (`ubuntu12_32/steam`, also the `steam` launcher), its start script and its web helper,
+/// which lives as long as the client's window does.
+pub const CLIENT_COMMS: [&str; 3] = ["steam", "steam.sh", "steamwebhelper"];
+
+/// Whether a Steam client runs now (any installation: Flatpak and Snap processes are seen
+/// from the host too). Steam rewrites `localconfig.vdf` when it exits, so EasyPlay changes
+/// that file only while this is false. When `/proc` cannot be read, Steam is taken to be
+/// running: a wrong "running" only delays a change, a wrong "closed" loses it.
+pub fn client_running(proc: &dyn ProcSource) -> bool {
+    let Ok(entries) = proc.snapshot() else {
+        return true;
+    };
+    entries
+        .iter()
+        .any(|e| !e.state.is_gone() && CLIENT_COMMS.contains(&e.comm.as_str()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +167,8 @@ mod tests {
             SteamRequest::Details(440).url(),
             "steam://nav/games/details/440"
         );
+        assert_eq!(SteamRequest::Shutdown.argument(), "-shutdown");
+        assert_eq!(SteamRequest::Run(440).argument(), "steam://rungameid/440");
     }
 
     #[test]

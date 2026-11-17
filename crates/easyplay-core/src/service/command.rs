@@ -168,9 +168,24 @@ pub enum SteamCommand {
     Rescan,
     /// "Update in Steam": show Steam's downloads, where the game's update is started.
     Update(GameId),
-    /// "Open in Steam": show the game in Steam's library (Properties: Proton choice and
-    /// launch options).
+    /// "Open in Steam": show the game in Steam's library (Properties: the Proton choice).
     OpenInSteam(GameId),
+    /// Set the game's launch options — Steam's own setting in the account's
+    /// `localconfig.vdf`, the one value EasyPlay writes there (ADR-0031 §6a) — only while
+    /// Steam is closed (`EP-STM-008` otherwise). Answered, whatever the outcome, with
+    /// `QueryResult::Steam` to `reply_to` (the value as it now is); a refusal also emits a
+    /// failure, a change `Notice::SteamLaunchOptionsSaved`.
+    SetLaunchOptions {
+        /// The game.
+        id: GameId,
+        /// The whole text (`%command%` stands for the game; empty = none).
+        options: String,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+    /// "Close Steam": ask the running client of the game's installation to close itself
+    /// (`steam -shutdown`), so the launch options can be changed. Never a signal.
+    CloseSteam(GameId),
     /// Show the game's Windows storage (`compatdata/<appid>/pfx`) in the file manager.
     OpenPrefixFolder(GameId),
     /// Run a tool in the game's Windows storage with the Proton build Steam last used for

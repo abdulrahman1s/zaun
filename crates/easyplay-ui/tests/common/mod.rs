@@ -244,6 +244,18 @@ pub fn serve(r: &mut Rig) {
                     None => continue,
                 }
             }
+            // Steam is closed in these tests: the value is taken as it was sent.
+            UiCommand::Steam(SteamAction::SetLaunchOptions {
+                id,
+                options,
+                reply_to,
+            }) => match lib.get(*id).and_then(demo::steam_detail) {
+                Some(mut d) => {
+                    d.launch_options = Some(options.clone());
+                    (*reply_to, QueryPayload::Steam(Box::new(d)))
+                }
+                None => continue,
+            },
             _ => continue,
         };
         r.fake.push_event(UiEvent::QueryResult { id, payload });

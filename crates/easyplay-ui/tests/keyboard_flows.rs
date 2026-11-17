@@ -45,12 +45,12 @@ fn type_text(r: &mut Rig, text: &str) {
     r.h.run_steps(AFTER_KEY);
 }
 
-/// What the reach lists on screen say ("Can use: …. Can't use: ….").
+/// What the reach lists on screen say ("Allowed: …. Blocked: ….").
 fn reach_said(r: &Rig) -> Vec<String> {
     // A text node: kittest reads its words (its value) as its label.
-    r.h.query_all_by_label_contains("Can use:")
+    r.h.query_all_by_label_contains("Allowed:")
         .filter_map(|n| n.accesskit_node().value())
-        .filter(|l| l.starts_with("Can use:"))
+        .filter(|l| l.starts_with("Allowed:"))
         .collect()
 }
 
@@ -164,7 +164,7 @@ fn uf2_setup_choose_online_and_play_by_keyboard() {
     let said = reach_said(&r);
     assert!(
         said.iter()
-            .any(|l| l.starts_with("Can use: Internet and local network")),
+            .any(|l| l.starts_with("Allowed: Internet and local network")),
         "{said:?}"
     );
     tab_to(&mut r, "Play");
@@ -268,9 +268,9 @@ fn uf6_uf8_switch_to_online_save_and_play_by_keyboard() {
         key_mod(&mut r, Modifiers::COMMAND, Key::Tab);
     }
     settle(&mut r);
-    tab_to(&mut r, "Online");
+    tab_to(&mut r, "Internet and local network");
     key(&mut r, Key::Space);
-    // (Focus stays on the level; the save bar's Save is further on.)
+    // (Focus stays on the switch; the save bar's Save is further on.)
     tab_to_exactly(&mut r, "Save");
     key(&mut r, Key::Enter);
     settle(&mut r);
@@ -300,7 +300,7 @@ fn uf7_add_folder_opens_the_picker_by_keyboard() {
         key_mod(&mut r, Modifiers::COMMAND, Key::Tab);
     }
     settle(&mut r);
-    tab_to(&mut r, "Add folder");
+    tab_to(&mut r, "Share another folder");
     key(&mut r, Key::Enter);
     assert!(picks(&r).contains(&PickPurpose::FolderGrant(Some(id))));
 }
@@ -320,22 +320,32 @@ fn uf7_a_permission_is_changed_by_keyboard() {
         draft.folders.first().map(|f| f.access)
     };
     // Space flips the switch; the row keeps its place and the focus.
-    tab_to(&mut r, "Music");
+    tab_to(&mut r, "Music folder");
     key(&mut r, Key::Space);
     assert_eq!(access(&r), Some(FolderAccess::ReadOnly));
-    assert_eq!(focused(&r).as_deref(), Some("Music"));
-    // Its degree is the next stop (under the label, after the switch): Enter opens the
-    // choices, the arrows move among them, Enter takes one and the focus returns to the
-    // control.
+    assert_eq!(focused(&r).as_deref(), Some("Music folder"));
+    // A row's choice is the stop after its switch: Enter opens the choices, the arrows move
+    // among them, Enter takes one and the focus returns to the control.
+    tab_to(&mut r, "Game controllers");
     key(&mut r, Key::Tab);
-    assert_eq!(focused(&r).as_deref(), Some("Music: Can read"));
+    assert_eq!(
+        focused(&r).as_deref(),
+        Some("Game controllers: Connected when the game starts")
+    );
     key(&mut r, Key::Enter);
     key(&mut r, Key::ArrowDown);
     key(&mut r, Key::ArrowDown);
-    assert_eq!(focused(&r).as_deref(), Some("Can read and change"));
+    assert_eq!(focused(&r).as_deref(), Some("All input devices"));
     key(&mut r, Key::Enter);
-    assert_eq!(access(&r), Some(FolderAccess::ReadWrite));
-    assert_eq!(focused(&r).as_deref(), Some("Music: Can read and change"));
+    let all = |r: &Rig| {
+        let draft = &r.h.state().state.details.protection.as_ref().unwrap().draft;
+        draft.devices.controllers
+    };
+    assert_eq!(all(&r), easyplay_core::model::ControllerAccess::AllInput);
+    assert_eq!(
+        focused(&r).as_deref(),
+        Some("Game controllers: All input devices")
+    );
 }
 
 // ---- UF-9 Problem panel ----------------------------------------------------------------

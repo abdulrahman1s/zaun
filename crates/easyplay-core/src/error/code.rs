@@ -236,6 +236,11 @@ error_codes! {
     StmLayerUnavailable = "EP-STM-006", Error;
     /// The action does not apply to a game Steam runs.
     StmNotForSteam = "EP-STM-007", Info;
+    /// Steam is open, so its settings file cannot be changed now (Steam rewrites it when it
+    /// closes).
+    StmSteamOpen = "EP-STM-008", Warning;
+    /// Steam's settings file for the account could not be found, read safely or written.
+    StmSettingsUnwritable = "EP-STM-009", Error;
 
     // ---- Integration and internal — EP-DSK, EP-INT ---------------------------------------
     /// Could not change the default application.

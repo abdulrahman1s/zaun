@@ -77,7 +77,7 @@ pub mod action {
     texts! {
         /// Show Steam's downloads.
         UPDATE_IN_STEAM = "steam.action.update_in_steam";
-        /// Show the game in Steam (Properties: Proton, launch options).
+        /// Show the game in Steam (Properties: the Proton choice).
         OPEN_IN_STEAM = "steam.action.open_in_steam";
         /// Under "Open in Steam" on the game page.
         OPEN_IN_STEAM_HELP = "steam.action.open_in_steam_help";
@@ -217,6 +217,51 @@ pub mod note {
     }
 }
 
+/// The Launch options tab of a Steam game (ADR-0031 §6a): Steam's own setting.
+pub mod launch {
+    texts! {
+        /// The field's name.
+        FIELD = "steam.launch.field";
+        /// Under the field.
+        HELP = "steam.launch.help";
+        /// The field's button.
+        SAVE = "steam.launch.save";
+        /// The MangoHud switch.
+        OVERLAY = "steam.launch.overlay";
+        /// Under the switch, when MangoHud is installed.
+        OVERLAY_HELP = "steam.launch.overlay_help";
+        /// The note while Steam is open: its title.
+        OPEN_TITLE = "steam.launch.open_title";
+        /// Its text.
+        OPEN_TEXT = "steam.launch.open_text";
+        /// Its action.
+        CLOSE_STEAM = "steam.launch.close_steam";
+        /// The account's settings file cannot be found or read.
+        UNREADABLE = "steam.launch.unreadable";
+    }
+    /// After the launch options were written.
+    pub fn saved(name: &str) -> String {
+        rust_i18n::t!("steam.launch.saved", name = name).into_owned()
+    }
+}
+
+/// The library's filter group that tells Steam games from EasyPlay's own.
+pub mod filter {
+    texts! {
+        /// The group's heading.
+        SOURCE = "steam.filter.source";
+        /// Games added to EasyPlay.
+        EASYPLAY = "steam.filter.easyplay";
+        /// Games installed with Steam.
+        STEAM = "steam.filter.steam";
+    }
+}
+
+/// After "Close Steam".
+pub fn asked_to_close() -> &'static str {
+    crate::i18n::text("steam.asked_to_close")
+}
+
 /// The selection's actions that skip Steam games.
 pub mod selection {
     texts! {
@@ -284,6 +329,11 @@ mod tests {
             page::NO_PROTON_BUILD().to_owned(),
             page::OPEN_STORAGE_HELP().to_owned(),
             note::waiting_progress("1 GB", "2 GB"),
+            launch::HELP().to_owned(),
+            launch::OVERLAY_HELP().to_owned(),
+            launch::OPEN_TEXT().to_owned(),
+            launch::UNREADABLE().to_owned(),
+            launch::saved("Brass Lighthouse"),
         ] {
             assert!(!s.contains('!'));
             let l = s.to_lowercase();
