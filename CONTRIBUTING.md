@@ -76,6 +76,28 @@ niri msg --json windows               # is_floating and layout.window_size for t
 - Sound checks fail in such an instance (no PipeWire socket in the private runtime
   directory); that is expected.
 
+## Measuring memory
+
+Measure a release build with the sample library (`easyplay --preview`), with the throwaway
+folders and private `XDG_RUNTIME_DIR` from the section above. Run it in a headless sway, so no
+window appears on your desktop and input can be scripted:
+
+```sh
+WLR_BACKENDS=headless WLR_RENDERER=vulkan dbus-run-session sway --unsupported-gpu -c /dev/null &
+wtype -s 3600000 -m shift &        # one long-lived virtual keyboard; a new one per key loses input
+wtype -M ctrl -k comma -m ctrl     # Ctrl+, opens Settings
+grim -s 0.5 shot.png               # what the window shows
+grep -E 'Rss|Pss_Anon' /proc/$PID/smaps_rollup
+```
+
+- **Compare `Pss_Anon`.** RSS and PSS move by several MB between runs, because file pages are
+  shared with the compositor.
+- **Discard the first run of every new binary.** The GPU driver compiles shaders into a
+  per-executable cache, which adds about 50 MB to that run.
+- **Use heaptrack for allocations.** `heaptrack_print` lists the allocation sites.
+- **Expect most of the total to be the GPU driver stack and the binary's code.** In the
+  measurements of 2026-11-17, EasyPlay's own heap was 46-49 MB of ~186 MB.
+
 ## Strings and languages
 
 The interface's text lives in `crates/easyplay-ui/locales/<code>.yml` (ADR-0032).

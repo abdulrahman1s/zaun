@@ -11,6 +11,14 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 
 ### For users
 
+- When something was removed in the meantime (from another window, the command line or a
+  Steam rescan), the message now says so: "This game is no longer in the library", "This tag
+  no longer exists" or "This session is no longer there" (`EP-LIB-040`, `EP-LIB-041`,
+  `EP-SES-040`). Before, it was a generic internal error or "This value cannot be used". The
+  command line prints the same.
+- Less work in every frame: looking up interface text no longer allocates (about 1.3 million
+  allocations fewer in a two-minute session). The Statistics page keeps one result per time
+  range instead of one per library change.
 - Chat, a new page between Library and Statistics, off by default (Settings → Chat, or the
   switch on the page). Add a friend with a one-time link, shown as a QR code or copied with
   one button. Talk one to one or in groups, with replies, emoji reactions, edits, deletes,
@@ -93,6 +101,7 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 
 ### For packagers
 
+- New build dependency `strum` (MIT, derive macros only). `anyhow` is no longer used.
 - Chat (ADR-0033) adds the crate `easyplay-chat`, licensed **AGPL-3.0-only** (the rest is
   GPL-3.0-or-later; GPLv3 §13 permits the combination), the only code that links the SimpleX
   chat engine. Install the binary to `libexec/easyplay/`, and `libsimplex.so` with the
