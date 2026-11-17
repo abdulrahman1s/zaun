@@ -76,14 +76,55 @@ impl AddGameVm {
     }
 }
 
+/// Statistics results by range, each with the library revision it was computed at.
+/// Eviction rule: one per range, the latest answer's. The page reads the current
+/// revision's result, or the latest one while that loads, never an older one.
+#[derive(Clone, Debug)]
+pub struct ByRange<T>(HashMap<usize, (u64, T)>);
+
+impl<T> Default for ByRange<T> {
+    fn default() -> Self {
+        Self(HashMap::new())
+    }
+}
+
+impl<T> ByRange<T> {
+    /// The result for `range` at library revision `rev`.
+    pub fn get(&self, range: usize, rev: u64) -> Option<&T> {
+        self.0
+            .get(&range)
+            .and_then(|(v, t)| (*v == rev).then_some(t))
+    }
+
+    /// The latest result for `range`, whatever revision it was computed at.
+    pub fn latest(&self, range: usize) -> Option<&T> {
+        self.0.get(&range).map(|(_, t)| t)
+    }
+
+    /// Keep `t` as the result for `range` at `rev`, in place of the one kept before.
+    pub fn put(&mut self, range: usize, rev: u64, t: T) {
+        self.0.insert(range, (rev, t));
+    }
+
+    /// How many results are kept.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Nothing is kept.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 /// Statistics screen.
 #[derive(Clone, Debug, Default)]
 pub struct StatsVm {
     /// Range index (7 days, 30 days, year, all time).
     pub range: usize,
-    /// Results per (range, library revision): returning shows them in the first frame. The
-    /// year's result (twelve months) also gives All time its chart.
-    pub cache: HashMap<(usize, u64), LibraryOverview>,
+    /// Overviews: returning shows them in the first frame. The year's result (twelve
+    /// months) also gives All time its chart.
+    pub cache: ByRange<LibraryOverview>,
     /// The pending overview query.
     pub pending: Option<(QueryId, usize, u64, MonoInstant)>,
     /// The last failure.
@@ -104,9 +145,9 @@ pub struct StatsVm {
     pub bar: Option<usize>,
     /// "Most played": show all.
     pub all_games: bool,
-    /// The longer "Most played" list (up to twenty) per (range, library revision): the
-    /// overview carries only the first five.
-    pub top: HashMap<(usize, u64), Vec<Ranking>>,
+    /// The longer "Most played" list (up to twenty): the overview carries only the first
+    /// five.
+    pub top: ByRange<Vec<Ranking>>,
     /// Its query.
     pub top_q: Option<(QueryId, usize, u64)>,
     /// Full history sheet: rows, more, query.
@@ -281,6 +322,24 @@ mod tests {
         assert_eq!(vm.chosen_paths().len(), 2);
         vm.show_filtered = true;
         assert_eq!(vm.rows().len(), 4);
+    }
+
+    /// One result per range: a newer revision's answer replaces the range's earlier one,
+    /// which still shows while the newer one is asked for.
+    #[test]
+    fn statistics_keep_the_latest_result_per_range() {
+        let mut c = ByRange::default();
+        c.put(0, 1, "week at 1");
+        c.put(2, 1, "year at 1");
+        assert_eq!(c.get(0, 2), None);
+        assert_eq!(c.latest(0), Some(&"week at 1"));
+        for rev in 2..50 {
+            c.put(0, rev, "week");
+        }
+        assert_eq!(c.len(), 2);
+        assert_eq!(c.get(0, 49), Some(&"week"));
+        assert_eq!(c.get(0, 1), None);
+        assert_eq!(c.latest(2), Some(&"year at 1"));
     }
 
     #[test]

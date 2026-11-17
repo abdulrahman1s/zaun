@@ -9,7 +9,7 @@ pub mod plural;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{OnceLock, PoisonError, RwLock};
 
 use rust_i18n::t;
 
@@ -128,7 +128,20 @@ pub fn generation() -> u64 {
     GENERATION.load(Ordering::Relaxed)
 }
 
-type Interned = HashMap<(Language, String), &'static str>;
+/// One language's interned texts by key. Eviction rule: none; it holds at most one entry per
+/// key ever asked for (catalogue keys, and each missing key once), so it is bounded by the
+/// catalogue.
+type Interned = RwLock<HashMap<Box<str>, &'static str>>;
+
+fn interned(language: Language) -> &'static Interned {
+    static ENGLISH: OnceLock<Interned> = OnceLock::new();
+    static ARABIC: OnceLock<Interned> = OnceLock::new();
+    match language {
+        Language::English => &ENGLISH,
+        Language::Arabic => &ARABIC,
+    }
+    .get_or_init(Interned::default)
+}
 
 /// The text of `key` in the current language.
 ///
@@ -139,23 +152,31 @@ pub fn text(key: &str) -> &'static str {
 }
 
 /// The text of `key` in `language` (tests, and a language's own name in a menu). See
-/// [`text`] for the interning.
+/// [`text`] for the interning. Called for every label in every frame: a key already asked
+/// for costs a shared read lock and a hash, with no allocation (AGENTS.md §6).
 pub fn text_in(language: Language, key: &str) -> &'static str {
-    static CACHE: OnceLock<Mutex<Interned>> = OnceLock::new();
-    let cache = CACHE.get_or_init(Mutex::default);
-    let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(s) = cache.get(&(language, key.to_owned())) {
+    let table = interned(language);
+    let hit = table
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(key)
+        .copied();
+    if let Some(s) = hit {
         return s;
     }
-    let found = lookup(language, key);
-    let leaked: &'static str = match found {
+    let mut table = table.write().unwrap_or_else(PoisonError::into_inner);
+    // Another thread may have interned it between the two locks.
+    if let Some(s) = table.get(key) {
+        return s;
+    }
+    let leaked: &'static str = match lookup(language, key) {
         Some(s) => Box::leak(s.into_boxed_str()),
         None => {
             tracing::warn!(key, language = language.code(), "missing translation key");
-            Box::leak(key.to_owned().into_boxed_str())
+            Box::leak(Box::from(key))
         }
     };
-    cache.insert((language, key.to_owned()), leaked);
+    table.insert(Box::from(key), leaked);
     leaked
 }
 

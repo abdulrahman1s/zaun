@@ -708,6 +708,33 @@ mod tests {
         ));
     }
 
+    /// Only the open conversation's messages are held: another one opened, or the page
+    /// closed, drops them; what was typed stays.
+    #[test]
+    fn only_the_open_conversation_keeps_its_messages() {
+        let mut vm = ChatVm::default();
+        vm.open_chat(ChatRef::Direct(1));
+        vm.asked(q(1), false);
+        let page = ChatPage {
+            chat: ChatRef::Direct(1),
+            messages: (0..PAGE as i64).map(|i| msg(i, "a")).collect(),
+        };
+        assert!(vm.on_query(q(1), &QueryPayload::Chat(page)));
+        vm.drafts.insert(ChatRef::Direct(1), "half typed".into());
+        assert!(vm.open_chat(ChatRef::Direct(2)));
+        let open = vm.open.as_ref().unwrap();
+        assert_eq!(open.chat, ChatRef::Direct(2));
+        assert!(open.messages.is_empty());
+        vm.on_messages(&[msg(99, "late")], false);
+        assert!(vm.open.as_ref().unwrap().messages.is_empty());
+        vm.close_chat();
+        assert!(vm.open.is_none());
+        assert_eq!(
+            vm.drafts.get(&ChatRef::Direct(1)).map(String::as_str),
+            Some("half typed")
+        );
+    }
+
     #[test]
     fn mark_read_goes_out_once_per_latest_message() {
         let mut vm = ChatVm::default();

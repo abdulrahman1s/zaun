@@ -35,7 +35,7 @@ UI_CRATES = ("egui", "eframe", "egui_extras", "egui_kittest", "winit", "wgpu", "
 
 # Core layers (ARCHITECTURE §4); `ui_thread` is layer-1 vocabulary (PERF-002).
 LAYERS = {
-    "consts": 1, "ids": 1, "clock": 1, "paths": 1, "error": 1, "model": 1, "ui_thread": 1,
+    "consts": 1, "ids": 1, "clock": 1, "paths": 1, "error": 1, "model": 1, "ui_thread": 1, "macros": 1,
     "jobs": 2, "logging": 2, "fsx": 2, "procfs": 2,
     "storage": 3, "config": 3, "host": 3, "steam": 3,
     "identity": 4, "sandbox": 4, "umu": 4,
@@ -94,6 +94,8 @@ UNSAFE_ALLOWED = (
     "crates/easyplay-chat/",
     # Test programs run inside the sandbox or in place of bwrap (PROC-013, SEC-002).
     "crates/easyplay-testkit/src/bin/",
+    # A counting allocator proving that label lookups do not allocate (AGENTS.md §6).
+    "crates/easyplay-ui/tests/i18n_alloc.rs",
     "fuzz/",
 )
 

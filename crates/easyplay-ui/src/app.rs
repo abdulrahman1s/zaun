@@ -939,7 +939,7 @@ impl EasyPlayApp {
             match payload {
                 QueryPayload::Stats(easyplay_core::stats::StatsResult::Library(o)) => {
                     st.failed = None;
-                    st.cache.insert((range, rev), o);
+                    st.cache.put(range, rev, o);
                 }
                 QueryPayload::Failed(e) => st.failed = Some(e),
                 _ => {}
@@ -961,7 +961,7 @@ impl EasyPlayApp {
         {
             st.top_q = None;
             if let QueryPayload::Stats(easyplay_core::stats::StatsResult::Top(t)) = payload {
-                st.top.insert((range, rev), t);
+                st.top.put(range, rev, t);
             }
             return;
         }

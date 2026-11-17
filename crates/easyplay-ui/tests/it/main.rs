@@ -14,6 +14,7 @@ mod details;
 mod flows;
 mod idle;
 mod keyboard_flows;
+mod memory;
 mod modal_focus;
 mod real_service;
 mod scaling;

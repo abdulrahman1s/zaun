@@ -124,7 +124,7 @@ fn request(state: &mut UiState, env: &mut Env<'_>) {
     let wanted: &[usize] = if range == ALL { &[ALL, YEAR] } else { &[range] };
     if let Some(&r) = wanted
         .iter()
-        .find(|r| !state.stats.cache.contains_key(&(**r, rev)))
+        .find(|&&r| state.stats.cache.get(r, rev).is_none())
         && !state
             .stats
             .pending
@@ -157,7 +157,7 @@ fn request(state: &mut UiState, env: &mut Env<'_>) {
     }
     // The longer "Most played" list, once it is asked for.
     if state.stats.all_games
-        && !state.stats.top.contains_key(&(range, rev))
+        && state.stats.top.get(range, rev).is_none()
         && !state
             .stats
             .top_q
@@ -225,11 +225,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                         return;
                     }
                     let failed = state.stats.failed.is_some()
-                        && !state
-                            .stats
-                            .cache
-                            .keys()
-                            .any(|(r, _)| *r == state.stats.range);
+                        && state.stats.cache.latest(state.stats.range).is_none();
                     if failed {
                         let retry = blank(
                             ui,
@@ -284,24 +280,8 @@ fn page(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, page_w: f32) {
     let p = theme::theme(ui.ctx()).palette.clone();
     let lib = env.bridge.library().clone();
     let range = state.stats.range;
-    let key = (range, lib.revision);
-    let latest = |r: usize, state: &UiState| {
-        state
-            .stats
-            .cache
-            .get(&(r, lib.revision))
-            .cloned()
-            .or_else(|| {
-                // While a new revision loads, keep showing the latest result for the range.
-                state
-                    .stats
-                    .cache
-                    .iter()
-                    .filter(|((x, _), _)| *x == r)
-                    .max_by_key(|((_, v), _)| *v)
-                    .map(|(_, o)| o.clone())
-            })
-    };
+    // While a new revision loads, the latest result for the range stays on screen.
+    let latest = |r: usize, state: &UiState| state.stats.cache.latest(r).cloned();
     let Some(o) = latest(range, state) else {
         return;
     };
@@ -347,7 +327,7 @@ fn page(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, page_w: f32) {
         state
             .stats
             .top
-            .get(&key)
+            .get(range, lib.revision)
             .cloned()
             .unwrap_or_else(|| o.top.clone())
     } else {
