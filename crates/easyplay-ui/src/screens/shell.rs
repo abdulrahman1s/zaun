@@ -239,6 +239,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                 Route::Gallery => gallery::show(ui, state, env),
                 Route::Game(id) => details::show(ui, state, env, id),
                 Route::Statistics => statistics::show(ui, state, env),
+                Route::Chat => super::chat::show(ui, state, env),
                 Route::Settings(tab) => settings::show(ui, state, env, tab),
                 Route::Onboarding => onboarding::show(ui, state, env),
             }
@@ -606,12 +607,14 @@ fn top_bar(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, route: Route) {
                 let here = match page_of(route) {
                     Route::Library | Route::Game(_) => Some(0),
                     Route::Statistics => Some(1),
-                    Route::Settings(_) => Some(2),
+                    Route::Chat => Some(2),
+                    Route::Settings(_) => Some(3),
                     _ => None,
                 };
                 let items = [
                     (strings::nav::LIBRARY(), Route::Library),
                     (strings::nav::STATISTICS(), Route::Statistics),
+                    (strings::nav::CHAT(), Route::Chat),
                     (
                         strings::nav::SETTINGS(),
                         Route::Settings(state.settings_tab),

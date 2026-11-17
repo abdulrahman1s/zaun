@@ -45,7 +45,7 @@ const SECTIONS: &[&str] = &[
     "appearance",
     "artwork",
     "steam",
-    "friends",
+    "chat",
     "protection",
     "runtime",
     "launch",
@@ -597,7 +597,7 @@ pub fn from_table(
     };
     r.finish(s);
 
-    let mut s = r.section(&mut root, "friends");
+    let mut s = r.section(&mut root, "chat");
     let mut relays = Vec::new();
     for (i, v) in r.list(&mut s, "relays").into_iter().enumerate() {
         match v {
@@ -607,12 +607,12 @@ pub fn from_table(
             _ => r.dropped(&s, "relays", i, "not an smp:// relay address"),
         }
     }
-    let friends = super::schema::FriendsPrefs {
-        enabled: r.bool(&mut s, "enabled", d.friends.enabled),
+    let chat = super::schema::ChatPrefs {
+        enabled: r.bool(&mut s, "enabled", d.chat.enabled),
         name: r.string(&mut s, "name").unwrap_or_default(),
         relays,
-        notify: r.bool(&mut s, "notify", d.friends.notify),
-        notify_preview: r.bool(&mut s, "notify_preview", d.friends.notify_preview),
+        notify: r.bool(&mut s, "notify", d.chat.notify),
+        notify_preview: r.bool(&mut s, "notify_preview", d.chat.notify_preview),
     };
     r.finish(s);
 
@@ -871,7 +871,7 @@ pub fn from_table(
         appearance,
         artwork,
         steam,
-        friends,
+        chat,
         protection,
         runtime,
         launch,

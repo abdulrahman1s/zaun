@@ -1,5 +1,5 @@
-//! The chat database key (ADR-0033): 32 random bytes, hex, in `friends/key`, mode 0600,
-//! made the first time Friends is turned on and read on every start.
+//! The chat database key (ADR-0033): 32 random bytes, hex, in `chat/key`, mode 0600,
+//! made the first time Chat is turned on and read on every start.
 //!
 //! Games cannot read it: each sandbox binds only its own prefix, never EasyPlay's data
 //! folder (`sandbox_validate` checks this). Programs the user runs outside EasyPlay can,
@@ -10,7 +10,7 @@ use std::path::Path;
 use crate::error::{Error, ErrorCode, Result};
 use crate::fsx::Fs;
 
-/// The key file's name inside the Friends folder.
+/// The key file's name inside the Chat folder.
 pub const KEY_FILE: &str = "key";
 /// Random bytes in a key.
 pub const KEY_BYTES: usize = 32;
@@ -30,11 +30,11 @@ pub fn load_or_create(
             return Ok(text);
         }
         // A key that is not one would make the database unreadable; never replace it.
-        return Err(Error::new(ErrorCode::FrnDatabase).with("reason", "the key file is damaged"));
+        return Err(Error::new(ErrorCode::ChtDatabase).with("reason", "the key file is damaged"));
     }
     fs.create_dir_all(dir, 0o700)?;
     let mut raw = [0u8; KEY_BYTES];
-    random(&mut raw).map_err(|e| Error::new(ErrorCode::FrnDatabase).with_source(e))?;
+    random(&mut raw).map_err(|e| Error::new(ErrorCode::ChtDatabase).with_source(e))?;
     let text: String = raw.iter().map(|b| format!("{b:02x}")).collect();
     fs.atomic_write(&path, text.as_bytes(), 0o600)?;
     Ok(text)

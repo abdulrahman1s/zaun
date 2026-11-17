@@ -1268,6 +1268,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "easyplay-chat"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "libloading",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "easyplay-core"
 version = "0.1.0"
 dependencies = [
@@ -1305,16 +1315,6 @@ dependencies = [
  "uuid",
  "wayland-client",
  "wayland-protocols",
-]
-
-[[package]]
-name = "easyplay-friends"
-version = "0.1.0"
-dependencies = [
- "libc",
- "libloading",
- "serde",
- "serde_json",
 ]
 
 [[package]]

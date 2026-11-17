@@ -157,21 +157,21 @@ impl LogFile {
     }
 }
 
-/// Friends (ADR-0033). Answers arrive as `Event::FriendsChanged` (the snapshot),
-/// `Notice::FriendMessages` / `Notice::FriendMessagesUpdated`, and `QueryResult::Chat`.
+/// Chat (ADR-0033). Answers arrive as `Event::ChatChanged` (the snapshot),
+/// `Notice::ChatMessages` / `Notice::ChatMessagesUpdated`, and `QueryResult::Chat`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FriendsCommand {
-    /// Turn Friends on (with the name friends see, for a first start) or off
-    /// (`friends.enabled`, `friends.name`).
+pub enum ChatCommand {
+    /// Turn Chat on (with the name friends see, for a first start) or off
+    /// (`chat.enabled`, `chat.name`).
     SetEnabled {
         /// On or off.
         on: bool,
-        /// The name for a first start (`None` = keep `friends.name`).
+        /// The name for a first start (`None` = keep `chat.name`).
         name: Option<String>,
     },
     /// Change the name friends see.
     SetName(String),
-    /// Make a one-time invitation link (`FriendsSnapshot::invite`).
+    /// Make a one-time invitation link (`ChatSnapshot::invite`).
     CreateInvite,
     /// Use a friend's link.
     Connect(String),
@@ -179,7 +179,7 @@ pub enum FriendsCommand {
     Accept(i64),
     /// Decline it.
     Reject(i64),
-    /// Make the user's reusable address (`FriendsSnapshot::address`).
+    /// Make the user's reusable address (`ChatSnapshot::address`).
     CreateAddress,
     /// Delete it.
     DeleteAddress,
@@ -581,9 +581,9 @@ pub enum Command {
     // ---- Steam games (ADR-0031)
     /// A Steam action.
     Steam(SteamCommand),
-    // ---- Friends (ADR-0033)
-    /// A Friends action.
-    Friends(FriendsCommand),
+    // ---- Chat (ADR-0033)
+    /// A Chat action.
+    Chat(ChatCommand),
     // ---- lifecycle
     /// Stop the service: parked flows are cancelled, running games are left alone.
     Shutdown,
@@ -642,7 +642,7 @@ impl Command {
             Command::DismissCrash => "dismiss_crash",
             Command::ResolveDatabase(_) => "resolve_database",
             Command::Steam(_) => "steam",
-            Command::Friends(_) => "friends",
+            Command::Chat(_) => "chat",
             Command::Shutdown => "shutdown",
         }
     }

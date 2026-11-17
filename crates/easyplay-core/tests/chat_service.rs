@@ -1,4 +1,4 @@
-//! The Friends flow of the AppService (ADR-0033) against the fake engine: the preference
+//! The Chat flow of the AppService (ADR-0033) against the fake engine: the preference
 //! starts and stops the engine, events build the snapshot, failures stop or restart it, and
 //! pages of a conversation are answered even when the engine goes away.
 
@@ -12,36 +12,36 @@ use std::time::Duration;
 
 use easyplay_core::artwork::steam::FsAppIdFile;
 use easyplay_core::artwork::{ArtIndex, NoIcons};
+use easyplay_core::chat::fake::FakeEngine;
+use easyplay_core::chat::{ChatEvent, Request, RequestKind};
 use easyplay_core::clock::{Clock, SystemClock, Timestamp};
 use easyplay_core::config::Preferences;
 use easyplay_core::error::ErrorCode;
-use easyplay_core::friends::fake::FakeEngine;
-use easyplay_core::friends::{FriendsEvent, Request, RequestKind};
 use easyplay_core::fsx::{Fs, MountTable, RealFs};
 use easyplay_core::host::StaticHostFacts;
 use easyplay_core::identity::{FsPeInspector, SharedLocations};
 use easyplay_core::ids::QueryId;
+use easyplay_core::ids::RuntimeName;
+use easyplay_core::jobs::{JobHandle, JobLabel, JobPriority};
 use easyplay_core::jobs::{JobPool, JobPoolConfig};
 use easyplay_core::launch::NoLocks;
 use easyplay_core::library::draft::NoUmuTitles;
 use easyplay_core::library::service::NoPolicyCheck;
 use easyplay_core::model::{
-    ChatPreview, ChatRef, Delivery, Friend, FriendMessage, FriendProfile, FriendsStatus,
-    MessageAuthor, MessageBody,
+    ChatMessage, ChatPreview, ChatProfile, ChatRef, ChatStatus, Delivery, Friend, MessageAuthor,
+    MessageBody,
 };
-use easyplay_core::procfs::RealProc;
-use easyplay_core::ids::RuntimeName;
-use easyplay_core::jobs::{JobHandle, JobLabel, JobPriority};
 use easyplay_core::model::{Game, RuntimeRef, SlrVariant};
+use easyplay_core::procfs::RealProc;
 use easyplay_core::runtime::{ProvisionNeed, Resolution, RuntimeCatalog, RuntimeService};
 use easyplay_core::service::{
-    AppService, Command, Event, FriendsCommand, LaunchEnv, Notice, QueryResult, ServiceDeps,
+    AppService, ChatCommand, Command, Event, LaunchEnv, Notice, QueryResult, ServiceDeps,
 };
 use easyplay_testkit::TestEnv;
 use easyplay_testkit::fakes::FakeLauncher;
 use easyplay_testkit::fixtures::hosts;
 
-/// No compatibility layers (Friends needs none).
+/// No compatibility layers (Chat needs none).
 struct NoRuntimes(Arc<JobPool>);
 
 impl RuntimeService for NoRuntimes {
@@ -112,7 +112,7 @@ fn deps(env: &TestEnv, engine: &FakeEngine, prefs: Preferences) -> ServiceDeps {
         policy_check: Some(Arc::new(NoPolicyCheck)),
         umu_titles: Arc::new(NoUmuTitles),
         watch_sessions: false,
-        friends: Some(Arc::new(engine.clone())),
+        chat: Some(Arc::new(engine.clone())),
     }
 }
 
@@ -121,8 +121,8 @@ impl World {
         let env = TestEnv::new().unwrap();
         let engine = FakeEngine::new();
         let mut prefs = Preferences::default();
-        prefs.friends.enabled = enabled;
-        prefs.friends.name = "Rin".into();
+        prefs.chat.enabled = enabled;
+        prefs.chat.name = "Rin".into();
         let (svc, events) = AppService::open_headless(deps(&env, &engine, prefs)).unwrap();
         let mut w = World {
             env,
@@ -142,29 +142,29 @@ impl World {
         self.events.try_iter().collect()
     }
 
-    fn cmd(&mut self, c: FriendsCommand) {
-        self.svc.handle(Command::Friends(c));
+    fn cmd(&mut self, c: ChatCommand) {
+        self.svc.handle(Command::Chat(c));
         self.settle();
     }
 
     /// Report `e` as the engine and let the service take it.
-    fn engine_says(&mut self, e: FriendsEvent) {
+    fn engine_says(&mut self, e: ChatEvent) {
         self.engine.emit(e);
         self.settle();
     }
 
-    fn status(&self) -> FriendsStatus {
-        self.svc.hub().friends.load().status.clone()
+    fn status(&self) -> ChatStatus {
+        self.svc.hub().chat.load().status.clone()
     }
 
     fn ready(&mut self) {
-        self.engine_says(FriendsEvent::Ready(FriendProfile { name: "Rin".into() }));
-        assert_eq!(self.status(), FriendsStatus::Ready);
+        self.engine_says(ChatEvent::Ready(ChatProfile { name: "Rin".into() }));
+        assert_eq!(self.status(), ChatStatus::Ready);
     }
 }
 
-fn msg(chat: ChatRef, id: i64, text: &str, author: MessageAuthor) -> FriendMessage {
-    FriendMessage {
+fn msg(chat: ChatRef, id: i64, text: &str, author: MessageAuthor) -> ChatMessage {
+    ChatMessage {
         id,
         chat,
         delivery: if author == MessageAuthor::Me {
@@ -179,8 +179,8 @@ fn msg(chat: ChatRef, id: i64, text: &str, author: MessageAuthor) -> FriendMessa
     }
 }
 
-fn one_friend() -> FriendsEvent {
-    FriendsEvent::Chats {
+fn one_friend() -> ChatEvent {
+    ChatEvent::Chats {
         friends: vec![Friend {
             id: 3,
             name: "Kai".into(),
@@ -201,14 +201,14 @@ fn one_friend() -> FriendsEvent {
 fn off_by_default_nothing_starts_and_no_folder_is_made() {
     let w = World::new(false);
     assert!(w.engine.starts().is_empty());
-    assert_eq!(w.status(), FriendsStatus::Off);
-    assert!(!w.env.paths().friends_dir.exists());
+    assert_eq!(w.status(), ChatStatus::Off);
+    assert!(!w.env.paths().chat_dir.exists());
 }
 
 #[test]
 fn turning_on_makes_a_private_folder_and_key_and_starts_with_the_name() {
     let mut w = World::new(false);
-    w.cmd(FriendsCommand::SetEnabled {
+    w.cmd(ChatCommand::SetEnabled {
         on: true,
         name: Some("  Sam  ".into()),
     });
@@ -217,19 +217,31 @@ fn turning_on_makes_a_private_folder_and_key_and_starts_with_the_name() {
     assert_eq!(starts[0].name, "Sam");
     assert!(starts[0].relays.is_empty());
     assert_eq!(starts[0].key.len(), 64);
-    let dir = &w.env.paths().friends_dir;
+    let dir = &w.env.paths().chat_dir;
     use std::os::unix::fs::PermissionsExt as _;
-    assert_eq!(std::fs::metadata(dir).unwrap().permissions().mode() & 0o777, 0o700);
+    assert_eq!(
+        std::fs::metadata(dir).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
     let key = dir.join("key");
-    assert_eq!(std::fs::metadata(&key).unwrap().permissions().mode() & 0o777, 0o600);
-    assert_eq!(w.status(), FriendsStatus::Starting);
-    assert!(w.svc.hub().prefs.load().friends.enabled);
+    assert_eq!(
+        std::fs::metadata(&key).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(w.status(), ChatStatus::Starting);
+    assert!(w.svc.hub().prefs.load().chat.enabled);
 
     // The same key on the next start.
-    w.cmd(FriendsCommand::SetEnabled { on: false, name: None });
+    w.cmd(ChatCommand::SetEnabled {
+        on: false,
+        name: None,
+    });
     assert!(!w.engine.running());
-    assert_eq!(w.status(), FriendsStatus::Off);
-    w.cmd(FriendsCommand::SetEnabled { on: true, name: None });
+    assert_eq!(w.status(), ChatStatus::Off);
+    w.cmd(ChatCommand::SetEnabled {
+        on: true,
+        name: None,
+    });
     assert_eq!(w.engine.starts()[1].key, starts[0].key);
 }
 
@@ -240,8 +252,13 @@ fn events_build_the_snapshot_and_new_messages_count_as_unread() {
     w.engine_says(one_friend());
     w.drain();
     let kai = ChatRef::Direct(3);
-    w.engine_says(FriendsEvent::Messages(vec![msg(kai, 10, "gg", MessageAuthor::Friend)]));
-    let snap = w.svc.hub().friends.load();
+    w.engine_says(ChatEvent::Messages(vec![msg(
+        kai,
+        10,
+        "gg",
+        MessageAuthor::Friend,
+    )]));
+    let snap = w.svc.hub().chat.load();
     assert_eq!(snap.unread(), 1);
     assert_eq!(
         snap.chats[0].last.as_ref().unwrap().body,
@@ -249,17 +266,17 @@ fn events_build_the_snapshot_and_new_messages_count_as_unread() {
     );
     assert!(w.drain().iter().any(|e| matches!(
         e,
-        Event::Notice(Notice::FriendMessages(m)) if m[0].id == 10
+        Event::Notice(Notice::ChatMessages(m)) if m[0].id == 10
     )));
 
     // Reading it clears the count and tells the engine.
     w.engine.take_requests();
-    w.cmd(FriendsCommand::MarkRead(kai));
-    assert_eq!(w.svc.hub().friends.load().unread(), 0);
+    w.cmd(ChatCommand::MarkRead(kai));
+    assert_eq!(w.svc.hub().chat.load().unread(), 0);
     assert_eq!(w.engine.take_requests(), vec![Request::MarkRead(kai)]);
 
     // A message from a conversation not in the list yet reads the list again.
-    w.engine_says(FriendsEvent::Messages(vec![msg(
+    w.engine_says(ChatEvent::Messages(vec![msg(
         ChatRef::Group(9),
         1,
         "hi",
@@ -271,40 +288,40 @@ fn events_build_the_snapshot_and_new_messages_count_as_unread() {
 #[test]
 fn a_start_the_engine_refuses_stops_with_the_reason_and_on_again_retries() {
     let mut w = World::new(true);
-    w.engine_says(FriendsEvent::Failed {
+    w.engine_says(ChatEvent::Failed {
         request: RequestKind::Start,
-        code: ErrorCode::FrnRequestFailed,
+        code: ErrorCode::ChtRequestFailed,
         detail: "invalid display name".into(),
     });
-    assert_eq!(w.status(), FriendsStatus::Failed(ErrorCode::FrnRequestFailed));
+    assert_eq!(w.status(), ChatStatus::Failed(ErrorCode::ChtRequestFailed));
     assert!(w.drain().iter().any(|e| matches!(e, Event::Failure(_))));
     // A late exit of that engine restarts nothing.
-    w.engine_says(FriendsEvent::Exited {
+    w.engine_says(ChatEvent::Exited {
         status: Some(1),
         started: false,
     });
     assert_eq!(w.engine.starts().len(), 1);
 
-    w.cmd(FriendsCommand::SetEnabled {
+    w.cmd(ChatCommand::SetEnabled {
         on: true,
         name: Some("Rin".into()),
     });
     assert_eq!(w.engine.starts().len(), 2);
-    assert_eq!(w.status(), FriendsStatus::Starting);
+    assert_eq!(w.status(), ChatStatus::Starting);
 }
 
 #[test]
 fn an_engine_that_keeps_exiting_is_restarted_then_given_up() {
     let mut w = World::new(true);
     // Exits 1 to 4 are each followed by a restart after the back-off (1 + 2 + 4 + 8 s).
-    for n in 1..easyplay_core::service::flows::friends::MAX_FAILURES {
-        w.engine_says(FriendsEvent::Exited {
+    for n in 1..easyplay_core::service::flows::chat::MAX_FAILURES {
+        w.engine_says(ChatEvent::Exited {
             status: Some(1),
             started: false,
         });
-        assert_eq!(w.status(), FriendsStatus::Starting, "after exit {n}");
+        assert_eq!(w.status(), ChatStatus::Starting, "after exit {n}");
         assert!(!w.engine.running());
-        std::thread::sleep(easyplay_core::service::flows::friends::backoff(n));
+        std::thread::sleep(easyplay_core::service::flows::chat::backoff(n));
         for _ in 0..20 {
             w.settle();
             if w.engine.running() {
@@ -315,11 +332,11 @@ fn an_engine_that_keeps_exiting_is_restarted_then_given_up() {
         assert_eq!(w.engine.starts().len(), n as usize + 1, "restart {n}");
     }
     // The fifth: no more restarts.
-    w.engine_says(FriendsEvent::Exited {
+    w.engine_says(ChatEvent::Exited {
         status: Some(1),
         started: false,
     });
-    assert_eq!(w.status(), FriendsStatus::Failed(ErrorCode::FrnEngineFailing));
+    assert_eq!(w.status(), ChatStatus::Failed(ErrorCode::ChtEngineFailing));
     assert!(w.drain().iter().any(|e| matches!(e, Event::Failure(_))));
     std::thread::sleep(Duration::from_millis(1200));
     w.settle();
@@ -332,7 +349,7 @@ fn a_page_is_answered_and_pages_left_waiting_fail_when_the_engine_stops() {
     w.ready();
     let kai = ChatRef::Direct(3);
     let first = query(1);
-    w.cmd(FriendsCommand::LoadChat {
+    w.cmd(ChatCommand::LoadChat {
         chat: kai,
         before: None,
         reply_to: first,
@@ -341,7 +358,7 @@ fn a_page_is_answered_and_pages_left_waiting_fail_when_the_engine_stops() {
         panic!("no history request")
     };
     assert_eq!(count, 50);
-    w.engine_says(FriendsEvent::History {
+    w.engine_says(ChatEvent::History {
         tag,
         chat: kai,
         messages: vec![msg(kai, 1, "old", MessageAuthor::Friend)],
@@ -352,13 +369,13 @@ fn a_page_is_answered_and_pages_left_waiting_fail_when_the_engine_stops() {
     )));
 
     let waiting = query(2);
-    w.cmd(FriendsCommand::LoadChat {
+    w.cmd(ChatCommand::LoadChat {
         chat: kai,
         before: Some(1),
         reply_to: waiting,
     });
     w.drain();
-    w.engine_says(FriendsEvent::Exited {
+    w.engine_says(ChatEvent::Exited {
         status: None,
         started: true,
     });
@@ -375,16 +392,16 @@ fn events_of_a_replaced_engine_are_ignored() {
     // Relays change: the engine is restarted, the old one's events no longer count.
     w.svc.handle(Command::SetPreference(
         easyplay_core::config::PreferencePatch::new()
-            .set("friends.relays", vec!["smp://fp@relay.example".to_owned()]),
+            .set("chat.relays", vec!["smp://fp@relay.example".to_owned()]),
     ));
     w.settle();
     assert_eq!(w.engine.starts().len(), 2);
     assert_eq!(w.engine.starts()[1].relays, vec!["smp://fp@relay.example"]);
     // The fake shares one sink, so "stale" here is the generation check: report Ready from
     // the new engine works, and the status follows only it.
-    stale.emit(FriendsEvent::Ready(FriendProfile { name: "Rin".into() }));
+    stale.emit(ChatEvent::Ready(ChatProfile { name: "Rin".into() }));
     w.settle();
-    assert_eq!(w.status(), FriendsStatus::Ready);
+    assert_eq!(w.status(), ChatStatus::Ready);
 }
 
 #[test]
@@ -393,9 +410,9 @@ fn without_an_engine_in_this_build_the_page_says_so() {
     let engine = FakeEngine::new();
     engine.set_available(false);
     let mut prefs = Preferences::default();
-    prefs.friends.enabled = true;
+    prefs.chat.enabled = true;
     let (mut svc, _events) = AppService::open_headless(deps(&env, &engine, prefs)).unwrap();
     while svc.pump(Duration::from_millis(100)) {}
-    assert_eq!(svc.hub().friends.load().status, FriendsStatus::Unavailable);
+    assert_eq!(svc.hub().chat.load().status, ChatStatus::Unavailable);
     assert!(engine.starts().is_empty());
 }

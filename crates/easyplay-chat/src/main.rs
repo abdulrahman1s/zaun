@@ -1,10 +1,10 @@
-//! `easyplay-friends`: hosts the SimpleX chat engine (`libsimplex`) for EasyPlay's Friends
+//! `easyplay-chat`: hosts the SimpleX chat engine (`libsimplex`) for EasyPlay's Chat
 //! page (ADR-0033) and speaks to EasyPlay over its standard input and output only.
 //!
 //! The engine's own API server (a WebSocket on localhost) has no authentication, and games
 //! with network access share the host's localhost, so EasyPlay never opens it: this helper
 //! loads the library the official apps use and relays its C interface to pipes. It holds no
-//! logic of its own; the protocol is in `easyplay_core::friends::simplex`.
+//! logic of its own; the protocol is in `easyplay_core::chat::simplex`.
 //!
 //! **Protocol** (one JSON object per line, UTF-8):
 //!
@@ -37,7 +37,7 @@ const EXIT_INIT: u8 = 3;
 /// Exit status: the library could not be loaded, or the first line was not understood.
 const EXIT_FATAL: u8 = 4;
 /// GHC runtime options, as the official desktop app passes them (`simplex-api.c`).
-const RTS_ARGS: [&str; 5] = ["easyplay-friends", "+RTS", "-A64m", "-H64m", "-xn"];
+const RTS_ARGS: [&str; 5] = ["easyplay-chat", "+RTS", "-A64m", "-H64m", "-xn"];
 
 type Ctrl = *mut c_long;
 type HsInit = unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char);

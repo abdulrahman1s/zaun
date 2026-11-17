@@ -655,16 +655,16 @@ fn issue_codes_are_unique_and_stable() {
     let _ = (IssueSeverity::Info, NetworkAccess::None);
 }
 
-/// ADR-0033: the chat database and its key (`<data>/friends`) are never reachable from a
+/// ADR-0033: the chat database and its key (`<data>/chat`) are never reachable from a
 /// game: not the folder, nothing in it, and no folder above it (`~/.local/share`, the home
 /// folder) can be granted, and no Developer Mode exception lifts it.
 #[test]
-fn deny_friends_folder_and_everything_above_it() {
+fn deny_chat_folder_and_everything_above_it() {
     let w = SandboxWorld::worked_example();
     let d = deny(&w);
-    let friends = w.ctx().paths.friends_dir.clone();
-    let key = friends.join("key");
-    for p in [&friends, &key] {
+    let chat = w.ctx().paths.chat_dir.clone();
+    let key = chat.join("key");
+    for p in [&chat, &key] {
         let hits = d.check(p);
         assert!(
             hits.iter().any(|h| h.group == DenyGroup::EasyPlay),
@@ -673,7 +673,7 @@ fn deny_friends_folder_and_everything_above_it() {
         );
         assert!(hits.iter().all(|h| !h.group.bypassable()));
     }
-    let mut above = friends.parent();
+    let mut above = chat.parent();
     while let Some(p) = above {
         assert!(d.is_denied(p), "{} can be granted", p.display());
         above = p.parent().filter(|p| *p != Path::new("/"));

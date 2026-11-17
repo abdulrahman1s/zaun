@@ -1,5 +1,5 @@
 //! The seam between the service and a chat protocol (ADR-0033): requests in the terms of
-//! the Friends page, events back in the types of `model::friends`. The SimpleX engine is the
+//! the Chat page, events back in the types of `model::chat`. The SimpleX engine is the
 //! one implementation; tests use [`super::fake::FakeEngine`].
 
 use std::path::PathBuf;
@@ -7,15 +7,15 @@ use std::sync::Arc;
 
 use crate::error::{ErrorCode, Result};
 use crate::model::{
-    ChatPreview, ChatRef, Friend, FriendGroup, FriendMessage, FriendProfile, FriendRequest,
+    ChatGroup, ChatMessage, ChatPreview, ChatProfile, ChatRef, Friend, FriendRequest,
 };
 
-/// What the service asks the engine to do. Every answer comes back as [`FriendsEvent`]s.
+/// What the service asks the engine to do. Every answer comes back as [`ChatEvent`]s.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     /// Change the user's name.
-    SetProfile(FriendProfile),
-    /// Make a one-time invitation link ([`FriendsEvent::Invite`]).
+    SetProfile(ChatProfile),
+    /// Make a one-time invitation link ([`ChatEvent::Invite`]).
     CreateInvite,
     /// Use a friend's link (an invitation or an address).
     Connect(String),
@@ -23,7 +23,7 @@ pub enum Request {
     Accept(i64),
     /// Decline it.
     Reject(i64),
-    /// Make the user's reusable address ([`FriendsEvent::Address`]).
+    /// Make the user's reusable address ([`ChatEvent::Address`]).
     CreateAddress,
     /// Delete it; links already shared stop working.
     DeleteAddress,
@@ -36,7 +36,7 @@ pub enum Request {
     },
     /// Mark everything in a conversation read.
     MarkRead(ChatRef),
-    /// Messages of a conversation, newest last ([`FriendsEvent::History`]).
+    /// Messages of a conversation, newest last ([`ChatEvent::History`]).
     History {
         /// Which.
         chat: ChatRef,
@@ -47,7 +47,7 @@ pub enum Request {
         /// Returned with the answer.
         tag: u64,
     },
-    /// Read the conversation list again ([`FriendsEvent::Chats`]).
+    /// Read the conversation list again ([`ChatEvent::Chats`]).
     Refresh,
     /// Make a group with the user as owner.
     NewGroup(String),
@@ -97,17 +97,17 @@ pub enum RequestKind {
 
 /// What the engine reports.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FriendsEvent {
+pub enum ChatEvent {
     /// Started: the database is open and the relays are being reached.
-    Ready(FriendProfile),
+    Ready(ChatProfile),
     /// The user's profile changed.
-    Profile(FriendProfile),
+    Profile(ChatProfile),
     /// The whole conversation list, read again.
     Chats {
         /// Friends.
         friends: Vec<Friend>,
         /// Groups.
-        groups: Vec<FriendGroup>,
+        groups: Vec<ChatGroup>,
         /// Requests waiting.
         requests: Vec<FriendRequest>,
         /// Conversations, most recent first.
@@ -118,9 +118,9 @@ pub enum FriendsEvent {
     /// The user's address (`None` = deleted or never made).
     Address(Option<String>),
     /// New messages (received, or sent by the user), oldest first.
-    Messages(Vec<FriendMessage>),
+    Messages(Vec<ChatMessage>),
     /// Messages whose delivery or text changed.
-    Updated(Vec<FriendMessage>),
+    Updated(Vec<ChatMessage>),
     /// The answer to [`Request::History`].
     History {
         /// The request's tag.
@@ -128,7 +128,7 @@ pub enum FriendsEvent {
         /// The conversation.
         chat: ChatRef,
         /// Oldest first.
-        messages: Vec<FriendMessage>,
+        messages: Vec<ChatMessage>,
     },
     /// A request failed.
     Failed {
@@ -139,7 +139,7 @@ pub enum FriendsEvent {
         /// The engine's own words, for the log.
         detail: String,
     },
-    /// The engine stopped. `started` = it had reported [`FriendsEvent::Ready`].
+    /// The engine stopped. `started` = it had reported [`ChatEvent::Ready`].
     Exited {
         /// The helper's exit status, if it exited normally.
         status: Option<i32>,
@@ -149,14 +149,14 @@ pub enum FriendsEvent {
 }
 
 /// Where events go: called on the engine's own thread.
-pub type EventSink = Arc<dyn Fn(FriendsEvent) + Send + Sync>;
+pub type EventSink = Arc<dyn Fn(ChatEvent) + Send + Sync>;
 
 /// What an engine needs to start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EngineConfig {
-    /// The engine's data folder (`AppPaths::friends_dir`).
+    /// The engine's data folder (`AppPaths::chat_dir`).
     pub dir: PathBuf,
-    /// The database key (`friends::key`).
+    /// The database key (`chat::key`).
     pub key: String,
     /// The display name for a first start.
     pub name: String,

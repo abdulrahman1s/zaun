@@ -496,7 +496,7 @@ pub enum QueryPayload {
     Report(Vec<ReportFile>),
     /// A Steam game's page (`SteamAction::Details`).
     Steam(Box<SteamDetail>),
-    /// `FriendsCommand::LoadChat` (ADR-0033): a page of a conversation, oldest first.
+    /// `ChatCommand::LoadChat` (ADR-0033): a page of a conversation, oldest first.
     Chat(easyplay_core::service::ChatPage),
     /// The query failed.
     Failed(UserError),
@@ -891,8 +891,8 @@ pub enum UiCommand {
     ResolveDatabase(DatabaseChoice),
     /// A Steam action (ADR-0031).
     Steam(SteamAction),
-    /// A Friends action (ADR-0033), passed to the service as is.
-    Friends(easyplay_core::service::FriendsCommand),
+    /// A Chat action (ADR-0033), passed to the service as is.
+    Chat(easyplay_core::service::ChatCommand),
     /// Quit EasyPlay (games keep running).
     Quit,
 }
@@ -910,12 +910,12 @@ pub enum UiEvent {
     RuntimesChanged,
     /// The diagnostics snapshot changed (Doctor, crash banner, recovery mode).
     DiagnosticsChanged,
-    /// A new Friends snapshot (ADR-0033).
-    FriendsChanged,
+    /// A new Chat snapshot (ADR-0033).
+    ChatChanged,
     /// Messages arrived or were sent (`updated` = delivery or text of known ones changed).
-    FriendMessages {
+    ChatMessages {
         /// Oldest first.
-        messages: Vec<easyplay_core::model::FriendMessage>,
+        messages: Vec<easyplay_core::model::ChatMessage>,
         /// Changes to messages already shown.
         updated: bool,
     },
@@ -997,9 +997,9 @@ pub trait Backend: Send {
     fn diagnostics(&self) -> Arc<Diagnostics> {
         Arc::new(Diagnostics::default())
     }
-    /// Friends (ADR-0033).
-    fn friends(&self) -> Arc<easyplay_core::model::FriendsSnapshot> {
-        Arc::new(easyplay_core::model::FriendsSnapshot::default())
+    /// Chat (ADR-0033).
+    fn chat(&self) -> Arc<easyplay_core::model::ChatSnapshot> {
+        Arc::new(easyplay_core::model::ChatSnapshot::default())
     }
 }
 
@@ -1045,8 +1045,8 @@ impl<B: Backend + Sync + ?Sized> Backend for Arc<B> {
     fn diagnostics(&self) -> Arc<Diagnostics> {
         (**self).diagnostics()
     }
-    fn friends(&self) -> Arc<easyplay_core::model::FriendsSnapshot> {
-        (**self).friends()
+    fn chat(&self) -> Arc<easyplay_core::model::ChatSnapshot> {
+        (**self).chat()
     }
 }
 
@@ -1061,7 +1061,7 @@ pub struct UiBridge {
     host: Arc<HostView>,
     runtimes: Arc<RuntimesView>,
     diagnostics: Arc<Diagnostics>,
-    friends: Arc<easyplay_core::model::FriendsSnapshot>,
+    chat: Arc<easyplay_core::model::ChatSnapshot>,
     next_query: std::cell::Cell<u128>,
 }
 
@@ -1074,7 +1074,7 @@ impl UiBridge {
             host: backend.host(),
             runtimes: backend.runtimes(),
             diagnostics: backend.diagnostics(),
-            friends: backend.friends(),
+            chat: backend.chat(),
             backend,
             next_query: std::cell::Cell::new(1),
         }
@@ -1113,7 +1113,7 @@ impl UiBridge {
                     // The host view's checks are the Doctor report once there is one.
                     self.host = self.backend.host();
                 }
-                UiEvent::FriendsChanged => self.friends = self.backend.friends(),
+                UiEvent::ChatChanged => self.chat = self.backend.chat(),
                 _ => {}
             }
             out.push(ev);
@@ -1156,9 +1156,9 @@ impl UiBridge {
         &self.diagnostics
     }
 
-    /// Friends of this frame (ADR-0033).
-    pub fn friends(&self) -> &Arc<easyplay_core::model::FriendsSnapshot> {
-        &self.friends
+    /// Chat of this frame (ADR-0033).
+    pub fn chat(&self) -> &Arc<easyplay_core::model::ChatSnapshot> {
+        &self.chat
     }
 
     /// See [`Backend::assess`].

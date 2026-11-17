@@ -66,7 +66,7 @@ fn settled() -> Codec {
     c.on_line(&resp(3, &fixture("api_chats")));
     let none = serde_json::json!({ "error": { "type": "error", "errorType": { "type": "noContactLink" } } });
     let out = c.on_line(&resp(4, &none));
-    assert_eq!(out.events, vec![FriendsEvent::Address(None)]);
+    assert_eq!(out.events, vec![ChatEvent::Address(None)]);
     c
 }
 
@@ -83,7 +83,7 @@ fn start_up_reads_the_user_then_starts_then_reads_the_list_and_address() {
     let out = c.on_line(&resp(2, &fixture("chat_started")));
     assert_eq!(
         out.events,
-        vec![FriendsEvent::Ready(FriendProfile {
+        vec![ChatEvent::Ready(ChatProfile {
             name: "alice".into()
         })]
     );
@@ -126,7 +126,7 @@ fn custom_relays_are_set_after_the_start_and_before_ready() {
     );
     let ok = serde_json::json!({ "result": { "type": "cmdOk" } });
     let out = c.on_line(&resp(3, &ok));
-    assert!(matches!(out.events[0], FriendsEvent::Ready(_)));
+    assert!(matches!(out.events[0], ChatEvent::Ready(_)));
     assert!(c.started());
 }
 
@@ -142,7 +142,10 @@ fn rejected_custom_relays_never_fall_back_to_the_presets() {
     assert!(out.lines.is_empty());
     assert!(matches!(
         out.events[0],
-        FriendsEvent::Failed { request: RequestKind::Start, .. }
+        ChatEvent::Failed {
+            request: RequestKind::Start,
+            ..
+        }
     ));
 }
 
@@ -162,7 +165,7 @@ fn an_invitation_answer_gives_the_link() {
     let out = c.request(Request::CreateInvite);
     let corr = cmds(&out)[0].0;
     let out = c.on_line(&resp(corr, &fixture("invitation")));
-    let [FriendsEvent::Invite(link)] = out.events.as_slice() else {
+    let [ChatEvent::Invite(link)] = out.events.as_slice() else {
         panic!("{:?}", out.events)
     };
     assert!(
@@ -195,9 +198,9 @@ fn connecting_reads_the_list_again_and_a_bad_link_never_reaches_the_engine() {
     assert!(out.lines.is_empty());
     assert!(matches!(
         out.events[0],
-        FriendsEvent::Failed {
+        ChatEvent::Failed {
             request: RequestKind::Connect,
-            code: ErrorCode::FrnBadLink,
+            code: ErrorCode::ChtBadLink,
             ..
         }
     ));
@@ -218,8 +221,8 @@ fn the_users_own_link_and_a_known_one_connect_nothing() {
     assert!(out.lines.is_empty());
     assert!(matches!(
         out.events[0],
-        FriendsEvent::Failed {
-            code: ErrorCode::FrnBadLink,
+        ChatEvent::Failed {
+            code: ErrorCode::ChtBadLink,
             ..
         }
     ));
@@ -237,8 +240,8 @@ fn an_engine_error_for_a_link_is_a_bad_link_and_a_network_error_is_no_connection
     let out = c.on_line(&resp(corr, &bad));
     assert!(matches!(
         out.events[0],
-        FriendsEvent::Failed {
-            code: ErrorCode::FrnBadLink,
+        ChatEvent::Failed {
+            code: ErrorCode::ChtBadLink,
             ..
         }
     ));
@@ -248,9 +251,9 @@ fn an_engine_error_for_a_link_is_a_bad_link_and_a_network_error_is_no_connection
     let out = c.on_line(&resp(corr, &net));
     assert!(matches!(
         out.events[0],
-        FriendsEvent::Failed {
+        ChatEvent::Failed {
             request: RequestKind::CreateInvite,
-            code: ErrorCode::FrnNoConnection,
+            code: ErrorCode::ChtNoConnection,
             ..
         }
     ));
@@ -260,7 +263,7 @@ fn an_engine_error_for_a_link_is_a_bad_link_and_a_network_error_is_no_connection
 fn a_received_message_is_text_from_the_friend_and_settings_items_are_hidden() {
     let mut c = started();
     let out = c.on_line(&event(&fixture("new_items_direct")));
-    let [FriendsEvent::Messages(m)] = out.events.as_slice() else {
+    let [ChatEvent::Messages(m)] = out.events.as_slice() else {
         panic!("{:?}", out.events)
     };
     let hello = m
@@ -278,7 +281,7 @@ fn a_received_message_is_text_from_the_friend_and_settings_items_are_hidden() {
 fn arabic_text_arrives_unchanged() {
     let mut c = started();
     let out = c.on_line(&event(&fixture("new_items_arabic")));
-    let [FriendsEvent::Messages(m)] = out.events.as_slice() else {
+    let [ChatEvent::Messages(m)] = out.events.as_slice() else {
         panic!("{:?}", out.events)
     };
     assert!(
@@ -291,7 +294,7 @@ fn arabic_text_arrives_unchanged() {
 fn a_group_message_names_its_author() {
     let mut c = started();
     let out = c.on_line(&event(&fixture("new_items_group")));
-    let [FriendsEvent::Messages(m)] = out.events.as_slice() else {
+    let [ChatEvent::Messages(m)] = out.events.as_slice() else {
         panic!("{:?}", out.events)
     };
     let gg = m
@@ -315,7 +318,7 @@ fn sending_renders_the_message_as_json_and_the_answer_is_the_sent_message() {
     assert_eq!(json[0]["msgContent"]["type"], "text");
 
     let out = c.on_line(&resp(corr, &fixture("send_direct_resp")));
-    let [FriendsEvent::Messages(m)] = out.events.as_slice() else {
+    let [ChatEvent::Messages(m)] = out.events.as_slice() else {
         panic!("{:?}", out.events)
     };
     assert_eq!(m[0].author, MessageAuthor::Me);
@@ -327,7 +330,7 @@ fn sending_renders_the_message_as_json_and_the_answer_is_the_sent_message() {
 fn the_list_has_friends_groups_and_unread_counts() {
     let mut c = started();
     let out = c.on_line(&resp(3, &fixture("api_chats")));
-    let FriendsEvent::Chats {
+    let ChatEvent::Chats {
         friends,
         groups,
         requests,
@@ -368,7 +371,7 @@ fn changes_to_who_the_user_talks_to_read_the_list_once_more_at_most() {
     let out = c.on_line(&event(&fixture("user_joined_group")));
     assert!(out.lines.is_empty());
     let out = c.on_line(&resp(3, &fixture("api_chats")));
-    assert!(matches!(out.events[0], FriendsEvent::Chats { .. }));
+    assert!(matches!(out.events[0], ChatEvent::Chats { .. }));
     assert_eq!(cmds(&out).len(), 1, "one more read for both changes");
     assert!(cmds(&out)[0].1.starts_with("/_get chats"));
 }
@@ -384,7 +387,7 @@ fn a_call_invitation_is_not_a_message_yet() {
 fn delivery_updates_are_reported_as_updates() {
     let mut c = started();
     let out = c.on_line(&event(&fixture("statuses_updated")));
-    let [FriendsEvent::Updated(m)] = out.events.as_slice() else {
+    let [ChatEvent::Updated(m)] = out.events.as_slice() else {
         panic!("{:?}", out.events)
     };
     assert!(m.iter().all(|m| m.author == MessageAuthor::Me));
@@ -415,7 +418,7 @@ fn history_asks_for_a_page_and_returns_its_messages_oldest_first() {
         serde_json::json!({ "result": { "type": "apiChat", "chat": { "chatItems": items } } });
     let out = c.on_line(&resp(corr, &body));
     let [
-        FriendsEvent::History {
+        ChatEvent::History {
             tag: 7,
             chat: ChatRef::Direct(3),
             messages,
@@ -433,18 +436,18 @@ fn a_database_that_does_not_open_and_a_missing_library_are_reported() {
     let out = c.on_line(r#"{"t":"init_error","body":{"type":"errorNotADatabase","dbFile":"x"}}"#);
     assert!(matches!(
         out.events[0],
-        FriendsEvent::Failed {
+        ChatEvent::Failed {
             request: RequestKind::Start,
-            code: ErrorCode::FrnDatabase,
+            code: ErrorCode::ChtDatabase,
             ..
         }
     ));
     let out = c.on_line(r#"{"t":"fatal","msg":"loading /x/libsimplex.so: not found"}"#);
     assert!(matches!(
         out.events[0],
-        FriendsEvent::Failed {
+        ChatEvent::Failed {
             request: RequestKind::Start,
-            code: ErrorCode::FrnUnavailable,
+            code: ErrorCode::ChtUnavailable,
             ..
         }
     ));

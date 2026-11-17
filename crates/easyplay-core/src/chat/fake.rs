@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use super::engine::{Engine, EngineConfig, EngineFactory, EventSink, FriendsEvent, Request};
+use super::engine::{ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, Request};
 use crate::error::{Error, ErrorCode, Result};
 
 #[derive(Default)]
@@ -67,7 +67,7 @@ impl FakeEngine {
     }
 
     /// Report `event` as the running engine (no-op when none runs).
-    pub fn emit(&self, event: FriendsEvent) {
+    pub fn emit(&self, event: ChatEvent) {
         let sink = self.with(|s| s.sink.clone());
         if let Some(sink) = sink {
             sink(event);
@@ -84,10 +84,10 @@ impl EngineFactory for FakeEngine {
         self.with(|s| {
             s.starts.push(config);
             if !s.available {
-                return Err(Error::new(ErrorCode::FrnUnavailable));
+                return Err(Error::new(ErrorCode::ChtUnavailable));
             }
             if s.fail_start {
-                return Err(Error::new(ErrorCode::FrnUnavailable));
+                return Err(Error::new(ErrorCode::ChtUnavailable));
             }
             s.sink = Some(sink);
             s.running = true;

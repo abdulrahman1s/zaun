@@ -344,7 +344,7 @@ impl SandboxSpawner for RealSpawner {
 
 // ---- piped helpers --------------------------------------------------------------------------
 
-/// A long-lived helper that EasyPlay talks to over pipes (ADR-0033: the Friends engine).
+/// A long-lived helper that EasyPlay talks to over pipes (ADR-0033: the Chat engine).
 pub struct PipedHelper<'a> {
     /// The program (usually `bwrap`).
     pub program: &'a Path,

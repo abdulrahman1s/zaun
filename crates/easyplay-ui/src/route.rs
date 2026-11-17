@@ -35,6 +35,9 @@ pub enum Route {
     Game(GameId),
     /// Statistics.
     Statistics,
+    /// Chat (ADR-0033): friends, groups and conversations. Which conversation is open is
+    /// the page's own state (`vm::chat`).
+    Chat,
     /// Settings.
     Settings(SettingsTab),
     /// First launch.
@@ -50,6 +53,7 @@ impl Route {
             Route::Library => strings::library::TITLE(),
             Route::Game(_) => game_name.unwrap_or(strings::library::TITLE()),
             Route::Statistics => strings::nav::STATISTICS(),
+            Route::Chat => strings::nav::CHAT(),
             Route::Settings(_) => strings::nav::SETTINGS(),
             Route::Onboarding => strings::nav::ONBOARDING(),
             Route::Gallery => strings::nav::GALLERY(),

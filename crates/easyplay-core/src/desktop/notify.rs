@@ -29,10 +29,10 @@ pub enum NotifyEvent {
     /// The shared runtime was found modified and removed.
     TamperRemoved,
     /// A friend wrote (ADR-0033).
-    FriendMessage {
+    ChatMessage {
         /// Who: the friend, or "member · group".
         from: String,
-        /// The text, only with `friends.notify_preview` on.
+        /// The text, only with `chat.notify_preview` on.
         text: Option<String>,
     },
 }
@@ -111,7 +111,7 @@ pub fn compose(event: &NotifyEvent, icon: Option<&str>) -> Notification {
             icon,
             open_action: false,
         },
-        NotifyEvent::FriendMessage { from, text } => Notification {
+        NotifyEvent::ChatMessage { from, text } => Notification {
             summary: clean_name(from),
             body: text
                 .as_deref()
@@ -123,11 +123,11 @@ pub fn compose(event: &NotifyEvent, icon: Option<&str>) -> Notification {
     }
 }
 
-/// The messages to announce between two Friends snapshots: one per conversation whose
+/// The messages to announce between two Chat snapshots: one per conversation whose
 /// unread count rose and whose latest message is not the user's own.
-pub fn friend_messages(
-    before: &crate::model::FriendsSnapshot,
-    now: &crate::model::FriendsSnapshot,
+pub fn chat_messages(
+    before: &crate::model::ChatSnapshot,
+    now: &crate::model::ChatSnapshot,
     preview: bool,
 ) -> Vec<NotifyEvent> {
     use crate::model::{MessageAuthor, MessageBody};
@@ -152,7 +152,7 @@ pub fn friend_messages(
                 (MessageBody::Text(t), true) => Some(t.clone()),
                 _ => None,
             };
-            Some(NotifyEvent::FriendMessage { from, text })
+            Some(NotifyEvent::ChatMessage { from, text })
         })
         .collect()
 }
@@ -164,9 +164,7 @@ pub fn wanted(event: &NotifyEvent, prefs: &Preferences, focused: bool) -> bool {
         NotifyEvent::LayerReady => !focused,
         NotifyEvent::Ended { .. } => !focused && prefs.launch.notify_on_exit,
         NotifyEvent::TamperRemoved => true,
-        NotifyEvent::FriendMessage { .. } => {
-            !focused && prefs.friends.enabled && prefs.friends.notify
-        }
+        NotifyEvent::ChatMessage { .. } => !focused && prefs.chat.enabled && prefs.chat.notify,
     }
 }
 
@@ -254,7 +252,7 @@ impl Notifier for RecordingNotifier {
 #[cfg(test)]
 mod tests {
     use crate::model::{
-        ChatPreview, ChatRef, Delivery, FriendMessage, FriendsSnapshot, MessageAuthor, MessageBody,
+        ChatMessage, ChatPreview, ChatRef, ChatSnapshot, Delivery, MessageAuthor, MessageBody,
     };
 
     fn chat(
@@ -268,7 +266,7 @@ mod tests {
             chat,
             name: name.into(),
             unread,
-            last: Some(FriendMessage {
+            last: Some(ChatMessage {
                 id: 1,
                 chat,
                 author,
@@ -282,7 +280,7 @@ mod tests {
 
     #[test]
     fn a_friend_message_is_announced_by_name_and_its_text_only_when_asked() {
-        let before = FriendsSnapshot {
+        let before = ChatSnapshot {
             chats: vec![chat(
                 ChatRef::Direct(1),
                 "Kai",
@@ -290,9 +288,9 @@ mod tests {
                 MessageAuthor::Friend,
                 "old",
             )],
-            ..FriendsSnapshot::default()
+            ..ChatSnapshot::default()
         };
-        let now = FriendsSnapshot {
+        let now = ChatSnapshot {
             chats: vec![
                 chat(
                     ChatRef::Direct(1),
@@ -316,17 +314,17 @@ mod tests {
                     "read already",
                 ),
             ],
-            ..FriendsSnapshot::default()
+            ..ChatSnapshot::default()
         };
-        let quiet = friend_messages(&before, &now, false);
+        let quiet = chat_messages(&before, &now, false);
         assert_eq!(
             quiet,
             vec![
-                NotifyEvent::FriendMessage {
+                NotifyEvent::ChatMessage {
                     from: "Kai".into(),
                     text: None
                 },
-                NotifyEvent::FriendMessage {
+                NotifyEvent::ChatMessage {
                     from: "Ana · Squad".into(),
                     text: None
                 },
@@ -338,12 +336,12 @@ mod tests {
             ("Kai", "New message")
         );
 
-        let shown = friend_messages(&before, &now, true);
+        let shown = chat_messages(&before, &now, true);
         let n = compose(&shown[0], None);
         assert_eq!(n.body, "&lt;b&gt;gg&lt;/b&gt; &amp; go");
 
         // The user's own message, or nothing new: nothing.
-        let mine = FriendsSnapshot {
+        let mine = ChatSnapshot {
             chats: vec![chat(
                 ChatRef::Direct(1),
                 "Kai",
@@ -351,24 +349,24 @@ mod tests {
                 MessageAuthor::Me,
                 "sent",
             )],
-            ..FriendsSnapshot::default()
+            ..ChatSnapshot::default()
         };
-        assert!(friend_messages(&before, &mine, true).is_empty());
-        assert!(friend_messages(&now, &now, true).is_empty());
+        assert!(chat_messages(&before, &mine, true).is_empty());
+        assert!(chat_messages(&now, &now, true).is_empty());
     }
 
     #[test]
     fn friend_messages_are_not_announced_while_focused_or_turned_off() {
-        let ev = NotifyEvent::FriendMessage {
+        let ev = NotifyEvent::ChatMessage {
             from: "Kai".into(),
             text: None,
         };
         let mut p = Preferences::default();
-        assert!(!wanted(&ev, &p, false), "Friends is off");
-        p.friends.enabled = true;
+        assert!(!wanted(&ev, &p, false), "Chat is off");
+        p.chat.enabled = true;
         assert!(wanted(&ev, &p, false));
         assert!(!wanted(&ev, &p, true));
-        p.friends.notify = false;
+        p.chat.notify = false;
         assert!(!wanted(&ev, &p, false));
     }
 

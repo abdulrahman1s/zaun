@@ -1,4 +1,4 @@
-//! Friends end to end (ADR-0033): two real chat engines (`easyplay-friends` + libsimplex,
+//! Chat end to end (ADR-0033): two real chat engines (`easyplay-chat` + libsimplex,
 //! under bwrap) connect through an SMP relay, exchange messages, form a group, and keep
 //! their history across a restart.
 //!
@@ -9,7 +9,7 @@
 //! EASYPLAY_SIMPLEX_LIB=/…/libsimplex.so \
 //! EASYPLAY_SIMPLEX_LIBRARY_PATH=/…/gmp/lib:/…/zlib/lib \
 //! EASYPLAY_TEST_SMP='smp://<fingerprint>@127.0.0.1:5223' \   # or `preset` (public relays)
-//! cargo test -p easyplay-core --test friends_e2e -- --ignored
+//! cargo test -p easyplay-core --test chat_e2e -- --ignored
 //! ```
 
 // Real processes against wall time, files in a temporary directory.
@@ -20,8 +20,8 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use easyplay_core::friends::{
-    Engine, EngineConfig, EngineFactory, EventSink, FriendsEvent, Request, SimplexFactory,
+use easyplay_core::chat::{
+    ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, Request, SimplexFactory,
 };
 use easyplay_core::model::{ChatRef, MessageAuthor, MessageBody};
 
@@ -32,11 +32,10 @@ fn env(name: &str) -> String {
 }
 
 fn factory(log: PathBuf) -> SimplexFactory {
-    let helper =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/easyplay-friends");
+    let helper = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/easyplay-chat");
     assert!(
         helper.is_file(),
-        "build it first: cargo build -p easyplay-friends"
+        "build it first: cargo build -p easyplay-chat"
     );
     // By its full path: the helper's environment has no `PATH` lookup.
     let path = std::env::var_os("PATH").unwrap_or_default();
@@ -54,8 +53,8 @@ fn factory(log: PathBuf) -> SimplexFactory {
 
 struct Peer {
     engine: Box<dyn Engine>,
-    events: Receiver<FriendsEvent>,
-    log: Arc<Mutex<Vec<FriendsEvent>>>,
+    events: Receiver<ChatEvent>,
+    log: Arc<Mutex<Vec<ChatEvent>>>,
 }
 
 impl Peer {
@@ -64,7 +63,7 @@ impl Peer {
         let tx = Mutex::new(tx);
         let log = Arc::new(Mutex::new(Vec::new()));
         let log2 = Arc::clone(&log);
-        let sink: EventSink = Arc::new(move |e: FriendsEvent| {
+        let sink: EventSink = Arc::new(move |e: ChatEvent| {
             log2.lock().unwrap().push(e.clone());
             let _ = tx.lock().unwrap().send(e);
         });
@@ -88,19 +87,16 @@ impl Peer {
             events: rx,
             log,
         };
-        p.wait(
-            |e| matches!(e, FriendsEvent::Ready(_)).then_some(()),
-            "ready",
-        );
+        p.wait(|e| matches!(e, ChatEvent::Ready(_)).then_some(()), "ready");
         p
     }
 
-    fn wait<T>(&self, mut f: impl FnMut(&FriendsEvent) -> Option<T>, what: &str) -> T {
+    fn wait<T>(&self, mut f: impl FnMut(&ChatEvent) -> Option<T>, what: &str) -> T {
         let end = std::time::Instant::now() + WAIT;
         loop {
             let left = end.saturating_duration_since(std::time::Instant::now());
             match self.events.recv_timeout(left) {
-                Ok(FriendsEvent::Failed {
+                Ok(ChatEvent::Failed {
                     request,
                     code,
                     detail,
@@ -123,7 +119,7 @@ impl Peer {
     fn text(&self, wanted: &str) -> ChatRef {
         self.wait(
             |e| match e {
-                FriendsEvent::Messages(m) => m
+                ChatEvent::Messages(m) => m
                     .iter()
                     .find(|m| m.body == MessageBody::Text(wanted.into()))
                     .map(|m| m.chat),
@@ -138,9 +134,7 @@ impl Peer {
         self.engine.request(Request::Refresh);
         self.wait(
             |e| match e {
-                FriendsEvent::Chats { friends, .. } => {
-                    friends.iter().find(|f| f.ready).map(|f| f.id)
-                }
+                ChatEvent::Chats { friends, .. } => friends.iter().find(|f| f.ready).map(|f| f.id),
                 _ => None,
             },
             "a ready friend",
@@ -163,7 +157,7 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
     a.engine.request(Request::CreateInvite);
     let link = a.wait(
         |e| match e {
-            FriendsEvent::Invite(l) => Some(l.clone()),
+            ChatEvent::Invite(l) => Some(l.clone()),
             _ => None,
         },
         "an invitation",
@@ -176,7 +170,7 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
                 p.engine.request(Request::Refresh);
                 p.wait(
                     |e| match e {
-                        FriendsEvent::Chats { friends, .. } => {
+                        ChatEvent::Chats { friends, .. } => {
                             Some(friends.iter().find(|f| f.ready).map(|f| f.id))
                         }
                         _ => None,
@@ -207,7 +201,7 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
     a.engine.request(Request::NewGroup("squad".into()));
     let gid = a.wait(
         |e| match e {
-            FriendsEvent::Chats { groups, .. } => {
+            ChatEvent::Chats { groups, .. } => {
                 groups.iter().find(|g| g.name == "squad").map(|g| g.id)
             }
             _ => None,
@@ -220,7 +214,7 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
     });
     let b_gid = b.wait(
         |e| match e {
-            FriendsEvent::Chats { groups, .. } => {
+            ChatEvent::Chats { groups, .. } => {
                 groups.iter().find(|g| g.name == "squad").map(|g| g.id)
             }
             _ => None,
@@ -235,7 +229,7 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
     });
     let in_group = b.wait(
         |e| match e {
-            FriendsEvent::Messages(m) => m
+            ChatEvent::Messages(m) => m
                 .iter()
                 .find(|m| m.body == MessageBody::Text("gg".into()))
                 .cloned(),
@@ -258,7 +252,7 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
     });
     let history = b.wait(
         |e| match e {
-            FriendsEvent::History {
+            ChatEvent::History {
                 tag: 1, messages, ..
             } => Some(messages.clone()),
             _ => None,
@@ -275,7 +269,7 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
     let killed = kill_sandbox_of(&b_dir);
     assert!(killed > 0, "bob's sandbox was not found");
     b.wait(
-        |e| matches!(e, FriendsEvent::Exited { .. }).then_some(()),
+        |e| matches!(e, ChatEvent::Exited { .. }).then_some(()),
         "bob's engine to stop",
     );
     drop(b);
@@ -289,7 +283,9 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
     });
     let history = b.wait(
         |e| match e {
-            FriendsEvent::History { tag: 2, messages, .. } => Some(messages.clone()),
+            ChatEvent::History {
+                tag: 2, messages, ..
+            } => Some(messages.clone()),
             _ => None,
         },
         "history after a kill",
@@ -321,7 +317,10 @@ fn kill_sandbox_of(dir: &std::path::Path) -> usize {
         let Ok(cmd) = std::fs::read(e.path().join("cmdline")) else {
             continue;
         };
-        let is_bwrap = cmd.split(|b| *b == 0).next().is_some_and(|a| a.ends_with(b"bwrap"));
+        let is_bwrap = cmd
+            .split(|b| *b == 0)
+            .next()
+            .is_some_and(|a| a.ends_with(b"bwrap"));
         if is_bwrap && cmd.windows(needle.len()).any(|w| w == needle) {
             let pid = rustix::process::Pid::from_raw(pid).unwrap();
             let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);

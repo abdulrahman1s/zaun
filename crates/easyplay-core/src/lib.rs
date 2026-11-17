@@ -43,9 +43,9 @@ pub mod umu;
 
 // Layer 5 — use cases
 pub mod artwork;
+pub mod chat;
 pub mod desktop;
 pub mod diagnostics;
-pub mod friends;
 pub mod launch;
 pub mod library;
 pub mod runtime;

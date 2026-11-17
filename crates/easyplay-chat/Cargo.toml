@@ -1,6 +1,6 @@
 [package]
-name = "easyplay-friends"
-description = "EasyPlay's Friends helper: hosts the SimpleX chat engine (libsimplex) behind stdin/stdout"
+name = "easyplay-chat"
+description = "EasyPlay's Chat helper: hosts the SimpleX chat engine (libsimplex) behind stdin/stdout"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,7 +12,7 @@ authors.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "easyplay-friends"
+name = "easyplay-chat"
 path = "src/main.rs"
 
 # No workspace crate (ADR-0033): the helper is a pipe to the engine and nothing else.

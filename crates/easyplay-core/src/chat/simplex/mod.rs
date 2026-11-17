@@ -1,4 +1,4 @@
-//! The SimpleX engine (ADR-0033): `easyplay-friends` (the helper that hosts `libsimplex`)
+//! The SimpleX engine (ADR-0033): `easyplay-chat` (the helper that hosts `libsimplex`)
 //! run under Bubblewrap, spoken to over its standard input and output.
 //!
 //! - **No socket.** The engine's own API server would be an unauthenticated localhost port
@@ -22,7 +22,7 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use super::engine::{Engine, EngineConfig, EngineFactory, EventSink, FriendsEvent, Request};
+use super::engine::{ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, Request};
 use crate::error::{Error, ErrorCode, Result};
 use crate::session::{PipedHelper, spawn_piped_helper};
 use protocol::Codec;
@@ -32,7 +32,7 @@ pub const STOP_GRACE: Duration = Duration::from_secs(5);
 /// The database file prefix inside the data folder.
 pub const DB_PREFIX: &str = "simplex";
 /// The helper's log, inside EasyPlay's logs folder.
-pub const LOG_NAME: &str = "friends-engine.log";
+pub const LOG_NAME: &str = "chat-engine.log";
 
 /// Read-only binds for the helper: programs, libraries and system configuration. `-try`:
 /// whatever does not exist on this system is skipped.
@@ -53,7 +53,7 @@ const SYSTEM_BINDS: &[&str] = &[
 /// Starts the helper.
 #[derive(Clone, Debug)]
 pub struct SimplexFactory {
-    /// `easyplay-friends`.
+    /// `easyplay-chat`.
     pub helper: PathBuf,
     /// `libsimplex.so` (its Haskell libraries beside it).
     pub library: PathBuf,
@@ -125,10 +125,10 @@ impl EngineFactory for SimplexFactory {
 
     fn start(&self, config: EngineConfig, sink: EventSink) -> Result<Box<dyn Engine>> {
         if !self.available() {
-            return Err(Error::new(ErrorCode::FrnUnavailable));
+            return Err(Error::new(ErrorCode::ChtUnavailable));
         }
         if self.bwrap.is_none() {
-            tracing::warn!("friends: bwrap not found; the chat engine runs without a sandbox");
+            tracing::warn!("chat: bwrap not found; the chat engine runs without a sandbox");
         }
         let (program, args) = self.command(&config.dir);
         let env = self.env(&config.dir);
@@ -138,10 +138,10 @@ impl EngineFactory for SimplexFactory {
             env: &env,
             log: &self.log,
         })
-        .map_err(|e| Error::new(ErrorCode::FrnUnavailable).with_source(e))?;
+        .map_err(|e| Error::new(ErrorCode::ChtUnavailable).with_source(e))?;
         let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
             let _ = child.kill();
-            return Err(Error::new(ErrorCode::FrnUnavailable));
+            return Err(Error::new(ErrorCode::ChtUnavailable));
         };
         let pid = child.id();
 
@@ -160,7 +160,7 @@ impl EngineFactory for SimplexFactory {
                 .map_err(|e| Error::new(ErrorCode::IntTaskFailed).with_source(e))
         };
         spawn(
-            "friends-write",
+            "chat-write",
             Box::new(move || {
                 for line in rx {
                     if writeln!(stdin, "{line}")
@@ -182,7 +182,7 @@ impl EngineFactory for SimplexFactory {
             let sink = Arc::clone(&sink);
             let exited = Arc::clone(&exited);
             spawn(
-                "friends-read",
+                "chat-read",
                 Box::new(move || {
                     for line in BufReader::new(stdout).lines() {
                         let Ok(line) = line else { break };
@@ -198,7 +198,7 @@ impl EngineFactory for SimplexFactory {
                     let status = child.wait().ok().and_then(|s| s.code());
                     exited.store(true, Ordering::SeqCst);
                     let started = lock(&codec).started();
-                    sink(FriendsEvent::Exited { status, started });
+                    sink(ChatEvent::Exited { status, started });
                 }),
             )?;
         }
@@ -258,7 +258,7 @@ impl Drop for SimplexEngine {
         let exited = Arc::clone(&self.exited);
         let pid = self.pid;
         let _ = std::thread::Builder::new()
-            .name("friends-stop".into())
+            .name("chat-stop".into())
             .spawn(move || {
                 std::thread::sleep(STOP_GRACE);
                 if !exited.load(Ordering::SeqCst)
@@ -279,7 +279,7 @@ mod tests {
 
     fn factory(bwrap: Option<&str>) -> SimplexFactory {
         SimplexFactory {
-            helper: "/opt/easyplay/libexec/easyplay-friends".into(),
+            helper: "/opt/easyplay/libexec/easyplay-chat".into(),
             library: "/opt/simplex/lib/libsimplex.so".into(),
             bwrap: bwrap.map(PathBuf::from),
             library_path: None,
@@ -290,7 +290,7 @@ mod tests {
     #[test]
     fn the_helper_sees_only_its_data_folder_writable_and_never_the_home_folder() {
         let (program, args) = factory(Some("/usr/bin/bwrap"))
-            .command(Path::new("/home/u/.local/share/easyplay/friends"));
+            .command(Path::new("/home/u/.local/share/easyplay/chat"));
         assert_eq!(program, PathBuf::from("/usr/bin/bwrap"));
         let args: Vec<String> = args
             .iter()
@@ -301,7 +301,7 @@ mod tests {
             .filter(|w| w[0] == "--bind")
             .map(|w| &w[1])
             .collect();
-        assert_eq!(writable, vec!["/home/u/.local/share/easyplay/friends"]);
+        assert_eq!(writable, vec!["/home/u/.local/share/easyplay/chat"]);
         assert!(!args.iter().any(|a| a == "/home" || a == "/home/u"));
         for flag in [
             "--unshare-all",
@@ -315,10 +315,7 @@ mod tests {
             args.windows(3)
                 .any(|w| w[0] == "--ro-bind" && w[1] == "/opt/simplex/lib")
         );
-        assert_eq!(
-            args.last().unwrap(),
-            "/opt/easyplay/libexec/easyplay-friends"
-        );
+        assert_eq!(args.last().unwrap(), "/opt/easyplay/libexec/easyplay-chat");
     }
 
     #[test]
@@ -326,7 +323,7 @@ mod tests {
         let (program, args) = factory(None).command(Path::new("/d"));
         assert_eq!(
             program,
-            PathBuf::from("/opt/easyplay/libexec/easyplay-friends")
+            PathBuf::from("/opt/easyplay/libexec/easyplay-chat")
         );
         assert!(args.is_empty());
     }
@@ -343,6 +340,6 @@ mod tests {
             relays: Vec::new(),
         };
         let err = f.start(cfg, sink).err().unwrap();
-        assert_eq!(err.code, ErrorCode::FrnUnavailable);
+        assert_eq!(err.code, ErrorCode::ChtUnavailable);
     }
 }

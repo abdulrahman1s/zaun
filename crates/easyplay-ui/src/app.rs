@@ -117,6 +117,8 @@ pub struct UiState {
     pub artwork: Option<ArtworkVm>,
     /// Statistics.
     pub stats: StatsVm,
+    /// The Chat page (ADR-0033).
+    pub chat: crate::vm::chat::ChatVm,
     /// Settings.
     pub settings: SettingsVm,
     /// Onboarding.
@@ -182,6 +184,7 @@ impl UiState {
             add_game: None,
             artwork: None,
             stats: StatsVm::default(),
+            chat: Default::default(),
             settings: SettingsVm::default(),
             onboarding: OnboardingVm::default(),
             quick: None,
@@ -768,9 +771,12 @@ impl EasyPlayApp {
                 self.reapply_appearance(ctx, false);
             }
             UiEvent::HostChanged | UiEvent::RuntimesChanged | UiEvent::DiagnosticsChanged => {}
-            // The Friends page reads the snapshot each frame; its conversation view-model
+            // The Chat page reads the snapshot each frame; its conversation view-model
             // takes the messages (ADR-0033).
-            UiEvent::FriendsChanged | UiEvent::FriendMessages { .. } => {}
+            UiEvent::ChatChanged => {}
+            UiEvent::ChatMessages { messages, updated } => {
+                s.chat.on_messages(&messages, updated);
+            }
             UiEvent::ShowGame(g) => {
                 if let Some(q) = &mut s.quick {
                     q.game = Some(g);

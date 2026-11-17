@@ -163,8 +163,8 @@ pub struct ServiceDeps {
     pub umu_titles: Arc<dyn UmuTitleMatch>,
     /// Run the session watcher thread (tests drive polls by hand).
     pub watch_sessions: bool,
-    /// Starts the Friends chat engine (ADR-0033); `None` = this build has none.
-    pub friends: Option<Arc<dyn crate::friends::EngineFactory>>,
+    /// Starts the Chat engine (ADR-0033); `None` = this build has none.
+    pub chat: Option<Arc<dyn crate::chat::EngineFactory>>,
 }
 
 /// Messages into the loop: commands and job completions.
@@ -540,7 +540,7 @@ impl AppService {
         self.refresh_integration();
         self.load_crash();
         self.steam_start();
-        self.friends_start();
+        self.chat_start();
     }
 
     fn run(&mut self, rx: &Receiver<Msg>) {
@@ -572,7 +572,7 @@ impl AppService {
             tracing::info!(cancelled, "parked flows cancelled at shutdown");
         }
         self.watcher = None;
-        self.friends_shutdown();
+        self.chat_shutdown();
         self.emit(Event::QuitRequested);
     }
 
@@ -659,7 +659,7 @@ impl AppService {
             Command::ResolveDatabase(choice) => self.resolve_database(&choice),
             // Handled by `steam_route`.
             Command::Steam(_) => {}
-            Command::Friends(c) => self.friends_command(c),
+            Command::Chat(c) => self.chat_command(c),
             Command::Shutdown => self.stopping = true,
         }
     }
@@ -1052,7 +1052,7 @@ impl AppService {
         }
         self.emit(Event::PreferencesChanged);
         self.steam_preference_changed();
-        self.friends_preference_changed();
+        self.chat_preference_changed();
     }
 
     // ---- headless use ------------------------------------------------------------------

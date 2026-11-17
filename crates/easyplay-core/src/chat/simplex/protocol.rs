@@ -1,5 +1,5 @@
 //! The SimpleX side of the engine seam: [`Request`]s become chat commands for the helper,
-//! the helper's lines become [`FriendsEvent`]s. Pure: no I/O, no clock, so it is tested
+//! the helper's lines become [`ChatEvent`]s. Pure: no I/O, no clock, so it is tested
 //! against the JSON recorded from the engine (ADR-0033, Phase 0).
 //!
 //! The engine's JSON is read tolerantly through `serde_json::Value`: a field that is missing
@@ -22,12 +22,12 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
+use crate::chat::engine::{ChatEvent, Request, RequestKind};
 use crate::clock::Timestamp;
 use crate::error::ErrorCode;
-use crate::friends::engine::{FriendsEvent, Request, RequestKind};
 use crate::model::{
-    ChatPreview, ChatRef, Delivery, Friend, FriendGroup, FriendMessage, FriendProfile,
-    FriendRequest, Membership, MessageAuthor, MessageBody,
+    ChatGroup, ChatMessage, ChatPreview, ChatProfile, ChatRef, Delivery, Friend, FriendRequest,
+    Membership, MessageAuthor, MessageBody,
 };
 
 /// How many conversations the list reads.
@@ -67,7 +67,7 @@ pub struct Output {
     /// Lines to write to the helper's input, in order.
     pub lines: Vec<String>,
     /// Events to report, in order.
-    pub events: Vec<FriendsEvent>,
+    pub events: Vec<ChatEvent>,
 }
 
 /// The SimpleX protocol state of one engine.
@@ -77,7 +77,7 @@ pub struct Codec {
     relays: Vec<String>,
     phase: Phase,
     user: Option<i64>,
-    profile: FriendProfile,
+    profile: ChatProfile,
     next: u64,
     pending: HashMap<u64, Pending>,
     queued: Vec<Request>,
@@ -94,7 +94,7 @@ impl Codec {
             relays,
             phase: Phase::Opening,
             user: None,
-            profile: FriendProfile::default(),
+            profile: ChatProfile::default(),
             next: 1,
             pending: HashMap::new(),
             queued: Vec::new(),
@@ -123,10 +123,7 @@ impl Codec {
     pub fn on_line(&mut self, line: &str) -> Output {
         let mut out = Output::default();
         let Ok(v) = serde_json::from_str::<Value>(line) else {
-            tracing::warn!(
-                len = line.len(),
-                "friends: a line from the helper is not JSON"
-            );
+            tracing::warn!(len = line.len(), "chat: a line from the helper is not JSON");
             return out;
         };
         match v.get("t").and_then(Value::as_str) {
@@ -139,7 +136,7 @@ impl Codec {
                 let body = v.get("body").cloned().unwrap_or(Value::Null);
                 match self.pending.remove(&corr) {
                     Some(p) => self.on_response(p, &body, &mut out),
-                    None => tracing::warn!(corr, "friends: an answer to no command"),
+                    None => tracing::warn!(corr, "chat: an answer to no command"),
                 }
             }
             Some("event") => {
@@ -147,13 +144,13 @@ impl Codec {
                 if let Some(r) = body.get("result") {
                     self.on_event(r, &mut out);
                 } else if let Some(e) = body.get("error") {
-                    tracing::info!(error = %short(e), "friends: the engine reported an error");
+                    tracing::info!(error = %short(e), "chat: the engine reported an error");
                 }
             }
             Some("init_error") => {
                 let detail = v.get("body").map(short).unwrap_or_default();
                 out.events
-                    .push(failed(RequestKind::Start, ErrorCode::FrnDatabase, detail));
+                    .push(failed(RequestKind::Start, ErrorCode::ChtDatabase, detail));
             }
             Some("fatal") => {
                 let detail = v
@@ -163,12 +160,12 @@ impl Codec {
                     .to_owned();
                 out.events.push(failed(
                     RequestKind::Start,
-                    ErrorCode::FrnUnavailable,
+                    ErrorCode::ChtUnavailable,
                     detail,
                 ));
             }
-            Some(other) => tracing::warn!(kind = other, "friends: unexpected line from the helper"),
-            None => tracing::warn!("friends: a line from the helper without a kind"),
+            Some(other) => tracing::warn!(kind = other, "chat: unexpected line from the helper"),
+            None => tracing::warn!("chat: a line from the helper without a kind"),
         }
         out
     }
@@ -232,7 +229,7 @@ impl Codec {
                 if link.is_empty() || link.chars().any(char::is_whitespace) {
                     out.events.push(failed(
                         RequestKind::Connect,
-                        ErrorCode::FrnBadLink,
+                        ErrorCode::ChtBadLink,
                         "empty or contains spaces".to_owned(),
                     ));
                     return;
@@ -303,7 +300,7 @@ impl Codec {
                 (Some("activeUser"), Some(r)) => self.on_user(r, out),
                 _ => out.events.push(failed(
                     RequestKind::Start,
-                    ErrorCode::FrnRequestFailed,
+                    ErrorCode::ChtRequestFailed,
                     error.map(short).unwrap_or_default(),
                 )),
             },
@@ -318,7 +315,7 @@ impl Codec {
                 }
                 _ => out.events.push(failed(
                     RequestKind::Start,
-                    ErrorCode::FrnRequestFailed,
+                    ErrorCode::ChtRequestFailed,
                     error.map(short).unwrap_or_default(),
                 )),
             },
@@ -328,7 +325,7 @@ impl Codec {
                     // presets.
                     out.events.push(failed(
                         RequestKind::Start,
-                        ErrorCode::FrnRequestFailed,
+                        ErrorCode::ChtRequestFailed,
                         error.map(short).unwrap_or_default(),
                     ));
                 } else {
@@ -341,7 +338,7 @@ impl Codec {
                     .and_then(|r| r.get("contactLink"))
                     .and_then(|l| l.get("connLinkContact"))
                     .and_then(link_text);
-                out.events.push(FriendsEvent::Address(link));
+                out.events.push(ChatEvent::Address(link));
             }
             Pending::Chats => {
                 self.chats_in_flight = false;
@@ -350,7 +347,7 @@ impl Codec {
                 } else {
                     out.events.push(failed(
                         RequestKind::Refresh,
-                        ErrorCode::FrnRequestFailed,
+                        ErrorCode::ChtRequestFailed,
                         error.map(short).unwrap_or_default(),
                     ));
                 }
@@ -367,7 +364,7 @@ impl Codec {
                 match items {
                     Some(items) => {
                         let messages = items.iter().filter_map(|ci| parse_item(chat, ci)).collect();
-                        out.events.push(FriendsEvent::History {
+                        out.events.push(ChatEvent::History {
                             tag,
                             chat,
                             messages,
@@ -375,7 +372,7 @@ impl Codec {
                     }
                     None => out.events.push(failed(
                         RequestKind::History,
-                        ErrorCode::FrnRequestFailed,
+                        ErrorCode::ChtRequestFailed,
                         error.map(short).unwrap_or_default(),
                     )),
                 }
@@ -409,12 +406,12 @@ impl Codec {
                 match (kind, sub, link) {
                     ("error", _, _) | (_, _, None) => out.events.push(failed(
                         RequestKind::Connect,
-                        ErrorCode::FrnBadLink,
+                        ErrorCode::ChtBadLink,
                         short(p),
                     )),
                     (_, "ownLink", _) => out.events.push(failed(
                         RequestKind::Connect,
-                        ErrorCode::FrnBadLink,
+                        ErrorCode::ChtBadLink,
                         "the user's own link".to_owned(),
                     )),
                     (_, "known" | "connecting" | "connectingProhibit", _) => self.refresh(out),
@@ -438,7 +435,7 @@ impl Codec {
     fn on_user(&mut self, r: &Value, out: &mut Output) {
         let user = r.get("user");
         self.user = user.and_then(|u| u.get("userId")).and_then(Value::as_i64);
-        self.profile = FriendProfile {
+        self.profile = ChatProfile {
             name: user
                 .and_then(|u| u.get("profile"))
                 .and_then(|p| p.get("displayName"))
@@ -451,7 +448,7 @@ impl Codec {
 
     fn become_ready(&mut self, out: &mut Output) {
         self.phase = Phase::Ready;
-        out.events.push(FriendsEvent::Ready(self.profile.clone()));
+        out.events.push(ChatEvent::Ready(self.profile.clone()));
         self.refresh(out);
         let uid = self.uid();
         self.send(out, Pending::ShowAddress, format!("/_show_address {uid}"));
@@ -471,15 +468,15 @@ impl Codec {
         match (kind, ty) {
             (RequestKind::CreateInvite, Some("invitation")) => {
                 if let Some(link) = r.get("connLinkInvitation").and_then(link_text) {
-                    out.events.push(FriendsEvent::Invite(link));
+                    out.events.push(ChatEvent::Invite(link));
                 }
             }
             (RequestKind::Address, Some("userContactLinkCreated")) => {
                 let link = r.get("connLinkContact").and_then(link_text);
-                out.events.push(FriendsEvent::Address(link));
+                out.events.push(ChatEvent::Address(link));
             }
             (RequestKind::Address, Some("userContactLinkDeleted")) => {
-                out.events.push(FriendsEvent::Address(None));
+                out.events.push(ChatEvent::Address(None));
             }
             (RequestKind::SetProfile, Some("userProfileUpdated")) => {
                 if let Some(name) = r
@@ -488,13 +485,13 @@ impl Codec {
                     .and_then(Value::as_str)
                 {
                     self.profile.name = name.to_owned();
-                    out.events.push(FriendsEvent::Profile(self.profile.clone()));
+                    out.events.push(ChatEvent::Profile(self.profile.clone()));
                 }
             }
             (RequestKind::Send, Some("newChatItems")) => {
                 let m = parse_items(r);
                 if !m.is_empty() {
-                    out.events.push(FriendsEvent::Messages(m));
+                    out.events.push(ChatEvent::Messages(m));
                 }
             }
             (RequestKind::MarkRead | RequestKind::SetProfile, _) => {}
@@ -505,7 +502,7 @@ impl Codec {
                 | RequestKind::RemoveFriend,
                 _,
             ) => self.refresh(out),
-            (k, t) => tracing::debug!(?k, ?t, "friends: answer not used"),
+            (k, t) => tracing::debug!(?k, ?t, "chat: answer not used"),
         }
     }
 
@@ -517,7 +514,7 @@ impl Codec {
             "newChatItems" => {
                 let m = parse_items(r);
                 if !m.is_empty() {
-                    out.events.push(FriendsEvent::Messages(m));
+                    out.events.push(ChatEvent::Messages(m));
                 }
             }
             "chatItemsStatusesUpdated" | "chatItemUpdated" => {
@@ -530,7 +527,7 @@ impl Codec {
                     parse_items(r)
                 };
                 if !m.is_empty() {
-                    out.events.push(FriendsEvent::Updated(m));
+                    out.events.push(ChatEvent::Updated(m));
                 }
             }
             "contactConnected"
@@ -558,8 +555,8 @@ impl Codec {
 
 // ---- reading the engine's JSON ----------------------------------------------------------
 
-fn failed(request: RequestKind, code: ErrorCode, detail: String) -> FriendsEvent {
-    FriendsEvent::Failed {
+fn failed(request: RequestKind, code: ErrorCode, detail: String) -> ChatEvent {
+    ChatEvent::Failed {
         request,
         code,
         detail,
@@ -586,11 +583,11 @@ fn error_code(kind: RequestKind, e: &Value) -> ErrorCode {
         .iter()
         .any(|w| text.contains(w))
     {
-        ErrorCode::FrnNoConnection
+        ErrorCode::ChtNoConnection
     } else if kind == RequestKind::Connect {
-        ErrorCode::FrnBadLink
+        ErrorCode::ChtBadLink
     } else {
-        ErrorCode::FrnRequestFailed
+        ErrorCode::ChtRequestFailed
     }
 }
 
@@ -622,7 +619,7 @@ fn timestamp(s: Option<&str>) -> Option<Timestamp> {
     Some(Timestamp::from_millis(t.as_millisecond()))
 }
 
-/// The conversation of a `chatInfo`, if it is one the Friends page shows.
+/// The conversation of a `chatInfo`, if it is one the Chat page shows.
 fn chat_of(info: &Value) -> Option<ChatRef> {
     match info.get("type").and_then(Value::as_str)? {
         "direct" => Some(ChatRef::Direct(
@@ -636,7 +633,7 @@ fn chat_of(info: &Value) -> Option<ChatRef> {
 }
 
 /// `chatItems` of a `newChatItems` or `chatItemsStatusesUpdated`.
-fn parse_items(r: &Value) -> Vec<FriendMessage> {
+fn parse_items(r: &Value) -> Vec<ChatMessage> {
     r.get("chatItems")
         .and_then(Value::as_array)
         .map(|a| a.iter().filter_map(parse_a_item).collect())
@@ -644,7 +641,7 @@ fn parse_items(r: &Value) -> Vec<FriendMessage> {
 }
 
 /// An `AChatItem` (`chatInfo` + `chatItem`).
-fn parse_a_item(a: &Value) -> Option<FriendMessage> {
+fn parse_a_item(a: &Value) -> Option<ChatMessage> {
     let chat = chat_of(a.get("chatInfo")?)?;
     parse_item(chat, a.get("chatItem")?)
 }
@@ -660,7 +657,7 @@ fn hidden(content_type: &str) -> bool {
 }
 
 /// A `ChatItem` in `chat`.
-fn parse_item(chat: ChatRef, ci: &Value) -> Option<FriendMessage> {
+fn parse_item(chat: ChatRef, ci: &Value) -> Option<ChatMessage> {
     let meta = ci.get("meta")?;
     let content = ci.get("content")?;
     let ctype = content.get("type").and_then(Value::as_str)?;
@@ -703,7 +700,7 @@ fn parse_item(chat: ChatRef, ci: &Value) -> Option<FriendMessage> {
     let at = timestamp(meta.get("itemTs").and_then(Value::as_str))
         .or_else(|| timestamp(meta.get("createdAt").and_then(Value::as_str)))
         .unwrap_or(Timestamp::EPOCH);
-    Some(FriendMessage {
+    Some(ChatMessage {
         id: meta.get("itemId")?.as_i64()?,
         chat,
         author,
@@ -724,7 +721,7 @@ fn membership(status: &str) -> Membership {
 }
 
 /// An `apiChats` answer: the whole list.
-fn parse_chats(r: &Value) -> FriendsEvent {
+fn parse_chats(r: &Value) -> ChatEvent {
     let mut friends = Vec::new();
     let mut groups = Vec::new();
     let mut requests = Vec::new();
@@ -787,7 +784,7 @@ fn parse_chats(r: &Value) -> FriendsEvent {
                     .and_then(|s| s.get("currentMembers"))
                     .and_then(Value::as_u64)
                     .and_then(|n| u32::try_from(n).ok());
-                groups.push(FriendGroup {
+                groups.push(ChatGroup {
                     id,
                     name: name.clone(),
                     membership: membership(
@@ -823,7 +820,7 @@ fn parse_chats(r: &Value) -> FriendsEvent {
             unread,
         });
     }
-    FriendsEvent::Chats {
+    ChatEvent::Chats {
         friends,
         groups,
         requests,

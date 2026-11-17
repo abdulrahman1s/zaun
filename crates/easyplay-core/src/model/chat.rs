@@ -1,12 +1,12 @@
-//! Friends (ADR-0033): what the Friends page shows, independent of the protocol that
-//! carries it. The engine behind it (`crate::friends`) maps its protocol to these types, so
+//! Chat (ADR-0033): what the Chat page shows, independent of the protocol that
+//! carries it. The engine behind it (`crate::chat`) maps its protocol to these types, so
 //! the service and the UI never see a protocol's own vocabulary.
 
 use crate::clock::Timestamp;
 
 /// The user's own profile, as friends see it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct FriendProfile {
+pub struct ChatProfile {
     /// Display name.
     pub name: String,
 }
@@ -46,7 +46,7 @@ pub enum Membership {
 
 /// A group conversation.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FriendGroup {
+pub struct ChatGroup {
     /// The engine's group number.
     pub id: i64,
     /// The group's name.
@@ -104,7 +104,7 @@ pub enum Delivery {
 
 /// One message in a conversation.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FriendMessage {
+pub struct ChatMessage {
     /// The engine's item number (increases within a conversation).
     pub id: i64,
     /// The conversation.
@@ -129,14 +129,14 @@ pub struct ChatPreview {
     /// The friend's or group's name.
     pub name: String,
     /// The latest message, if any.
-    pub last: Option<FriendMessage>,
+    pub last: Option<ChatMessage>,
     /// Messages not read yet.
     pub unread: u32,
 }
 
-/// Whether Friends runs.
+/// Whether Chat runs.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub enum FriendsStatus {
+pub enum ChatStatus {
     /// Turned off (the default).
     #[default]
     Off,
@@ -150,13 +150,13 @@ pub enum FriendsStatus {
     Failed(crate::error::ErrorCode),
 }
 
-/// Everything the Friends page shows, published as one snapshot.
+/// Everything the Chat page shows, published as one snapshot.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct FriendsSnapshot {
-    /// Whether Friends runs.
-    pub status: FriendsStatus,
+pub struct ChatSnapshot {
+    /// Whether Chat runs.
+    pub status: ChatStatus,
     /// The user's profile (once started).
-    pub profile: Option<FriendProfile>,
+    pub profile: Option<ChatProfile>,
     /// The user's reusable address, if they made one.
     pub address: Option<String>,
     /// The one-time invitation link made last, until someone uses it.
@@ -164,14 +164,14 @@ pub struct FriendsSnapshot {
     /// Friends.
     pub friends: Vec<Friend>,
     /// Groups.
-    pub groups: Vec<FriendGroup>,
+    pub groups: Vec<ChatGroup>,
     /// Requests through the address, waiting for an answer.
     pub requests: Vec<FriendRequest>,
     /// Conversations, most recent first.
     pub chats: Vec<ChatPreview>,
 }
 
-impl FriendsSnapshot {
+impl ChatSnapshot {
     /// Unread messages over every conversation (the top bar's dot).
     pub fn unread(&self) -> u32 {
         self.chats.iter().map(|c| c.unread).sum()
@@ -183,7 +183,7 @@ impl FriendsSnapshot {
     }
 
     /// The group with this number.
-    pub fn group(&self, id: i64) -> Option<&FriendGroup> {
+    pub fn group(&self, id: i64) -> Option<&ChatGroup> {
         self.groups.iter().find(|g| g.id == id)
     }
 

@@ -251,10 +251,10 @@ pub struct SteamPrefs {
     pub show_games: bool,
 }
 
-/// `[friends]` (ADR-0033).
+/// `[chat]` (ADR-0033).
 #[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct FriendsPrefs {
-    /// Friends runs: the chat engine starts with EasyPlay and reaches the relays. Off by
+pub struct ChatPrefs {
+    /// Chat runs: the chat engine starts with EasyPlay and reaches the relays. Off by
     /// default; while off, nothing is sent anywhere.
     pub enabled: bool,
     /// The name friends see, used when the chat profile is made (the first start); later
@@ -268,7 +268,7 @@ pub struct FriendsPrefs {
     pub notify_preview: bool,
 }
 
-impl Default for FriendsPrefs {
+impl Default for ChatPrefs {
     fn default() -> Self {
         Self {
             enabled: false,
@@ -440,8 +440,8 @@ pub struct Preferences {
     pub artwork: ArtworkPrefs,
     /// `[steam]`.
     pub steam: SteamPrefs,
-    /// `[friends]`.
-    pub friends: FriendsPrefs,
+    /// `[chat]`.
+    pub chat: ChatPrefs,
     /// `[protection]`.
     pub protection: Protection,
     /// `[runtime]`.
@@ -491,7 +491,7 @@ impl Default for Preferences {
                 name_search: true,
             },
             steam: SteamPrefs { show_games: false },
-            friends: FriendsPrefs::default(),
+            chat: ChatPrefs::default(),
             protection: Protection {
                 default_preset: BasePreset::Offline,
                 always_isolate_runtime: false,

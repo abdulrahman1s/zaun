@@ -23,6 +23,7 @@ macro_rules! texts {
 
 pub mod a11y;
 pub mod artwork;
+pub mod chat;
 pub mod debug;
 pub mod details;
 pub mod dialogs;
@@ -58,6 +59,8 @@ pub mod nav {
         LIBRARY = "nav.library";
         /// Route.
         STATISTICS = "nav.statistics";
+        /// Route (ADR-0033).
+        CHAT = "nav.chat";
         /// Route.
         SETTINGS = "nav.settings";
         /// Route.

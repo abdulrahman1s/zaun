@@ -36,7 +36,7 @@ pub struct NotifyWatch {
     stop: Arc<AtomicBool>,
     hub: Arc<SnapshotHub>,
     thread: Option<JoinHandle<()>>,
-    friends: Option<JoinHandle<()>>,
+    chat: Option<JoinHandle<()>>,
 }
 
 impl NotifyWatch {
@@ -48,7 +48,7 @@ impl NotifyWatch {
         notifier: Arc<dyn Notifier>,
     ) -> Option<Self> {
         let stop = Arc::new(AtomicBool::new(false));
-        let friends = Self::spawn_friends(
+        let chat = Self::spawn_chat(
             Arc::clone(&hub),
             Arc::clone(&stop),
             Arc::clone(&focus),
@@ -99,24 +99,24 @@ impl NotifyWatch {
             stop,
             hub,
             thread: Some(thread),
-            friends,
+            chat,
         })
     }
 
-    /// New friend messages (ADR-0033), from the Friends snapshot: one notification per
+    /// New friend messages (ADR-0033), from the Chat snapshot: one notification per
     /// conversation whose unread count rose, while no window has focus.
-    fn spawn_friends(
+    fn spawn_chat(
         hub: Arc<SnapshotHub>,
         stop: Arc<AtomicBool>,
         focus: Arc<AtomicBool>,
         notifier: Arc<dyn Notifier>,
     ) -> Option<JoinHandle<()>> {
         std::thread::Builder::new()
-            .name("notify-friends".into())
+            .name("notify-chat".into())
             .spawn(move || {
-                let mut seen = hub.friends.load();
+                let mut seen = hub.chat.load();
                 loop {
-                    let now = hub.friends.wait_until(|current| {
+                    let now = hub.chat.wait_until(|current| {
                         stop.load(Ordering::Relaxed) || !Arc::ptr_eq(current, &seen)
                     });
                     if stop.load(Ordering::Relaxed) {
@@ -124,7 +124,7 @@ impl NotifyWatch {
                     }
                     let prefs = hub.prefs.load();
                     let focused = focus.load(Ordering::Relaxed);
-                    for ev in notify::friend_messages(&seen, &now, prefs.friends.notify_preview) {
+                    for ev in notify::chat_messages(&seen, &now, prefs.chat.notify_preview) {
                         if notify::wanted(&ev, &prefs, focused) {
                             notifier.notify(&notify::compose(&ev, None));
                         }
@@ -140,11 +140,11 @@ impl Drop for NotifyWatch {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         self.hub.sessions.wake();
-        self.hub.friends.wake();
+        self.hub.chat.wake();
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
-        if let Some(t) = self.friends.take() {
+        if let Some(t) = self.chat.take() {
             let _ = t.join();
         }
     }

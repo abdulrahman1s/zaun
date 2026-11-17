@@ -6,7 +6,7 @@ members = [
     "crates/easyplay",
     "crates/easyplay-init",
     "crates/easyplay-testkit",
-    "crates/easyplay-friends",
+    "crates/easyplay-chat",
 ]
 
 [workspace.package]
