@@ -214,5 +214,14 @@ fn v1_fixture_migrates_and_matches_its_dump() {
     assert_eq!(db.schema_version().unwrap(), Db::SCHEMA_VERSION);
     assert!(integrity::integrity_check(&mut db).unwrap().is_ok());
     let expected = String::from_utf8(fs.read(&dump_file, 1 << 24).unwrap()).unwrap();
-    assert_eq!(games::semantic_dump(&mut db), expected);
+    // The dump was recorded at version 1; migrations after it (0002, ADR-0031) add tables and
+    // change no data, so everything but the version line must be identical.
+    let data = |s: &str| -> String {
+        s.lines()
+            .filter(|l| !l.starts_with("schema_version "))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert!(expected.starts_with("schema_version 1\n"));
+    assert_eq!(data(&games::semantic_dump(&mut db)), data(&expected));
 }

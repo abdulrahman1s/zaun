@@ -13,7 +13,10 @@ mod kv;
 mod runtimes;
 mod sessions;
 mod stats;
+mod steam;
 mod tags;
+
+pub use steam::{SteamOverlay, SteamPatch, SteamRepo};
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

@@ -1,31 +1,36 @@
-//! Compatibility tab (SCREEN_SPECS_2 §10, UI-019): layer select with groups, follow
-//! updates, status line with missing/older warnings, game fixes with the picker sheet,
-//! options, advanced options, and the private Windows storage row.
+//! Compatibility tab (easyplay-redesign.html `tabCompat`; SCREEN_SPECS_2 §10, UI-019):
+//! setting rows in a 620 column under four headings. *Compatibility layer*: the layer (a
+//! select of its groups) with what was last used, *Follow updates*; a missing or older
+//! layer and a catalogue with no layer yet say so in rows of their own. *Game fixes*: the
+//! fix with *Change…* (the picker sheet), *Turn off fixes*. *Options*: graphics, window
+//! system, the performance overlay (greyed out without MangoHud), the game's language, and
+//! the finer options (synchronisation, DLL overrides, DXVK overlay, Proton log). *Private
+//! Windows storage*: its size and date with *Open*, *Windows settings*, *Reset…*.
 
 use easyplay_core::ids::GameId;
 use easyplay_core::model::{
     Channel, GameSummary, Renderer, RuntimeOrigin, RuntimeRef, SyncMode, Tool, WindowSystem,
 };
-use egui::{Context, Id, Popup, PopupCloseBehavior, Ui};
+use egui::{Context, Id, Rect, Sense, Ui, vec2};
 
-use super::card;
-use super::permissions::{issue_line, section};
+use super::column;
 use crate::app::UiState;
 use crate::bridge::{FolderTarget, UiCommand};
 use crate::route::Overlay;
 use crate::screens::Env;
 use crate::strings::details as s;
-use crate::theme::tokens::space;
+use crate::theme::tokens::{control, layout, space};
 use crate::theme::{self, Type, icons};
 use crate::vm::AsyncValue;
 use crate::vm::dialogs::{Confirm, Dialog};
-use crate::widgets::button::{Button, Size, Variant};
+use crate::widgets::button::{Button, Variant};
 use crate::widgets::context_menu::item;
+use crate::widgets::rows::{self, SettingRow};
 use crate::widgets::segmented::{Segment, segmented};
 use crate::widgets::select::select;
 use crate::widgets::sheet::sheet;
 use crate::widgets::text_field::TextField;
-use crate::widgets::toggle::toggle;
+use crate::widgets::toggle::switch;
 
 fn segs<'a>(labels: &[&'a str]) -> Vec<Segment<'a>> {
     labels
@@ -52,65 +57,69 @@ pub fn runtime_label(r: &RuntimeRef, env: &Env<'_>) -> String {
     }
 }
 
+/// The value a layer select shows: "Default, UMU-Proton 10.0-4" for the default.
+fn layer_value(r: &RuntimeRef, env: &Env<'_>) -> String {
+    match r {
+        RuntimeRef::Default => {
+            s::default_layer_value(env.bridge.runtimes().default_label.as_deref())
+        }
+        other => runtime_label(other, env),
+    }
+}
+
+/// The layers to choose from, in the order of their groups: the default, the channels,
+/// EasyPlay's builds, builds from other sources.
+fn layer_choices(env: &Env<'_>) -> Vec<RuntimeRef> {
+    let rt = env.bridge.runtimes();
+    let mut out = vec![
+        RuntimeRef::Default,
+        RuntimeRef::Channel(Channel::UmuProton),
+        RuntimeRef::Channel(Channel::GeProton),
+    ];
+    for origin in [RuntimeOrigin::Store, RuntimeOrigin::External] {
+        out.extend(
+            rt.layers
+                .iter()
+                .filter(|l| l.build.origin == origin)
+                .map(|l| RuntimeRef::Pinned(l.build.name.clone())),
+        );
+    }
+    out
+}
+
+/// The layer select. Returns whether the layer changed.
 fn layer_select(ui: &mut Ui, env: &Env<'_>, current: &mut RuntimeRef) -> bool {
-    let theme = theme::theme(ui.ctx());
-    let p = theme.palette.clone();
-    let label = runtime_label(current, env);
-    let resp = ui.add(
-        Button::new(&label)
-            .icon(icons::LAYERS)
-            .accessible_name(s::layer_button(&label)),
-    );
-    let mut changed = false;
-    let rt = env.bridge.runtimes().clone();
-    Popup::menu(&resp)
-        .close_behavior(PopupCloseBehavior::CloseOnClick)
-        .width(300.0)
-        .show(|ui| {
-            let mut opt = |ui: &mut Ui, r: RuntimeRef| {
-                let l = runtime_label(&r, env);
-                if item(ui, None, &l, None, *current == r).clicked() {
-                    *current = r;
-                    changed = true;
-                }
-            };
-            ui.label(Type::Label.rich(s::GROUP_DEFAULT).color(p.text_muted));
-            opt(ui, RuntimeRef::Default);
-            ui.label(Type::Label.rich(s::GROUP_CHANNELS).color(p.text_muted));
-            opt(ui, RuntimeRef::Channel(Channel::UmuProton));
-            opt(ui, RuntimeRef::Channel(Channel::GeProton));
-            for (title, origin) in [
-                (s::GROUP_INSTALLED, RuntimeOrigin::Store),
-                (s::GROUP_OTHER, RuntimeOrigin::External),
-            ] {
-                let builds: Vec<_> = rt
-                    .layers
-                    .iter()
-                    .filter(|l| l.build.origin == origin)
-                    .collect();
-                if builds.is_empty() {
-                    continue;
-                }
-                ui.label(Type::Label.rich(title).color(p.text_muted));
-                for l in builds {
-                    opt(ui, RuntimeRef::Pinned(l.build.name.clone()));
-                }
-            }
-        });
+    let mut choices = layer_choices(env);
+    if !choices.contains(current) {
+        choices.push(current.clone());
+    }
+    let labels: Vec<String> = choices.iter().map(|r| layer_value(r, env)).collect();
+    let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let mut k = choices.iter().position(|r| r == current).unwrap_or(0);
+    let changed = select(ui, s::LAYER(), None, None, &mut k, &refs, false).changed();
+    if changed && let Some(r) = choices.get(k) {
+        *current = r.clone();
+    }
     changed
 }
 
-const LOCALES: [(Option<&str>, &str); 6] = [
-    (None, s::LANG_SYSTEM),
-    (Some("en_US.UTF-8"), "English"),
-    (Some("de_DE.UTF-8"), "Deutsch"),
-    (Some("fr_FR.UTF-8"), "Français"),
-    (Some("es_ES.UTF-8"), "Español"),
-    (Some("ja_JP.UTF-8"), "日本語"),
-];
+fn locales() -> [(Option<&'static str>, &'static str); 6] {
+    [
+        (None, s::LANG_SYSTEM()),
+        (Some("en_US.UTF-8"), "English"),
+        (Some("de_DE.UTF-8"), "Deutsch"),
+        (Some("fr_FR.UTF-8"), "Français"),
+        (Some("es_ES.UTF-8"), "Español"),
+        (Some("ja_JP.UTF-8"), "日本語"),
+    ]
+}
 
 /// Show the Compatibility tab.
 pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
+    column(ui, |ui| body(ui, state, env, g));
+}
+
+fn body(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
     let p = theme::theme(ui.ctx()).palette.clone();
     let id = g.id;
     let Some(d) = state.details.record().cloned() else {
@@ -129,165 +138,136 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
     let Some(c) = state.details.compat.as_mut() else {
         return;
     };
-    ui.set_max_width(ui.available_width().min(840.0));
-    section(ui, s::LAYER, None);
-    ui.horizontal(|ui| {
-        layer_select(ui, env, &mut c.runtime);
-        let followable = matches!(c.runtime, RuntimeRef::Default | RuntimeRef::Channel(_));
-        if followable {
-            ui.add_space(space::S4);
-            ui.checkbox(&mut c.follow, s::FOLLOW_UPDATES);
-        }
-    });
-    let used = d
-        .runtime_resolved
-        .clone()
-        .unwrap_or_else(|| s::NOT_DOWNLOADED.to_owned());
+
+    // The layer.
+    rows::heading(ui, s::LAYER(), true);
     let prepared = d
         .game
         .prefix_prepared_with
         .as_ref()
         .map(|n| n.as_str().to_owned());
-    ui.label(
-        Type::Caption
-            .rich(s::status_line(&used, prepared.as_deref(), d.runtime_older))
-            .color(p.text_secondary),
+    let help = s::layer_help(
+        d.runtime_resolved.as_deref(),
+        prepared.as_deref(),
+        d.runtime_older,
     );
+    SettingRow::new(s::LAYER_ROW())
+        .help(&help)
+        .show(ui, |ui| layer_select(ui, env, &mut c.runtime));
     if d.runtime_missing {
-        ui.horizontal_wrapped(|ui| {
-            issue_line(ui, s::LAYER_MISSING, false);
-            if ui.add(Button::new(s::USE_DEFAULT).size(Size::Sm)).clicked() {
-                c.runtime = RuntimeRef::Default;
-            }
-        });
+        let use_default = SettingRow::new(s::LAYER_MISSING())
+            .id_salt("layer-missing")
+            .show(ui, |ui| ui.add(Button::new(s::USE_DEFAULT())).clicked());
+        if use_default {
+            c.runtime = RuntimeRef::Default;
+        }
     }
     if d.runtime_older {
-        issue_line(ui, s::LAYER_OLDER, false);
+        super::fine(ui, s::LAYER_OLDER(), p.amber);
     }
     if env.bridge.runtimes().default_label.is_none() {
-        ui.horizontal(|ui| {
-            ui.label(
-                Type::Caption
-                    .rich(s::NONE_INSTALLED)
-                    .color(p.text_secondary),
-            );
-            if ui
-                .add(
-                    Button::new(s::DOWNLOAD_NOW)
-                        .size(Size::Sm)
-                        .icon(icons::DOWNLOAD),
-                )
-                .clicked()
-            {
-                env.bridge.send(UiCommand::ProvisionRuntime {
-                    target: RuntimeRef::Default,
-                });
-            }
-        });
+        let download = SettingRow::new(s::NONE_INSTALLED())
+            .id_salt("layer-none")
+            .show(ui, |ui| {
+                ui.add(Button::new(s::DOWNLOAD_NOW()).icon(icons::ARROW_DOWN))
+                    .clicked()
+            });
+        if download {
+            env.bridge.send(UiCommand::ProvisionRuntime {
+                target: RuntimeRef::Default,
+            });
+        }
     }
+    let followable = matches!(c.runtime, RuntimeRef::Default | RuntimeRef::Channel(_));
+    SettingRow::new(s::FOLLOW_UPDATES())
+        .help(s::FOLLOW_HELP())
+        .enabled(followable)
+        .show(ui, |ui| switch(ui, &mut c.follow, s::FOLLOW_UPDATES()));
+
     // Game fixes.
-    section(ui, s::FIXES, None);
+    rows::heading(ui, s::FIXES(), false);
     if d.runtime_without_fixes {
-        ui.label(Type::Caption.rich(s::NO_FIXES_IN_LAYER).color(p.text_muted));
+        SettingRow::new(s::NO_FIXES_IN_LAYER()).show(ui, |_| {});
     } else {
-        ui.horizontal_wrapped(|ui| {
-            match (&c.umu_id, &d.fix_title) {
-                (Some(u), title) => {
-                    ui.label(
-                        Type::BodyStrong
-                            .rich(title.clone().unwrap_or_default())
-                            .color(p.text_primary),
-                    );
-                    ui.label(Type::Mono.rich(u).color(p.text_muted));
-                }
-                (None, _) => {
-                    ui.label(Type::Body.rich(s::NO_FIX).color(p.text_secondary));
-                }
-            }
-            if ui.add(Button::new(s::CHANGE).size(Size::Sm)).clicked() {
-                state.nav.open(Overlay::FixPicker(id));
-            }
-        });
-        let Some(c) = state.details.compat.as_mut() else {
-            return;
+        let (label, help) = match (&c.umu_id, &d.fix_title) {
+            (Some(_), Some(title)) => (title.clone(), s::FIX_HELP().to_owned()),
+            (Some(u), None) => (u.clone(), s::FIX_HELP().to_owned()),
+            (None, _) => (s::NO_FIX().to_owned(), String::new()),
         };
-        toggle(ui, &mut c.compat.disable_fixes, s::TURN_OFF_FIXES, None);
+        let change = SettingRow::new(&label)
+            .help(&help)
+            .id_salt("fix")
+            .show(ui, |ui| ui.add(Button::new(s::CHANGE())).clicked());
+        if change {
+            state.nav.open(Overlay::FixPicker(id));
+        }
+        if let Some(c) = state.details.compat.as_mut() {
+            SettingRow::new(s::TURN_OFF_FIXES()).show(ui, |ui| {
+                switch(ui, &mut c.compat.disable_fixes, s::TURN_OFF_FIXES())
+            });
+        }
     }
     let Some(c) = state.details.compat.as_mut() else {
         return;
     };
+
     // Options.
-    section(ui, s::OPTIONS, None);
-    egui::Grid::new("compat.options")
-        .num_columns(2)
-        .spacing(egui::vec2(space::S6, space::S3))
-        .show(ui, |ui| {
-            ui.label(Type::Body.rich(s::GRAPHICS).color(p.text_primary));
-            let mut r = usize::from(c.compat.renderer == Renderer::OpenGl);
-            if segmented(ui, s::GRAPHICS, &mut r, &segs(&["Vulkan", "OpenGL"]), false).changed() {
-                c.compat.renderer = if r == 1 {
-                    Renderer::OpenGl
-                } else {
-                    Renderer::Vulkan
-                };
-            }
-            ui.end_row();
-            ui.label(Type::Body.rich(s::WINDOW_SYSTEM).color(p.text_primary));
-            let mut w = match c.compat.window_system {
-                WindowSystem::Auto => 0,
-                WindowSystem::X11 => 1,
-                WindowSystem::Wayland => 2,
+    rows::heading(ui, s::OPTIONS(), false);
+    SettingRow::new(s::GRAPHICS()).show(ui, |ui| {
+        let mut r = usize::from(c.compat.renderer == Renderer::OpenGl);
+        if segmented(
+            ui,
+            s::GRAPHICS(),
+            &mut r,
+            &segs(&["Vulkan", "OpenGL"]),
+            false,
+        )
+        .changed()
+        {
+            c.compat.renderer = if r == 1 {
+                Renderer::OpenGl
+            } else {
+                Renderer::Vulkan
             };
-            if segmented(
-                ui,
-                s::WINDOW_SYSTEM,
-                &mut w,
-                &segs(&[s::AUTOMATIC, "X11", "Wayland"]),
-                false,
-            )
-            .changed()
-            {
-                c.compat.window_system =
-                    [WindowSystem::Auto, WindowSystem::X11, WindowSystem::Wayland][w];
-            }
-            ui.end_row();
-            ui.label(Type::Body.rich(s::OVERLAY).color(p.text_primary));
-            let mango = env.bridge.host().mangohud;
-            ui.horizontal(|ui| {
-                ui.add_enabled_ui(mango, |ui| ui.checkbox(&mut c.compat.mangohud, "MangoHud"));
-                if !mango {
-                    ui.label(Type::Caption.rich(s::NOT_INSTALLED).color(p.text_muted));
-                }
-            });
-            ui.end_row();
-            ui.label(Type::Body.rich(s::LANGUAGE).color(p.text_primary));
-            let mut li = LOCALES
-                .iter()
-                .position(|(code, _)| *code == c.compat.locale.as_deref())
-                .unwrap_or(0);
-            let labels: Vec<&str> = LOCALES.iter().map(|x| x.1).collect();
-            if select(ui, s::LANGUAGE, None, None, &mut li, &labels, false).changed() {
-                c.compat.locale = LOCALES[li].0.map(str::to_owned);
-            }
-            ui.end_row();
-        });
-    // Advanced.
-    ui.add_space(space::S4);
-    let adv = state.details.compat_advanced;
-    if ui
-        .add(Button::ghost(s::ADVANCED_COMPAT).icon(if adv {
-            icons::CARET_DOWN
-        } else {
-            icons::CARET_RIGHT
-        }))
-        .clicked()
-    {
-        state.details.compat_advanced = !adv;
+        }
+    });
+    SettingRow::new(s::WINDOW_SYSTEM()).show(ui, |ui| {
+        let mut w = match c.compat.window_system {
+            WindowSystem::Auto => 0,
+            WindowSystem::X11 => 1,
+            WindowSystem::Wayland => 2,
+        };
+        if segmented(
+            ui,
+            s::WINDOW_SYSTEM(),
+            &mut w,
+            &segs(&[s::AUTOMATIC(), "X11", "Wayland"]),
+            false,
+        )
+        .changed()
+        {
+            c.compat.window_system =
+                [WindowSystem::Auto, WindowSystem::X11, WindowSystem::Wayland][w.min(2)];
+        }
+    });
+    let mango = env.bridge.host().mangohud;
+    let mut overlay = SettingRow::new(s::OVERLAY()).enabled(mango);
+    if !mango {
+        overlay = overlay.help(s::MANGOHUD_MISSING());
     }
-    if state.details.compat_advanced
-        && let Some(c) = state.details.compat.as_mut()
-    {
-        ui.label(Type::Body.rich(s::SYNC).color(p.text_primary));
+    overlay.show(ui, |ui| switch(ui, &mut c.compat.mangohud, s::OVERLAY()));
+    SettingRow::new(s::LANGUAGE()).show(ui, |ui| {
+        let locales = locales();
+        let mut li = locales
+            .iter()
+            .position(|(code, _)| *code == c.compat.locale.as_deref())
+            .unwrap_or(0);
+        let labels: Vec<&str> = locales.iter().map(|x| x.1).collect();
+        if select(ui, s::LANGUAGE(), None, None, &mut li, &labels, false).changed() {
+            c.compat.locale = locales[li.min(locales.len() - 1)].0.map(str::to_owned);
+        }
+    });
+    SettingRow::new(s::SYNC()).show(ui, |ui| {
         let mut sm = match c.compat.sync {
             SyncMode::Default => 0,
             SyncMode::NoFsync => 1,
@@ -295,9 +275,9 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
         };
         if segmented(
             ui,
-            s::SYNC,
+            s::SYNC(),
             &mut sm,
-            &segs(&[s::AUTOMATIC, s::NO_FSYNC, s::NO_ESYNC]),
+            &segs(&[s::AUTOMATIC(), s::NO_FSYNC(), s::NO_ESYNC()]),
             false,
         )
         .changed()
@@ -306,85 +286,86 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
                 SyncMode::Default,
                 SyncMode::NoFsync,
                 SyncMode::NoEsyncNoFsync,
-            ][sm];
+            ][sm.min(2)];
         }
+    });
+    let field_w = layout::COL_MAX / 2.0 - space::S8;
+    SettingRow::new(s::DLL_OVERRIDES()).show(ui, |ui| {
         TextField::new(&mut c.compat.dll_overrides, "compat.dll")
-            .label(s::DLL_OVERRIDES)
+            .accessible_name(s::DLL_OVERRIDES())
             .mono()
-            .show(ui);
-        let mut hud = c.compat.dxvk_hud.clone().unwrap_or_default();
-        if TextField::new(&mut hud, "compat.hud")
-            .label(s::DXVK_HUD)
+            .width(field_w)
+            .show(ui)
+    });
+    let mut hud = c.compat.dxvk_hud.clone().unwrap_or_default();
+    let hud_changed = SettingRow::new(s::DXVK_HUD()).show(ui, |ui| {
+        TextField::new(&mut hud, "compat.hud")
+            .accessible_name(s::DXVK_HUD())
             .mono()
+            .width(field_w)
             .show(ui)
             .response
             .changed()
-        {
-            c.compat.dxvk_hud = (!hud.is_empty()).then_some(hud);
-        }
-        toggle(
-            ui,
-            &mut c.compat.proton_log,
-            s::PROTON_LOG,
-            Some(s::PROTON_LOG_HINT),
-        );
-    }
-    // Storage.
-    ui.add_space(space::S4);
-    card(ui, s::STORAGE, |ui| {
-        let size = match &state.details.prefix_size {
-            AsyncValue::Ready(n) => crate::strings::fmt::bytes(*n),
-            AsyncValue::Failed(_) => s::SIZE_UNKNOWN.to_owned(),
-            _ => s::CALCULATING.to_owned(),
-        };
-        let created = d
-            .prefix_created_at
-            .map(|t| crate::strings::fmt::relative_inline(t, env.now, env.utc_offset_s));
-        ui.label(
-            Type::Body
-                .numeric(s::storage_line(&size, created.as_deref()))
-                .color(p.text_secondary),
-        );
-        ui.horizontal_wrapped(|ui| {
-            if ui
-                .add(
-                    Button::new(s::OPEN_FOLDER)
-                        .size(Size::Sm)
-                        .icon(icons::FOLDER),
-                )
-                .clicked()
-            {
-                env.bridge
-                    .send(UiCommand::OpenFolder(FolderTarget::Prefix(id)));
-            }
-            if ui
-                .add(
-                    Button::new(s::WINDOWS_SETTINGS)
-                        .size(Size::Sm)
-                        .icon(icons::WRENCH),
-                )
-                .clicked()
-            {
-                env.bridge.send(UiCommand::RunTool {
-                    id,
-                    tool: Tool::Winecfg,
-                });
-            }
-            if ui
-                .add(
-                    Button::new(s::RESET)
-                        .size(Size::Sm)
-                        .variant(Variant::Danger),
-                )
-                .clicked()
-            {
-                state.show_dialog(Dialog::Confirm(Confirm::ResetPrefix {
-                    id,
-                    options: easyplay_core::library::ResetOptions::default(),
-                }));
-            }
-        });
     });
+    if hud_changed {
+        c.compat.dxvk_hud = (!hud.is_empty()).then_some(hud);
+    }
+    SettingRow::new(s::PROTON_LOG_ROW())
+        .help(s::PROTON_LOG_HINT())
+        .show(ui, |ui| {
+            switch(ui, &mut c.compat.proton_log, s::PROTON_LOG_ROW())
+        });
+
+    // Private Windows storage.
+    rows::heading(ui, s::STORAGE(), false);
+    let size = match &state.details.prefix_size {
+        AsyncValue::Ready(n) => crate::strings::fmt::bytes(*n),
+        AsyncValue::Failed(_) => s::SIZE_UNKNOWN().to_owned(),
+        _ => s::CALCULATING().to_owned(),
+    };
+    let created = d
+        .prefix_created_at
+        .map(|t| s::date_label(t, env.now, env.utc_offset_s));
+    let value = if d.prefix_created_at.is_none() && d.game.prefix_prepared_with.is_none() {
+        s::STORAGE_NOT_YET().to_owned()
+    } else {
+        s::storage_value(&size, created.as_deref())
+    };
+    // The row's label is what it tells: it is read as such (registered before the row's
+    // buttons, which stand over it).
+    let top = ui.cursor().min;
+    let said = ui.interact(
+        Rect::from_min_size(top, vec2(ui.available_width(), control::SETTING_ROW)),
+        ui.make_persistent_id("storage.said"),
+        Sense::hover(),
+    );
+    crate::a11y::item(&said, egui::Role::Label, &value);
+    let pressed = SettingRow::new(&value)
+        .help(s::STORAGE_HELP())
+        .id_salt("storage")
+        .show(ui, |ui| {
+            // Every button is drawn whichever is pressed.
+            let open = ui.add(Button::new(s::OPEN())).clicked();
+            let settings = ui.add(Button::new(s::WINDOWS_SETTINGS())).clicked();
+            let reset = ui
+                .add(Button::new(s::RESET()).variant(Variant::Warn))
+                .clicked();
+            [open, settings, reset].iter().position(|x| *x)
+        });
+    match pressed {
+        Some(0) => env
+            .bridge
+            .send(UiCommand::OpenFolder(FolderTarget::Prefix(id))),
+        Some(1) => env.bridge.send(UiCommand::RunTool {
+            id,
+            tool: Tool::Winecfg,
+        }),
+        Some(_) => state.show_dialog(Dialog::Confirm(Confirm::ResetPrefix {
+            id,
+            options: easyplay_core::library::ResetOptions::default(),
+        })),
+        None => {}
+    }
 }
 
 /// The game-fix picker (a sheet with a search field and results).
@@ -403,14 +384,14 @@ pub fn fix_picker(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>,
     let r = sheet(
         ctx,
         id,
-        s::FIX_PICKER,
+        s::FIX_PICKER(),
         false,
         |ui| {
             let p = theme::theme(ui.ctx()).palette.clone();
             let f = TextField::new(&mut state.details.fix_search, "fix.search")
                 .search()
-                .hint(s::FIX_SEARCH)
-                .accessible_name(s::FIX_SEARCH)
+                .hint(s::FIX_SEARCH())
+                .accessible_name(s::FIX_SEARCH())
                 .show(ui);
             if f.response.changed() {
                 search(state, env);
@@ -418,35 +399,32 @@ pub fn fix_picker(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>,
             ui.add_space(space::S2);
             match &state.details.fixes {
                 AsyncValue::Ready(list) if list.is_empty() => {
-                    ui.label(Type::Body.rich(s::NO_FIX_FOUND).color(p.text_secondary));
+                    ui.label(Type::Body.rich(s::NO_FIX_FOUND()).color(p.t2));
                 }
                 AsyncValue::Ready(list) => {
                     let list = list.clone();
-                    egui::ScrollArea::vertical().max_height(320.0).show_rows(
-                        ui,
-                        36.0,
-                        list.len(),
-                        |ui, range| {
+                    egui::ScrollArea::vertical()
+                        .max_height(layout::MENU_MAX_H / 2.0 + space::S10)
+                        .show_rows(ui, control::MENU_ITEM, list.len(), |ui, range| {
                             for e in &list[range] {
                                 let label = s::fix_row(&e.title, &e.store, &e.umu_id);
-                                if item(ui, Some(icons::WRENCH), &label, None, false).clicked() {
+                                if item(ui, None, &label, None, false).clicked() {
                                     picked = Some(Some(e.umu_id.clone()));
                                 }
                             }
-                        },
-                    );
+                        });
                 }
                 AsyncValue::Failed(why) => {
-                    ui.add(egui::Label::new(Type::Body.rich(why).color(p.text_secondary)).wrap());
+                    Type::Body.paragraph(ui, why, p.t2);
                 }
                 _ => {}
             }
-            if ui.add(Button::ghost(s::NO_FIX_USE)).clicked() {
+            if ui.add(Button::ghost(s::NO_FIX_USE())).clicked() {
                 picked = Some(None);
             }
         },
         |ui| {
-            ui.add(Button::new(crate::strings::dialogs::CANCEL))
+            ui.add(Button::new(crate::strings::dialogs::CANCEL()))
                 .clicked()
         },
     );

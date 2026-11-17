@@ -11,17 +11,24 @@ use egui::{Context, Id, Pos2, Rect, Vec2, emath::TSTransform};
 /// A duration token.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Dur {
-    /// 90 ms: hover, press, focus.
-    Fast,
-    /// 120 ms: small reveals and exits (controls on a cover, the drop zone, a toast leaving).
+    /// 80 ms: a press.
+    Press,
+    /// 90 ms: a menu leaving.
     Quick,
-    /// 160 ms: overlays, menus, cross-fades, the segmented thumb.
+    /// 100 ms: a tooltip.
+    Tip,
+    /// 140 ms: hover fills, a cover under the pointer, a menu arriving, exits of dialogs and
+    /// toasts.
+    Fast,
+    /// 220 ms: the tab underline, the segmented thumb, a switch's knob, a tab's body, a
+    /// toast arriving.
     Base,
-    /// 200 ms: travel between resting places (sidebar selection, sidebar width, grid reflow).
-    Glide,
-    /// 240 ms.
+    /// 300 ms: travel between resting places (the wall's reflow, a dialog arriving, bars
+    /// growing).
+    Move,
+    /// 360 ms: the favourite star.
     Slow,
-    /// 280 ms: route changes, the first appearance of the library.
+    /// 400 ms: a cover flying between the wall and its page, a page's parts rising.
     Page,
 }
 
@@ -29,15 +36,20 @@ impl Dur {
     /// The nominal value in seconds.
     pub const fn secs(self) -> f32 {
         match self {
-            Dur::Fast => 0.090,
-            Dur::Quick => 0.120,
-            Dur::Base => 0.160,
-            Dur::Glide => 0.200,
-            Dur::Slow => 0.240,
-            Dur::Page => 0.280,
+            Dur::Press => 0.080,
+            Dur::Quick => 0.090,
+            Dur::Tip => 0.100,
+            Dur::Fast => 0.140,
+            Dur::Base => 0.220,
+            Dur::Move => 0.300,
+            Dur::Slow => 0.360,
+            Dur::Page => 0.400,
         }
     }
 }
+
+/// The longest fade under reduced motion.
+const REDUCED_MAX: f32 = 0.120;
 
 /// Whether movement is allowed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -47,35 +59,46 @@ pub struct Motion {
 }
 
 impl Motion {
-    /// Duration of a movement (position, size, shimmer): zero under reduced motion.
+    /// Duration of a movement (position, size, scale): zero under reduced motion.
     pub const fn movement(self, d: Dur) -> f32 {
         if self.reduced { 0.0 } else { d.secs() }
     }
 
-    /// Duration of an opacity change: capped at `dur.fast` under reduced motion.
+    /// Duration of an opacity change: under reduced motion every change is a fade of at
+    /// most 120 ms.
     pub const fn fade(self, d: Dur) -> f32 {
-        if self.reduced && d.secs() > Dur::Fast.secs() {
-            Dur::Fast.secs()
+        if !self.reduced {
+            return d.secs();
+        }
+        let secs = match d {
+            Dur::Press | Dur::Quick | Dur::Tip => d.secs(),
+            Dur::Fast => 0.090,
+            Dur::Base => 0.110,
+            Dur::Move | Dur::Slow | Dur::Page => REDUCED_MAX,
+        };
+        if secs > REDUCED_MAX {
+            REDUCED_MAX
         } else {
-            d.secs()
+            secs
         }
     }
 
-    /// `Style.animation_time`: `dur.base`, or zero under reduced motion.
+    /// `Style.animation_time`: `dur.fast`, or zero under reduced motion.
     pub const fn animation_time(self) -> f32 {
-        self.movement(Dur::Base)
+        self.movement(Dur::Fast)
     }
 
-    /// Whether continuous effects (skeleton shimmer) may run.
+    /// Whether continuous effects (the loading pulse, the running game's bars) may run.
     pub const fn shimmer(self) -> bool {
         !self.reduced
     }
 }
 
-/// Opacity (0 → 1) of something that appears: a sheet, a dialog, a toast, the drop zone,
-/// a route's content. It starts at 0 whenever `id` was not shown in the previous pass and
-/// reaches 1 after `secs` (`ease.standard`); with `secs` 0 it is 1 at once. egui's own
-/// `animate_bool` starts at its target, so a plain call would never fade in.
+/// Progress (0 → 1, linear) of something that appears: a dialog, a toast, the drop zone, a
+/// page's content. It starts at 0 whenever `id` was not shown in the previous pass and
+/// reaches 1 after `secs`; with `secs` 0 it is 1 at once. Opacity takes the value as it is;
+/// what moves with it passes it through [`ease_out`]. egui's own `animate_bool` starts at
+/// its target, so a plain call would never fade in.
 pub fn appear(ctx: &Context, id: Id, secs: f32) -> f32 {
     let pass = ctx.cumulative_pass_nr();
     let key = id.with("appear.seen");
@@ -95,10 +118,10 @@ pub fn appear(ctx: &Context, id: Id, secs: f32) -> f32 {
         ctx.request_repaint();
         return 0.0;
     }
-    ctx.animate_bool_with_time_and_easing(anim, true, secs, ease_standard)
+    ctx.animate_bool_with_time_and_easing(anim, true, secs, egui::emath::easing::linear)
 }
 
-/// A value that travels to `target` over `secs` with `ease.standard`. It starts at `target`
+/// A value that travels to `target` over `secs` with [`ease_out`]. It starts at `target`
 /// whenever `id` was not animated in the previous pass (so nothing flies in from a stale
 /// place), and a change of target mid-flight continues from where the value is.
 pub fn glide(ctx: &Context, id: Id, target: f32, secs: f32) -> f32 {
@@ -124,7 +147,7 @@ pub fn glide(ctx: &Context, id: Id, target: f32, secs: f32) -> f32 {
     };
     let at = |f: &Flight| {
         let t = ((now - f.started) as f32 / secs.max(f32::EPSILON)).clamp(0.0, 1.0);
-        (f.from + (f.to - f.from) * ease_standard(t), t)
+        (f.from + (f.to - f.from) * ease_out(t), t)
     };
     if (f.to - target).abs() > f32::EPSILON {
         f.from = at(&f).0;
@@ -201,14 +224,117 @@ pub fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
     bez(y1, y2, 0.5 * (lo + hi))
 }
 
-/// `ease.standard`: cubic-bezier(0.2, 0, 0, 1).
-pub fn ease_standard(t: f32) -> f32 {
-    cubic_bezier(0.2, 0.0, 0.0, 1.0, t)
+/// `out`, for anything that moves: 1 − (1 − t)⁵.
+pub fn ease_out(t: f32) -> f32 {
+    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(5)
 }
 
-/// `ease.exit`: cubic-bezier(0.4, 0, 1, 1).
-pub fn ease_exit(t: f32) -> f32 {
-    cubic_bezier(0.4, 0.0, 1.0, 1.0, t)
+/// `in`, for exits: t³.
+pub fn ease_in(t: f32) -> f32 {
+    t.clamp(0.0, 1.0).powi(3)
+}
+
+/// `pop`, the favourite star: arrives with a 5 % overshoot.
+pub fn ease_pop(t: f32) -> f32 {
+    cubic_bezier(0.34, 1.4, 0.64, 1.0, t)
+}
+
+/// Progress (0–1) of something that started `delay` seconds after `started` and takes
+/// `secs`, at time `now`.
+pub fn progress(now: f64, started: f64, delay: f32, secs: f32) -> f32 {
+    if secs <= 0.0 {
+        return 1.0;
+    }
+    (((now - started) as f32 - delay) / secs).clamp(0.0, 1.0)
+}
+
+/// Seconds since `id` came into view. The clock restarts whenever `id` was not asked about in
+/// the previous pass (the page was away, the tab was closed), so whatever arrives arrives
+/// again. Repaints are requested until `until` seconds have passed.
+pub fn shown_for(ctx: &Context, id: Id, until: f32) -> f32 {
+    let pass = ctx.cumulative_pass_nr();
+    let now = ctx.input(|i| i.time);
+    let key = id.with("shown_for");
+    let prev = ctx.data(|d| d.get_temp::<(u64, f64)>(key));
+    let started = match prev {
+        Some((last, started)) if last + 1 >= pass => started,
+        _ => now,
+    };
+    ctx.data_mut(|d| d.insert_temp(key, (pass, started)));
+    let t = (now - started) as f32;
+    if t < until {
+        ctx.request_repaint();
+    }
+    t
+}
+
+/// Content that arrives: a tab's body, a settings section, a cover newly shown, a part of
+/// a page. Returns its opacity (linear) and how far below its place it still is (eased
+/// out), `delay` seconds after `id` came into view and over `secs`. Under reduced motion
+/// nothing travels and the fade is short.
+pub fn arrive(
+    ctx: &Context,
+    id: Id,
+    motion: Motion,
+    delay: f32,
+    d: Dur,
+    distance: f32,
+) -> (f32, f32) {
+    let (fade, travel) = (motion.fade(d), motion.movement(d));
+    let delay = if motion.reduced { 0.0 } else { delay };
+    let t = shown_for(ctx, id, delay + fade.max(travel));
+    let opacity = if fade <= 0.0 {
+        1.0
+    } else {
+        ((t - delay) / fade).clamp(0.0, 1.0)
+    };
+    let offset = if travel <= 0.0 {
+        0.0
+    } else {
+        distance * (1.0 - ease_out(((t - delay) / travel).clamp(0.0, 1.0)))
+    };
+    (opacity, offset)
+}
+
+/// How much of its height a bar has grown to (0–1): bars rise from nothing over
+/// [`Dur::Move`], `index` × 10 ms apart (capped at 30), from the moment `id` came into
+/// view. At full height at once under reduced motion.
+pub fn bar_growth(ctx: &Context, id: Id, motion: Motion, index: usize) -> f32 {
+    use super::tokens::travel;
+    let secs = motion.movement(Dur::Move);
+    if secs <= 0.0 {
+        return 1.0;
+    }
+    let delay = index.min(travel::BAR_STAGGER_CAP) as f32 * travel::BAR_STAGGER;
+    let until = secs + travel::BAR_STAGGER_CAP as f32 * travel::BAR_STAGGER;
+    let t = shown_for(ctx, id, until);
+    ease_out(((t - delay) / secs).clamp(0.0, 1.0))
+}
+
+/// A one-shot timeline that starts whenever `key` changes (and on the first sight of `id`
+/// when `on_first` is set): returns the seconds since it started, or `None` once `secs`
+/// have passed. Requests repaints while it runs.
+pub fn since_change<K>(ctx: &Context, id: Id, key: K, secs: f32, on_first: bool) -> Option<f32>
+where
+    K: Clone + PartialEq + Send + Sync + 'static,
+{
+    let now = ctx.input(|i| i.time);
+    let slot = id.with("since_change");
+    let prev = ctx.data(|d| d.get_temp::<(K, f64)>(slot));
+    let started = match prev {
+        Some((k, at)) if k == key => at,
+        Some(_) => now,
+        None if on_first => now,
+        None => f64::NEG_INFINITY,
+    };
+    ctx.data_mut(|d| d.insert_temp(slot, (key, started)));
+    let t = (now - started) as f32;
+    if secs > 0.0 && t < secs {
+        ctx.request_repaint();
+        Some(t)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -219,15 +345,17 @@ mod tests {
     fn reduced_motion_zeroes_movement_and_caps_fades() {
         let m = Motion { reduced: true };
         for d in [
-            Dur::Fast,
+            Dur::Press,
             Dur::Quick,
+            Dur::Tip,
+            Dur::Fast,
             Dur::Base,
-            Dur::Glide,
+            Dur::Move,
             Dur::Slow,
             Dur::Page,
         ] {
             assert_eq!(m.movement(d), 0.0);
-            assert!(m.fade(d) <= Dur::Fast.secs());
+            assert!(m.fade(d) <= 0.120);
         }
         assert_eq!(m.animation_time(), 0.0);
         assert!(!m.shimmer());
@@ -236,8 +364,10 @@ mod tests {
     #[test]
     fn full_motion_uses_token_values() {
         let m = Motion::default();
-        assert_eq!(m.movement(Dur::Base), 0.160);
-        assert_eq!(m.fade(Dur::Page), 0.280);
+        assert_eq!(m.movement(Dur::Base), 0.220);
+        assert_eq!(m.fade(Dur::Page), 0.400);
+        assert_eq!(m.movement(Dur::Fast), 0.140);
+        assert_eq!(m.movement(Dur::Move), 0.300);
     }
 
     #[test]
@@ -292,7 +422,7 @@ mod tests {
     fn glide_starts_at_rest_travels_and_snaps_after_a_gap() {
         let ctx = Context::default();
         let id = Id::unique("thumb");
-        let secs = Dur::Glide.secs();
+        let secs = Dur::Move.secs();
         assert_eq!(pass(&ctx, 0.05, |c| glide(c, id, 10.0, secs)), 10.0);
         // A new target: the value leaves 10 and arrives at 50 without overshooting.
         let mut last = 10.0;
@@ -341,7 +471,7 @@ mod tests {
 
     #[test]
     fn easing_endpoints_and_monotonicity() {
-        for f in [ease_standard, ease_exit] {
+        for f in [ease_out, ease_in] {
             assert!(f(0.0).abs() < 1e-3);
             assert!((f(1.0) - 1.0).abs() < 1e-3);
             let mut prev = 0.0;
@@ -351,7 +481,14 @@ mod tests {
                 prev = v;
             }
         }
-        // Standard easing decelerates: more than half done at the midpoint.
-        assert!(ease_standard(0.5) > 0.5);
+        // `out` decelerates: nearly there at the midpoint; `in` has barely left.
+        assert!((ease_out(0.5) - 0.96875).abs() < 1e-4);
+        assert!((ease_in(0.5) - 0.125).abs() < 1e-4);
+        // `pop` overshoots by about a twentieth and settles.
+        let peak = (0..=100)
+            .map(|i| ease_pop(i as f32 / 100.0))
+            .fold(0.0, f32::max);
+        assert!(peak > 1.02 && peak < 1.12, "{peak}");
+        assert!((ease_pop(1.0) - 1.0).abs() < 1e-3);
     }
 }

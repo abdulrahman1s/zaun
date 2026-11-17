@@ -27,24 +27,54 @@ fn big() -> Vec2 {
 
 // ---- Statistics --------------------------------------------------------------------------
 
+/// The chart's name for a range ("in the last 7 days").
+fn chart(range: &str) -> String {
+    format!("Playtime, {range}. Show as table for the numbers.")
+}
+
 #[test]
-fn statistics_show_tiles_chart_and_lists() {
+fn statistics_show_the_headline_chart_and_lists() {
     let r = at(Route::Statistics, big(), ThemeChoice::Dark);
-    r.h.get_by_label_contains("Total playtime:");
-    r.h.get_by_role_and_label(Role::Figure, "Playtime per day");
+    r.h.get_by_role_and_label(Role::Heading, "9 h 48 min in the last 7 days");
+    r.h.get_by_role_and_label(Role::Figure, &chart("in the last 7 days"));
     r.h.get_all_by_label("Most played").next().unwrap();
     r.h.get_all_by_label("Recent sessions").next().unwrap();
+}
+
+/// The headline says the period's time, and one sentence under it the games, the sessions
+/// and the streak, for every period.
+#[test]
+fn the_headline_and_its_sentence_follow_the_period() {
+    let mut r = at(Route::Statistics, big(), ThemeChoice::Dark);
+    r.h.get_by_role_and_label(Role::Heading, "9 h 48 min in the last 7 days");
+    r.h.get_by_label_contains("9 games and 12 sessions.");
+    for (word, says) in [
+        ("30 days", "in the last 30 days"),
+        ("Year", "in the last year"),
+        ("All time", "in all"),
+    ] {
+        r.h.get_by_role_and_label(Role::RadioButton, word).click();
+        settle(&mut r);
+        let heading =
+            r.h.query_all_by_role(Role::Heading)
+                .filter_map(|n| n.accesskit_node().label())
+                .find(|l| l.ends_with(says));
+        assert!(heading.is_some(), "a headline {says}");
+        r.h.get_by_role_and_label(Role::Figure, &chart(says));
+        r.h.get_by_label_contains(" sessions.");
+    }
 }
 
 #[test]
 fn returning_to_statistics_shows_cached_results_in_the_first_frame() {
     let mut r = at(Route::Statistics, big(), ThemeChoice::Dark);
     r.h.state_mut().state.nav.go_to(Route::Library);
-    r.h.run();
+    r.h.run_steps(10);
     r.fake.clear_sent();
     r.h.state_mut().state.nav.go_to(Route::Statistics);
-    r.h.step();
-    r.h.get_by_label_contains("Total playtime:");
+    // (The page takes 80 ms to change.)
+    r.h.run_steps(10);
+    r.h.get_by_role_and_label(Role::Heading, "9 h 48 min in the last 7 days");
     assert!(!r.fake.sent().iter().any(|c| matches!(
         c,
         UiCommand::QueryStats {
@@ -88,7 +118,7 @@ fn failed_statistics_wait_for_retry() {
     }
     assert_eq!(asked, 1);
     r.h.get_by_label("Couldn't load statistics");
-    r.h.get_by_role_and_label(Role::Button, "Retry").click();
+    r.h.get_by_role_and_label(Role::Button, "Try again").click();
     r.h.run_steps(2);
     assert_eq!(fail_all(&mut r), 1);
 }
@@ -96,7 +126,7 @@ fn failed_statistics_wait_for_retry() {
 #[test]
 fn chart_bars_move_with_arrow_keys_and_the_table_toggles() {
     let mut r = at(Route::Statistics, big(), ThemeChoice::Dark);
-    r.h.get_by_role_and_label(Role::Figure, "Playtime per day")
+    r.h.get_by_role_and_label(Role::Figure, &chart("in the last 7 days"))
         .focus();
     r.h.run();
     r.h.key_press(Key::End);
@@ -105,9 +135,26 @@ fn chart_bars_move_with_arrow_keys_and_the_table_toggles() {
     r.h.key_press(Key::ArrowLeft);
     r.h.run();
     assert_eq!(r.h.state().state.stats.bar, Some(5));
+    // "Show as table" swaps the plot for the numbers, and back.
     r.h.get_by_label("Show as table").click();
     r.h.run();
-    r.h.get_by_role_and_label(Role::Table, "Playtime per day");
+    assert!(r.h.state().state.stats.table);
+    assert!(
+        r.h.query_by_role_and_label(Role::Figure, &chart("in the last 7 days"))
+            .is_none()
+    );
+    let table = r.h.get_by_role(Role::Table);
+    assert!(
+        table
+            .accesskit_node()
+            .label()
+            .unwrap_or_default()
+            .starts_with("Playtime")
+    );
+    assert!(r.h.query_all_by_role(Role::Row).count() >= 1);
+    r.h.get_by_label("Show as chart").click();
+    r.h.run();
+    r.h.get_by_role_and_label(Role::Figure, &chart("in the last 7 days"));
 }
 
 #[test]
@@ -117,7 +164,7 @@ fn changing_the_range_queries_again() {
     r.h.get_by_label("30 days").click();
     settle(&mut r);
     assert_eq!(r.h.state().state.stats.range, 1);
-    r.h.get_by_role_and_label(Role::Figure, "Playtime per day");
+    r.h.get_by_role_and_label(Role::Figure, &chart("in the last 30 days"));
 }
 
 #[test]
@@ -172,12 +219,16 @@ fn every_preference_has_a_control() {
     let table =
         easyplay_core::config::load::to_table(&easyplay_core::config::Preferences::default())
             .unwrap();
+    // The list's column widths were set by dragging its headers; the list's columns are
+    // fixed now, so nothing sets them and no row offers to reset them. The stored value is
+    // still read (and ignored), so older files load.
+    let without_control = ["appearance.list_column_widths"];
     let mut missing = Vec::new();
     for (section, v) in table.iter() {
         let Some(t) = v.as_table() else { continue };
         for key in t.keys() {
             let full = format!("{section}.{key}");
-            if !rendered.contains(&full) {
+            if !rendered.contains(&full) && !without_control.contains(&full.as_str()) {
                 missing.push(full);
             }
         }
@@ -186,7 +237,7 @@ fn every_preference_has_a_control() {
 }
 
 #[test]
-fn a_toggle_applies_at_once_with_a_saved_tick() {
+fn a_toggle_applies_at_once() {
     let mut r = at(
         Route::Settings(SettingsTab::General),
         Vec2::new(1280.0, 1600.0),
@@ -208,7 +259,48 @@ fn a_toggle_applies_at_once_with_a_saved_tick() {
         preview.general.confirm_remove,
         !demo::preferences().general.confirm_remove
     );
-    r.h.get_all_by_label("Saved").next().unwrap();
+    // The switch shows the new value at once.
+    r.h.run();
+    let on =
+        r.h.get_by_role_and_label(Role::Switch, "Ask before removing a game")
+            .accesskit_node()
+            .toggled();
+    let want = if preview.general.confirm_remove {
+        egui::accesskit::Toggled::True
+    } else {
+        egui::accesskit::Toggled::False
+    };
+    assert_eq!(on, Some(want));
+}
+
+/// A row whose condition is unmet is drawn faint and takes no input: the history switches
+/// while playtime is not recorded, looking up app IDs while artwork is off.
+#[test]
+fn settings_rows_are_greyed_by_their_condition() {
+    let mut r = at(
+        Route::Settings(SettingsTab::General),
+        Vec2::new(1280.0, 1600.0),
+        ThemeChoice::Dark,
+    );
+    let disabled = |r: &Rig, l: &str| {
+        r.h.get_by_role_and_label(Role::Switch, l)
+            .accesskit_node()
+            .is_disabled()
+    };
+    assert!(!disabled(&r, "Keep the history of removed games"));
+    assert!(
+        disabled(&r, "Look up app IDs by game name"),
+        "artwork is off"
+    );
+    r.h.get_by_role_and_label(Role::Switch, "Record playtime")
+        .click();
+    r.h.run();
+    assert!(disabled(&r, "Keep the history of removed games"));
+    assert!(disabled(&r, "Show tool and installer sessions in history"));
+    r.h.get_by_role_and_label(Role::RadioButton, "From Steam's image server")
+        .click();
+    r.h.run();
+    assert!(!disabled(&r, "Look up app IDs by game name"));
 }
 
 #[test]
@@ -234,7 +326,7 @@ fn settings_tabs_move_with_arrow_keys() {
     );
     r.h.get_by_role_and_label(Role::Tab, "General").focus();
     r.h.run();
-    r.h.key_press(Key::ArrowDown);
+    r.h.key_press(Key::ArrowRight);
     r.h.run();
     assert_eq!(
         r.h.state().state.nav.current(),
@@ -312,6 +404,10 @@ fn onboarding(host: easyplay_ui::bridge::HostView, choice: ThemeChoice, size: Ve
     let fake = FakeBackend::new(settled_library());
     let mut prefs = demo::preferences();
     prefs.onboarding.completed = false;
+    // The theme the preferences ask for is the one applied.
+    if matches!(choice, ThemeChoice::Light) {
+        prefs.appearance.theme = Theme::Light;
+    }
     fake.publish_prefs(prefs);
     fake.publish_host(host);
     let mut r = common::rig_on(fake, Route::Library, size, choice);
@@ -339,12 +435,12 @@ fn uf1_all_checks_pass_and_onboarding_completes() {
     r.h.get_by_label("Compatibility layer");
     r.h.get_by_role_and_label(Role::Button, "Continue").click();
     r.h.run();
-    r.h.get_by_label("Download covers from Steam's image server (shared.steamstatic.com)")
+    r.h.get_by_role_and_label(Role::Switch, "Official artwork")
         .click();
     r.h.run();
     r.h.get_by_role_and_label(Role::Button, "Start using EasyPlay")
         .click();
-    r.h.run();
+    r.h.run_steps(10);
     let sent = fake.sent();
     assert!(sent.contains(&UiCommand::CompleteOnboarding { skipped: false }));
     assert!(sent.iter().any(|c| matches!(c, UiCommand::SetPreference { patch, .. } if patch.keys().any(|k| k == "artwork.online"))));
@@ -364,9 +460,14 @@ fn a_blocking_failure_cannot_be_passed_and_skip_leaves_a_banner() {
     r.h.get_by_label_contains(
         "Private namespaces: turned off on this system, failed; fix available",
     );
+    // The step's count, and Continue held back with the reason; Skip stays.
+    r.h.get_by_label("Step 2 of 4: Checking your system");
     let cont = r.h.get_by_role_and_label(Role::Button, "Continue");
     assert!(cont.accesskit_node().is_disabled());
-    r.h.get_by_label("Fix the failed check to continue");
+    assert_eq!(
+        cont.accesskit_node().description().as_deref(),
+        Some("One check failed. Games may not start until it is fixed.")
+    );
     r.h.get_by_role_and_label(Role::Button, "Skip for now")
         .click();
     r.h.run();

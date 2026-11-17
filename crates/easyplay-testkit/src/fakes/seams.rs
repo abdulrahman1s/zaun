@@ -27,6 +27,7 @@
 //! ```
 
 use std::collections::{HashMap, VecDeque};
+use std::os::fd::BorrowedFd;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -35,6 +36,7 @@ use easyplay_core::artwork::codec::{
 };
 use easyplay_core::desktop::mime::{HandlerStatus, MimeRegistrar, MimeType, PreviousHandlers};
 use easyplay_core::error::{Error, ErrorCode};
+use easyplay_core::host::wayland::ContextRequest;
 use easyplay_core::host::{HostFacts, HostProbe, Revalidation};
 use easyplay_core::identity::pe::{IconBytes, PeError, PeInspector, PeLimits};
 use easyplay_core::launch::PlanSandbox;
@@ -366,6 +368,7 @@ pub struct ScriptedSpawner {
     scripts: VecDeque<SpawnScript>,
     calls: SpawnCalls,
     sound: Arc<Mutex<Vec<PathBuf>>>,
+    wayland: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 impl ScriptedSpawner {
@@ -375,7 +378,14 @@ impl ScriptedSpawner {
             scripts: scripts.into_iter().collect(),
             calls: Arc::new(Mutex::new(Vec::new())),
             sound: Arc::new(Mutex::new(Vec::new())),
+            wayland: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    /// The socket of every restricted Wayland socket created (nothing is created; the
+    /// compositor is never reached), shared with clones of the handle.
+    pub fn wayland_contexts(&self) -> Arc<Mutex<Vec<PathBuf>>> {
+        Arc::clone(&self.wayland)
     }
 
     /// The socket of every sound server started, shared with clones of the handle.
@@ -464,6 +474,15 @@ impl SandboxSpawner for ScriptedSpawner {
             polls: u32::MAX,
             killed: false,
         }))
+    }
+
+    fn create_wayland_context(
+        &mut self,
+        request: ContextRequest<'_>,
+        _close_fd: BorrowedFd<'_>,
+    ) -> Result<(), Error> {
+        self.wayland.lock().push(request.socket.to_owned());
+        Ok(())
     }
 }
 

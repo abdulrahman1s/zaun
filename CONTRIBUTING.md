@@ -63,12 +63,34 @@ niri msg --json windows               # is_floating and layout.window_size for t
 - Sound checks fail in such an instance (no PipeWire socket in the private runtime
   directory); that is expected.
 
+## Strings and languages
+
+The interface's text lives in `crates/easyplay-ui/locales/<code>.yml` (ADR-0032).
+
+- **Add a string.** Add a key `<module>.<name>` in `locales/en.yml` and in every other
+  language file (a test fails when one is missing or its `%{...}` arguments differ). A fixed
+  text is declared in its `src/strings/<module>.rs` file inside `texts! { NAME = "module.name"; }`
+  and read as `strings::module::NAME()`. A message with arguments keeps one function in the
+  same module that calls `rust_i18n::t!("module.name", name = value).into_owned()`.
+- **Counts.** Anything that counts is a plural family: the key has children `zero`, `one`,
+  `two`, `few`, `many`, `other` (`other` is required; list the forms the language uses) and
+  is read with `i18n::plural::counted("screen.key", n)`, which fills `%{n}`.
+- **Never build a sentence from fragments.** Word order differs between languages; write the
+  whole sentence as one message with arguments.
+- **Add a language.** Add a variant to `i18n::Language` (code, direction, plural rules in
+  `i18n::plural::category`), a `locales/<code>.yml` with every key of `en.yml`, the font for
+  its script after the Latin faces in `theme::typography::font_definitions` (and a licence
+  under `assets/licenses/`), and its value to `general.language` in `docs/CONFIGURATION.md`.
+  A right-to-left script other than Arabic also needs `i18n::bidi` taught which characters its
+  face draws, with tests like the Arabic ones.
+
 ## Rules enforced by the build
 
 - No `unsafe` outside `easyplay-init`, `core::session::sys` and `core::sandbox::fd`.
 - Time only through `easyplay_core::clock::Clock`; files in core only through
   `easyplay_core::fsx::Fs`; processes only through `host::runner` and `session::spawn`
-  (`clippy.toml`).
+  (`clippy.toml`), plus the supervisor start in `session::launcher` and the detached
+  hand-off to the Steam client in `session::handoff` (ADR-0031).
 - Every user-visible string follows the copy rules of USER_EXPERIENCE and SECURITY_MODEL §10
   (no jargon in normal mode; no claims of perfect safety).
 

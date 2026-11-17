@@ -530,6 +530,61 @@ fn a_sound_server_that_does_not_start_fails_the_launch() {
     );
 }
 
+/// A restricted Wayland socket that cannot be created (ADR-0029) fails the launch before the
+/// sandbox starts (the fake `bwrap` would otherwise end the session with status 0), and the
+/// sound server already started for the session is stopped. The sound server is left out
+/// where its socket path would not fit a socket address (a long `TMPDIR`): it would fail
+/// first and the test would prove nothing about the context.
+#[test]
+fn a_wayland_context_that_cannot_be_created_fails_the_launch() {
+    use easyplay_core::sandbox::HostAction;
+    let _s = serial();
+    let _turn = helpers_turn();
+    let w = World::new();
+    let mut p = plan(&w, &PlanOpts::default());
+    let sound = p.paths.runtime_dir.join("sound");
+    let with_sound = sound.join("native").as_os_str().len() <= 107;
+    if with_sound {
+        p.host_actions.push(HostAction::StartSoundServer {
+            program: workspace_bin("fake-pipewire"),
+            dir: sound.clone(),
+            remote: "/run/user/1000/pipewire-0".into(),
+            log: p.paths.log_dir.join("sound-server.log"),
+        });
+    } else {
+        eprintln!("without the sound server: {} is too long", sound.display());
+    }
+    p.host_actions.push(HostAction::CreateWaylandContext {
+        display: "/nonexistent/wayland-0".into(),
+        socket: p.paths.runtime_dir.join("wayland"),
+        app_id: "test".into(),
+        instance_id: "1".into(),
+    });
+    let r = start_with(
+        &w,
+        p,
+        cfg(&w),
+        Box::new(w.db()),
+        Arc::new(SystemClock::new()),
+    );
+    let (out, _) = r.join();
+    assert!(
+        matches!(
+            out,
+            SupervisorOutcome::Ended {
+                reason: EndReason::FailedToStart {
+                    code: ErrorCode::SbxSetupFailed
+                },
+                spawn_failed: true,
+                ..
+            }
+        ),
+        "{out:?}"
+    );
+    assert!(helpers_alive(&["fake-pipewire"]).is_empty());
+    assert!(!sound.exists());
+}
+
 #[test]
 fn detached_child_keeps_the_session_open() {
     let _s = serial();
@@ -1262,6 +1317,99 @@ fn e2e_detached_child_under_real_bwrap() {
     let s = ended(&w, id);
     assert!(s.duration_ms.unwrap() >= 2700, "{:?}", s.duration_ms);
     assert!(s.pid_ns.is_some());
+}
+
+/// ADR-0029 through the supervisor on the real compositor and the real `bwrap`: the
+/// restricted socket is registered before the sandbox starts and is bound inside it; the
+/// compositor serves it while the session runs and stops once the sandbox is gone. Skipped
+/// without a compositor that offers security contexts.
+#[test]
+fn e2e_restricted_wayland_socket_lives_with_the_session() {
+    use easyplay_core::host::wayland::globals;
+    use easyplay_core::host::{CompositorProbe, LiveCompositor};
+    use easyplay_core::sandbox::HostAction;
+    if !e2e() {
+        eprintln!("skipped: set EASYPLAY_E2E=1");
+        return;
+    }
+    let Some(display) = std::env::var_os("WAYLAND_DISPLAY").and_then(|name| {
+        let p = PathBuf::from(&name);
+        if p.is_absolute() {
+            Some(p)
+        } else {
+            std::env::var_os("XDG_RUNTIME_DIR").map(|d| PathBuf::from(d).join(name))
+        }
+    }) else {
+        eprintln!("skipped: no Wayland compositor");
+        return;
+    };
+    if !LiveCompositor.offers_security_context(&display) {
+        eprintln!("skipped: the compositor offers no security contexts");
+        return;
+    }
+    let _s = serial();
+    let _turn = helpers_turn();
+    let w = World::new();
+    let mut p = plan(
+        &w,
+        &PlanOpts {
+            fake: "umu,game,sleep:1500,exit:0",
+            real_bwrap: true,
+            ..PlanOpts::default()
+        },
+    );
+    let socket = p.paths.runtime_dir.join("wayland");
+    if socket.as_os_str().len() > 107 {
+        eprintln!(
+            "skipped: {} is too long for a socket (set TMPDIR=/tmp)",
+            socket.display()
+        );
+        return;
+    }
+    p.host_actions.push(HostAction::CreateWaylandContext {
+        display,
+        socket: socket.clone(),
+        app_id: w.game.to_string(),
+        instance_id: p.session.id.to_string(),
+    });
+    p.sandbox.args.extend([
+        "--ro-bind".into(),
+        socket.clone().into_os_string(),
+        "/run/wayland-0".into(),
+    ]);
+    let r = start_with(
+        &w,
+        p,
+        cfg(&w),
+        Box::new(w.db()),
+        Arc::new(SystemClock::new()),
+    );
+    // Served while the session runs. A second name for the socket outlives the session's
+    // runtime directory, so the end can be checked too.
+    let link = w.paths.data_dir.join("wayland-link");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while globals(&socket).is_err() {
+        assert!(Instant::now() < deadline, "never served");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    std::fs::hard_link(&socket, &link).unwrap();
+    assert!(globals(&link).is_ok());
+    let (out, _) = r.join();
+    assert!(
+        matches!(
+            out,
+            SupervisorOutcome::Ended {
+                reason: EndReason::Exited { code: 0 },
+                ..
+            }
+        ),
+        "{out:?}"
+    );
+    let gone = Instant::now() + Duration::from_secs(3);
+    while globals(&link).is_ok() {
+        assert!(Instant::now() < gone, "still served after the session");
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 #[test]

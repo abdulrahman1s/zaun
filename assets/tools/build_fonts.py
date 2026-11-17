@@ -7,16 +7,20 @@ Outputs (all committed; rerun only when the icon list or a source font changes):
   assets/fonts/Inter-Tabular.ttf           Inter Variable digits with tabular figures baked in
   assets/fonts/Inter-Variable.ttf          copied
   assets/fonts/JetBrainsMono-Regular.ttf   copied
+  assets/fonts/InstrumentSans_Condensed-Bold.ttf          the display face: Instrument Sans
+                                           instanced at wdth 75, wght 700
+  assets/fonts/InstrumentSans_Condensed-Bold-Tabular.ttf  its digits with tabular figures
   crates/easyplay-ui/src/theme/icons_gen.rs
 
-Usage (from the repository root):
+Usage (from the repository root); every source is optional, and only what is given is built:
 
   nix shell --impure --expr 'with import <nixpkgs> {}; python3.withPackages (ps: [ ps.fonttools ])' \\
     -c python3 -I assets/tools/build_fonts.py \\
-       --phosphor <@phosphor-icons/web 2.x package dir> \\
-       --inter <InterVariable.ttf 4.x> --mono <JetBrainsMono-Regular.ttf 2.304>
+       --phosphor <@phosphor-icons/web 2.x package dir/src> \\
+       --inter <InterVariable.ttf 4.x> --mono <JetBrainsMono-Regular.ttf 2.304> \\
+       --display <InstrumentSans[wdth,wght].ttf>
 
-The tabular face exists because egui 0.37 does not apply OpenType features, so `tnum` is
+The tabular faces exist because egui 0.37 does not apply OpenType features, so `tnum` is
 applied here once by remapping the digit code points to their tabular glyphs.
 """
 
@@ -31,6 +35,7 @@ from fontTools.pens.recordingPen import DecomposingRecordingPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.fontBuilder import FontBuilder
 from fontTools.ttLib import TTFont
+from fontTools.varLib import instancer
 
 ROOT = Path(__file__).resolve().parents[2]
 FONTS = ROOT / "assets" / "fonts"
@@ -165,8 +170,8 @@ def build_icons(phosphor_dir):
     return icons
 
 
-def build_tabular(inter_path):
-    font = TTFont(inter_path)
+def bake_tabular(font, out_path, family, ps_name):
+    """Keep only the digits of `font`, with `tnum` applied, and save it as `family`."""
     gsub = font["GSUB"].table
     cmap = font.getBestCmap()
     digits = {cp: cmap[cp] for cp in range(0x30, 0x3A)}
@@ -182,16 +187,16 @@ def build_tabular(inter_path):
                     mapping = getattr(st.ExtSubTable, "mapping", None)
                 if mapping:
                     tnum.update(mapping)
-    for cp, g in digits.items():
-        if g not in tnum:
-            raise SystemExit(f"no tnum glyph for {g}")
-    # Remap the digit code points to their tabular glyphs, then keep only those.
+    if not any(g in tnum for g in digits.values()):
+        raise SystemExit(f"no tnum glyphs in {family}")
+    # Remap the digit code points to their tabular glyphs, then keep only those. A digit
+    # without a tabular alternate is tabular as drawn.
     for t in font["cmap"].tables:
         if not t.isUnicode():
             continue
         for cp, g in digits.items():
             if cp in t.cmap:
-                t.cmap[cp] = tnum[g]
+                t.cmap[cp] = tnum.get(g, g)
     opts = subset.Options()
     opts.layout_features = []
     opts.name_IDs = ["*"]
@@ -201,10 +206,30 @@ def build_tabular(inter_path):
     sub.subset(font)
     for rec in font["name"].names:
         if rec.nameID in (1, 4, 16):
-            rec.string = "Inter Tabular"
+            rec.string = family
         elif rec.nameID == 6:
-            rec.string = "InterTabular"
-    font.save(FONTS / "Inter-Tabular.ttf")
+            rec.string = ps_name
+    font.save(out_path)
+
+
+def build_tabular(inter_path):
+    bake_tabular(TTFont(inter_path), FONTS / "Inter-Tabular.ttf", "Inter Tabular", "InterTabular")
+
+
+def build_display(variable_path):
+    """The display face (UI_DESIGN_SYSTEM §3): Instrument Sans Condensed Bold, one static
+    instance of the variable font, and its tabular digits."""
+    out = FONTS / "InstrumentSans_Condensed-Bold.ttf"
+    static = instancer.instantiateVariableFont(
+        TTFont(variable_path), {"wdth": 75, "wght": 700}, updateFontNames=True
+    )
+    static.save(out)
+    bake_tabular(
+        TTFont(out),
+        FONTS / "InstrumentSans_Condensed-Bold-Tabular.ttf",
+        "Instrument Sans Condensed Tabular",
+        "InstrumentSansCondensed-BoldTabular",
+    )
 
 
 def write_rust(icons):
@@ -232,17 +257,24 @@ def write_rust(icons):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--phosphor", required=True)
-    ap.add_argument("--inter", required=True)
-    ap.add_argument("--mono", required=True)
+    ap.add_argument("--phosphor")
+    ap.add_argument("--inter")
+    ap.add_argument("--mono")
+    ap.add_argument("--display")
     args = ap.parse_args()
     FONTS.mkdir(parents=True, exist_ok=True)
-    icons = build_icons(args.phosphor)
-    build_tabular(args.inter)
-    shutil.copyfile(args.inter, FONTS / "Inter-Variable.ttf")
-    shutil.copyfile(args.mono, FONTS / "JetBrainsMono-Regular.ttf")
-    write_rust(icons)
-    print(f"{len(icons)} icons")
+    if args.phosphor:
+        icons = build_icons(args.phosphor)
+        write_rust(icons)
+        print(f"{len(icons)} icons")
+    if args.inter:
+        build_tabular(args.inter)
+        shutil.copyfile(args.inter, FONTS / "Inter-Variable.ttf")
+    if args.mono:
+        shutil.copyfile(args.mono, FONTS / "JetBrainsMono-Regular.ttf")
+    if args.display:
+        build_display(args.display)
+        print("display face")
 
 
 if __name__ == "__main__":

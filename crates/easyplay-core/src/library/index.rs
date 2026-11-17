@@ -215,8 +215,12 @@ pub struct LibraryTotals {
     pub installers: u32,
     /// *Hidden*.
     pub hidden: u32,
-    /// Σ total playtime over every game (hidden included).
+    /// Σ total playtime over every game EasyPlay runs (hidden included): EasyPlay's own
+    /// recorded sessions only.
     pub total_playtime_ms: u64,
+    /// Σ Steam's play time over the Steam games listed (hidden included), shown apart: it
+    /// comes from Steam, not from EasyPlay's sessions (STATISTICS §11).
+    pub steam_playtime_ms: u64,
 }
 
 /// The only library data the UI has (GAME_LIBRARY §1.1).
@@ -434,6 +438,7 @@ pub fn summarize(
             needs_attention: !r.is_readable() || primary.is_none(),
             has_warning: false,
         },
+        origin: crate::model::GameOrigin::EasyPlay,
     }
 }
 
@@ -458,7 +463,11 @@ fn totals_of(games: &[GameSummary], now: Timestamp) -> LibraryTotals {
     let mut t = LibraryTotals::default();
     let mut recent = 0usize;
     for g in games {
-        t.total_playtime_ms = t.total_playtime_ms.saturating_add(g.total_playtime_ms);
+        if g.is_steam() {
+            t.steam_playtime_ms = t.steam_playtime_ms.saturating_add(g.total_playtime_ms);
+        } else {
+            t.total_playtime_ms = t.total_playtime_ms.saturating_add(g.total_playtime_ms);
+        }
         if g.activity != Activity::Idle {
             t.running += 1;
         }
@@ -471,7 +480,7 @@ fn totals_of(games: &[GameSummary], now: Timestamp) -> LibraryTotals {
         }
         t.all += 1;
         t.favorites += u32::from(g.favorite);
-        t.never_played += u32::from(g.session_count == 0 && g.kind == EntryKind::Game);
+        t.never_played += u32::from(g.never_played() && g.kind == EntryKind::Game);
         t.installed += u32::from(g.availability == Availability::Present);
         t.installers += u32::from(g.kind == EntryKind::Installer);
         recent += usize::from(played_recently(g, now));
@@ -677,6 +686,26 @@ impl LibrarySnapshot {
     pub fn with_tags(&self, tags: Vec<TagInfo>, now: Timestamp) -> Self {
         let pairs = self.pairs();
         Self::assemble(self.revision + 1, now, pairs, &tags)
+    }
+
+    /// Replace every Steam game (ADR-0031) with `steam` in one rebuild; the other games and
+    /// their search keys are shared.
+    pub fn with_steam(&self, steam: Vec<GameSummary>, now: Timestamp) -> Self {
+        let mut pairs: Vec<(GameSummary, Arc<SearchEntry>)> = self
+            .pairs()
+            .into_iter()
+            .filter(|(g, _)| !g.is_steam())
+            .collect();
+        pairs.extend(steam.into_iter().map(|g| {
+            let e = Arc::new(SearchEntry::new(&g.name, &g.primary_exe_path));
+            (g, e)
+        }));
+        Self::assemble(self.revision + 1, now, pairs, &self.base_tags())
+    }
+
+    /// The Steam games of this snapshot.
+    pub fn steam_games(&self) -> impl Iterator<Item = &GameSummary> {
+        self.games.iter().filter(|g| g.is_steam())
     }
 
     /// Apply new overlays to every game (no database access).

@@ -1,23 +1,18 @@
-//! Slider (§7.4): a 4 px rail, the filled part in `accent`, a round 18 px knob in
-//! `bg.raised` with a `border.strong` outline; drag, click or arrow keys (`Home`/`End` for the
-//! ends). egui's own slider paints rail and knob with the same widget fill, which left the
-//! rail invisible on the light theme (UX-004).
+//! Slider: a 4 pt track, the accent fill up to the thumb and `o3` after it, a 14 pt round
+//! thumb in primary text, 150 wide and 20 high in the design. Drag, click or arrow keys
+//! (`Home` / `End` for the ends).
 
 use std::ops::RangeInclusive;
 
-use egui::{CornerRadius, Key, Modifiers, Response, Sense, Stroke, Ui, pos2, vec2};
+use egui::{CornerRadius, Key, Modifiers, Rect, Response, Sense, Ui, pos2, vec2};
 
-use super::{focus_ring, hover_t};
-use crate::theme::palette::{fade, mix};
-use crate::theme::tokens::{alpha, control, radius, stroke};
+use super::focus_ring;
+use crate::theme::tokens::{control, radius};
 use crate::theme::{self};
 
-const RAIL_H: f32 = 4.0;
-const KNOB: f32 = 18.0;
-
-/// A horizontal slider over `range` in steps of `step`, `width` wide. `value_text` is the
-/// spoken and shown value ("100 %"). `changed()` is set while the value moves;
-/// `drag_stopped()` / keyboard steps mark the end of an edit.
+/// A horizontal slider over `range` in steps of `step`, `width` wide (the design's is
+/// [`control::SLIDER_W`]). `value_text` is the spoken value ("100 %"). `changed()` is set
+/// while the value moves; `drag_stopped()` / keyboard steps mark the end of an edit.
 pub fn slider(
     ui: &mut Ui,
     value: &mut f32,
@@ -31,14 +26,16 @@ pub fn slider(
     let p = &theme.palette;
     let (lo, hi) = (*range.start(), *range.end());
     let (rect, mut resp) =
-        ui.allocate_exact_size(vec2(width, control::MD), Sense::click_and_drag());
-    let rail = egui::Rect::from_center_size(rect.center(), vec2(rect.width() - KNOB, RAIL_H));
+        ui.allocate_exact_size(vec2(width, control::SLIDER_H), Sense::click_and_drag());
+    let thumb = control::SLIDER_THUMB;
+    // The thumb's centre runs from half a thumb in from each end, as a range input's does.
+    let run = (rect.left() + thumb / 2.0)..=(rect.right() - thumb / 2.0);
     let snap = |v: f32| ((v / step).round() * step).clamp(lo, hi);
     let before = *value;
     if let Some(pos) = resp.interact_pointer_pos()
         && (resp.dragged() || resp.clicked())
     {
-        let t = ((pos.x - rail.left()) / rail.width()).clamp(0.0, 1.0);
+        let t = ((pos.x - run.start()) / (run.end() - run.start()).max(1.0)).clamp(0.0, 1.0);
         *value = snap(lo + t * (hi - lo));
     }
     if resp.has_focus() {
@@ -76,33 +73,31 @@ pub fn slider(
 
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
-        let dim = |c| if enabled { c } else { fade(c, alpha::DISABLED) };
         let t = if hi > lo {
-            (*value - lo) / (hi - lo)
+            ((*value - lo) / (hi - lo)).clamp(0.0, 1.0)
         } else {
             0.0
         };
-        let knob_x = rail.left() + t * rail.width();
-        let corner = CornerRadius::same(radius::PILL);
-        painter.rect_filled(rail, corner, dim(mix(p.bg_raised, p.text_primary, 0.14)));
-        let filled = egui::Rect::from_min_max(rail.min, pos2(knob_x, rail.max.y));
-        painter.rect_filled(filled, corner, dim(p.accent));
-        let hover = hover_t(&resp, &theme);
-        let c = pos2(knob_x, rail.center().y);
-        let r = KNOB / 2.0 + hover;
-        painter.circle(
-            c,
-            r,
-            dim(p.bg_raised),
-            Stroke::new(
-                stroke::BORDER + hover,
-                dim(mix(p.border_strong, p.accent, hover)),
-            ),
+        let track =
+            Rect::from_center_size(rect.center(), vec2(rect.width(), control::SLIDER_TRACK));
+        // The fill runs to the same fraction of the whole track (CSS `--p`).
+        let split = track.left() + track.width() * t;
+        painter.rect_filled(
+            Rect::from_min_max(track.min, pos2(split, track.max.y)),
+            CornerRadius::ZERO,
+            p.fill,
         );
+        painter.rect_filled(
+            Rect::from_min_max(pos2(split, track.min.y), track.max),
+            CornerRadius::ZERO,
+            p.o3,
+        );
+        let c = pos2(egui::lerp(run, t), rect.center().y);
+        painter.circle_filled(c, thumb / 2.0, p.t1);
         if resp.has_focus() {
             focus_ring(
                 painter,
-                egui::Rect::from_center_size(c, egui::Vec2::splat(KNOB)),
+                Rect::from_center_size(c, egui::Vec2::splat(thumb)),
                 CornerRadius::same(radius::PILL),
                 &theme,
             );

@@ -121,6 +121,36 @@ uuid_id!(
     /// A game in the library.
     GameId
 );
+/// The fixed upper 96 bits of a Steam game's [`GameId`] (ADR-0031): `"STEAM"` in ASCII, the
+/// UUID version nibble 8 (custom) and the RFC 4122 variant. Generated IDs are version 7, so
+/// the two kinds can never collide.
+const STEAM_ID_PREFIX: u128 = 0x5354_4541_4d00_8000_8000_0000_0000_0000;
+const STEAM_ID_MASK: u128 = !0xFFFF_FFFF;
+
+impl GameId {
+    /// The identifier of the Steam game with app ID `app_id` (ADR-0031): the app ID is the
+    /// game's identity; this is its spelling in EasyPlay's vocabulary, the same on every
+    /// machine and every scan. `app_id` 0 is not a Steam app; callers never pass it.
+    pub const fn steam(app_id: u32) -> Self {
+        Self(Uuid::from_u128(STEAM_ID_PREFIX | app_id as u128))
+    }
+
+    /// The Steam app ID when this identifies a Steam game.
+    pub const fn steam_app_id(&self) -> Option<u32> {
+        let v = self.0.as_u128();
+        if v & STEAM_ID_MASK == STEAM_ID_PREFIX && v as u32 != 0 {
+            Some(v as u32)
+        } else {
+            None
+        }
+    }
+
+    /// Whether this identifies a Steam game.
+    pub const fn is_steam(&self) -> bool {
+        self.steam_app_id().is_some()
+    }
+}
+
 uuid_id!(
     /// An executable belonging to a game.
     ExecutableId
@@ -321,6 +351,23 @@ mod tests {
         fn mono(&self) -> MonoInstant {
             MonoInstant::ZERO
         }
+    }
+
+    #[test]
+    fn steam_ids_round_trip_and_never_match_generated_ones() {
+        for app in [1, 10, 1_174_180, u32::MAX] {
+            let id = GameId::steam(app);
+            assert_eq!(id.steam_app_id(), Some(app));
+            assert_eq!(id.as_uuid().get_version_num(), 8);
+            assert_eq!(id.to_string().parse::<GameId>().unwrap(), id);
+        }
+        assert_eq!(GameId::steam(0).steam_app_id(), None);
+        let generated = GameId::generate(&At(1_794_480_000_123));
+        assert!(!generated.is_steam());
+        assert_eq!(
+            GameId::steam(440).to_string(),
+            "53544541-4d00-8000-8000-0000000001b8"
+        );
     }
 
     #[test]

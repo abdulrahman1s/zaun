@@ -47,17 +47,17 @@ impl Route {
     /// The name used in the window title (the game's name is supplied by the caller).
     pub fn title<'a>(&self, game_name: Option<&'a str>) -> &'a str {
         match self {
-            Route::Library => strings::library::TITLE,
-            Route::Game(_) => game_name.unwrap_or(strings::library::TITLE),
-            Route::Statistics => strings::nav::STATISTICS,
-            Route::Settings(_) => strings::nav::SETTINGS,
-            Route::Onboarding => strings::nav::ONBOARDING,
-            Route::Gallery => strings::nav::GALLERY,
+            Route::Library => strings::library::TITLE(),
+            Route::Game(_) => game_name.unwrap_or(strings::library::TITLE()),
+            Route::Statistics => strings::nav::STATISTICS(),
+            Route::Settings(_) => strings::nav::SETTINGS(),
+            Route::Onboarding => strings::nav::ONBOARDING(),
+            Route::Gallery => strings::nav::GALLERY(),
         }
     }
 
-    /// Whether the route shows the sidebar.
-    pub const fn has_sidebar(&self) -> bool {
+    /// Whether the route shows the top bar (the welcome steps cover the whole window).
+    pub const fn has_top_bar(&self) -> bool {
         !matches!(self, Route::Onboarding)
     }
 }
@@ -149,7 +149,7 @@ impl Navigator {
         }
     }
 
-    /// Switch to a top-level destination from the sidebar: the stack becomes `[route]` and
+    /// Switch to a top-level destination from the top bar: the stack becomes `[route]` and
     /// overlays close.
     pub fn go_to(&mut self, route: Route) {
         self.stack.clear();
@@ -246,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_navigation_resets_the_stack() {
+    fn top_bar_navigation_resets_the_stack() {
         let mut n = Navigator::default();
         n.push(Route::Game(game()));
         n.open(Overlay::Shortcuts);

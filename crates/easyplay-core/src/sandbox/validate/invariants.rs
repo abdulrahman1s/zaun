@@ -256,7 +256,8 @@ fn sockets(
         .x11_bindable()
         .map(|x| Path::new("/tmp/.X11-unix").join(format!("X{}", x.number)));
     let host_xrd = host.display.xdg_runtime_dir.clone();
-    // The socket of the session's own sound server, which the plan starts (ADR-0026).
+    // The sockets of the session's own sound server, which the plan starts (ADR-0026), and
+    // of its restricted Wayland connection, which the plan creates (ADR-0029).
     let sound: Vec<PathBuf> = plan
         .host_actions
         .iter()
@@ -264,7 +265,11 @@ fn sockets(
             HostAction::StartSoundServer { dir, .. } => Some(sound_socket(dir)),
             _ => None,
         })
+        .chain(crate::sandbox::wayland_ctx::context_sockets(&plan.host_actions).cloned())
         .collect();
+    let restricted_wayland = crate::sandbox::wayland_ctx::context_sockets(&plan.host_actions)
+        .next()
+        .is_some();
     for m in &plan.mounts {
         let dst = m.kind.dst();
         if m.kind.is_host_bind() && dst.starts_with(xrd) && !allowed_dst.iter().any(|a| a == dst) {
@@ -304,6 +309,17 @@ fn sockets(
                     "only the documented sockets may come from the runtime directory",
                 ));
             }
+        }
+        // A restricted Wayland socket replaces the compositor's own; never both (ADR-0029).
+        if restricted_wayland
+            && let Some(src) = m.kind.src()
+            && host.display.wayland.as_ref().is_some_and(|w| w.path == src)
+        {
+            out.push(fail(
+                IssueCode::InvSocket,
+                Some(src),
+                "the compositor's own Wayland socket is bound next to the restricted one",
+            ));
         }
     }
 }

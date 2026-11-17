@@ -10,6 +10,7 @@ pub mod lnk;
 pub mod pe;
 pub mod policies;
 pub mod runtime_trees;
+pub mod steam_root;
 
 use std::path::Path;
 

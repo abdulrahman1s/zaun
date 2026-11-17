@@ -1,97 +1,161 @@
-//! The launch inspector sheet (DEVELOPER_MODE §3, DEV-002): Summary, Access, Command,
-//! Sandbox, Environment, Processes, Events, Raw. Tables are virtualized
-//! (`egui_extras::TableBuilder`), cells are selectable `mono` text. Every value shown comes
-//! from the structures the launcher executes (`InspectorData`).
+//! The launch inspector (DEVELOPER_MODE §3, DEV-002): Summary, Access, Command, Sandbox,
+//! Environment, Processes, Events, Raw. Every value shown comes from the structures the
+//! launcher executes (`InspectorData`).
+//!
+//! The design does not draw it; it is built from the design's parts: the wide dialog, tabs
+//! 14 apart (the dialog's column is narrow), facts for the summary, 15 pt headings, table
+//! rows (34 high over a hairline, a 28 header in 12 pt quiet text) whose cells are
+//! selectable mono text, quiet text buttons for the copy actions, and rows that open like
+//! doors for the access statements. Nothing is boxed. Only the rows of a table that are in
+//! view are drawn.
 
 use easyplay_core::launch::inspect::{self, MountRow};
 use easyplay_core::launch::{InspectorData, InspectorSource};
-use egui::{Context, Id, RichText, Ui};
-use egui_extras::{Column, TableBuilder};
+use egui::{Align2, Color32, Context, CornerRadius, Id, Rect, Sense, Ui, pos2, vec2};
 
 use super::super::Env;
+use crate::a11y;
 use crate::app::UiState;
 use crate::bridge::UiCommand;
 use crate::route::Overlay;
 use crate::strings::debug as s;
-use crate::theme::tokens::space;
-use crate::theme::{self, Type};
+use crate::theme::palette::mix;
+use crate::theme::tokens::{debug as dbg, game, icon as icon_size, layout, radius};
+use crate::theme::{self, Type, icons};
 use crate::vm::AsyncValue;
 use crate::vm::debug::{InspectorTab, InspectorVm};
 use crate::vm::toasts::ToastKind;
 use crate::widgets::button::Button;
+use crate::widgets::choice::checkbox;
+use crate::widgets::modal::fine_print;
+use crate::widgets::progress::spinner_widget;
+use crate::widgets::rows::{Col, fact, heading, table_row, table_text};
 use crate::widgets::sheet::sheet;
-use crate::widgets::tabs::tabs;
+use crate::widgets::tabs::Tabs;
+use crate::widgets::text_field::TextField;
+use crate::widgets::{focus_ring, hover_t, press_t};
 
-/// Row height of the tables.
-const ROW_H: f32 = 22.0;
-
-fn mono(ui: &mut Ui, text: impl Into<String>) {
-    let p = theme::theme(ui.ctx()).palette.clone();
-    ui.add(egui::Label::new(Type::Mono.rich(text).color(p.text_primary)).selectable(true));
+/// Selectable mono text in `color`, wrapped to the width at hand.
+pub(super) fn mono(ui: &mut Ui, text: impl Into<String>, color: Color32) {
+    ui.add(
+        egui::Label::new(Type::Mono.rich(text.into()).color(color))
+            .selectable(true)
+            .wrap(),
+    );
 }
 
-/// One summary row inside the summary grid.
-fn key_value(ui: &mut Ui, k: &str, v: impl Into<String>) {
+/// A line of quiet text in the body face: an empty tab, a count.
+pub(super) fn quiet(ui: &mut Ui, text: &str) {
     let p = theme::theme(ui.ctx()).palette.clone();
-    ui.label(Type::Caption.rich(k).color(p.text_secondary));
-    mono(ui, v);
-    ui.end_row();
-}
-
-fn heading(ui: &mut Ui, text: &str) {
-    let p = theme::theme(ui.ctx()).palette.clone();
-    ui.add_space(space::S3);
-    ui.label(Type::Heading.rich(text).color(p.text_primary));
-    ui.add_space(space::S1);
+    Type::Body.paragraph(ui, text, p.t2);
 }
 
 fn copy(env: &Env<'_>, state: &mut UiState, text: String) {
     env.ctx.copy_text(text);
     state.toast(
-        crate::strings::feedback::COPIED,
+        crate::strings::feedback::COPIED(),
         ToastKind::Success,
         None,
         env.mono,
     );
 }
 
-/// A virtualized table with headers and `cells(row) -> Vec<String>`.
-fn table(ui: &mut Ui, salt: &str, headers: &[&str], widths: &[f32], rows: &[Vec<String>]) {
+/// A table of technical values: a header row, then one table row per entry whose cells are
+/// selectable mono text (the first primary, the rest secondary), cut short at the column's
+/// end (the whole value shows under the pointer). Rows out of view only take their place.
+pub(super) fn table(ui: &mut Ui, headers: &[&str], cols: &[Col], rows: &[Vec<String>]) {
     let p = theme::theme(ui.ctx()).palette.clone();
-    let mut b = TableBuilder::new(ui)
-        .id_salt(salt)
-        .striped(true)
-        .resizable(true)
-        .max_scroll_height(360.0)
-        .cell_layout(egui::Layout::left_to_right(egui::Align::Center));
-    for (i, w) in widths.iter().enumerate() {
-        b = if i + 1 == widths.len() {
-            b.column(Column::remainder().at_least(*w).clip(true))
-        } else {
-            b.column(Column::initial(*w).at_least(24.0).clip(true))
-        };
-    }
-    b.header(ROW_H, |mut h| {
-        for t in headers {
-            h.col(|ui| {
-                ui.label(Type::Label.rich(*t).color(p.text_secondary));
-            });
-        }
-    })
-    .body(|body| {
-        body.rows(ROW_H, rows.len(), |mut row| {
-            let r = &rows[row.index()];
-            for c in r {
-                row.col(|ui| {
-                    ui.add(
-                        egui::Label::new(Type::Mono.rich(c.as_str()).color(p.text_primary))
-                            .selectable(true)
-                            .truncate(),
-                    );
-                });
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        table_row(ui, cols, true, |ui, i| {
+            if let Some(h) = headers.get(i) {
+                table_text(ui, h, i, true, false);
             }
         });
+        let w = ui.available_width();
+        for r in rows {
+            let rect = Rect::from_min_size(ui.cursor().min, vec2(w, layout::TABLE_ROW));
+            if !ui.is_rect_visible(rect) {
+                ui.allocate_space(rect.size());
+                continue;
+            }
+            table_row(ui, cols, false, |ui, i| {
+                let Some(text) = r.get(i) else { return };
+                let color = if i == 0 { p.t1 } else { p.t2 };
+                ui.add(
+                    egui::Label::new(Type::Mono.rich(text.as_str()).color(color))
+                        .selectable(true)
+                        .truncate(),
+                );
+            });
+        }
     });
+}
+
+/// A row that opens and closes what is under it (an access statement): the door's plate
+/// and press, its text in primary text, a caret at the right edge (right while closed, down
+/// while open).
+fn disclosure(ui: &mut Ui, text: &str, open: bool) -> egui::Response {
+    let theme = theme::theme(ui.ctx());
+    let p = theme.palette.clone();
+    let w = ui.available_width();
+    let pad = layout::DOOR_PAD;
+    let arrow = icon_size::SMALL;
+    let g = Type::Body.galley(
+        ui,
+        text,
+        p.t1,
+        (w - layout::FACT_GAP - arrow).max(1.0),
+        usize::MAX,
+    );
+    let h = g.size().y.max(Type::Body.line_height()) + pad * 2.0;
+    let plate = ui.painter().add(egui::Shape::Noop);
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
+    let hover = hover_t(&resp, &theme);
+    let pressed = press_t(&resp, &theme);
+    let over = rect.expand2(vec2(layout::ROW_OVERHANG, 0.0));
+    let corner = CornerRadius::same(radius::ROW);
+    let fill = mix(mix(Color32::TRANSPARENT, p.o1, hover), p.o2, pressed);
+    ui.painter()
+        .set(plate, egui::Shape::rect_filled(over, corner, fill));
+    ui.painter()
+        .galley(pos2(rect.left(), rect.top() + pad), g, p.t1);
+    let glyph = if open {
+        icons::CARET_DOWN
+    } else {
+        icons::CARET_RIGHT
+    };
+    ui.painter().text(
+        pos2(
+            rect.right() - arrow / 2.0,
+            rect.top() + pad + Type::Body.line_height() / 2.0,
+        ),
+        Align2::CENTER_CENTER,
+        glyph.text(false),
+        icons::font(icon_size::SMALL),
+        mix(p.t3, p.t1, hover),
+    );
+    a11y::button(&resp, text);
+    ui.ctx()
+        .accesskit_node_builder(resp.id, |n| n.set_expanded(open));
+    if resp.has_focus() {
+        focus_ring(ui.painter(), over, corner, &theme);
+    }
+    resp
+}
+
+/// Quiet text buttons on one line (the copy actions); returns the index clicked.
+fn actions(ui: &mut Ui, labels: &[&str]) -> Option<usize> {
+    let mut out = None;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        for (i, l) in labels.iter().enumerate() {
+            if ui.add(Button::ghost(l)).clicked() {
+                out = Some(i);
+            }
+        }
+    });
+    out
 }
 
 /// Show the sheet (overlay `Inspector`).
@@ -108,16 +172,15 @@ pub fn show(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) {
     let r = sheet(
         ctx,
         id,
-        title,
+        title(),
         false,
         |ui| body(ui, state, env, &mut vm),
-        |ui| can_stop && ui.add(Button::new(s::STOP_SESSION)).clicked(),
+        |ui| can_stop && ui.add(Button::new(s::STOP_SESSION())).clicked(),
     );
     if r.footer
-        && let Some(sid) = vm.procs.session
+        && vm.procs.session.is_some()
         && let Some(g) = vm.game
     {
-        let _ = sid;
         env.bridge.send(UiCommand::Stop {
             id: g,
             force: false,
@@ -136,27 +199,31 @@ fn body(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, vm: &mut InspectorV
         .iter()
         .position(|t| *t == vm.tab)
         .unwrap_or(0);
-    if tabs(ui, s::INSPECTOR_TAB_LABEL, &mut sel, &s::INSPECTOR_TABS).changed() {
+    if Tabs::new(s::INSPECTOR_TAB_LABEL(), &s::INSPECTOR_TABS())
+        .gap(layout::TAB_GAP[1])
+        .show(ui, &mut sel)
+        .changed()
+    {
         vm.tab = InspectorTab::ALL[sel];
     }
-    ui.add_space(space::S3);
+    ui.add_space(game::PANEL_TOP);
     let data = match &vm.data {
         AsyncValue::Ready(d) => d.clone(),
         AsyncValue::Failed(e) => {
-            ui.label(Type::BodyStrong.rich(&e.title).color(p.text_primary));
-            ui.label(Type::Body.rich(&e.message).color(p.text_secondary));
+            ui.label(Type::BodyStrong.rich(&e.title).color(p.t1));
+            quiet(ui, &e.message);
             return;
         }
         _ => {
             ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label(Type::Body.rich(s::PLANNING).color(p.text_secondary));
+                spinner_widget(ui, p.t2);
+                quiet(ui, s::PLANNING());
             });
             return;
         }
     };
     match vm.tab {
-        InspectorTab::Summary => summary(ui, &data, env),
+        InspectorTab::Summary => summary(ui, &data),
         InspectorTab::Access => access(ui, &data, vm),
         InspectorTab::Command => command(ui, state, env, &data),
         InspectorTab::Sandbox => sandbox(ui, &data, vm),
@@ -165,7 +232,7 @@ fn body(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, vm: &mut InspectorV
             if vm.procs.session.is_some() {
                 super::processes::show(ui, env, &mut vm.procs);
             } else {
-                ui.label(Type::Body.rich(s::PROCESSES_PAST).color(p.text_secondary));
+                quiet(ui, s::PROCESSES_PAST());
             }
         }
         InspectorTab::Events => events(ui, &data),
@@ -180,53 +247,66 @@ fn env_value(data: &InspectorData, name: &str) -> Option<String> {
         .map(|r| r.value)
 }
 
-fn summary(ui: &mut Ui, data: &InspectorData, env: &Env<'_>) {
+/// A fact whose value is technical: selectable mono text.
+fn tech(ui: &mut Ui, label: &str, value: impl Into<String>) {
     let p = theme::theme(ui.ctx()).palette.clone();
-    if data.source == InspectorSource::DryRun {
-        ui.label(Type::Caption.rich(s::DRY_RUN).color(p.text_secondary));
-        ui.add_space(space::S2);
-    }
-    let dash = || "—".to_owned();
-    egui::Grid::new("insp.summary")
-        .num_columns(2)
-        .spacing([space::S4, space::S1])
-        .show(ui, |ui| summary_rows(ui, data));
-    if !data.timeline.is_empty() {
-        heading(ui, s::K_TIMELINE);
-        timeline_bar(ui, data);
-    }
-    if !data.notes.is_empty() {
-        heading(ui, s::NOTES);
-        for n in &data.notes {
-            ui.label(Type::Body.rich(format!("• {n}")).color(p.text_secondary));
-        }
-    }
-    let _ = (env, dash);
+    let value = value.into();
+    fact(ui, label, |ui| mono(ui, value, p.t1));
 }
 
-fn summary_rows(ui: &mut Ui, data: &InspectorData) {
+fn summary(ui: &mut Ui, data: &InspectorData) {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    if data.source == InspectorSource::DryRun {
+        fine_print(ui, s::DRY_RUN());
+        ui.add_space(dbg::CONTROLS_GAP);
+    }
+    summary_facts(ui, data);
+    let marks: Vec<Vec<String>> = data
+        .timeline
+        .iter()
+        .filter(|e| matches!(e.kind.as_str(), "state" | "phase"))
+        .map(|e| vec![s::offset_ms(e.t_ms), e.detail.clone()])
+        .collect();
+    if !marks.is_empty() {
+        heading(ui, s::K_TIMELINE(), false);
+        table(
+            ui,
+            &[s::EVENT_COLUMNS()[0], s::EVENT_COLUMNS()[2]],
+            &[Col::Fixed(dbg::OFFSET_COL), Col::Flex(1.0)],
+            &marks,
+        );
+    }
+    if !data.notes.is_empty() {
+        heading(ui, s::NOTES(), false);
+        for n in &data.notes {
+            Type::Body.paragraph(ui, n, p.t2);
+        }
+    }
+}
+
+fn summary_facts(ui: &mut Ui, data: &InspectorData) {
     let plan = &data.plan;
     let c = &plan.context;
     let dash = || "—".to_owned();
-    key_value(ui, s::K_GAME, plan.session.game_name.clone());
-    key_value(ui, s::K_KIND, plan.session.kind.as_str());
-    key_value(
+    tech(ui, s::K_GAME(), plan.session.game_name.clone());
+    tech(ui, s::K_KIND(), plan.session.kind.as_str());
+    tech(
         ui,
-        s::K_PRESET,
+        s::K_PRESET(),
         c.preset
             .map(|x| format!("{x:?}").to_lowercase())
             .unwrap_or_else(dash),
     );
-    key_value(
+    tech(
         ui,
-        s::K_NETWORK,
+        s::K_NETWORK(),
         c.network
             .map(|x| format!("{x:?}").to_lowercase())
             .unwrap_or_else(dash),
     );
-    key_value(
+    tech(
         ui,
-        s::K_LAYER,
+        s::K_LAYER(),
         format!(
             "{} ({})",
             c.runtime_name
@@ -238,21 +318,25 @@ fn summary_rows(ui: &mut Ui, data: &InspectorData) {
                 .unwrap_or_else(dash)
         ),
     );
-    key_value(
+    tech(
         ui,
-        s::K_ISOLATION,
+        s::K_ISOLATION(),
         c.isolation
             .map(|i| i.as_str().to_owned())
             .unwrap_or_else(dash),
     );
-    key_value(
+    tech(
         ui,
-        s::K_PREFIX,
+        s::K_PREFIX(),
         env_value(data, "WINEPREFIX")
             .or_else(|| env_value(data, "STEAM_COMPAT_DATA_PATH"))
             .unwrap_or_else(dash),
     );
-    key_value(ui, s::K_HOME, env_value(data, "HOME").unwrap_or_else(dash));
+    tech(
+        ui,
+        s::K_HOME(),
+        env_value(data, "HOME").unwrap_or_else(dash),
+    );
     let chdir = plan
         .sandbox
         .args
@@ -260,109 +344,81 @@ fn summary_rows(ui: &mut Ui, data: &InspectorData) {
         .position(|a| a == "--chdir")
         .and_then(|i| plan.sandbox.args.get(i + 1))
         .map(|a| a.to_string_lossy().into_owned());
-    key_value(ui, s::K_WORKDIR, chdir.unwrap_or_else(dash));
-    key_value(ui, s::K_SESSION, plan.session.id.to_string());
+    tech(ui, s::K_WORKDIR(), chdir.unwrap_or_else(dash));
+    tech(ui, s::K_SESSION(), plan.session.id.to_string());
     if let Some(sess) = &data.session {
         let end = match (sess.end_reason, sess.exit_status) {
             (Some(r), Some(code)) => s::end_status(r.as_str(), code),
             (Some(r), None) => r.as_str().to_owned(),
-            (None, _) => s::RUNNING.to_owned(),
+            (None, _) => s::RUNNING().to_owned(),
         };
-        key_value(ui, s::K_END, end);
-    }
-}
-
-/// The launch timeline as a segmented bar (state changes, LOGGING §5).
-fn timeline_bar(ui: &mut Ui, data: &InspectorData) {
-    let p = theme::theme(ui.ctx()).palette.clone();
-    let marks: Vec<(u64, String)> = data
-        .timeline
-        .iter()
-        .filter(|e| matches!(e.kind.as_str(), "state" | "phase"))
-        .map(|e| (e.t_ms, e.detail.clone()))
-        .collect();
-    let total = marks.last().map_or(1, |m| m.0.max(1));
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), egui::Sense::hover());
-    let colors = [p.accent, p.info, p.success, p.warning];
-    for (i, w) in marks.windows(2).enumerate() {
-        let x0 = rect.left() + rect.width() * (w[0].0 as f32 / total as f32);
-        let x1 = rect.left() + rect.width() * (w[1].0 as f32 / total as f32);
-        ui.painter().rect_filled(
-            egui::Rect::from_min_max(
-                egui::pos2(x0, rect.top()),
-                egui::pos2(x1.max(x0 + 1.0), rect.bottom()),
-            ),
-            2.0,
-            colors[i % colors.len()],
-        );
-    }
-    for (t, d) in &marks {
-        ui.label(
-            Type::Mono
-                .rich(format!("{}  {d}", s::offset_ms(*t)))
-                .color(p.text_secondary),
-        );
+        tech(ui, s::K_END(), end);
     }
 }
 
 fn access(ui: &mut Ui, data: &InspectorData, vm: &mut InspectorVm) {
     let p = theme::theme(ui.ctx()).palette.clone();
     if data.explain.is_empty() {
-        ui.label(Type::Body.rich(s::NO_STATEMENTS).color(p.text_secondary));
+        quiet(ui, s::NO_STATEMENTS());
         return;
     }
     for (i, st) in data.explain.iter().enumerate() {
         let open = vm.expanded.contains(&i);
-        let r = egui::CollapsingHeader::new(Type::Body.rich(&st.text).color(p.text_primary))
-            .id_salt(("access", i))
-            .open(Some(open))
-            .show(ui, |ui| {
-                if let Some(sb) = &data.sandbox {
-                    for m in st.mounts.iter().filter_map(|k| sb.mounts.get(*k)) {
-                        mono(
-                            ui,
-                            format!(
-                                "{} {} → {}  ({})",
-                                m.kind.label(),
-                                m.kind
-                                    .src()
-                                    .map(|p| p.display().to_string())
-                                    .unwrap_or_default(),
-                                m.kind.dst().display(),
-                                m.origin.reason
-                            ),
-                        );
-                    }
-                }
-                for f in &st.flags {
-                    mono(ui, f.clone());
-                }
-                for e in &st.env {
-                    mono(ui, format!("{e}=…"));
-                }
-            });
-        if r.header_response.clicked() {
+        if disclosure(ui, &st.text, open).clicked() {
             if open {
                 vm.expanded.retain(|x| *x != i);
             } else {
                 vm.expanded.push(i);
             }
         }
+        if !open {
+            continue;
+        }
+        let mut lines: Vec<String> = Vec::new();
+        if let Some(sb) = &data.sandbox {
+            lines.extend(st.mounts.iter().filter_map(|k| sb.mounts.get(*k)).map(|m| {
+                format!(
+                    "{} {} → {}  ({})",
+                    m.kind.label(),
+                    m.kind
+                        .src()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default(),
+                    m.kind.dst().display(),
+                    m.origin.reason
+                )
+            }));
+        }
+        lines.extend(st.flags.iter().cloned());
+        lines.extend(st.env.iter().map(|e| format!("{e}=…")));
+        ui.horizontal_top(|ui| {
+            ui.add_space(dbg::DETAIL_INDENT);
+            ui.vertical(|ui| {
+                for l in lines {
+                    mono(ui, l, p.t2);
+                }
+            });
+        });
+        ui.add_space(dbg::CONTROLS_GAP);
     }
 }
 
 fn command(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, data: &InspectorData) {
     let p = theme::theme(ui.ctx()).palette.clone();
     let umu = inspect::umu_command(&data.plan);
-    heading(ui, s::UMU_COMMAND);
+    heading(ui, s::UMU_COMMAND(), true);
     let rows: Vec<Vec<String>> = umu
         .iter()
         .enumerate()
         .map(|(i, a)| vec![i.to_string(), a.clone()])
         .collect();
-    table(ui, "insp.umu", &["#", "Argument"], &[32.0, 300.0], &rows);
-    heading(ui, s::FULL_COMMAND);
+    table(
+        ui,
+        &s::ARG_COLUMNS(),
+        &[Col::Fixed(dbg::INDEX_COL), Col::Flex(1.0)],
+        &rows,
+    );
+    heading(ui, s::FULL_COMMAND(), false);
     let full: Vec<String> = data
         .plan
         .sandbox
@@ -370,27 +426,22 @@ fn command(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, data: &Inspector
         .iter()
         .map(|a| easyplay_core::launch::shell::quote(a))
         .collect();
-    mono(ui, full.join(" "));
-    ui.add_space(space::S3);
-    ui.horizontal(|ui| {
-        if ui.add(Button::new(s::COPY_LIST)).clicked() {
-            copy(env, state, umu.join("\n"));
-        }
-        if ui.add(Button::new(s::COPY_SHELL)).clicked() {
+    mono(ui, full.join(" "), p.t1);
+    ui.add_space(dbg::CONTROLS_GAP);
+    match actions(ui, &[s::COPY_LIST(), s::COPY_SHELL()]) {
+        Some(0) => copy(env, state, umu.join("\n")),
+        Some(_) => {
             let script = easyplay_core::launch::render_shell(&data.plan, &env.now.to_rfc3339());
             copy(env, state, script);
         }
-    });
-    ui.label(
-        Type::Caption
-            .rich(s::COPY_SHELL_NOTE)
-            .color(p.text_secondary),
-    );
+        None => {}
+    }
+    fine_print(ui, s::COPY_SHELL_NOTE());
 }
 
 fn sandbox(ui: &mut Ui, data: &InspectorData, vm: &mut InspectorVm) {
     let p = theme::theme(ui.ctx()).palette.clone();
-    heading(ui, s::NAMESPACES);
+    heading(ui, s::NAMESPACES(), true);
     let args = &data.plan.sandbox.args;
     let flags: Vec<String> = args
         .iter()
@@ -401,31 +452,29 @@ fn sandbox(ui: &mut Ui, data: &InspectorData, vm: &mut InspectorVm) {
         })
         .map(|a| a.trim_start_matches("--").to_owned())
         .collect();
-    ui.horizontal_wrapped(|ui| {
-        for f in &flags {
-            crate::widgets::chip::chip(ui, crate::widgets::chip::ChipKind::Status, f, None, true);
-        }
-    });
+    mono(ui, flags.join(", "), p.t1);
     let seccomp = args.iter().any(|a| a == "--seccomp");
-    ui.label(
-        Type::Caption
-            .rich(if seccomp {
-                s::SECCOMP_ON
-            } else {
-                s::SECCOMP_OFF
-            })
-            .color(p.text_secondary),
+    quiet(
+        ui,
+        if seccomp {
+            s::SECCOMP_ON()
+        } else {
+            s::SECCOMP_OFF()
+        },
     );
-    heading(ui, s::MOUNTS);
+    heading(ui, s::MOUNTS(), false);
     ui.horizontal(|ui| {
-        ui.add(
-            egui::TextEdit::singleline(&mut vm.filter)
-                .hint_text(s::FILTER)
-                .desired_width(220.0),
-        );
-        ui.checkbox(&mut vm.only_writable, s::ONLY_WRITABLE);
-        ui.checkbox(&mut vm.only_choices, s::ONLY_CHOICES);
+        ui.spacing_mut().item_spacing.x = dbg::CONTROLS_GAP;
+        TextField::new(&mut vm.filter, "insp.filter")
+            .search()
+            .hint(s::FILTER())
+            .accessible_name(s::FILTER())
+            .width(dbg::FILTER_W)
+            .show(ui);
+        checkbox(ui, &mut vm.only_writable, s::ONLY_WRITABLE());
+        checkbox(ui, &mut vm.only_choices, s::ONLY_CHOICES());
     });
+    ui.add_space(dbg::CONTROLS_GAP);
     let rows: Vec<Vec<String>> = vm
         .mounts(data)
         .into_iter()
@@ -443,12 +492,19 @@ fn sandbox(ui: &mut Ui, data: &InspectorData, vm: &mut InspectorVm) {
         .collect();
     table(
         ui,
-        "insp.mounts",
-        &s::MOUNT_COLUMNS,
-        &[32.0, 64.0, 150.0, 150.0, 36.0, 70.0, 120.0],
+        &s::MOUNT_COLUMNS(),
+        &[
+            Col::Fixed(dbg::INDEX_COL),
+            Col::Fixed(dbg::KIND_COL),
+            Col::Flex(1.0),
+            Col::Flex(1.0),
+            Col::Fixed(dbg::MODE_COL),
+            Col::Fixed(dbg::KIND_COL),
+            Col::Flex(1.0),
+        ],
         &rows,
     );
-    heading(ui, s::DESCRIPTORS);
+    heading(ui, s::DESCRIPTORS(), false);
     let fds: Vec<Vec<String>> = data
         .plan
         .sandbox
@@ -467,42 +523,43 @@ fn sandbox(ui: &mut Ui, data: &InspectorData, vm: &mut InspectorVm) {
         .collect();
     table(
         ui,
-        "insp.fds",
-        &["#", "Kind", "Purpose"],
-        &[32.0, 80.0, 200.0],
+        &s::FD_COLUMNS(),
+        &[
+            Col::Fixed(dbg::INDEX_COL),
+            Col::Fixed(dbg::KIND_COL),
+            Col::Flex(1.0),
+        ],
         &fds,
     );
 }
 
 fn environment(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, data: &InspectorData) {
-    let p = theme::theme(ui.ctx()).palette.clone();
     let rows = inspect::env_rows(data);
-    if ui.add(Button::new(s::COPY_ALL)).clicked() {
+    if actions(ui, &[s::COPY_ALL()]).is_some() {
         let all: Vec<String> = rows
             .iter()
             .map(|r| format!("{}={}", r.name, r.value))
             .collect();
         copy(env, state, all.join("\n"));
     }
+    ui.add_space(dbg::CONTROLS_GAP);
     let cells: Vec<Vec<String>> = rows
         .iter()
         .map(|r| vec![r.name.clone(), r.value.clone(), r.origin.clone()])
         .collect();
     table(
         ui,
-        "insp.env",
-        &s::ENV_COLUMNS,
-        &[180.0, 260.0, 90.0],
+        &s::ENV_COLUMNS(),
+        &[Col::Flex(1.0), Col::Flex(1.5), Col::Fixed(dbg::ORIGIN_COL)],
         &cells,
     );
-    ui.add_space(space::S2);
-    ui.label(Type::Caption.rich(s::UMU_ADDS).color(p.text_secondary));
+    ui.add_space(dbg::CONTROLS_GAP);
+    fine_print(ui, s::UMU_ADDS());
 }
 
 fn events(ui: &mut Ui, data: &InspectorData) {
-    let p = theme::theme(ui.ctx()).palette.clone();
     if data.timeline.is_empty() {
-        ui.label(Type::Body.rich(s::NO_EVENTS).color(p.text_secondary));
+        quiet(ui, s::NO_EVENTS());
         return;
     }
     let rows: Vec<Vec<String>> = data
@@ -512,22 +569,19 @@ fn events(ui: &mut Ui, data: &InspectorData) {
         .collect();
     table(
         ui,
-        "insp.events",
-        &s::EVENT_COLUMNS,
-        &[90.0, 70.0, 300.0],
+        &s::EVENT_COLUMNS(),
+        &[
+            Col::Fixed(dbg::OFFSET_COL),
+            Col::Fixed(dbg::KIND_COL),
+            Col::Flex(1.0),
+        ],
         &rows,
     );
 }
 
 fn raw(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, data: &InspectorData) {
-    heading(ui, s::RAW_ARGS);
-    let rows: Vec<Vec<String>> = inspect::raw_args(&data.plan)
-        .into_iter()
-        .map(|(i, a)| vec![i.to_string(), a])
-        .collect();
-    table(ui, "insp.raw", &["#", "Argument"], &[40.0, 400.0], &rows);
-    ui.horizontal(|ui| {
-        if ui.add(Button::new(s::COPY_NUL)).clicked() {
+    match actions(ui, &[s::COPY_NUL(), s::COPY_JSON()]) {
+        Some(0) => {
             let mut t = String::new();
             for a in &data.plan.sandbox.args {
                 t.push_str(&a.to_string_lossy());
@@ -535,12 +589,23 @@ fn raw(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, data: &InspectorData
             }
             copy(env, state, t);
         }
-        if ui.add(Button::new(s::COPY_JSON)).clicked() {
+        Some(_) => {
             let json = easyplay_core::launch::plan_file::to_json(&data.plan)
                 .map(|b| String::from_utf8_lossy(&b).into_owned())
                 .unwrap_or_default();
             copy(env, state, json);
         }
-    });
-    let _ = RichText::new("");
+        None => {}
+    }
+    heading(ui, s::RAW_ARGS(), false);
+    let rows: Vec<Vec<String>> = inspect::raw_args(&data.plan)
+        .into_iter()
+        .map(|(i, a)| vec![i.to_string(), a])
+        .collect();
+    table(
+        ui,
+        &s::ARG_COLUMNS(),
+        &[Col::Fixed(dbg::INDEX_COL), Col::Flex(1.0)],
+        &rows,
+    );
 }

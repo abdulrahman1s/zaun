@@ -15,6 +15,7 @@ pub mod queries;
 pub mod remove;
 pub mod runtime;
 pub mod setup;
+pub mod steam;
 pub mod tools;
 
 use super::app_service::AppService;
@@ -54,6 +55,8 @@ pub(crate) enum FlowDone {
     Availability(Vec<(crate::ids::GameId, crate::model::Availability)>),
     /// The start-up maintenance finished.
     Maintenance(maintenance::MaintenanceReport),
+    /// A Steam job finished (ADR-0031).
+    Steam(steam::SteamDone),
 }
 
 /// State of the flows in this module that the AppService keeps between messages.
@@ -63,6 +66,8 @@ pub(crate) struct FlowState {
     pub cancelled: std::collections::HashSet<crate::ids::LaunchId>,
     /// Read-only connection for statistics queries on the job pool.
     pub stats_db: std::sync::Arc<std::sync::Mutex<Option<crate::storage::ReadDb>>>,
+    /// Steam games (ADR-0031).
+    pub steam: steam::SteamState,
 }
 
 impl AppService {
@@ -82,6 +87,7 @@ impl AppService {
                 self.lib.set_accents(&a);
                 self.publish_library();
             }
+            FlowDone::Steam(d) => self.on_steam_done(d),
         }
     }
 

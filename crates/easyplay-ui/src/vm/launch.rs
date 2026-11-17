@@ -37,27 +37,29 @@ pub fn present(state: &LaunchState, elapsed_s: f32) -> Presentation {
     let kind = state.kind();
     let (phase, bytes, offline_note) = match state {
         LaunchState::Validating | LaunchState::ResolvingRuntime | LaunchState::Planning => {
-            (strings::launch::CHECKING.to_owned(), None, false)
+            (strings::launch::CHECKING().to_owned(), None, false)
         }
-        LaunchState::Provisioning { bytes, .. } => {
-            (strings::launch::DOWNLOADING.to_owned(), Some(*bytes), true)
-        }
+        LaunchState::Provisioning { bytes, .. } => (
+            strings::launch::DOWNLOADING().to_owned(),
+            Some(*bytes),
+            true,
+        ),
         LaunchState::Preparing { phase } => (
             match phase {
-                Some(UmuPhase::UpgradingPrefix) => strings::launch::UPDATING_STORAGE,
-                _ => strings::launch::PREPARING_STORAGE,
+                Some(UmuPhase::UpgradingPrefix) => strings::launch::UPDATING_STORAGE(),
+                _ => strings::launch::PREPARING_STORAGE(),
             }
             .to_owned(),
             None,
             false,
         ),
-        LaunchState::AuditingRuntime => (strings::launch::AUDITING.to_owned(), None, false),
+        LaunchState::AuditingRuntime => (strings::launch::AUDITING().to_owned(), None, false),
         LaunchState::Spawning | LaunchState::Starting { .. } => {
-            (strings::launch::STARTING.to_owned(), None, false)
+            (strings::launch::STARTING().to_owned(), None, false)
         }
-        LaunchState::Running { .. } => (strings::launch::RUNNING.to_owned(), None, false),
+        LaunchState::Running { .. } => (strings::launch::RUNNING().to_owned(), None, false),
         LaunchState::Failed(e) => (e.title.clone(), None, false),
-        LaunchState::Cancelled => (strings::launch::CANCELLED.to_owned(), None, false),
+        LaunchState::Cancelled => (strings::launch::CANCELLED().to_owned(), None, false),
         LaunchState::Finished { reason } => {
             (strings::launch::ended(*reason).to_owned(), None, false)
         }

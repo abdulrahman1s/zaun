@@ -1,25 +1,24 @@
-//! Protection tab (SCREEN_SPECS_2 §8, UI-017) and folder permissions (§9, UI-018) as a list
-//! of permissions (ADR-0023): the preset, then one row for each thing the game may be
-//! allowed, with its switch. A permission that comes in degrees (a folder that may be read
-//! or changed) shows the degree beside its switch. Rows keep their places. Beneath:
-//! Advanced, and the save bar (in the page). A rejected folder never enters the list: the
-//! message names the rule instead.
+//! Protection tab (easyplay-redesign.html `tabProtection`, `levelHTML`; SCREEN_SPECS_2 §8–9,
+//! ADR-0023). The level as a segmented control (nothing chosen while the game is
+//! customised, with "Custom, based on Offline. Reset to Offline"), what the game can and
+//! can't use as two short lists rebuilt as switches flip, then the switches in two columns:
+//! *Internet and devices* and *Files and folders* (one column when the page's column is
+//! narrow). Every row is a setting row with its control at the right; a permission that
+//! comes in degrees shows a small picker under its label while it is on. Beneath: what
+//! Advanced holds, and the save bar (in the page). A rejected folder never enters the list:
+//! the message names the rule instead.
 
-use std::borrow::Cow;
 use std::path::PathBuf;
 
 use easyplay_core::ids::GameId;
 use easyplay_core::model::{
     BasePreset, FolderAccess, FolderGrant, GameDirAccess, GameSummary, GrantOrigin, Permissions,
-    Preset, RuntimeIsolation, SaveDataLocation, UserDir,
+    RuntimeIsolation, SaveDataLocation, UserDir,
 };
-use easyplay_core::sandbox::{
-    AccessCategory, AccessStatement, IssueCode, IssueSeverity, StatementSeverity,
-};
-use egui::{Align, Id, Layout, Ui, vec2};
+use easyplay_core::sandbox::{AccessCategory, IssueCode, IssueSeverity, StatementSeverity};
+use egui::{Align, Color32, Layout, Rect, Ui, UiBuilder, pos2, vec2};
 
-use super::overview::tone;
-use super::statement_icon;
+use super::{Note, NoteTone, note};
 use crate::app::{UiState, assess_draft};
 use crate::bridge::{GameEdit, UiCommand};
 use crate::demo::{grant_name, user_dir_name};
@@ -28,27 +27,16 @@ use crate::input::picker::PickPurpose;
 use crate::screens::Env;
 use crate::strings;
 use crate::strings::details as s;
-use crate::theme::tokens::{icon as icon_size, layout, space};
-use crate::theme::{self, Icon, Type, icons};
-use crate::vm::details::PolicyEditor;
-use crate::widgets::button::{Button, Size, Variant};
-use crate::widgets::link_row::Tone;
-use crate::widgets::permission_row::{
-    Choice, Degree, Line, PermissionRow, Picked, Press, permission_rows,
-};
+use crate::theme::tokens::{game as gm, icon as icon_size, layout, space, stroke};
+use crate::theme::{self, Type, icons};
+use crate::vm::details::{PolicyEditor, reach};
+use crate::widgets::button::{Button, Size};
+use crate::widgets::rows::{self, SettingRow};
 use crate::widgets::segmented::{Segment, segmented, segmented_with_hints};
-use crate::widgets::shield;
-use crate::widgets::toggle::toggle;
+use crate::widgets::select::{select, select_inline};
+use crate::widgets::toggle::switch;
 
-/// Well-known folders in display order.
-pub const USER_DIRS: [UserDir; 6] = [
-    UserDir::Downloads,
-    UserDir::Documents,
-    UserDir::Pictures,
-    UserDir::Music,
-    UserDir::Videos,
-    UserDir::Desktop,
-];
+pub use crate::vm::details::USER_DIRS;
 
 /// Where a well-known folder lives on this host.
 pub fn user_dir_path(env: &Env<'_>, d: UserDir) -> Option<PathBuf> {
@@ -70,14 +58,14 @@ fn segs<'a>(labels: &[&'a str]) -> Vec<Segment<'a>> {
         .collect()
 }
 
-/// Section heading with an optional description.
+/// Section heading with an optional description (the setup sheet, Settings).
 pub fn section(ui: &mut Ui, title: &str, desc: Option<&str>) {
     let p = theme::theme(ui.ctx()).palette.clone();
     ui.add_space(space::S4);
-    let h = ui.label(Type::Heading.rich(title).color(p.text_primary));
+    let h = ui.label(Type::Heading.rich(title).color(p.t1));
     crate::a11y::labelled(ui.ctx(), h.id, egui::Role::Heading, title);
     if let Some(d) = desc {
-        ui.add(egui::Label::new(Type::Caption.rich(d).color(p.text_secondary)).wrap());
+        Type::Caption.paragraph(ui, d, p.t2);
     }
     ui.add_space(space::S1);
 }
@@ -85,16 +73,10 @@ pub fn section(ui: &mut Ui, title: &str, desc: Option<&str>) {
 /// An inline issue line.
 pub fn issue_line(ui: &mut Ui, text: &str, error: bool) {
     let p = theme::theme(ui.ctx()).palette.clone();
-    let c = if error { p.danger } else { p.warning };
+    let c = if error { p.coral } else { p.amber };
     ui.horizontal_wrapped(|ui| {
-        ui.label(
-            icons::icon(
-                if error { icons::ERROR } else { icons::WARNING },
-                icon_size::INLINE,
-            )
-            .color(c),
-        );
-        ui.add(egui::Label::new(Type::Body.rich(text).color(c)).wrap());
+        ui.label(icons::icon(icons::WARNING, icon_size::INLINE).color(c));
+        Type::Body.paragraph(ui, text, c);
     });
 }
 
@@ -255,7 +237,7 @@ pub fn save(state: &mut UiState, env: &mut Env<'_>) {
         state.details.detail = crate::vm::AsyncValue::Ready(d);
     }
     state.toast(
-        strings::feedback::SAVED,
+        strings::feedback::SAVED(),
         crate::vm::toasts::ToastKind::Success,
         None,
         env.mono,
@@ -280,176 +262,115 @@ enum Perm {
     SaveData,
 }
 
-/// What a row of the tab is.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum What {
-    /// A permission.
-    Perm(Perm),
-    /// *Add folder…*.
-    AddFolder,
-    /// Something that is decided under Advanced.
-    Advanced,
-    /// Something that cannot be decided.
-    Fact,
+/// What was done to a row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Picked {
+    /// Its switch flipped.
+    Switched(bool),
+    /// A degree (or a select's option) was picked.
+    Degree(usize),
+}
+
+/// How heavily a line under a row's label weighs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Weight {
+    Quiet,
+    Warning,
+    Danger,
+}
+
+/// What stands at a row's right end.
+#[derive(Clone, Debug)]
+enum Control {
+    /// Nothing: a row that says something.
+    None,
+    /// A switch, on or off; with its degrees (and the one in force) while on.
+    Switch {
+        on: bool,
+        degrees: Option<(Vec<&'static str>, usize)>,
+    },
+    /// A select of these options.
+    Select(Vec<String>, usize),
 }
 
 /// A row before it is drawn.
 struct Row {
-    what: What,
-    id: Id,
-    icon: Icon,
+    perm: Option<Perm>,
+    key: String,
     title: String,
-    lines: Vec<(String, Tone)>,
-    /// Whether the permission is on, when it can be off.
-    switch: Option<bool>,
-    /// Its degrees, the one in force, and what is shown for it.
-    degree: Option<(Vec<Choice<'static>>, usize, String)>,
-    tone: Tone,
+    help: Option<String>,
+    lines: Vec<(String, Weight)>,
+    control: Control,
+    /// It differs from what is saved (said to assistive technology as "changed").
     changed: bool,
-    hint: Option<String>,
 }
 
-/// The degrees of a folder, and of removable drives.
-const FOLDER_DEGREES: [&str; 2] = [s::CAN_READ, s::CAN_READ_CHANGE];
-/// *Locate…*, which follows them on a folder that is gone.
-const FOLDER_LOCATE: usize = 2;
-
 impl Row {
-    fn new(
-        what: What,
-        key: impl std::hash::Hash + std::fmt::Debug,
-        icon: Icon,
-        title: impl Into<String>,
-    ) -> Self {
+    fn new(perm: Option<Perm>, key: impl Into<String>, title: impl Into<String>) -> Self {
         Self {
-            what,
-            id: Id::unique("permission").with(key),
-            icon,
+            perm,
+            key: key.into(),
             title: title.into(),
+            help: None,
             lines: Vec::new(),
-            switch: None,
-            degree: None,
-            tone: Tone::Normal,
+            control: Control::None,
             changed: false,
-            hint: None,
         }
     }
 
-    fn line(mut self, text: impl Into<String>, tone: Tone) -> Self {
-        self.lines.push((text.into(), tone));
+    fn changed(mut self, changed: bool) -> Self {
+        self.changed = changed;
+        self
+    }
+
+    fn help(mut self, text: impl Into<String>) -> Self {
+        self.help = Some(text.into());
+        self
+    }
+
+    fn line(mut self, text: impl Into<String>, weight: Weight) -> Self {
+        self.lines.push((text.into(), weight));
         self
     }
 
     fn switch(mut self, on: bool) -> Self {
-        self.switch = Some(on);
+        self.control = Control::Switch { on, degrees: None };
         self
     }
 
-    /// The degrees, and the one in force.
-    fn degree(mut self, labels: &[&'static str], chosen: usize) -> Self {
-        let value = labels.get(chosen).copied().unwrap_or_default();
-        self.degree = Some((
-            labels.iter().map(|l| Choice::new(l)).collect(),
-            chosen,
-            value.to_owned(),
-        ));
-        self
-    }
-
-    fn widget(&self) -> PermissionRow<'_> {
-        let weight = self.lines.iter().map(|(_, t)| *t).max().unwrap_or_default();
-        PermissionRow {
-            id: self.id,
-            icon: self.icon,
-            tone: weight.max(self.tone),
-            quiet: self.switch == Some(false),
-            title: Cow::Borrowed(&self.title),
-            lines: self
-                .lines
-                .iter()
-                .map(|(text, tone)| Line::toned(text.as_str(), *tone))
-                .collect(),
-            mark: self.changed.then_some(s::CHANGED_MARK),
-            switch: self.switch,
-            degree: self.degree.as_ref().map(|(choices, chosen, value)| Degree {
-                choices,
-                chosen: *chosen,
-                value: Cow::Borrowed(value),
-                name: Cow::Owned(s::permission(&self.title, value)),
-            }),
-            press: match self.what {
-                What::AddFolder => Press::Action,
-                What::Advanced => Press::Link,
-                What::Perm(_) | What::Fact => Press::Nothing,
-            },
-            name: Cow::Borrowed(&self.title),
-            hint: self.hint.as_deref().map(Cow::Borrowed),
-            delete: matches!(self.what, What::Perm(Perm::Folder(_))),
+    /// The degrees, and the one in force (shown while the switch is on).
+    fn degrees(mut self, labels: &[&'static str], chosen: usize) -> Self {
+        if let Control::Switch { on: true, degrees } = &mut self.control {
+            *degrees = Some((labels.to_vec(), chosen));
         }
+        self
     }
 }
 
-/// The rows of the tab, in reading order.
-#[derive(Default)]
-struct Rows {
-    /// The internet, the devices, and where the game draws.
-    devices: Vec<Row>,
-    /// The game's folder and the user's.
-    files: Vec<Row>,
-    /// What Advanced has opened up, in the statements' words.
-    advanced: Vec<Row>,
+/// The degrees of a folder, and of removable drives.
+fn folder_degrees() -> [&'static str; 2] {
+    [s::CAN_READ(), s::CAN_READ_CHANGE()]
 }
+/// *Locate…*, which follows them on a folder that is gone.
+const FOLDER_LOCATE: usize = 2;
 
-/// Whether a statement is covered by a row of its own; the others are decided under
-/// Advanced and are listed as they are.
-fn has_row(st: &AccessStatement) -> bool {
-    match st.category {
-        AccessCategory::Network
-        | AccessCategory::OwnFolder
-        | AccessCategory::YourFolders
-        | AccessCategory::Display => true,
-        AccessCategory::Devices => !st.key.ends_with("alsa"),
-        _ => false,
-    }
-}
-
-/// The heaviest of the statements `of` picks.
-fn weight_of(statements: &[AccessStatement], of: impl Fn(&AccessStatement) -> bool) -> Tone {
-    statements
-        .iter()
-        .filter(|st| of(st))
-        .map(|st| tone(st.severity))
-        .max()
-        .unwrap_or_default()
-}
-
-/// The row of a permission that is granted or not. `degrees` names the two degrees of one
-/// that has them, the narrower first; `said` is the part of a statement's key that speaks
-/// of it.
+/// The row of a permission that is granted or not; `degrees` names the two degrees of one
+/// that has them, the narrower first.
 fn flag_row(
     e: &PolicyEditor,
     bit: Permissions,
-    icon: Icon,
     title: &str,
     degrees: Option<[&'static str; 2]>,
-    said: &[&str],
 ) -> Row {
-    let (was, now) = (e.saved.permissions(), e.draft.permissions());
+    let now = e.draft.permissions();
     let on = now.contains(bit);
-    // A degree shown as a row of its own (the microphone) is that row's change.
-    let wider = if degrees.is_some() {
-        bit.degrees()
-    } else {
-        Permissions::empty()
-    };
-    let mut row = Row::new(What::Perm(Perm::Flag(bit)), bit.bits(), icon, title).switch(on);
-    if let (true, Some(degrees)) = (on, degrees) {
-        row = row.degree(&degrees, usize::from(now.contains(wider)));
+    let all = bit | bit.degrees();
+    let mut row = Row::new(Some(Perm::Flag(bit)), format!("flag-{}", bit.bits()), title)
+        .switch(on)
+        .changed(e.saved.permissions() & all != now & all);
+    if let Some(d) = degrees {
+        row = row.degrees(&d, usize::from(now.contains(bit.degrees())));
     }
-    row.tone = weight_of(&e.assessment.statements, |st| {
-        said.iter().any(|part| st.key.contains(part))
-    });
-    row.changed = (was ^ now).intersects(bit | wider);
     row
 }
 
@@ -462,6 +383,11 @@ fn is_dir(f: &FolderGrant, d: UserDir, path: &PathBuf) -> bool {
 /// says.
 fn folder_row(e: &PolicyEditor, env: &Env<'_>, i: usize, f: &FolderGrant, own: bool) -> Row {
     let writable = f.access == FolderAccess::ReadWrite;
+    let changed = !e
+        .saved
+        .folders
+        .iter()
+        .any(|x| x.canonical == f.canonical && x.access == f.access);
     let about: Vec<_> = e
         .assessment
         .issues
@@ -472,51 +398,42 @@ fn folder_row(e: &PolicyEditor, env: &Env<'_>, i: usize, f: &FolderGrant, own: b
         })
         .collect();
     let mut row = Row::new(
-        What::Perm(Perm::Folder(i)),
-        &f.canonical,
-        icons::FOLDER,
+        Some(Perm::Folder(i)),
+        f.canonical.display().to_string(),
         grant_name(f),
     )
     .switch(true)
-    .degree(&FOLDER_DEGREES, usize::from(writable));
+    .changed(changed)
+    .degrees(&folder_degrees(), usize::from(writable));
     if own {
-        row = row.line(
-            s::folder_location(&f.path, &env.bridge.host().home),
-            Tone::Normal,
-        );
+        row = row.help(s::folder_location(&f.path, &env.bridge.host().home));
     }
     if about.iter().any(|x| x.code == IssueCode::PathMissing) {
-        if let Some((choices, ..)) = &mut row.degree {
-            choices.push(Choice::new(s::LOCATE_FOLDER));
+        if let Control::Switch {
+            degrees: Some((d, _)),
+            ..
+        } = &mut row.control
+        {
+            d.push(s::LOCATE_FOLDER());
         }
-        row = row.line(s::FOLDER_NOT_FOUND, Tone::Danger);
+        row = row.line(s::FOLDER_NOT_FOUND(), Weight::Danger);
     }
     for x in about.iter().filter(|x| x.code != IssueCode::PathMissing) {
         let weight = if x.severity >= IssueSeverity::Error {
-            Tone::Danger
+            Weight::Danger
         } else {
-            Tone::Warning
+            Weight::Warning
         };
         row = row.line(issue_text(&x.message), weight);
     }
     if writable && e.draft.permissions().contains(Permissions::INTERNET) {
-        row = row.line(s::WRITABLE_WITH_INTERNET, Tone::Warning);
+        row = row.line(s::WRITABLE_WITH_INTERNET(), Weight::Warning);
     }
-    let path = f.canonical.display().to_string();
-    row.tone = weight_of(&e.assessment.statements, |st| {
-        st.args.get("path") == Some(&path)
-    });
-    row.changed = !e
-        .saved
-        .folders
-        .iter()
-        .any(|x| x.canonical == f.canonical && x.access == f.access);
-    row.hint = Some(f.path.display().to_string());
     row
 }
 
-/// The game's folder and the user's, in an order that no switch changes: the game's own,
-/// the well-known folders, the folders the user added, removable drives.
+/// *Files and folders*, in an order that no switch changes: the game's own folder, the save
+/// data, the well-known folders, the folders the user added, removable drives.
 fn files(e: &PolicyEditor, env: &Env<'_>, g: &GameSummary) -> Vec<Row> {
     let host = env.bridge.host();
     let (saved, draft) = (&e.saved, &e.draft);
@@ -524,56 +441,51 @@ fn files(e: &PolicyEditor, env: &Env<'_>, g: &GameSummary) -> Vec<Row> {
 
     let (name, parent) = s::location(g.root.as_deref(), &g.primary_exe_path);
     let place = s::place(&name, parent.as_deref());
-    if let Some(root) = &g.root {
+    if g.root.is_some() {
         let chosen = match draft.game_dir {
             GameDirAccess::ReadWrite => 0,
             GameDirAccess::ReadOnly | GameDirAccess::FileOnly => 1,
             GameDirAccess::Protected => 2,
         };
-        let mut row = Row::new(
-            What::Perm(Perm::GameFolder),
-            "game-folder",
-            icons::FOLDER,
-            s::GAME_FOLDER,
-        )
-        .degree(
-            &[s::CAN_READ_CHANGE, s::CAN_READ, s::CHANGES_KEPT_APART],
+        let mut row = Row::new(Some(Perm::GameFolder), "game-folder", s::GAME_FOLDER())
+            .help(place)
+            .changed(saved.game_dir != draft.game_dir);
+        row.control = Control::Select(
+            [
+                s::CAN_READ_CHANGE(),
+                s::CAN_ONLY_READ(),
+                s::CHANGES_KEPT_APART(),
+            ]
+            .map(str::to_owned)
+            .to_vec(),
             chosen,
-        )
-        .line(place, Tone::Normal);
-        row.changed = saved.game_dir != draft.game_dir;
-        row.hint = Some(root.display().to_string());
+        );
         out.push(row);
     } else {
-        let row = Row::new(What::Fact, "game-folder", icons::FILE_EXE, s::PROGRAM_FILE)
-            .line(place, Tone::Normal)
-            .line(s::FILE_ONLY_EXPLAINED, Tone::Normal);
-        out.push(row);
+        out.push(
+            Row::new(None, "game-folder", s::PROGRAM_FILE())
+                .help(place)
+                .line(s::FILE_ONLY_EXPLAINED(), Weight::Quiet),
+        );
     }
 
     let external = matches!(draft.save_data, SaveDataLocation::External { .. });
-    let mut row = Row::new(
-        What::Perm(Perm::SaveData),
-        "save-data",
-        icons::FLOPPY,
-        s::SAVE_DATA,
-    )
-    .degree(
-        &[s::PRIVATE_STORAGE, s::CHOOSE_FOLDER],
-        usize::from(external),
-    );
+    let mut options = vec![
+        s::PRIVATE_STORAGE().to_owned(),
+        s::CHOOSE_FOLDER().to_owned(),
+    ];
+    let mut row = Row::new(Some(Perm::SaveData), "save-data", s::SAVE_DATA())
+        .changed(saved.save_data != draft.save_data);
     if let SaveDataLocation::External { dir } = &draft.save_data {
         // The folder is named, in place of the choice that led to it.
-        if let Some((.., value)) = &mut row.degree {
-            *value = dir.file_name().map_or_else(
-                || dir.display().to_string(),
-                |n| n.to_string_lossy().into_owned(),
-            );
-        }
-        row = row.line(s::folder_location(dir, &host.home), Tone::Normal);
-        row.hint = Some(dir.display().to_string());
+        options[1] = dir.file_name().map_or_else(
+            || dir.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        options.push(s::CHOOSE_FOLDER().to_owned());
+        row = row.help(s::folder_location(dir, &host.home));
     }
-    row.changed = saved.save_data != draft.save_data;
+    row.control = Control::Select(options, usize::from(external));
     out.push(row);
 
     let dirs: Vec<(UserDir, PathBuf)> = USER_DIRS
@@ -582,20 +494,23 @@ fn files(e: &PolicyEditor, env: &Env<'_>, g: &GameSummary) -> Vec<Row> {
         .collect();
     let known = |f: &FolderGrant| dirs.iter().any(|(d, path)| is_dir(f, *d, path));
     for (d, path) in &dirs {
+        // The row keeps its key (and its switch the focus) whether the folder is shared.
+        let key = format!("user-dir-{d:?}");
         if let Some(i) = draft.folders.iter().position(|f| is_dir(f, *d, path)) {
-            out.push(folder_row(e, env, i, &draft.folders[i], false));
+            let mut row = folder_row(e, env, i, &draft.folders[i], false);
+            row.key = key;
+            out.push(row);
             continue;
         }
-        let mut row = Row::new(
-            What::Perm(Perm::UserDir(*d, path.clone())),
-            path,
-            icons::FOLDER,
-            user_dir_name(*d),
-        )
-        .switch(false);
-        row.changed = saved.folders.iter().any(|f| is_dir(f, *d, path));
-        row.hint = Some(path.display().to_string());
-        out.push(row);
+        out.push(
+            Row::new(
+                Some(Perm::UserDir(*d, path.clone())),
+                key,
+                user_dir_name(*d),
+            )
+            .switch(false)
+            .changed(saved.folders.iter().any(|f| is_dir(f, *d, path))),
+        );
     }
     // The folders the user added: the saved ones where they stood, then the new ones.
     for (j, f) in saved.folders.iter().enumerate().filter(|(_, f)| !known(f)) {
@@ -607,17 +522,16 @@ fn files(e: &PolicyEditor, env: &Env<'_>, g: &GameSummary) -> Vec<Row> {
             out.push(folder_row(e, env, i, &draft.folders[i], true));
             continue;
         }
-        let mut row = Row::new(
-            What::Perm(Perm::Dropped(j)),
-            &f.canonical,
-            icons::FOLDER,
-            grant_name(f),
-        )
-        .switch(false)
-        .line(s::folder_location(&f.path, &host.home), Tone::Normal);
-        row.changed = true;
-        row.hint = Some(f.path.display().to_string());
-        out.push(row);
+        out.push(
+            Row::new(
+                Some(Perm::Dropped(j)),
+                f.canonical.display().to_string(),
+                grant_name(f),
+            )
+            .switch(false)
+            .changed(true)
+            .help(s::folder_location(&f.path, &host.home)),
+        );
     }
     for (i, f) in draft.folders.iter().enumerate() {
         let added = !saved.folders.iter().any(|x| x.canonical == f.canonical);
@@ -625,119 +539,185 @@ fn files(e: &PolicyEditor, env: &Env<'_>, g: &GameSummary) -> Vec<Row> {
             out.push(folder_row(e, env, i, f, true));
         }
     }
-
     out.push(flag_row(
         e,
         Permissions::REMOVABLE,
-        icons::USB,
-        s::REMOVABLE,
-        Some(FOLDER_DEGREES),
-        &["removable"],
+        s::REMOVABLE(),
+        Some(folder_degrees()),
     ));
-
-    let add = Row::new(
-        What::AddFolder,
-        "add-folder",
-        icons::FOLDER_PLUS,
-        s::ADD_FOLDER,
-    );
-    out.push(add.line(s::DROP_FOLDER, Tone::Normal));
     out
 }
 
-/// The rows of the draft.
-fn rows(e: &PolicyEditor, env: &Env<'_>, g: &GameSummary) -> Rows {
+/// *Internet and devices*, and what the screen means.
+fn devices(e: &PolicyEditor, env: &Env<'_>) -> Vec<Row> {
     let host = env.bridge.host();
-    let statements = &e.assessment.statements;
-    let online = e.draft.permissions().contains(Permissions::INTERNET);
-    let globe = if online {
-        icons::GLOBE
-    } else {
-        icons::WIFI_OFF
-    };
-    let mut controllers = flag_row(
-        e,
-        Permissions::CONTROLLERS,
-        icons::GAMEPAD,
-        s::GAME_CONTROLLERS,
-        Some([s::CONNECTED_ONLY, s::ALL_INPUT]),
-        &["controllers", "all_input"],
-    );
-    if let (true, Some((choices, ..))) = (host.input_readable, &mut controllers.degree) {
-        choices[1].unavailable = Some(s::ALL_INPUT_UNAVAILABLE);
+    let granted = e.draft.permissions();
+    // All input devices is offered only where the account cannot read keyboards directly.
+    let controller_degrees: &[&'static str] =
+        if host.input_readable && !granted.contains(Permissions::ALL_INPUT) {
+            &[s::CONNECTED_ONLY()]
+        } else {
+            &[s::CONNECTED_ONLY(), s::ALL_INPUT()]
+        };
+    let mut controllers = flag_row(e, Permissions::CONTROLLERS, s::GAME_CONTROLLERS(), None)
+        .degrees(
+            controller_degrees,
+            usize::from(granted.contains(Permissions::ALL_INPUT)),
+        );
+    // Why the wider degree is not offered, while the narrower one is in force.
+    if controller_degrees.len() == 1 && granted.contains(Permissions::CONTROLLERS) {
+        controllers = controllers.line(s::ALL_INPUT_UNAVAILABLE(), Weight::Quiet);
     }
-    let mut microphone = flag_row(
-        e,
-        Permissions::MICROPHONE,
-        icons::MIC,
-        s::MICROPHONE,
-        None,
-        &["microphone"],
-    );
-    let sound = e.draft.permissions().contains(Permissions::SOUND);
-    if host.sound_includes_microphone && sound && microphone.switch != Some(true) {
-        microphone = microphone.line(s::MICROPHONE_INSEPARABLE, Tone::Warning);
+    let mut microphone = flag_row(e, Permissions::MICROPHONE, s::MICROPHONE(), None);
+    if host.sound_includes_microphone
+        && granted.contains(Permissions::SOUND)
+        && !granted.contains(Permissions::MICROPHONE)
+    {
+        microphone = microphone.line(s::MICROPHONE_INSEPARABLE(), Weight::Warning);
     }
-    let mut devices = vec![
-        flag_row(e, Permissions::INTERNET, globe, s::INTERNET_ON, None, &[]),
-        flag_row(
-            e,
-            Permissions::SOUND,
-            icons::SPEAKER,
-            s::SOUND,
-            None,
-            &["sound"],
-        ),
+    let mut out = vec![
+        flag_row(e, Permissions::INTERNET, s::INTERNET_ON(), None),
+        flag_row(e, Permissions::SOUND, s::SOUND(), None),
         microphone,
         controllers,
-        flag_row(
-            e,
-            Permissions::CAMERA,
-            icons::CAMERA,
-            s::CAMERA,
-            None,
-            &["camera"],
-        ),
+        flag_row(e, Permissions::CAMERA, s::CAMERA(), None),
     ];
-
     // Where the game draws cannot be decided here; what it means is said.
-    let mut screen = Row::new(What::Fact, "screen", icons::MONITOR, s::SCREEN);
+    let mut screen = Row::new(None, "screen", s::SCREEN());
     let mut x11 = false;
-    for st in statements {
+    for st in &e.assessment.statements {
         if st.category == AccessCategory::Display {
             x11 |= st.key.contains("x11");
-            screen = screen.line(&st.text, tone(st.severity));
+            let weight = match st.severity {
+                StatementSeverity::Warning => Weight::Warning,
+                StatementSeverity::Danger => Weight::Danger,
+                _ => Weight::Quiet,
+            };
+            screen = screen.line(&st.text, weight);
         }
     }
     if host.x11 && !x11 {
-        screen = screen.line(s::X11_NOTICE, Tone::Warning);
+        screen = screen.line(s::X11_NOTICE(), Weight::Warning);
     }
     if !screen.lines.is_empty() {
-        devices.push(screen);
+        out.push(screen);
     }
+    out
+}
 
-    let mut advanced = Vec::new();
-    for st in statements {
-        if has_row(st) || st.severity < StatementSeverity::Notice {
-            continue;
+/// Draw one row. Returns what was done to it.
+fn row(ui: &mut Ui, r: &Row) -> Option<Picked> {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let colour = |w: Weight| -> Color32 {
+        match w {
+            Weight::Quiet => p.t3,
+            Weight::Warning => p.amber,
+            Weight::Danger => p.coral,
         }
-        let mut row = Row::new(
-            What::Advanced,
-            (&st.key, &st.text),
-            statement_icon(st),
-            &st.text,
-        );
-        if let Some(detail) = st.detail.as_deref().filter(|d| !d.is_empty()) {
-            row = row.line(detail, Tone::Normal);
+    };
+    let mut degree = None;
+    let mut switched = None;
+    let mut picked = None;
+    let mut sr = SettingRow::new(&r.title).id_salt(("permission", &r.key));
+    if let Some(h) = &r.help {
+        sr = sr.help(h);
+    }
+    let lines = &r.lines;
+    let control = &r.control;
+    let title = r.title.as_str();
+    let removable = matches!(r.perm, Some(Perm::Folder(_)));
+    // What a control of the row says after its name: the help and the lines under the
+    // label, and whether it differs from what is saved.
+    let description = r
+        .help
+        .iter()
+        .map(String::as_str)
+        .chain(lines.iter().map(|(t, _)| t.as_str()))
+        .chain(r.changed.then_some(s::CHANGED_MARK()))
+        .collect::<Vec<_>>()
+        .join(". ");
+    let described = |resp: &egui::Response| {
+        if !description.is_empty() {
+            crate::a11y::describe(resp, &description);
         }
-        row.tone = tone(st.severity);
-        advanced.push(row);
-    }
-    Rows {
-        devices,
-        files: files(e, env, g),
-        advanced,
-    }
+    };
+    sr.show_with(
+        ui,
+        |ui| {
+            let mut said = None;
+            for (text, weight) in lines {
+                let w = ui.available_width().min(layout::HELP_MAX_W);
+                let g = rows::help_galley(ui, text, colour(*weight), w);
+                let (rect, resp) = ui.allocate_exact_size(g.size(), egui::Sense::hover());
+                ui.painter().galley(rect.min, g, colour(*weight));
+                said.get_or_insert(resp);
+            }
+            // A row with nothing to set is read as its title, then what it says.
+            if matches!(control, Control::None)
+                && let Some(resp) = said
+            {
+                let all: Vec<&str> = lines.iter().map(|(t, _)| t.as_str()).collect();
+                crate::a11y::item(&resp, egui::Role::Label, title);
+                crate::a11y::describe(&resp, &all.join(" "));
+            }
+            if let Control::Switch {
+                on: true,
+                degrees: Some((labels, chosen)),
+            } = control
+            {
+                ui.add_space(gm::PICKER_HANG[1]);
+                let top = ui.cursor().min;
+                let mut at = ui.new_child(
+                    UiBuilder::new()
+                        .max_rect(Rect::from_min_size(
+                            pos2(top.x - gm::PICKER_HANG[0], top.y),
+                            vec2(ui.available_width() + gm::PICKER_HANG[0], f32::INFINITY),
+                        ))
+                        .layout(Layout::left_to_right(Align::Min)),
+                );
+                let mut k = *chosen;
+                let r = select_inline(&mut at, title, &mut k, labels);
+                if r.changed() {
+                    degree = Some(k);
+                }
+                described(&r);
+                let used = at.min_rect();
+                ui.allocate_exact_size(vec2(1.0, used.height()), egui::Sense::hover());
+            }
+        },
+        |ui| match control {
+            Control::None => {}
+            Control::Switch { on, .. } => {
+                let mut v = *on;
+                let r = switch(ui, &mut v, title);
+                if r.changed() {
+                    switched = Some(v);
+                }
+                // Delete takes a shared folder away, as switching it off does.
+                if removable
+                    && *on
+                    && r.has_focus()
+                    && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete))
+                {
+                    switched = Some(false);
+                }
+                described(&r);
+            }
+            Control::Select(options, chosen) => {
+                let refs: Vec<&str> = options.iter().map(String::as_str).collect();
+                let mut k = *chosen;
+                let r = select(ui, title, None, None, &mut k, &refs, false);
+                if r.changed() {
+                    picked = Some(k);
+                }
+                described(&r);
+            }
+        },
+    );
+    switched
+        .map(Picked::Switched)
+        .or(degree.map(Picked::Degree))
+        .or(picked.map(Picked::Degree))
 }
 
 /// Put what the user did to the row of `perm` into the draft.
@@ -753,6 +733,7 @@ fn decide(state: &mut UiState, env: &mut Env<'_>, game: GameId, perm: Perm, pick
     };
     let mut pick = None;
     let (was, mut granted) = (e.saved.permissions(), e.draft.permissions());
+    let external = matches!(e.draft.save_data, SaveDataLocation::External { .. });
     match (perm, picked) {
         (Perm::Flag(bit), Picked::Switched(on)) => {
             granted.set(bit, on);
@@ -775,8 +756,10 @@ fn decide(state: &mut UiState, env: &mut Env<'_>, game: GameId, perm: Perm, pick
             ][k.min(2)];
         }
         (Perm::SaveData, Picked::Degree(0)) => e.draft.save_data = SaveDataLocation::Internal,
+        // The folder already chosen, chosen again.
+        (Perm::SaveData, Picked::Degree(1)) if external => return,
         (Perm::SaveData, Picked::Degree(_)) => pick = Some(PickPurpose::SaveFolder(Some(game))),
-        (Perm::Folder(i), Picked::Switched(false) | Picked::Delete) => {
+        (Perm::Folder(i), Picked::Switched(false)) => {
             if i < e.draft.folders.len() {
                 e.draft.folders.remove(i);
             }
@@ -808,125 +791,150 @@ fn decide(state: &mut UiState, env: &mut Env<'_>, game: GameId, perm: Perm, pick
     reassess(state, env);
 }
 
-/// The preset: the three as one control, and what the chosen one means beside it.
-fn preset(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
+/// A link inside a line of text: accent text, 500, underlined under the pointer.
+fn text_link(ui: &mut Ui, text: &str) -> egui::Response {
+    let theme = theme::theme(ui.ctx());
+    let p = &theme.palette;
+    let r = ui.add(
+        egui::Label::new(Type::BodyStrong.rich(text).color(p.accent_text))
+            .sense(egui::Sense::click()),
+    );
+    if r.hovered() || r.has_focus() {
+        ui.painter().hline(
+            r.rect.x_range(),
+            r.rect.bottom() - stroke::BORDER,
+            egui::Stroke::new(stroke::BORDER, p.accent_text),
+        );
+    }
+    crate::a11y::labelled(ui.ctx(), r.id, egui::Role::Link, text);
+    r
+}
+
+/// The level: the three as one control (nothing chosen while customised), "Custom, based on
+/// Offline. Reset to Offline", and what the draft comes to.
+fn level(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let p = theme::theme(ui.ctx()).palette.clone();
     let Some(e) = editor(state) else { return };
-    let h = ui.label(
-        Type::Heading
-            .rich(s::PROTECTION_LEVEL)
-            .color(p.text_primary),
-    );
-    crate::a11y::labelled(ui.ctx(), h.id, egui::Role::Heading, s::PROTECTION_LEVEL);
-    ui.add_space(space::S1);
     let base = e.draft.preset.base();
-    let options: Vec<Segment<'_>> = BasePreset::ALL
+    let custom = e.draft.preset.is_custom();
+    let labels: Vec<&str> = BasePreset::ALL
         .into_iter()
-        .map(|b| Segment {
-            icon: Some(shield::glyph(b.into(), false)),
-            label: strings::shield::preset_name(b.into()),
-        })
+        .map(|b| strings::shield::preset_name(b.into()))
         .collect();
     let hints = BasePreset::ALL.map(strings::shield::base_description);
-    let mut chosen = BasePreset::ALL.iter().position(|b| *b == base).unwrap_or(0);
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = space::S3;
-        if segmented_with_hints(ui, s::PROTECTION_LEVEL, &mut chosen, &options, &hints).changed() {
-            let b = BasePreset::ALL[chosen];
-            if e.draft.preset.is_custom() {
-                e.confirm_preset = Some(b);
-            } else {
-                e.draft = env.bridge.preset_policy(b, &e.draft);
-            }
+    let mut chosen = if custom {
+        usize::MAX
+    } else {
+        BasePreset::ALL.iter().position(|b| *b == base).unwrap_or(0)
+    };
+    if segmented_with_hints(
+        ui,
+        s::PROTECTION_LEVEL(),
+        &mut chosen,
+        &segs(&labels),
+        &hints,
+    )
+    .changed()
+        && let Some(b) = BasePreset::ALL.get(chosen).copied()
+    {
+        if custom {
+            // Choosing a level replaces the switches the user set: asked first.
+            e.confirm_preset = Some(b);
+        } else {
+            e.draft = env.bridge.preset_policy(b, &e.draft);
         }
-        let Preset::Custom { base } = e.draft.preset else {
-            // Set whole on the next line when the control leaves no room beside it.
-            let means = strings::shield::base_description(base);
-            ui.add(egui::Label::new(Type::Body.rich(means).color(p.text_secondary)).extend());
-            return;
-        };
-        let custom = Type::Body
-            .rich(s::custom_based_on(base))
-            .color(p.text_secondary);
-        ui.add(egui::Label::new(custom).extend());
-        if ui
-            .add(Button::new(s::RESET_TO_PRESET).variant(Variant::Link))
-            .clicked()
-        {
-            e.confirm_preset = None;
-            e.draft = env.bridge.preset_policy(base, &e.draft);
-            e.draft.folders.clear();
-            e.draft.save_data = SaveDataLocation::Internal;
-            e.reclassify();
-        }
-    });
+    }
+    if custom {
+        ui.add_space(gm::CUSTOM_TOP);
+        // The line is as high as its text: the row's height is taken when it starts.
+        ui.scope(|ui| {
+            ui.spacing_mut().interact_size.y = Type::Body.line_height();
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.label(Type::Body.rich(s::custom_line(base)).color(p.t3));
+                let reset = s::reset_to(base);
+                if text_link(ui, &reset).clicked() {
+                    e.confirm_preset = None;
+                    e.draft = env.bridge.preset_policy(base, &e.draft);
+                    e.draft.folders.clear();
+                    e.draft.save_data = SaveDataLocation::Internal;
+                    e.reclassify();
+                }
+            });
+        });
+    }
     if let Some(b) = e.confirm_preset {
+        ui.add_space(space::S2);
         ui.horizontal_wrapped(|ui| {
-            issue_line(ui, &s::replace_custom(b), false);
-            if ui.add(Button::new(s::REPLACE).size(Size::Sm)).clicked() {
+            ui.spacing_mut().item_spacing.x = space::S2;
+            ui.label(Type::Body.rich(s::replace_custom(b)).color(p.t2));
+            if ui.add(Button::new(s::REPLACE())).clicked() {
                 e.draft = env.bridge.preset_policy(b, &e.draft);
                 e.confirm_preset = None;
             }
-            if ui
-                .add(Button::ghost(strings::dialogs::CANCEL).size(Size::Sm))
-                .clicked()
-            {
+            if ui.add(Button::ghost(strings::dialogs::CANCEL())).clicked() {
                 e.confirm_preset = None;
             }
         });
     }
+    ui.add_space(gm::REACH_LISTS_TOP);
+    let (can, cant) = reach(&e.draft);
+    rows::reach(ui, s::CAN_USE(), &can, s::CANT_USE(), &cant);
 }
 
-/// One headed list of rows. Returns the row acted on and what was done.
-fn list(ui: &mut Ui, title: &str, rows: &[Row]) -> Option<(What, Picked)> {
-    section(ui, title, None);
-    let shown: Vec<PermissionRow<'_>> = rows.iter().map(Row::widget).collect();
-    let list = ui.scope(|ui| permission_rows(ui, &shown));
-    crate::a11y::labelled(ui.ctx(), list.response.id, egui::Role::List, title);
-    list.inner.map(|(i, picked)| (rows[i].what.clone(), picked))
+/// A column of rows under its heading. Returns the row acted on and what was done.
+fn group(ui: &mut Ui, title: &str, list: &[Row]) -> Option<(Perm, Picked)> {
+    rows::heading(ui, title, true);
+    let mut out = None;
+    for r in list {
+        if let Some(picked) = row(ui, r)
+            && let Some(perm) = &r.perm
+        {
+            out = Some((perm.clone(), picked));
+        }
+    }
+    out
 }
 
-/// What Advanced holds: identity, the system-call filter, the layer's copy, direct sound.
-/// A switch that protects is on while its permission is withheld.
+/// What Advanced holds: identity, the system-call filter, the layer's copy, direct sound. A
+/// switch that protects is on while its permission is withheld.
 fn advanced(ui: &mut Ui, e: &mut PolicyEditor) {
-    let p = theme::theme(ui.ctx()).palette.clone();
     let before = e.draft.permissions();
     let mut granted = before;
     let mut withhold = |ui: &mut Ui, bit: Permissions, label: &str, hint: &str| {
         let mut on = !granted.contains(bit);
-        if toggle(ui, &mut on, label, Some(hint)).changed() {
+        if SettingRow::new(label)
+            .help(hint)
+            .show(ui, |ui| switch(ui, &mut on, label))
+            .changed()
+        {
             granted.set(bit, !on);
         }
     };
-    ui.label(Type::BodyStrong.rich(s::IDENTITY).color(p.text_primary));
+    rows::heading(ui, s::IDENTITY(), false);
     withhold(
         ui,
         Permissions::COMPUTER_NAME,
-        s::MASK_HOSTNAME,
-        s::MASK_HOSTNAME_BREAKS,
+        s::MASK_HOSTNAME(),
+        s::MASK_HOSTNAME_BREAKS(),
     );
     withhold(
         ui,
         Permissions::MACHINE_ID,
-        s::MASK_MACHINE_ID,
-        s::MASK_MACHINE_ID_BREAKS,
+        s::MASK_MACHINE_ID(),
+        s::MASK_MACHINE_ID_BREAKS(),
     );
     withhold(
         ui,
         Permissions::HARDWARE_IDS,
-        s::MASK_HARDWARE,
-        s::MASK_HARDWARE_BREAKS,
+        s::MASK_HARDWARE(),
+        s::MASK_HARDWARE_BREAKS(),
     );
     withhold(
         ui,
         Permissions::UNFILTERED_SYSCALLS,
-        s::SECCOMP,
-        s::SECCOMP_HINT,
-    );
-    ui.label(
-        Type::BodyStrong
-            .rich(s::LAYER_ISOLATION)
-            .color(p.text_primary),
+        s::SECCOMP(),
+        s::SECCOMP_HINT(),
     );
     let h = &mut e.draft.hardening;
     let mut iso = match h.runtime_isolation {
@@ -934,23 +942,30 @@ fn advanced(ui: &mut Ui, e: &mut PolicyEditor) {
         RuntimeIsolation::Isolated => 1,
         RuntimeIsolation::Shared => 2,
     };
-    let mut changed = segmented(
-        ui,
-        s::LAYER_ISOLATION,
-        &mut iso,
-        &segs(&[s::ISO_AUTO, s::ISO_PRIVATE, s::ISO_SHARED]),
-        false,
-    )
-    .changed();
+    let mut changed = SettingRow::new(s::LAYER_ISOLATION())
+        .show(ui, |ui| {
+            segmented(
+                ui,
+                s::LAYER_ISOLATION(),
+                &mut iso,
+                &segs(&[s::ISO_AUTO(), s::ISO_PRIVATE(), s::ISO_SHARED()]),
+                false,
+            )
+        })
+        .changed();
     if changed {
         h.runtime_isolation = [
             RuntimeIsolation::Auto,
             RuntimeIsolation::Isolated,
             RuntimeIsolation::Shared,
-        ][iso];
+        ][iso.min(2)];
     }
     let mut direct = granted.contains(Permissions::DIRECT_SOUND);
-    if toggle(ui, &mut direct, s::DIRECT_SOUND, Some(s::DIRECT_SOUND_HINT)).changed() {
+    if SettingRow::new(s::DIRECT_SOUND())
+        .help(s::DIRECT_SOUND_HINT())
+        .show(ui, |ui| switch(ui, &mut direct, s::DIRECT_SOUND()))
+        .changed()
+    {
         granted.set(Permissions::DIRECT_SOUND, direct);
     }
     if granted != before {
@@ -962,6 +977,23 @@ fn advanced(ui: &mut Ui, e: &mut PolicyEditor) {
     }
 }
 
+/// A row of buttons whose text keeps the column's axis (their plates hang 10 to the left).
+fn hanging<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let at = ui.cursor().min;
+    let w = ui.available_width();
+    let mut line = ui.new_child(
+        UiBuilder::new()
+            .max_rect(Rect::from_min_size(
+                pos2(at.x - gm::ROW_BUTTONS[1], at.y),
+                vec2(w + gm::ROW_BUTTONS[1], f32::INFINITY),
+            ))
+            .layout(Layout::left_to_right(Align::Min)),
+    );
+    let out = add(&mut line);
+    ui.allocate_exact_size(vec2(w, line.min_rect().height()), egui::Sense::hover());
+    out
+}
+
 /// Show the Protection tab.
 pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
     let Some(e) = editor(state) else {
@@ -971,79 +1003,147 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
         return;
     };
     if !e.saved.is_supported_version() {
-        crate::screens::details::launch_panel::state_area(ui, state, env, g);
-        issue_line(ui, s::POLICY_TOO_NEW, true);
+        issue_line(ui, s::POLICY_TOO_NEW(), true);
         return;
     }
-    let running = g.activity != easyplay_core::model::Activity::Idle;
-    if running {
-        crate::widgets::banner::banner(
+    if g.activity != easyplay_core::model::Activity::Idle {
+        let _ = note(
             ui,
-            crate::widgets::banner::Severity::Info,
-            s::APPLIES_NEXT_TIME,
-            None,
-            false,
+            &Note {
+                tone: NoteTone::Info,
+                icon: icons::CLOCK,
+                title: s::APPLIES_NEXT_TIME(),
+                code: None,
+                text: "",
+                break_after_title: false,
+                actions: &[],
+            },
         );
-        ui.add_space(space::S3);
+        ui.add_space(gm::NOTE_TOP);
     }
-    // A narrower measure than the tabs of fields: a title and its switch in one glance.
-    let w = ui.available_width().min(layout::PERMISSIONS_MAX_W);
-    ui.allocate_ui_with_layout(vec2(w, 0.0), Layout::top_down(Align::Min), |ui| {
-        ui.set_width(w);
-        body(ui, state, env, g);
-    });
-}
-
-/// The preset, the permissions and Advanced.
-fn body(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
-    preset(ui, state, env);
+    level(ui, state, env);
     reassess(state, env);
     let Some(e) = editor(state) else { return };
-    let rows = rows(e, env, g);
+    let devices = devices(e, env);
+    let files = files(e, env, g);
     let rejected = e.folder_error.as_deref().map(s::rejected);
+    ui.add_space(gm::SWITCHES_TOP);
 
-    let mut done = list(ui, s::INTERNET_AND_DEVICES, &rows.devices);
+    let w = ui.available_width();
+    let two = super::content_width(ui) >= layout::TWO_COL_BELOW;
+    let [gap_y, gap_x] = layout::TWO_COL_GAP;
     let top = ui.cursor().min;
-    done = list(ui, s::FILES, &rows.files).or(done);
-    let files = egui::Rect::from_min_max(top, ui.min_rect().right_bottom());
-    state.dnd.target(files, DropTarget::FolderList(Some(g.id)));
+    let col_w = if two { (w - gap_x) / 2.0 } else { w };
+    // Ids of their own, not counted from what precedes them: "Custom, based on …" coming
+    // and going above must not change the switches' ids (and so take their focus away).
+    let mut left = ui.new_child(
+        UiBuilder::new()
+            .scope_id(egui::Id::unique(("protection.devices", g.id)))
+            .max_rect(Rect::from_min_size(top, vec2(col_w, f32::INFINITY)))
+            .layout(Layout::top_down(Align::Min)),
+    );
+    left.set_width(col_w);
+    let mut done = group(&mut left, s::INTERNET_AND_DEVICES(), &devices);
+    let left_rect = left.min_rect();
+    let files_top = if two {
+        top + vec2(col_w + gap_x, 0.0)
+    } else {
+        pos2(top.x, left_rect.bottom() + gap_y)
+    };
+    let mut right = ui.new_child(
+        UiBuilder::new()
+            .scope_id(egui::Id::unique(("protection.files", g.id)))
+            .max_rect(Rect::from_min_size(files_top, vec2(col_w, f32::INFINITY)))
+            .layout(Layout::top_down(Align::Min)),
+    );
+    right.set_width(col_w);
+    done = group(&mut right, s::FILES(), &files).or(done);
+    // "+ Add folder…", its text on the column's axis.
+    right.add_space(gm::ROW_BUTTONS[0]);
+    let add = hanging(&mut right, |ui| {
+        let b = ui.add(Button::ghost(s::ADD_FOLDER()).icon(icons::PLUS));
+        crate::widgets::tooltip::tooltip(b, s::DROP_FOLDER(), None).clicked()
+    });
+    let files_rect = right.min_rect();
+    state
+        .dnd
+        .target(files_rect, DropTarget::FolderList(Some(g.id)));
+    ui.allocate_rect(
+        Rect::from_min_max(
+            top,
+            pos2(top.x + w, left_rect.bottom().max(files_rect.bottom())),
+        ),
+        egui::Sense::hover(),
+    );
     // A folder that was refused is explained where it was asked for.
     if let Some(rejected) = &rejected {
+        ui.add_space(space::S2);
         issue_line(ui, rejected, true);
     }
 
-    let Some(e) = editor(state) else { return };
-    ui.add_space(space::S4);
-    let n = s::advanced_changes(&e.saved, &e.draft);
-    let disclosure = ui.add(Button::ghost(&s::advanced(n)).icon(if e.advanced {
-        icons::CARET_DOWN
-    } else {
-        icons::CARET_RIGHT
-    }));
-    if disclosure.clicked() {
-        e.advanced = !e.advanced;
-    }
-    let inset = egui::Frame::NONE.inner_margin(egui::Margin {
-        left: space::S6 as i8,
-        ..Default::default()
-    });
-    if e.advanced {
-        inset.show(ui, |ui| advanced(ui, e));
-    } else if !rows.advanced.is_empty() {
-        // Closed, Advanced still says what it has opened up.
-        let shown: Vec<PermissionRow<'_>> = rows.advanced.iter().map(Row::widget).collect();
-        if inset
-            .show(ui, |ui| permission_rows(ui, &shown))
-            .inner
-            .is_some()
-        {
-            e.advanced = true;
+    // Advanced.
+    if let Some(e) = editor(state) {
+        let n = s::advanced_changes(&e.saved, &e.draft);
+        ui.add_space(layout::HEADING_GAP[0]);
+        let open = e.advanced;
+        let disclosure = hanging(ui, |ui| {
+            ui.add(
+                Button::ghost(&s::advanced(n))
+                    .icon(if open {
+                        icons::CARET_DOWN
+                    } else {
+                        icons::CARET_RIGHT
+                    })
+                    .size(Size::Md),
+            )
+            .clicked()
+        });
+        if disclosure {
+            e.advanced = !e.advanced;
+        }
+        if e.advanced {
+            advanced(ui, e);
+        } else {
+            // Closed, Advanced still says what it has opened up; each line opens it.
+            let p = theme::theme(ui.ctx()).palette.clone();
+            let mut open_it = false;
+            for st in &e.assessment.statements {
+                let shown_in_rows = matches!(
+                    st.category,
+                    AccessCategory::Network
+                        | AccessCategory::OwnFolder
+                        | AccessCategory::YourFolders
+                        | AccessCategory::Display
+                ) || (st.category == AccessCategory::Devices
+                    && !st.key.ends_with("alsa"));
+                if shown_in_rows || st.severity < StatementSeverity::Notice {
+                    continue;
+                }
+                let c = match st.severity {
+                    StatementSeverity::Warning => p.amber,
+                    StatementSeverity::Danger => p.coral,
+                    _ => p.t2,
+                };
+                let r = super::fine(ui, &st.text, c).interact(egui::Sense::click());
+                crate::a11y::button(&r, &st.text);
+                if r.hovered() || r.has_focus() {
+                    ui.painter().hline(
+                        r.rect.x_range(),
+                        r.rect.bottom() - stroke::BORDER,
+                        egui::Stroke::new(stroke::BORDER, c),
+                    );
+                }
+                open_it |= r.clicked();
+            }
+            if open_it {
+                e.advanced = true;
+            }
         }
     }
 
     match done {
-        Some((What::Perm(perm), picked)) => decide(state, env, g.id, perm, picked),
-        Some((What::AddFolder, _)) => state.picks.push(PickPurpose::FolderGrant(Some(g.id))),
-        _ => {}
+        Some((perm, picked)) => decide(state, env, g.id, perm, picked),
+        None if add => state.picks.push(PickPurpose::FolderGrant(Some(g.id))),
+        None => {}
     }
 }

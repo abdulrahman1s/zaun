@@ -18,6 +18,7 @@ mod prompt;
 mod runtime;
 mod session;
 mod stats;
+mod steam;
 mod tag;
 
 pub use artwork::{ArtOrigin, ArtSlot, ArtworkRef};
@@ -48,6 +49,10 @@ pub use runtime::{
 };
 pub use session::{EndReason, Session, SessionContext, SessionKind, SessionState, SupervisorIdent};
 pub use stats::{GameKey, GameStats, PlaytimeDay};
+pub use steam::{
+    GameOrigin, PlaytimeSource, ProtectionState, SteamCompat, SteamDownload, SteamFacts,
+    SteamInstallKind, SteamRequest, SteamUpdate,
+};
 pub use tag::{Tag, TagColor};
 
 use crate::error::{Error, ErrorCode};

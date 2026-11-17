@@ -1,20 +1,15 @@
-//! Tag editor.
+//! Tags: the tag menu and the tag dialog.
 
-/// No tags yet.
-pub const NONE: &str = "No tags yet.";
-/// Field label.
-pub const ADD: &str = "Add a tag";
-/// Field hint.
-pub const HINT: &str = "Type a tag name…";
-/// Footer.
-pub const DONE: &str = "Done";
+texts! {
+    /// Footer.
+    DONE = "tags.done";
+    /// The field at the end of the tag menu (placeholder).
+    NEW_TAG = "tags.new_tag";
+    /// The field's accessible name.
+    NEW_TAG_NAME = "tags.new_tag_name";
+}
 
 /// "Tags for Hollow Knight".
 pub fn title(name: &str) -> String {
-    format!("Tags for {name}")
-}
-
-/// "Create “speedrun”".
-pub fn create(name: &str) -> String {
-    format!("Create “{name}”")
+    rust_i18n::t!("tags.title", name = name).into_owned()
 }

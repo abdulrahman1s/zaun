@@ -256,10 +256,12 @@ pub trait LibraryService {
 pub struct Library {
     pub(super) db: Db,
     pub(super) deps: LibraryDeps,
-    snapshot: Arc<LibrarySnapshot>,
-    overlays: Overlays,
+    pub(super) snapshot: Arc<LibrarySnapshot>,
+    pub(super) overlays: Overlays,
     pub(super) exes: ExeIndex,
     flows: HashSet<GameId>,
+    /// Steam games (ADR-0031, `library::steam`).
+    pub(super) steam: super::steam::SteamLayer,
 }
 
 pub(super) fn storage(e: StorageError) -> Error {
@@ -277,6 +279,7 @@ impl Library {
             overlays: Overlays::default(),
             exes: ExeIndex::default(),
             flows: HashSet::new(),
+            steam: super::steam::SteamLayer::default(),
         };
         lib.reload()?;
         Ok(lib)
@@ -311,7 +314,7 @@ impl Library {
         self.deps.clock.now()
     }
 
-    fn publish(&mut self, s: LibrarySnapshot) {
+    pub(super) fn publish(&mut self, s: LibrarySnapshot) {
         self.snapshot = Arc::new(s);
     }
 
@@ -321,6 +324,14 @@ impl Library {
         let rev = self.snapshot.revision + 1;
         let s = index::build(&rows, &*self.deps.runtime, &self.overlays, rev, self.now());
         self.exes = ExeIndex::from_rows(&rows);
+        // The Steam games are not in these rows (ADR-0031): merged again.
+        let s = if self.steam.scan().is_some() {
+            let now = self.now();
+            let steam = self.steam_summaries_now(now)?;
+            s.with_steam(steam, now)
+        } else {
+            s
+        };
         self.publish(s);
         Ok(())
     }
@@ -864,6 +875,11 @@ impl Library {
             {
                 continue;
             }
+            // A Steam game's folder (private home and lock of programs run in its prefix,
+            // ADR-0031 §6) has no `games` row by design.
+            if id.is_some_and(|i| i.is_steam()) {
+                continue;
+            }
             let md = fs.metadata(&entry.path)?;
             out.push(OrphanDir {
                 has_content: has_content(&*fs, &entry.path),
@@ -957,7 +973,7 @@ fn tag_err(e: StorageError) -> Error {
 }
 
 /// Tag IDs for names, creating the missing ones (colour 0).
-fn resolve_tags<S: TagRepo + ?Sized>(
+pub(super) fn resolve_tags<S: TagRepo + ?Sized>(
     store: &mut S,
     names: &[TagName],
     now: Timestamp,

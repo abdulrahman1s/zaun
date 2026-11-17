@@ -2,72 +2,76 @@
 
 use easyplay_core::model::EndReason;
 
-/// Phase.
-pub const CHECKING: &str = "Checking…";
-/// Phase.
-pub const DOWNLOADING: &str = "Downloading the compatibility layer (first time only)…";
-/// Phase.
-pub const PREPARING_STORAGE: &str = "Preparing private Windows storage…";
-/// Phase.
-pub const UPDATING_STORAGE: &str = "Updating private Windows storage…";
-/// Phase.
-pub const AUDITING: &str = "Checking the compatibility layer…";
-/// Phase.
-pub const STARTING: &str = "Starting…";
-/// State.
-pub const RUNNING: &str = "Running";
-/// State.
-pub const CANCELLED: &str = "Cancelled";
-/// The game stays offline during the download.
-pub const OFFLINE_NOTE: &str = "The game itself stays offline. Only EasyPlay downloads.";
-/// Reassurance after 10 s.
-pub const REASSURE: &str = "Still working. This can take a minute the first time.";
-/// Button.
-pub const CANCEL: &str = "Cancel";
-/// Button.
-pub const RUN_IN_BACKGROUND: &str = "Run in background";
-/// Button.
-pub const FORCE_STOP: &str = "Force stop";
-/// Row.
-pub const BACKGROUND: &str = "Still running in the background";
-/// Row body.
-pub const BACKGROUND_BODY: &str =
-    "The game's window closed, but some of its programs are still running.";
-/// Problem panel fallback title.
-pub const CLOSED_EARLY: &str = "The game closed right after starting.";
-/// Problem panel fallback body.
-pub const CLOSED_EARLY_BODY: &str = "Nothing specific was found. These changes help most often.";
-/// Button.
-pub const VIEW_LOG: &str = "View log";
-/// Button.
-pub const COPY_DETAILS: &str = "Copy details";
-/// Button.
-pub const TRY_AGAIN: &str = "Try again";
-/// Button.
-pub const DISMISS: &str = "Dismiss";
-/// Accessible name of the progress bar.
-pub const PROGRESS: &str = "Launch progress";
+texts! {
+    /// Phase.
+    CHECKING = "launch.checking";
+    /// Phase.
+    DOWNLOADING = "launch.downloading";
+    /// Phase.
+    PREPARING_STORAGE = "launch.preparing_storage";
+    /// Phase.
+    UPDATING_STORAGE = "launch.updating_storage";
+    /// Phase.
+    AUDITING = "launch.auditing";
+    /// Phase.
+    STARTING = "launch.starting";
+    /// State.
+    RUNNING = "launch.running";
+    /// State.
+    CANCELLED = "launch.cancelled";
+    /// The game stays offline during the download.
+    OFFLINE_NOTE = "launch.offline_note";
+    /// Reassurance after 10 s.
+    REASSURE = "launch.reassure";
+    /// Button.
+    CANCEL = "launch.cancel";
+    /// Button.
+    FORCE_STOP = "launch.force_stop";
+    /// Problem panel fallback title.
+    CLOSED_EARLY = "launch.closed_early";
+    /// Problem panel fallback body.
+    CLOSED_EARLY_BODY = "launch.closed_early_body";
+    /// Button.
+    VIEW_LOG = "launch.view_log";
+    /// Button.
+    COPY_DETAILS = "launch.copy_details";
+    /// Button.
+    TRY_AGAIN = "launch.try_again";
+    /// Button.
+    DISMISS = "launch.dismiss";
+    /// Accessible name of the progress bar.
+    PROGRESS = "launch.progress";
+}
 
 /// "Ended normally", "Stopped", "Crashed", "Did not start", "Interrupted".
 pub fn ended(r: EndReason) -> &'static str {
     match r {
-        EndReason::Exited { .. } | EndReason::LauncherTerminated => "Ended normally",
-        EndReason::StoppedByUser | EndReason::Killed | EndReason::SystemShutdown => "Stopped",
-        EndReason::Crashed { .. } => "Crashed",
-        EndReason::FailedToStart { .. } => "Did not start",
-        EndReason::Interrupted => "Interrupted",
+        EndReason::Exited { .. } | EndReason::LauncherTerminated => {
+            crate::i18n::text("launch.ended.ended_normally")
+        }
+        EndReason::StoppedByUser | EndReason::Killed | EndReason::SystemShutdown => {
+            crate::i18n::text("launch.ended.stopped")
+        }
+        EndReason::Crashed { .. } => crate::i18n::text("launch.ended.crashed"),
+        EndReason::FailedToStart { .. } => crate::i18n::text("launch.ended.did_not_start"),
+        EndReason::Interrupted => crate::i18n::text("launch.ended.interrupted"),
     }
 }
 
 /// "12.4 MB · 3.1 MB/s".
 pub fn bytes_rate(bytes: u64, rate: Option<u64>) -> String {
     match rate {
-        Some(r) => format!("{} · {}/s", super::fmt::bytes(bytes), super::fmt::bytes(r)),
+        Some(r) => rust_i18n::t!(
+            "launch.bytes_rate",
+            bytes = super::fmt::bytes(bytes),
+            rate = super::fmt::bytes(r)
+        )
+        .into_owned(),
         None => super::fmt::bytes(bytes),
     }
 }
 
 /// Quick launch when the game is already running.
 pub fn already_running(name: &str) -> String {
-    format!("{name} is already running")
+    rust_i18n::t!("launch.already_running", name = name).into_owned()
 }

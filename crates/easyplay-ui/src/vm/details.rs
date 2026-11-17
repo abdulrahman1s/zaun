@@ -15,7 +15,7 @@ use easyplay_core::sandbox::{IssueSeverity, Widening, classify, widening};
 use easyplay_core::stats::{DateRange, GameOverview, HistoryRow};
 
 use super::AsyncValue;
-use crate::bridge::{FixEntry, GameDetail, GameEdit, PolicyAssessment};
+use crate::bridge::{FixEntry, GameDetail, GameEdit, PolicyAssessment, SteamDetail};
 
 /// Game page tabs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -55,6 +55,17 @@ impl DetailsTab {
     pub fn index(self) -> usize {
         Self::ALL.iter().position(|t| *t == self).unwrap_or(0)
     }
+}
+
+/// The tabs of a Steam game's page (ADR-0031), kept apart from [`DetailsTab`]: a game Steam
+/// runs has no Protection, Compatibility, Launch options, Activity or Logs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SteamTab {
+    /// Overview.
+    #[default]
+    Overview,
+    /// Windows storage (a game Steam runs through Proton).
+    Storage,
 }
 
 /// The Protection tab's draft.
@@ -251,12 +262,14 @@ pub struct DetailsVm {
     pub launch: Option<LaunchDraft>,
     /// Activity.
     pub activity: ActivityVm,
-    /// The last seven days, for the strip beside Play (whatever range the Activity tab
-    /// shows).
+    /// The last thirty days, for the play record under the cover (whatever range the
+    /// Activity tab shows). The name is the former seven-day strip's; replies are routed
+    /// to it by `app.rs`.
     pub week: AsyncValue<GameOverview, UserError>,
     /// Its query.
     pub week_q: Option<QueryId>,
-    /// The sessions and playtime the week was asked for: asked again when they change.
+    /// The sessions and playtime the thirty days were asked for: asked again when they
+    /// change.
     pub week_for: Option<(u32, u64)>,
     /// Private-storage size.
     pub prefix_size: AsyncValue<u64>,
@@ -268,16 +281,24 @@ pub struct DetailsVm {
     pub fixes: AsyncValue<Vec<FixEntry>>,
     /// Its query.
     pub fixes_q: Option<QueryId>,
-    /// Compatibility advanced disclosure.
-    pub compat_advanced: bool,
-    /// Launch options advanced disclosure.
-    pub launch_advanced: bool,
     /// The cover menu is open.
     pub cover_menu: bool,
     /// Initial focus went to the Play pill.
     pub play_focused: bool,
     /// A program's label or own arguments being edited inline (Launch options).
     pub program_edit: Option<ProgramEdit>,
+    /// The name of a variable being added (Launch options).
+    pub new_var_name: String,
+    /// The value of a variable being added (Launch options).
+    pub new_var_value: String,
+    /// A Steam game's page (ADR-0031): what Steam's files and the running state say.
+    pub steam: AsyncValue<Box<SteamDetail>, UserError>,
+    /// Its query.
+    pub steam_q: Option<QueryId>,
+    /// The library revision it was asked for (asked again when the library changes).
+    pub steam_rev: u64,
+    /// The tab of a Steam game's page.
+    pub steam_tab: SteamTab,
 }
 
 /// What is edited about one program.
@@ -298,6 +319,113 @@ pub struct ProgramEdit {
     pub field: ProgramField,
     /// The text.
     pub text: String,
+}
+
+/// Well-known folders in display order (the Protection tab's rows, the reach lists).
+pub const USER_DIRS: [UserDir; 6] = [
+    UserDir::Downloads,
+    UserDir::Documents,
+    UserDir::Pictures,
+    UserDir::Music,
+    UserDir::Videos,
+    UserDir::Desktop,
+];
+
+/// The range index of the last thirty days (the play record).
+pub const RECORD_RANGE: usize = 1;
+
+/// The play record's days, oldest first: exactly `n` values (the series is zero-filled;
+/// it is padded with empty days in front, or its oldest days dropped, should it differ).
+pub fn record_days(o: &GameOverview, n: usize) -> Vec<u64> {
+    let ms: Vec<u64> = o.series.points.iter().map(|(_, ms)| *ms).collect();
+    let mut out = vec![0; n.saturating_sub(ms.len())];
+    out.extend_from_slice(&ms[ms.len().saturating_sub(n)..]);
+    out
+}
+
+/// What a game can and can't use, as two short lists ("Can use", "Can't use"), each a comma
+/// list with its first letter capitalised; an empty "Can't use" reads "Nothing is held
+/// back". Items, in order: the internet and local network · its own folder · the shared
+/// folders by name · your personal files (or your other personal files, when some are
+/// shared; left out when all are) · controllers · sound · microphone · camera. Every summary
+/// of protection is built from this: the Overview, the top of the Protection tab, the
+/// setup dialog.
+pub fn reach(policy: &SandboxPolicy) -> (String, String) {
+    use crate::strings::details as s;
+    use easyplay_core::model::{GameDirAccess, Permissions};
+    let granted = policy.permissions();
+    let (mut can, mut cant): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
+    let mut put = |on: bool, item: &str| {
+        if on {
+            can.push(item.to_owned());
+        } else {
+            cant.push(item.to_owned());
+        }
+    };
+    put(granted.contains(Permissions::INTERNET), s::REACH_INTERNET());
+    put(
+        true,
+        if policy.game_dir == GameDirAccess::FileOnly {
+            s::REACH_OWN_PROGRAM()
+        } else {
+            s::REACH_OWN_FOLDER()
+        },
+    );
+    // The well-known folders first, in the Protection tab's order, then the folders the
+    // user chose, then removable drives.
+    let well_known = USER_DIRS;
+    let mut shared: Vec<String> = well_known
+        .iter()
+        .filter(|d| {
+            policy
+                .folders
+                .iter()
+                .any(|f| f.origin == GrantOrigin::WellKnown(**d))
+        })
+        .map(|d| crate::demo::user_dir_name(*d).to_owned())
+        .collect();
+    let known = shared.len();
+    shared.extend(
+        policy
+            .folders
+            .iter()
+            .filter(|f| f.origin == GrantOrigin::UserChosen)
+            .map(crate::demo::grant_name),
+    );
+    let removable = granted.contains(Permissions::REMOVABLE);
+    if removable {
+        shared.push(s::REMOVABLE().to_owned());
+    }
+    let personal = known + usize::from(removable);
+    for name in &shared {
+        put(true, name);
+    }
+    if personal < well_known.len() + 1 {
+        put(
+            false,
+            if shared.is_empty() {
+                s::REACH_PERSONAL()
+            } else {
+                s::REACH_OTHER_PERSONAL()
+            },
+        );
+    }
+    put(
+        granted.contains(Permissions::CONTROLLERS),
+        s::REACH_CONTROLLERS(),
+    );
+    put(granted.contains(Permissions::SOUND), s::REACH_SOUND());
+    put(
+        granted.contains(Permissions::MICROPHONE),
+        s::REACH_MICROPHONE(),
+    );
+    put(granted.contains(Permissions::CAMERA), s::REACH_CAMERA());
+    let cant = if cant.is_empty() {
+        s::NOTHING_HELD_BACK().to_owned()
+    } else {
+        s::comma_list(&cant)
+    };
+    (s::comma_list(&can), cant)
 }
 
 /// The four ranges of the Activity tab and Statistics screen.
@@ -463,6 +591,63 @@ mod tests {
         assert!(!e.add_folder(PathBuf::from("/home/sam"), demo::baseline_now()));
         e.assessment = demo::assess("X", None, &e.draft);
         assert_eq!(e.errors(), 1);
+    }
+
+    #[test]
+    fn reach_lists_what_a_game_can_and_cant_use() {
+        let p = easyplay_core::sandbox::offline();
+        let (can, cant) = reach(&p);
+        assert!(can.starts_with("Its own folder"), "{can}");
+        assert!(
+            cant.starts_with("Internet and local network, your personal files"),
+            "{cant}"
+        );
+        let mut e = editor();
+        e.toggle_user_dir(
+            UserDir::Pictures,
+            PathBuf::from("/home/sam/Pictures"),
+            demo::baseline_now(),
+        );
+        let (can, cant) = reach(&e.draft);
+        assert!(can.contains("Its own folder, Pictures"), "{can}");
+        assert!(cant.contains("your other personal files"), "{cant}");
+    }
+
+    #[test]
+    fn reach_of_each_level_reads_as_the_design_writes_it() {
+        use easyplay_core::model::BasePreset;
+        let lists = |b| reach(&demo::preset_policy(b, &easyplay_core::sandbox::offline()));
+        assert_eq!(
+            lists(BasePreset::Offline),
+            (
+                "Its own folder, controllers, sound".to_owned(),
+                "Internet and local network, your personal files, microphone, camera".to_owned()
+            )
+        );
+        let online = (
+            "Internet and local network, its own folder, controllers, sound".to_owned(),
+            "Your personal files, microphone, camera".to_owned(),
+        );
+        assert_eq!(lists(BasePreset::Online), online);
+        assert_eq!(lists(BasePreset::Standard), online);
+    }
+
+    #[test]
+    fn record_days_are_thirty() {
+        let o = GameOverview {
+            stats: None,
+            totals: Default::default(),
+            series: easyplay_core::stats::Series {
+                bucket: easyplay_core::stats::Bucket::Day,
+                points: vec![(20261116, 5)],
+            },
+            recent: Vec::new(),
+            last_session_ms: None,
+            average_ms: None,
+        };
+        let d = record_days(&o, 30);
+        assert_eq!(d.len(), 30);
+        assert_eq!(d[29], 5);
     }
 
     #[test]

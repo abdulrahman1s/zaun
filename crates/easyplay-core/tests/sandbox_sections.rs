@@ -1247,3 +1247,137 @@ fn direct_sound_leaves_out_capture_devices_without_the_microphone() {
     let g = ok(&w, &p);
     index_of(&g, "/dev/snd");
 }
+
+// ---- the restricted Wayland socket (ADR-0029) -------------------------------------------
+
+/// The compositor's own socket on the fixtures.
+const COMPOSITOR: &str = "/run/user/1000/wayland-0";
+
+fn context_actions(g: &SandboxPlan) -> Vec<&HostAction> {
+    g.host_actions
+        .iter()
+        .filter(|a| matches!(a, HostAction::CreateWaylandContext { .. }))
+        .collect()
+}
+
+fn binds_compositor(g: &SandboxPlan) -> bool {
+    g.mounts
+        .iter()
+        .any(|m| m.kind.src() == Some(Path::new(COMPOSITOR)))
+}
+
+#[test]
+fn a_compositor_with_security_contexts_gives_the_game_a_restricted_socket() {
+    let w = SandboxWorld::new(hosts::nixos());
+    for p in [offline(), online(), standard(&w.host)] {
+        let g = ok(&w, &p);
+        let socket = w.ctx().session.run_dir.join("wayland");
+        let actions = context_actions(&g);
+        assert_eq!(actions.len(), 1, "{actions:?}");
+        assert!(matches!(
+            actions[0],
+            HostAction::CreateWaylandContext { display, socket: s, app_id, instance_id }
+                if display == Path::new(COMPOSITOR)
+                    && *s == socket
+                    && *app_id == w.game_id.to_string()
+                    && *instance_id == w.ctx().session.id.to_string()
+        ));
+        // The game finds it under the usual name; the compositor's own socket is not bound.
+        let m = &g.mounts[index_of(&g, COMPOSITOR)];
+        assert_eq!(m.kind.src(), Some(socket.as_path()));
+        assert_eq!(m.origin.policy_field, Some(PolicyField::Wayland));
+        assert!(!binds_compositor(&g));
+        assert_eq!(g.env.get("WAYLAND_DISPLAY"), Some("wayland-0"));
+        assert!(
+            !g.notes
+                .iter()
+                .any(|n| n.key == "note.display.no_wayland_context")
+        );
+        assert!(plan_invariants(&g, &p, &w.ctx(), &w.host).is_empty());
+        let st = explain(&g, &p)
+            .into_iter()
+            .find(|s| s.key == "access.display.wayland")
+            .unwrap();
+        assert!(
+            st.flags.iter().any(|f| f.starts_with("security context")),
+            "{st:?}"
+        );
+    }
+}
+
+#[test]
+fn without_security_contexts_the_compositor_socket_is_bound_and_noted() {
+    let w = SandboxWorld::worked_example();
+    assert!(!w.host.display.wayland.as_ref().unwrap().security_context);
+    let p = offline();
+    let g = ok(&w, &p);
+    assert!(context_actions(&g).is_empty());
+    let m = &g.mounts[index_of(&g, COMPOSITOR)];
+    assert_eq!(m.kind.src(), Some(Path::new(COMPOSITOR)));
+    assert!(
+        g.notes
+            .iter()
+            .any(|n| n.key == "note.display.no_wayland_context")
+    );
+    let st = explain(&g, &p)
+        .into_iter()
+        .find(|s| s.key == "access.display.wayland")
+        .unwrap();
+    assert!(
+        st.flags.iter().any(|f| f.contains("no security context")),
+        "{st:?}"
+    );
+}
+
+#[test]
+fn a_session_directory_too_long_for_a_socket_falls_back_to_the_compositor_socket() {
+    let mut w = SandboxWorld::new(hosts::nixos());
+    w.session.run_dir = PathBuf::from("/run/user/1000").join("x".repeat(120));
+    let g = ok(&w, &offline());
+    assert!(context_actions(&g).is_empty());
+    assert!(binds_compositor(&g));
+    assert!(
+        g.notes
+            .iter()
+            .any(|n| n.key == "note.display.no_wayland_context")
+    );
+}
+
+#[test]
+fn wayland_turned_off_creates_no_context() {
+    let w = SandboxWorld::new(hosts::nixos());
+    let mut p = offline();
+    p.display.wayland = SocketAccess::Deny;
+    let g = ok(&w, &p);
+    assert!(context_actions(&g).is_empty());
+    assert!(
+        !g.mounts
+            .iter()
+            .any(|m| m.kind.dst() == Path::new(COMPOSITOR))
+    );
+    assert!(
+        !g.notes
+            .iter()
+            .any(|n| n.key == "note.display.no_wayland_context")
+    );
+}
+
+#[test]
+fn the_compositor_socket_next_to_the_restricted_one_is_caught() {
+    let w = SandboxWorld::new(hosts::nixos());
+    let issues =
+        match easyplay_core::sandbox::planner::plan_with(&offline(), &w.ctx(), &w.host, |p| {
+            let mut m = p.mounts.last().unwrap().clone();
+            m.kind = MountKind::Bind {
+                src: COMPOSITOR.into(),
+                dst: "/run/user/1000/wayland-9".into(),
+                mode: MountMode::Ro,
+                try_: false,
+            };
+            p.mounts.push(m);
+        }) {
+            Ok(_) => Vec::new(),
+            Err(i) => i.iter().map(|i| i.code).collect(),
+        };
+    assert!(issues.contains(&IssueCode::InvSocket), "{issues:?}");
+}

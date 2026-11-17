@@ -6,6 +6,7 @@ pub mod add_game;
 pub mod debug;
 pub mod details;
 pub mod dialogs;
+pub mod flight;
 pub mod gallery;
 pub mod library;
 pub mod onboarding;
@@ -36,4 +37,12 @@ pub struct Env<'a> {
     pub art: &'a dyn ArtSource,
     /// The context (clipboard, viewport commands).
     pub ctx: egui::Context,
+}
+
+/// How far a reading column at most `column` wide is set in from the gutter, given the width
+/// between the gutters: the column stands in the middle of a wider page, so a wide window
+/// does not leave half of itself empty on one side. Zero while the page is no wider than
+/// the column, where the page is laid out exactly as the design draws it.
+pub fn centre_indent(between_gutters: f32, column: f32) -> f32 {
+    ((between_gutters - column) / 2.0).max(0.0)
 }

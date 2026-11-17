@@ -112,6 +112,14 @@ pub const SIDEBAR: Icon = Icon::new("sidebar", '\u{E034}', '\u{E134}', false);
 pub const LIBRARY: Icon = Icon::new("library", '\u{E035}', '\u{E135}', false);
 /// `recent` (Phosphor `clock-counter-clockwise`, extra).
 pub const RECENT: Icon = Icon::new("recent", '\u{E036}', '\u{E136}', false);
+/// `caret.left` (Phosphor `caret-left`, extra).
+pub const CARET_LEFT: Icon = Icon::new("caret.left", '\u{E037}', '\u{E137}', false);
+/// `arrow.up` (Phosphor `arrow-up`, extra).
+pub const ARROW_UP: Icon = Icon::new("arrow.up", '\u{E038}', '\u{E138}', false);
+/// `arrow.down` (Phosphor `arrow-down`, extra).
+pub const ARROW_DOWN: Icon = Icon::new("arrow.down", '\u{E039}', '\u{E139}', false);
+/// `check.circle` (Phosphor `check-circle`, extra).
+pub const CHECK_CIRCLE: Icon = Icon::new("check.circle", '\u{E03A}', '\u{E13A}', false);
 
 /// Every icon, in manifest order.
 pub const ALL: &[Icon] = &[
@@ -170,4 +178,8 @@ pub const ALL: &[Icon] = &[
     SIDEBAR,
     LIBRARY,
     RECENT,
+    CARET_LEFT,
+    ARROW_UP,
+    ARROW_DOWN,
+    CHECK_CIRCLE,
 ];

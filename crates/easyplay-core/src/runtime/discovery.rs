@@ -233,7 +233,7 @@ pub fn validate_build(
     let name = dir
         .file_name()
         .and_then(|n| n.to_str())
-        .and_then(|n| RuntimeName::new(n).ok())
+        .and_then(|n| RuntimeName::new(n).ok().or_else(|| name_of_folder(n)))
         .ok_or(RejectReason::InvalidName)?;
     let manifest = read_vdf(fs, &dir.join("toolmanifest.vdf"))
         .ok_or(RejectReason::NoManifest)?
@@ -282,6 +282,27 @@ pub fn validate_build(
         last_used_at: None,
         name,
     })
+}
+
+/// A build name for a folder whose name is not one (Valve's own builds live in folders such
+/// as `Proton - Experimental` and `Proton 9.0`, ADR-0031 §6): every run of characters
+/// outside `[A-Za-z0-9._+-]` becomes one `-`; `None` when nothing usable is left. The folder
+/// itself is used as it is.
+pub fn name_of_folder(folder: &str) -> Option<RuntimeName> {
+    let mut out = String::new();
+    for c in folder.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-') {
+            out.push(c);
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let mut s = out.trim_matches('-').to_owned();
+    while s.contains("--") {
+        s = s.replace("--", "-");
+    }
+    s.truncate(96);
+    RuntimeName::new(s).ok()
 }
 
 /// Detect an SLR variant directory (marker, `umu` link, platform directory, version).

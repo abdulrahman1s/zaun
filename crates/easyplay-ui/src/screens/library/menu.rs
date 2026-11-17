@@ -1,17 +1,35 @@
-//! The per-game context menu (GAME_LIBRARY §10): right-click, `Shift+F10`, the Menu key, or
-//! the game page's overflow button. Items and conditions follow the table; the Tags and
-//! Protection submenus are inline groups with a caret.
+//! The game menu (GAME_LIBRARY §10; the design's `gameMenu`): right-click on a cover or a
+//! row opens it at the pointer; the Menu key or `Shift+F10` hangs it from the focused
+//! cover; the game page's more button opens it too. Text only, in the design's order:
+//!
+//! Play / Stop · Open game page (library only) | Favourite · Tags ▸ · Protection ▸ |
+//! Open game folder · Open save data · Add to / Remove from applications menu · Run another
+//! program in this game… · Change artwork… | Hide · Remove… | the developer items.
+//!
+//! Tags and Protection replace the items in place under a back row; the items that toggle
+//! (a tag, a level) keep the menu open.
+//!
+//! A Steam game's menu (ADR-0031) has what applies to a game Steam runs: Play (no Stop) ·
+//! Open game page | Favourite · Tags ▸ | Open in Steam · Update in Steam (while an update
+//! waits) · Open game folder · Open Windows storage folder (a Proton game with storage) |
+//! Hide. No protection, removal, shortcut, artwork, save data, other programs or developer
+//! items.
 
 use easyplay_core::ids::GameId;
-use easyplay_core::model::{Activity, BasePreset};
-use egui::{Id, LayerId, Order, Popup, PopupCloseBehavior, PopupKind, Pos2, Ui};
+use easyplay_core::model::{Activity, Availability, BasePreset, GameSummary, Preset, SteamUpdate};
+use egui::{
+    Id, LayerId, Order, Popup, PopupAnchor, PopupCloseBehavior, PopupKind, Pos2, Rect, RectAlign,
+    Response, Ui,
+};
 
-use crate::bridge::LibraryView;
-use crate::screens::actions::GameAction;
+use crate::bridge::{LibraryView, UiCommand};
+use crate::screens::actions::{GameAction, widens};
 use crate::strings;
 use crate::strings::menu as m;
-use crate::theme::icons;
-use crate::widgets::context_menu::{danger_item, frame, item, separator};
+use crate::theme;
+use crate::widgets::context_menu::{
+    self, back, check_item, danger_item_with, item, open_sub, separator, sub_item, tag_item,
+};
 
 /// Facts the menu needs that are not in the summary.
 #[derive(Clone, Copy, Debug, Default)]
@@ -22,7 +40,30 @@ pub struct MenuFacts {
     pub developer: bool,
 }
 
-/// Show the menu for `id` at `at` while `open`; returns the chosen action.
+/// Where a menu opens.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Anchor {
+    /// At the pointer (a right-click).
+    Pointer(Pos2),
+    /// Hanging from a cover, a row or a button: under it, its right edges aligned.
+    Below(Rect),
+}
+
+/// What the Tags submenu needs to tick tags and make new ones in place
+/// ([`crate::screens::dialogs::tags::tag_items`]): the "New tag" field's text and where the
+/// commands that apply them go (the caller sends them).
+pub struct TagEdit<'a> {
+    /// The "New tag" field's text.
+    pub new_tag: &'a mut String,
+    /// Commands to send.
+    pub sent: &'a mut Vec<UiCommand>,
+}
+
+/// The keys of the submenus.
+const SUB_TAGS: &str = "tags";
+const SUB_PROTECTION: &str = "protection";
+
+/// The game page's menu for `id` at `at` while `open`; returns the chosen action.
 pub fn show(
     ctx: &egui::Context,
     lib: &LibraryView,
@@ -31,28 +72,52 @@ pub fn show(
     open: &mut bool,
     facts: MenuFacts,
 ) -> Option<GameAction> {
-    let mut out = None;
+    show_at(ctx, lib, id, Anchor::Pointer(at), open, facts, false, None)
+}
+
+/// The menu for `id` from `anchor` while `open`; `library` adds "Open game page". With
+/// `tags`, the Tags submenu ticks tags and makes new ones in place (the "New tag" field);
+/// without, a tick is a [`GameAction::ToggleTag`] and "New tag…" opens the tag editor.
+/// Returns the chosen action.
+#[allow(clippy::too_many_arguments)]
+pub fn show_at(
+    ctx: &egui::Context,
+    lib: &LibraryView,
+    id: GameId,
+    anchor: Anchor,
+    open: &mut bool,
+    facts: MenuFacts,
+    library: bool,
+    tags: Option<TagEdit<'_>>,
+) -> Option<GameAction> {
     let popup_id = Id::unique(("game_menu", id));
-    // Opening the menu moves keyboard focus to its first item (ACCESSIBILITY §2); closing
-    // it hands focus back to the card (the library sets `pending_focus`).
+    // Opening from the keyboard moves focus to the first item (ACCESSIBILITY §2); closing
+    // hands it back to the cover (the library sets `pending_focus`).
     let seen = popup_id.with("seen");
-    let focus_first = ctx.data(|d| d.get_temp::<bool>(seen)).is_none();
+    let first_frame = ctx.data(|d| d.get_temp::<bool>(seen)).is_none();
     ctx.data_mut(|d| d.insert_temp(seen, true));
-    Popup::new(
+    let focus_first = first_frame && matches!(anchor, Anchor::Below(_));
+    let (popup_anchor, align) = match anchor {
+        Anchor::Pointer(p) => (PopupAnchor::Position(p), RectAlign::BOTTOM_START),
+        Anchor::Below(r) => (PopupAnchor::ParentRect(r), RectAlign::BOTTOM_END),
+    };
+    let popup = Popup::new(
         popup_id,
         ctx.clone(),
-        at,
+        popup_anchor,
         LayerId::new(Order::Foreground, popup_id),
     )
     .kind(PopupKind::Menu)
     .layout(egui::Layout::top_down_justified(egui::Align::Min))
     .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
-    .accessible_name(strings::menu::NAME)
-    .width(248.0)
-    .open_bool(open)
-    .frame(egui::Frame::NONE)
-    .show(|ui| out = frame(ui, |ui| items(ui, lib, id, facts, focus_first)));
-    if out.is_some() {
+    .accessible_name(strings::menu::NAME())
+    .align(align)
+    .open_bool(open);
+    let out = context_menu::popup(popup, |ui| {
+        items(ui, lib, id, facts, library, focus_first, tags)
+    })
+    .flatten();
+    if out.is_some_and(|(_, keep)| !keep) {
         *open = false;
     }
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
@@ -61,209 +126,287 @@ pub fn show(
     if !*open {
         ctx.data_mut(|d| d.remove_temp::<bool>(seen));
     }
-    out
+    out.map(|(a, _)| a)
 }
 
+/// An item that cannot be chosen now: quiet, answers nothing.
+fn off_item(ui: &mut Ui, label: &str, shortcut: Option<&str>) {
+    ui.add_enabled_ui(false, |ui| {
+        let _ = item(ui, None, label, shortcut, false);
+    });
+}
+
+/// The items; returns the chosen action and whether the menu stays open.
 fn items(
     ui: &mut Ui,
     lib: &LibraryView,
     id: GameId,
     facts: MenuFacts,
+    library: bool,
     focus_first: bool,
-) -> Option<GameAction> {
+    tags: Option<TagEdit<'_>>,
+) -> Option<(GameAction, bool)> {
     let g = lib.get(id)?;
     let mut first = focus_first;
-    ui.spacing_mut().item_spacing.y = 0.0;
-    // The submenu rows are egui buttons: give them the inset and icon gap of our items.
-    ui.spacing_mut().button_padding.x = crate::theme::tokens::space::S2 + 2.0;
-    ui.spacing_mut().icon_spacing = crate::theme::tokens::space::S2 + 2.0;
-    let mut out = None;
-    let mut pick = |r: egui::Response, a: GameAction| {
+    let mut out: Option<(GameAction, bool)> = None;
+    let mut pick = |r: Response, a: GameAction, keep: bool| {
         if std::mem::take(&mut first) {
             r.request_focus();
         }
         if r.clicked() {
-            out = Some(a);
+            out = Some((a, keep));
         }
     };
-    let running = g.activity != Activity::Idle;
-    if running {
-        pick(
-            item(ui, Some(icons::STOP), m::STOP, Some("Ctrl+."), false),
-            GameAction::Stop,
-        );
-    } else {
-        pick(
-            item(ui, Some(icons::PLAY), m::PLAY, Some("Ctrl+Enter"), false),
-            GameAction::Play,
-        );
-    }
-    pick(
-        item(ui, Some(icons::OPEN), m::OPEN_PAGE, Some("Enter"), false),
-        GameAction::Open,
+    let missing = matches!(
+        g.availability,
+        Availability::Missing | Availability::DriveDisconnected | Availability::Unreadable
     );
-    pick(
-        item(
-            ui,
-            Some(if g.favorite {
-                icons::STAR_FILL
+    match open_sub(ui).as_deref() {
+        Some(SUB_TAGS) => {
+            let back_row = back(ui, m::TAGS());
+            match tags {
+                Some(edit) => {
+                    // The tag rows are drawn by the tag editor: focus goes to the first row
+                    // here, as `pick` gives it to the first item of the other pages.
+                    if std::mem::take(&mut first) {
+                        back_row.request_focus();
+                    }
+                    let sent =
+                        crate::screens::dialogs::tags::tag_items(ui, lib, &[id], edit.new_tag);
+                    edit.sent.extend(sent);
+                }
+                None => {
+                    let p = theme::theme(ui.ctx()).palette.clone();
+                    for t in &lib.tags {
+                        let on = g.tags.contains(&t.id);
+                        pick(
+                            tag_item(ui, &t.name, p.tag_dot(&t.name), on),
+                            GameAction::ToggleTag(t.id),
+                            true,
+                        );
+                    }
+                    if !lib.tags.is_empty() {
+                        separator(ui);
+                    }
+                    // New tags are made in the tag editor.
+                    pick(
+                        item(ui, None, m::NEW_TAG(), None, false),
+                        GameAction::EditTags,
+                        false,
+                    );
+                }
+            }
+        }
+        // A Steam game has no level (ADR-0031): its menu has no Protection submenu.
+        Some(SUB_PROTECTION) if g.is_steam() => return None,
+        Some(SUB_PROTECTION) => {
+            back(ui, m::PROTECTION());
+            for b in BasePreset::ALL {
+                let on = g.preset == Preset::from(b);
+                // Widening asks first: the menu gives way to the question.
+                let keep = !widens(g, b);
+                pick(
+                    check_item(ui, strings::shield::preset_name(b.into()), on),
+                    GameAction::Preset(b),
+                    keep,
+                );
+            }
+            separator(ui);
+            pick(
+                item(ui, None, m::EDIT_PROTECTION(), None, false),
+                GameAction::EditProtection,
+                false,
+            );
+        }
+        _ if g.is_steam() => steam_items(ui, g, library, &mut pick, missing),
+        _ => {
+            let running = matches!(g.activity, Activity::Running { .. } | Activity::Lingering);
+            let starting = matches!(g.activity, Activity::Launching(_) | Activity::Stopping);
+            let label = if running { m::STOP } else { m::PLAY };
+            if (missing && !running) || starting {
+                off_item(ui, label(), Some(m::KEY_PLAY()));
             } else {
-                icons::STAR
-            }),
-            if g.favorite {
+                pick(
+                    item(ui, None, label(), Some(m::KEY_PLAY()), false),
+                    GameAction::Play,
+                    false,
+                );
+            }
+            if library {
+                pick(
+                    item(ui, None, m::OPEN_PAGE(), Some(m::KEY_OPEN()), false),
+                    GameAction::Open,
+                    false,
+                );
+            }
+            separator(ui);
+            let fav = if g.favorite {
                 m::UNFAVORITE
             } else {
                 m::FAVORITE
-            },
-            Some("F"),
-            false,
-        ),
-        GameAction::Favorite,
-    );
-    separator(ui);
-    let pal = crate::theme::theme(ui.ctx()).palette.clone();
-    let sub = |label: &str, icon: crate::theme::Icon| {
-        egui::containers::menu::SubMenuButton::from_button(
-            egui::Button::new((
-                icons::icon(icon, crate::theme::tokens::icon::INLINE).color(pal.text_secondary),
-                crate::theme::Type::Body.rich(label).color(pal.text_primary),
-            ))
-            .right_text(egui::containers::menu::SubMenuButton::arrow_atom(Some(
-                pal.text_muted,
-            )))
-            .frame(false)
-            .min_size(egui::vec2(0.0, crate::theme::tokens::control::MENU_ITEM)),
-        )
-    };
-    // egui draws frameless buttons without their inset: add ours, so the submenu rows line
-    // up with the items around them.
-    let inset = crate::theme::tokens::space::S2 + 2.0;
-    let row = |ui: &mut Ui, add: &mut dyn FnMut(&mut Ui)| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            ui.add_space(inset);
-            ui.set_min_width(ui.available_width());
-            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                add(ui);
-            });
-        });
-    };
-    let tags_btn = sub(m::TAGS, icons::TAG);
-    let mut tags_btn = Some(tags_btn);
-    row(ui, &mut |ui| {
-        let Some(tags_btn) = tags_btn.take() else {
-            return;
-        };
-        tags_btn.ui(ui, |ui| {
-            ui.set_min_width(180.0);
-            for t in &lib.tags {
-                let on = g.tags.contains(&t.id);
-                pick(
-                    item(ui, Some(icons::TAG), &t.name, None, on),
-                    GameAction::ToggleTag(t.id),
-                );
-            }
+            };
             pick(
-                item(ui, Some(icons::PLUS), m::NEW_TAG, Some("T"), false),
-                GameAction::EditTags,
-            );
-        });
-    });
-    let prot_btn = sub(
-        m::PROTECTION,
-        crate::widgets::shield::glyph(g.preset, false),
-    );
-    let mut prot_btn = Some(prot_btn);
-    row(ui, &mut |ui| {
-        let Some(prot_btn) = prot_btn.take() else {
-            return;
-        };
-        prot_btn.ui(ui, |ui| {
-            ui.set_min_width(180.0);
-            for p in BasePreset::ALL {
-                let on = g.preset == p.into();
-                pick(
-                    item(
-                        ui,
-                        Some(crate::widgets::shield::glyph(p.into(), false)),
-                        strings::shield::preset_name(p.into()),
-                        None,
-                        on,
-                    ),
-                    GameAction::Preset(p),
-                );
-            }
-            pick(
-                item(ui, Some(icons::WRENCH), m::EDIT_PROTECTION, None, false),
-                GameAction::EditProtection,
-            );
-        });
-    });
-    separator(ui);
-    if g.root.is_some() {
-        pick(
-            item(
-                ui,
-                Some(icons::FOLDER),
-                m::OPEN_FOLDER,
-                Some("Ctrl+O"),
+                item(ui, None, fav(), Some(m::KEY_FAVORITE()), false),
+                GameAction::Favorite,
                 false,
-            ),
-            GameAction::OpenFolder,
-        );
-    }
-    pick(
-        item(ui, Some(icons::FLOPPY), m::OPEN_SAVES, None, false),
-        GameAction::OpenSaveData,
-    );
-    pick(
-        item(
-            ui,
-            Some(icons::LIST),
-            if facts.has_shortcut {
+            );
+            sub_item(ui, SUB_TAGS, m::TAGS());
+            sub_item(ui, SUB_PROTECTION, m::PROTECTION());
+            separator(ui);
+            if g.root.is_none() || missing {
+                off_item(ui, m::OPEN_FOLDER(), None);
+            } else {
+                pick(
+                    item(ui, None, m::OPEN_FOLDER(), None, false),
+                    GameAction::OpenFolder,
+                    false,
+                );
+            }
+            pick(
+                item(ui, None, m::OPEN_SAVES(), None, false),
+                GameAction::OpenSaveData,
+                false,
+            );
+            let shortcut = if facts.has_shortcut {
                 m::REMOVE_SHORTCUT
             } else {
                 m::ADD_SHORTCUT
-            },
-            None,
-            false,
-        ),
-        GameAction::Shortcut(!facts.has_shortcut),
-    );
-    if !running {
-        pick(
-            item(ui, Some(icons::TERMINAL), m::RUN_OTHER, None, false),
-            GameAction::RunOther,
-        );
+            };
+            pick(
+                item(ui, None, shortcut(), None, false),
+                GameAction::Shortcut(!facts.has_shortcut),
+                false,
+            );
+            if g.activity == Activity::Idle {
+                pick(
+                    item(ui, None, m::RUN_OTHER(), None, false),
+                    GameAction::RunOther,
+                    false,
+                );
+            } else {
+                off_item(ui, m::RUN_OTHER(), None);
+            }
+            pick(
+                item(ui, None, m::ARTWORK(), None, false),
+                GameAction::Artwork,
+                false,
+            );
+            separator(ui);
+            let hide = if g.hidden { m::UNHIDE } else { m::HIDE };
+            pick(
+                item(ui, None, hide(), Some(m::KEY_HIDE()), false),
+                GameAction::Hide,
+                false,
+            );
+            pick(
+                danger_item_with(ui, None, m::REMOVE(), Some(m::KEY_REMOVE())),
+                GameAction::Remove,
+                false,
+            );
+            if facts.developer {
+                separator(ui);
+                pick(
+                    item(ui, None, m::COPY_COMMAND(), None, false),
+                    GameAction::CopyCommand,
+                    false,
+                );
+                pick(
+                    item(ui, None, m::INSPECT(), Some(m::KEY_INSPECT()), false),
+                    GameAction::Inspect,
+                    false,
+                );
+            }
+        }
     }
-    pick(
-        item(ui, Some(icons::GRID), m::ARTWORK, None, false),
-        GameAction::Artwork,
-    );
-    pick(
-        item(
-            ui,
-            Some(icons::EYE_OFF),
-            if g.hidden { m::UNHIDE } else { m::HIDE },
-            Some("H"),
+    out
+}
+
+/// The items of a Steam game's menu (ADR-0031).
+fn steam_items(
+    ui: &mut Ui,
+    g: &GameSummary,
+    library: bool,
+    pick: &mut impl FnMut(Response, GameAction, bool),
+    missing: bool,
+) {
+    // Play hands the game to Steam; there is no Stop: while Steam runs it, or while it is
+    // starting, Play is shown and cannot be chosen.
+    if g.activity == Activity::Idle {
+        pick(
+            item(ui, None, m::PLAY(), Some(m::KEY_PLAY()), false),
+            GameAction::Play,
             false,
-        ),
-        GameAction::Hide,
-    );
-    if facts.developer {
-        pick(
-            item(ui, Some(icons::COPY), m::COPY_COMMAND, None, false),
-            GameAction::CopyCommand,
         );
+    } else {
+        off_item(ui, m::PLAY(), Some(m::KEY_PLAY()));
+    }
+    if library {
         pick(
-            item(ui, Some(icons::SEARCH), m::INSPECT, Some("Ctrl+L"), false),
-            GameAction::Inspect,
+            item(ui, None, m::OPEN_PAGE(), Some(m::KEY_OPEN()), false),
+            GameAction::Open,
+            false,
         );
     }
     separator(ui);
+    let fav = if g.favorite {
+        m::UNFAVORITE
+    } else {
+        m::FAVORITE
+    };
     pick(
-        danger_item(ui, Some(icons::TRASH), m::REMOVE),
-        GameAction::Remove,
+        item(ui, None, fav(), Some(m::KEY_FAVORITE()), false),
+        GameAction::Favorite,
+        false,
     );
-    out
+    sub_item(ui, SUB_TAGS, m::TAGS());
+    separator(ui);
+    use strings::steam::action as sa;
+    pick(
+        item(ui, None, sa::OPEN_IN_STEAM(), None, false),
+        GameAction::OpenInSteam,
+        false,
+    );
+    if g.steam().is_some_and(|f| f.update != SteamUpdate::UpToDate) {
+        pick(
+            item(ui, None, sa::UPDATE_IN_STEAM(), None, false),
+            GameAction::UpdateInSteam,
+            false,
+        );
+    }
+    if missing {
+        off_item(ui, m::OPEN_FOLDER(), None);
+    } else {
+        pick(
+            item(ui, None, m::OPEN_FOLDER(), None, false),
+            GameAction::OpenFolder,
+            false,
+        );
+    }
+    if g.steam().is_some_and(|f| f.prefix().is_some()) {
+        pick(
+            item(ui, None, sa::OPEN_STORAGE(), None, false),
+            GameAction::OpenStorage,
+            false,
+        );
+    }
+    separator(ui);
+    let hide = if g.hidden { m::UNHIDE } else { m::HIDE };
+    pick(
+        item(ui, None, hide(), Some(m::KEY_HIDE()), false),
+        GameAction::Hide,
+        false,
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn widening_closes_the_menu_for_the_question() {
+        let lib = crate::demo::library(crate::demo::baseline_now());
+        let g = lib.games.iter().find(|g| g.preset == Preset::Offline);
+        assert!(g.is_some_and(|g| widens(g, BasePreset::Online)));
+        assert!(g.is_some_and(|g| !widens(g, BasePreset::Offline)));
+    }
 }

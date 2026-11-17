@@ -2,8 +2,8 @@
 //!
 //! The library grid and list are one composite widget each with **roving focus**: only the
 //! cursor's card (or the first one on screen) is in the `Tab` order, so `Tab` enters the grid
-//! at the cursor and the next `Tab` leaves it for the next region (sidebar → toolbar →
-//! content). Inside, arrow keys move spatially ([`target`]); the cursor follows its game by
+//! at the cursor and the next `Tab` leaves it for the next region (top bar → filter
+//! line → content). Inside, arrow keys move spatially ([`target`]); the cursor follows its game by
 //! ID through re-sorting and filtering and, when the game disappears, moves to the nearest
 //! remaining item ([`follow`]).
 

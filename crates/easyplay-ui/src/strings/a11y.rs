@@ -5,73 +5,85 @@
 pub fn launch_phase(name: &str, phase: &str) -> String {
     let phase = phase.trim_end_matches('…');
     let mut chars = phase.chars();
+    // Lower-casing the first letter is a no-op in scripts without case.
     let lower = match chars.next() {
         Some(c) => c.to_lowercase().chain(chars).collect::<String>(),
         None => String::new(),
     };
-    format!("{name}: {lower}")
+    rust_i18n::t!("a11y.launch_phase", name = name, phase = lower).into_owned()
 }
 
 /// "Hollow Knight is running".
 pub fn running(name: &str) -> String {
-    format!("{name} is running")
+    rust_i18n::t!("a11y.running", name = name).into_owned()
 }
 
 /// "Hollow Knight ended after 1 hour 12 minutes".
 pub fn ended_after(name: &str, ms: u64) -> String {
-    format!("{name} ended after {}", super::fmt::duration_spoken(ms))
+    let after = super::fmt::duration_spoken(ms);
+    rust_i18n::t!("a11y.ended_after", name = name, after = after).into_owned()
 }
 
 /// "Hollow Knight ended".
 pub fn ended(name: &str) -> String {
-    format!("{name} ended")
+    rust_i18n::t!("a11y.ended", name = name).into_owned()
 }
 
 /// "Downloading, 512 megabytes so far".
 pub fn downloading(bytes: u64) -> String {
-    let mb = bytes / 1_000_000;
-    format!(
-        "Downloading, {mb} {} so far",
-        super::plural(mb, "megabyte", "megabytes")
-    )
+    crate::i18n::plural::counted("a11y.downloading", bytes / 1_000_000)
 }
 
 /// "1 problem: <message>".
 pub fn problems(n: usize, first: &str) -> String {
-    format!(
-        "{n} {}: {first}",
-        super::plural(n as u64, "problem", "problems")
-    )
+    crate::i18n::plural::counted_args("a11y.problems", n as u64, &[("first", first)])
 }
 
 /// "Added: can read files in Music".
 pub fn access_added(statement: &str) -> String {
-    format!("Added: {statement}")
+    rust_i18n::t!("a11y.access_added", statement = statement).into_owned()
 }
 
 /// Controller footer (UF-15): button and what it does.
-pub const PAD_HINTS: [(&str, &str); 5] = [
-    ("A", "Play"),
-    ("X", "Details"),
-    ("Y", "Favourite"),
-    ("B", "Back"),
-    ("LB/RB", "Collection"),
-];
+#[allow(non_snake_case)]
+pub fn PAD_HINTS() -> [(&'static str, &'static str); 5] {
+    [
+        ("A", crate::i18n::text("a11y.pad_hints.play")),
+        ("X", crate::i18n::text("a11y.pad_hints.details")),
+        ("Y", crate::i18n::text("a11y.pad_hints.favourite")),
+        ("B", crate::i18n::text("a11y.pad_hints.back")),
+        ("LB/RB", crate::i18n::text("a11y.pad_hints.collection")),
+    ]
+}
 
 /// Controller footer on pages and overlays.
-pub const PAD_HINTS_PAGE: [(&str, &str); 3] = [("A", "Select"), ("B", "Back"), ("LB/RB", "Tab")];
+#[allow(non_snake_case)]
+pub fn PAD_HINTS_PAGE() -> [(&'static str, &'static str); 3] {
+    [
+        ("A", crate::i18n::text("a11y.pad_hints_page.select")),
+        ("B", crate::i18n::text("a11y.pad_hints_page.back")),
+        ("LB/RB", crate::i18n::text("a11y.pad_hints_page.tab")),
+    ]
+}
 
-/// Accessible name of the controller footer.
-pub const PAD_HINTS_NAME: &str = "Controller buttons";
+texts! {
+    /// Accessible name of the controller footer.
+    PAD_HINTS_NAME = "a11y.pad_hints_name";
+}
 
 /// "Controller buttons. A: Play, X: Details, …".
 pub fn pad_hints_spoken(hints: &[(&str, &str)]) -> String {
     let list = hints
         .iter()
-        .map(|(b, w)| format!("{b}: {w}"))
+        .map(|(b, w)| rust_i18n::t!("a11y.pad_hint", button = b, what = w).into_owned())
         .collect::<Vec<_>>()
-        .join(", ");
-    format!("{PAD_HINTS_NAME}. {list}")
+        .join(crate::i18n::text("list.separator"));
+    rust_i18n::t!(
+        "a11y.pad_hints_spoken",
+        name = PAD_HINTS_NAME(),
+        list = list
+    )
+    .into_owned()
 }
 
 #[cfg(test)]

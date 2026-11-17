@@ -170,6 +170,12 @@ pub enum Command {
         #[command(subcommand)]
         command: RuntimesCommand,
     },
+    /// Games installed with Steam (shown when "Show my Steam games" is on).
+    Steam {
+        /// What to do.
+        #[command(subcommand)]
+        command: SteamVerb,
+    },
     /// Keep EasyPlay running in the background so opened programs start at once.
     ///
     /// Usually started at login by the `easyplay.service` systemd user unit. Waits while an
@@ -251,6 +257,31 @@ pub enum RuntimesCommand {
         /// Only this variant (default: every variant installed there and missing here).
         #[arg(long, value_enum)]
         variant: Option<VariantArg>,
+    },
+}
+
+/// `steam` subcommands (ADR-0031). A Steam game is named like any game, or `steam:<appid>`.
+#[derive(Debug, Subcommand, PartialEq, Eq)]
+pub enum SteamVerb {
+    /// Read Steam's files now and list what was found (changes nothing).
+    Scan {
+        /// Machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show the games installed with Steam in EasyPlay.
+    On,
+    /// Stop showing them (what you set for them is kept).
+    Off,
+    /// Open Steam's downloads, where the game's update is started.
+    Update {
+        /// The game.
+        game: GameArg,
+    },
+    /// Show the game in Steam (its properties hold the Proton choice and launch options).
+    Open {
+        /// The game.
+        game: GameArg,
     },
 }
 

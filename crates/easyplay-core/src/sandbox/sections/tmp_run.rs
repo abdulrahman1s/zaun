@@ -4,7 +4,8 @@
 //! would be hidden by it), and it is always the filesystem socket `/tmp/.X11-unix/X<n>`: the
 //! abstract socket `@/tmp/.X11-unix/X<n>` belongs to the host network namespace and is
 //! unreachable under `--unshare-net` (TECHNICAL_RESEARCH F-221). Nothing else from `$XRD`
-//! is ever bound, except the socket of the session's own sound server (ADR-0026).
+//! is ever bound, except the sockets of the session's own sound server (ADR-0026) and of
+//! its restricted Wayland connection (ADR-0029).
 
 use std::path::{Path, PathBuf};
 
@@ -14,15 +15,13 @@ use crate::model::{AudioAccess, ControllerAccess};
 use crate::sandbox::context::SandboxContext;
 use crate::sandbox::plan::{
     EnvOrigin, HostAction, PROTON_LOG_PATH, PlanBuilder, PolicyField, RUN_EASYPLAY,
-    SMALL_TMP_BYTES, sound_socket,
+    SMALL_TMP_BYTES, SOCKET_PATH_MAX, sound_socket,
 };
 use crate::sandbox::validate::{IssueCode, PolicyIssue};
+use crate::sandbox::wayland_ctx;
 
 /// File name of the X authority copy inside the private runtime directory.
 pub const XAUTH_NAME: &str = "easyplay-xauth";
-
-/// Longest path a Unix socket address holds (`sun_path` less its terminating zero).
-const SOCKET_PATH_MAX: usize = 107;
 
 /// Bind `socket` as the PulseAudio socket of the private runtime directory.
 fn pulse_socket(
@@ -135,11 +134,28 @@ pub fn emit(ctx: &SandboxContext<'_>, host: &HostFacts, eff: &Effective, b: &mut
     if eff.wayland
         && let Some(w) = &host.display.wayland
     {
-        b.mount(
-            mk::ro(&w.path, xrd.join(&w.name)),
-            "Wayland display socket",
-            Some(PolicyField::Wayland),
-        );
+        let dst = xrd.join(&w.name);
+        match wayland_ctx::context_action(ctx, host) {
+            Some((socket, action)) => {
+                b.action(action);
+                b.mount(
+                    mk::ro(&socket, &dst),
+                    "restricted Wayland socket (security context)",
+                    Some(PolicyField::Wayland),
+                );
+            }
+            None => {
+                b.mount(
+                    mk::ro(&w.path, &dst),
+                    "Wayland display socket",
+                    Some(PolicyField::Wayland),
+                );
+                b.note(
+                    "note.display.no_wayland_context",
+                    "The compositor cannot restrict this Wayland connection: the game gets the compositor's own socket",
+                );
+            }
+        }
         b.env("WAYLAND_DISPLAY", w.name.clone(), EnvOrigin::Fixed);
     }
     if eff.audio == AudioAccess::Playback {

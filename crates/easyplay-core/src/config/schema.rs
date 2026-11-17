@@ -243,6 +243,14 @@ pub struct ArtworkPrefs {
     pub name_search: bool,
 }
 
+/// `[steam]` (ADR-0031).
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct SteamPrefs {
+    /// "Show my Steam games": list the games installed with Steam on this computer. Off by
+    /// default; while off, nothing of Steam's is read.
+    pub show_games: bool,
+}
+
 /// `[protection]`.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Protection {
@@ -401,6 +409,8 @@ pub struct Preferences {
     pub appearance: Appearance,
     /// `[artwork]`.
     pub artwork: ArtworkPrefs,
+    /// `[steam]`.
+    pub steam: SteamPrefs,
     /// `[protection]`.
     pub protection: Protection,
     /// `[runtime]`.
@@ -449,6 +459,7 @@ impl Default for Preferences {
                 online: ArtworkOnline::Off,
                 name_search: true,
             },
+            steam: SteamPrefs { show_games: false },
             protection: Protection {
                 default_preset: BasePreset::Offline,
                 always_isolate_runtime: false,

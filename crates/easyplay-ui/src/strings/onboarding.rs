@@ -3,113 +3,137 @@
 use crate::bridge::{CheckState, HandlerState, HostCheck};
 use crate::vm::screens::OnboardingStep;
 
-/// Banner after skipping a failing check.
-pub const BANNER: &str = "Games can't start until a system check is fixed.";
-/// Button.
-pub const CHECK_AGAIN: &str = "Check again";
-/// Button.
-pub const CONTINUE: &str = "Continue";
-/// Button.
-pub const FINISH: &str = "Start using EasyPlay";
-/// Button.
-pub const BACK: &str = "Back";
-/// Button.
-pub const SKIP: &str = "Skip for now";
-/// Disabled reason.
-pub const BLOCKED: &str = "Fix the failed check to continue";
-/// Slow probe.
-pub const STILL_CHECKING: &str = "Still checking…";
-/// Fix.
-pub const TO_FIX: &str = "To turn it on, run:";
-/// Button.
-pub const COPY: &str = "Copy";
-/// Button accessible name.
-pub const COPY_COMMAND: &str = "Copy command";
-/// Button: adopt umu's runtime (D-15).
-pub const USE_UMU_RUNTIME: &str = "Use umu's runtime";
-/// Adopting.
-pub const ADOPTING: &str = "Copying umu's runtime…";
-/// Layer step.
-pub const NO_LAYER: &str = "No compatibility layer is installed yet. EasyPlay can download one now (about 1 GB), or when you first start a game.";
-/// Button.
-pub const DOWNLOAD: &str = "Download now";
-/// Button.
-pub const LATER: &str = "Later";
-/// Handler step.
-pub const MAKE_DEFAULT: &str = "Make EasyPlay the default";
-/// Handler step.
-pub const IS_DEFAULT: &str = "EasyPlay opens Windows programs";
-/// Artwork opt-in.
-pub const ARTWORK_TITLE: &str = "Official artwork";
-/// Artwork opt-in (names the server and the data sent, ADR-0018).
-pub const ARTWORK_OPT_IN: &str =
-    "Download covers from Steam's image server (shared.steamstatic.com)";
-/// Artwork opt-in detail.
-pub const ARTWORK_DETAIL: &str = "Only a game's Steam app ID is sent, and only for games that have one. You can change this later in Settings.";
+texts! {
+    /// Banner after skipping a failing check.
+    BANNER = "onboarding.banner";
+    /// Button.
+    CHECK_AGAIN = "onboarding.check_again";
+    /// Button.
+    CONTINUE = "onboarding.continue";
+    /// Button.
+    FINISH = "onboarding.finish";
+    /// Button.
+    BACK = "onboarding.back";
+    /// Button.
+    SKIP = "onboarding.skip";
+    /// Tooltip of "Skip for now", and why Continue is off.
+    SKIP_TIP = "onboarding.skip_tip";
+    /// Slow probe.
+    STILL_CHECKING = "onboarding.still_checking";
+    /// Fix.
+    TO_FIX = "onboarding.to_fix";
+    /// Button.
+    COPY = "onboarding.copy";
+    /// Button accessible name.
+    COPY_COMMAND = "onboarding.copy_command";
+    /// Button: adopt umu's runtime (D-15).
+    USE_UMU_RUNTIME = "onboarding.use_umu_runtime";
+    /// Adopting.
+    ADOPTING = "onboarding.adopting";
+    /// Layer step: nothing installed yet.
+    NO_LAYER_TITLE = "onboarding.no_layer_title";
+    /// Layer step.
+    NO_LAYER = "onboarding.no_layer";
+    /// Layer step: one is installed.
+    LAYER_READY = "onboarding.layer_ready";
+    /// Layer step: the download, in bytes so far.
+    DOWNLOADED = "onboarding.downloaded";
+    /// Button.
+    DOWNLOAD = "onboarding.download";
+    /// Button.
+    LATER = "onboarding.later";
+    /// Handler step: the row.
+    EXE_FILES = "onboarding.exe_files";
+    /// Handler step.
+    MAKE_DEFAULT = "onboarding.make_default";
+    /// Handler step, once EasyPlay opens them.
+    IS_DEFAULT = "onboarding.is_default";
+    /// Handler step: EasyPlay is the default (the glyph's accessible name).
+    DEFAULT_DONE = "onboarding.default_done";
+    /// Artwork opt-in.
+    ARTWORK_TITLE = "onboarding.artwork_title";
+    /// Artwork opt-in (names the server and the data sent, ADR-0018).
+    ARTWORK_HELP = "onboarding.artwork_help";
+}
 /// Welcome points.
-pub const WELCOME_POINTS: [&str; 3] = [
-    "Double-click a Windows game in your file manager to play it.",
-    "Each game runs in its own protected space with only the access you choose.",
-    "Your playtime and library stay on this computer.",
-];
+#[allow(non_snake_case)]
+pub fn WELCOME_POINTS() -> [&'static str; 3] {
+    [
+        crate::i18n::text("onboarding.welcome_points.double_click_a_windows"),
+        crate::i18n::text("onboarding.welcome_points.each_game_runs_in"),
+        crate::i18n::text("onboarding.welcome_points.your_playtime_and_library"),
+    ]
+}
 
 /// Step titles.
 pub fn step_title(s: OnboardingStep) -> &'static str {
     match s {
-        OnboardingStep::Welcome => "Welcome to EasyPlay",
-        OnboardingStep::SystemCheck => "Checking your system",
-        OnboardingStep::Layer => "Compatibility layer",
-        OnboardingStep::Handler => "Opening Windows programs",
+        OnboardingStep::Welcome => crate::i18n::text("onboarding.step_title.welcome_to_easyplay"),
+        OnboardingStep::SystemCheck => {
+            crate::i18n::text("onboarding.step_title.checking_your_system")
+        }
+        OnboardingStep::Layer => crate::i18n::text("onboarding.step_title.compatibility_layer"),
+        OnboardingStep::Handler => {
+            crate::i18n::text("onboarding.step_title.opening_windows_programs")
+        }
     }
 }
 
 /// Step bodies.
 pub fn step_body(s: OnboardingStep) -> &'static str {
     match s {
-        OnboardingStep::Welcome => "Play Windows games on Linux in a few clicks.",
-        OnboardingStep::SystemCheck => "EasyPlay needs a few things to run Windows games.",
-        OnboardingStep::Layer => "Windows games run through a compatibility layer.",
-        OnboardingStep::Handler => "EasyPlay can open .exe files when you double-click them.",
+        OnboardingStep::Welcome => crate::i18n::text("onboarding.step_body.play_windows_games_on"),
+        OnboardingStep::SystemCheck => {
+            crate::i18n::text("onboarding.step_body.easyplay_needs_a_few")
+        }
+        OnboardingStep::Layer => {
+            crate::i18n::text("onboarding.step_body.windows_games_run_through")
+        }
+        OnboardingStep::Handler => crate::i18n::text("onboarding.step_body.easyplay_can_open_exe"),
     }
+}
+
+/// "2 of 4", at the foot of a step.
+pub fn step_of(i: usize, n: usize) -> String {
+    rust_i18n::t!("onboarding.step_of", i = i, n = n).into_owned()
 }
 
 /// "Step 2 of 4: Checking your system".
 pub fn step_announcement(i: usize, n: usize, title: &str) -> String {
-    format!("Step {i} of {n}: {title}")
+    rust_i18n::t!("onboarding.step_announcement", i = i, n = n, title = title).into_owned()
 }
 
 /// "Private namespaces: turned off; fix available".
 pub fn check_name(c: &HostCheck) -> String {
-    let state = match c.state {
-        CheckState::Pass => "passed",
-        CheckState::Warn => "works with a caveat",
-        CheckState::Fail => "failed",
-        CheckState::Pending => "checking",
+    let key = match (c.state, c.fix_command.is_some()) {
+        (CheckState::Pass, false) => "onboarding.check_name.pass",
+        (CheckState::Pass, true) => "onboarding.check_name.pass_fix",
+        (CheckState::Warn, false) => "onboarding.check_name.warn",
+        (CheckState::Warn, true) => "onboarding.check_name.warn_fix",
+        (CheckState::Fail, false) => "onboarding.check_name.fail",
+        (CheckState::Fail, true) => "onboarding.check_name.fail_fix",
+        (CheckState::Pending, false) => "onboarding.check_name.pending",
+        (CheckState::Pending, true) => "onboarding.check_name.pending_fix",
     };
-    let fix = if c.fix_command.is_some() {
-        "; fix available"
-    } else {
-        ""
-    };
-    format!("{}: {}, {state}{fix}", c.name, c.result.to_lowercase())
+    rust_i18n::t!(key, name = c.name, result = c.result.to_lowercase()).into_owned()
 }
 
 /// "Found UMU-Proton 10.0-4".
 pub fn found_layer(label: &str) -> String {
-    format!("Found {label}")
+    rust_i18n::t!("onboarding.found_layer", label = label).into_owned()
 }
 
 /// "Downloading UMU-Proton…".
 pub fn downloading(label: &str) -> String {
-    format!("Downloading {label}…")
+    rust_i18n::t!("onboarding.downloading", label = label).into_owned()
 }
 
-/// "Right now .exe files open with Wine".
+/// The help under ".exe files": who opens them now.
 pub fn handler_now(h: &HandlerState) -> String {
     match h {
-        HandlerState::EasyPlay => "Right now .exe files open with EasyPlay.".to_owned(),
-        HandlerState::Other(n) => format!("Right now .exe files open with {n}."),
-        HandlerState::None => "Right now nothing opens .exe files.".to_owned(),
+        HandlerState::EasyPlay => IS_DEFAULT().to_owned(),
+        HandlerState::Other(n) => rust_i18n::t!("onboarding.handler_other", name = n).into_owned(),
+        HandlerState::None => crate::i18n::text("onboarding.handler_none").to_owned(),
         HandlerState::Unknown => String::new(),
     }
 }

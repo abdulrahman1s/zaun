@@ -70,7 +70,10 @@ struct SystemRelay {
 
 impl SystemRelay {
     fn start(waker: UiWaker) -> Self {
-        let latest = Arc::new(Mutex::new(SystemPrefs::default()));
+        let latest = Arc::new(Mutex::new(SystemPrefs {
+            locale: desktop_settings::locale(),
+            ..SystemPrefs::default()
+        }));
         let current: Arc<Mutex<Option<Sender<SystemPrefs>>>> = Arc::new(Mutex::new(None));
         let w = Arc::clone(&waker);
         let rx = desktop_settings::follow(Arc::new(move || {
@@ -83,7 +86,7 @@ impl SystemRelay {
             .name("desktop-settings-relay".into())
             .spawn(move || {
                 for prefs in rx {
-                    *l.lock().unwrap_or_else(PoisonError::into_inner) = prefs;
+                    *l.lock().unwrap_or_else(PoisonError::into_inner) = prefs.clone();
                     if let Some(tx) = c.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
                         let _ = tx.send(prefs);
                     }
@@ -97,7 +100,10 @@ impl SystemRelay {
         let (tx, rx) = channel();
         *self.current.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
         (
-            *self.latest.lock().unwrap_or_else(PoisonError::into_inner),
+            self.latest
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone(),
             rx,
         )
     }

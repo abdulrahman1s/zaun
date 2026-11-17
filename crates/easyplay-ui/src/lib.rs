@@ -12,6 +12,7 @@ pub mod a11y;
 pub mod app;
 pub mod bridge;
 pub mod demo;
+pub mod i18n;
 pub mod input;
 pub mod route;
 pub mod screens;
@@ -21,6 +22,9 @@ pub mod textures;
 pub mod theme;
 pub mod vm;
 pub mod widgets;
+
+// Compiles every catalogue in `locales/` into the binary; English is the fallback.
+rust_i18n::i18n!("locales", fallback = "en");
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -168,10 +172,7 @@ impl Shell {
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         self.attention_at = Some(ctx.input(|i| i.time) + FOCUS_GRACE_S);
         if a.add_game {
-            self.app
-                .state
-                .picks
-                .push(input::picker::PickPurpose::AddGame);
+            screens::add_game::open(&mut self.app.state);
         }
         ctx.request_repaint();
     }
@@ -248,7 +249,7 @@ pub fn native_options_on(
     display: DisplayBackend,
 ) -> eframe::NativeOptions {
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title(strings::title::window(strings::library::TITLE))
+        .with_title(strings::title::window(strings::library::TITLE()))
         .with_app_id(APP_ID)
         .with_inner_size(window.size)
         .with_min_inner_size(theme::tokens::layout::MIN_WINDOW)
@@ -359,7 +360,7 @@ pub fn run(start: StartMode, deps: UiDeps) -> eframe::Result {
                 };
             }
             if add_game {
-                app.state.picks.push(input::picker::PickPurpose::AddGame);
+                screens::add_game::open(&mut app.state);
             }
             #[cfg(feature = "gamepad")]
             {

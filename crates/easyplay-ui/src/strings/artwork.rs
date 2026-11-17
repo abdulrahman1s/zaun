@@ -2,80 +2,103 @@
 
 use easyplay_core::artwork::SteamAppIdSource;
 
-/// Slot.
-pub const COVER: &str = "Cover";
-/// Slot.
-pub const ICON: &str = "Icon";
-/// Slot.
-pub const HERO: &str = "Banner";
-/// Button under a slot.
-pub const CHOOSE: &str = "Choose…";
-/// Under the slots, once for all three.
-pub const HOW_TO_CHANGE: &str = "Click a picture to choose an image, or drop one on it. PNG, JPEG, WebP, BMP or ICO, up to 64 megapixels.";
-/// Button under the icon.
-pub const USE_ICON: &str = "Use program icon";
-/// Button under a slot.
-pub const REMOVE: &str = "Remove";
-/// Section.
-pub const STEAM: &str = "Official artwork from Steam";
-/// Section body: what is sent, and that the game's own permissions do not matter.
-pub const STEAM_BODY: &str = "EasyPlay downloads it itself and sends Steam only the app ID or the words you search for. The game itself stays offline.";
-/// Shown while online artwork is off.
-pub const STEAM_OFF: &str = "Downloading official artwork is turned off. EasyPlay would send Steam only the app ID or the game's name; the game itself stays offline.";
-/// Button that turns online artwork on.
-pub const TURN_ON: &str = "Turn on";
-/// Search field label.
-pub const SEARCH_LABEL: &str = "Game name, Steam app ID or store link";
-/// Search field hint.
-pub const SEARCH_HINT: &str = "e.g. Hollow Knight, 367520";
-/// Button.
-pub const SEARCH: &str = "Search";
-/// While the lookup runs.
-pub const SEARCHING: &str = "Looking on Steam…";
-/// Nothing found.
-pub const NOTHING_FOUND: &str = "Nothing found on Steam. Try fewer words, or paste the game's Steam store link. Games no longer sold on Steam are found only by their app ID or link.";
-/// Name search is turned off in Settings.
-pub const NAME_SEARCH_OFF: &str =
-    "Searching by name is turned off in Settings. Enter the Steam app ID or store link.";
-/// The lookup failed without a message.
-pub const LOOKUP_FAILED: &str = "Steam could not be reached. Try again.";
-/// Row value.
-pub const DOWNLOAD: &str = "Download artwork";
-/// Row value while it runs.
-pub const DOWNLOADING: &str = "downloading…";
-/// Row value of the app whose artwork is in use.
-pub const IN_USE: &str = "in use";
+texts! {
+    /// Slot.
+    COVER = "artwork.cover";
+    /// Slot.
+    ICON = "artwork.icon";
+    /// Slot.
+    HERO = "artwork.hero";
+    /// Button under a slot.
+    CHOOSE = "artwork.choose";
+    /// Under the slots, once for all three.
+    HOW_TO_CHANGE = "artwork.how_to_change";
+    /// Help under "Cover" while the cover is EasyPlay's own poster.
+    MADE_FROM_TITLE = "artwork.made_from_title";
+    /// The dialog's action.
+    DONE = "artwork.done";
+    /// Button under the icon.
+    USE_ICON = "artwork.use_icon";
+    /// Button under a slot.
+    REMOVE = "artwork.remove";
+    /// Section.
+    STEAM = "artwork.steam";
+    /// Section body: what is sent, and that the game's own permissions do not matter.
+    STEAM_BODY = "artwork.steam_body";
+    /// Shown while online artwork is off.
+    STEAM_OFF = "artwork.steam_off";
+    /// Button that turns online artwork on.
+    TURN_ON = "artwork.turn_on";
+    /// Search field label.
+    SEARCH_LABEL = "artwork.search_label";
+    /// Search field hint.
+    SEARCH_HINT = "artwork.search_hint";
+    /// Button.
+    SEARCH = "artwork.search";
+    /// While the lookup runs.
+    SEARCHING = "artwork.searching";
+    /// Nothing found.
+    NOTHING_FOUND = "artwork.nothing_found";
+    /// Name search is turned off in Settings.
+    NAME_SEARCH_OFF = "artwork.name_search_off";
+    /// The lookup failed without a message.
+    LOOKUP_FAILED = "artwork.lookup_failed";
+    /// Row value.
+    DOWNLOAD = "artwork.download";
+    /// Row value while it runs.
+    DOWNLOADING = "artwork.downloading";
+    /// Row value of the app whose artwork is in use.
+    IN_USE = "artwork.in_use";
+}
+
+/// What is sent to Steam, and that the game itself stays where its protection keeps it.
+pub fn steam_body(offline: bool) -> &'static str {
+    if offline {
+        STEAM_BODY()
+    } else {
+        crate::i18n::text("artwork.steam_body_online")
+    }
+}
+
+texts! {
+    /// The cover preview at the dialog's left, which chooses a cover too.
+    COVER_PREVIEW = "artwork.cover_preview";
+    /// What the cover preview does.
+    PREVIEW_HINT = "artwork.preview_hint";
+}
 
 /// "Artwork for Hollow Knight".
 pub fn title(name: &str) -> String {
-    format!("Artwork for {name}")
+    rust_i18n::t!("artwork.title", name = name).into_owned()
 }
 
 /// "Cover: change, current image set".
 pub fn slot_name(slot: &str, has: bool) -> String {
     if has {
-        format!("{slot}: change. An image is set.")
+        rust_i18n::t!("artwork.slot_name_set", slot = slot).into_owned()
     } else {
-        format!("{slot}: change. No image yet.")
+        rust_i18n::t!("artwork.slot_name_empty", slot = slot).into_owned()
     }
 }
 
 /// "Steam app 367520".
 pub fn app(id: u32) -> String {
-    format!("Steam app {id}")
+    rust_i18n::t!("artwork.app", id = id).into_owned()
 }
 
 /// Where the computer found the app ID.
 pub fn found_in(source: SteamAppIdSource) -> &'static str {
     match source {
-        SteamAppIdSource::Stored | SteamAppIdSource::User => "Used for this game before",
-        SteamAppIdSource::AppIdFile => "Named by a file in the game folder",
-        SteamAppIdSource::UmuDb => "Known to the game-fix database",
-        SteamAppIdSource::NameSearch => "Found by its name",
+        SteamAppIdSource::Stored | SteamAppIdSource::User => {
+            crate::i18n::text("artwork.found_in.used_for_this_game")
+        }
+        SteamAppIdSource::AppIdFile => crate::i18n::text("artwork.found_in.named_by_a_file"),
+        SteamAppIdSource::UmuDb => crate::i18n::text("artwork.found_in.known_to_the_game"),
+        SteamAppIdSource::NameSearch => crate::i18n::text("artwork.found_in.found_by_its_name"),
     }
 }
 
 /// Accessible name of a result row.
 pub fn row_name(title: &str, id: u32) -> String {
-    format!("{title}, Steam app {id}: download its artwork")
+    rust_i18n::t!("artwork.row_name", title = title, id = id).into_owned()
 }

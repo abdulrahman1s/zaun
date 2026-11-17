@@ -10,9 +10,12 @@ authors.workspace = true
 publish.workspace = true
 
 [features]
-default = ["seccomp"]
+default = ["seccomp", "wayland-security-context"]
 # Build the seccomp BPF program (BUBBLEWRAP_SANDBOX §9); on by default since milestone 15.
 seccomp = ["dep:seccompiler"]
+# Give each session a restricted Wayland socket through the compositor's
+# `wp_security_context_v1` (ADR-0029). Without it every game gets the compositor's own socket.
+wayland-security-context = ["dep:wayland-client", "dep:wayland-protocols"]
 
 [dependencies]
 serde.workspace = true
@@ -41,6 +44,9 @@ tokio.workspace = true
 libsqlite3-sys.workspace = true
 ureq.workspace = true
 seccompiler = { workspace = true, optional = true }
+# The restricted Wayland socket (`host::wayland`); already in the tree through eframe.
+wayland-client = { workspace = true, optional = true }
+wayland-protocols = { workspace = true, optional = true }
 # The supervisor's signal handling and the `unsafe` syscalls of `session::sys`.
 signal-hook.workspace = true
 libc.workspace = true

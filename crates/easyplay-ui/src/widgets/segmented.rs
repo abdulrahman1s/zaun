@@ -1,18 +1,19 @@
-//! Segmented control: 2–4 exclusive options with optional icons; arrow keys move the
-//! selection (§7.4). Exposed as a radio group. The selected segment is a thumb that glides
-//! to its new place when the selection changes.
+//! Segmented control: a 28 high track (`o1`, radius 8, 2 padding) holding exclusive
+//! options, each as wide as its label + 20 (an icon + 20 when it has no label). Labels are
+//! 13 / 500 in quiet text, secondary under the pointer, primary when chosen. The thumb
+//! (`thumb`, radius 6) slides to the chosen option's place and width (220 ms, `ease_out`);
+//! with nothing chosen there is no thumb. Arrow keys move the choice. Exposed as a radio
+//! group.
 
 use egui::accesskit::Role;
-use egui::{
-    Align2, CornerRadius, Key, Rect, Response, Sense, Stroke, StrokeKind, Ui, WidgetText, pos2,
-    vec2,
-};
+use egui::{CornerRadius, Galley, Key, Rect, Response, Sense, Shape, Ui, pos2, vec2};
+use std::sync::Arc;
 
-use super::{focus_ring, hover_t, tooltip};
+use super::{contrast_outline, focus_ring, glyph_shape, pointer_t, tooltip};
 use crate::a11y;
 use crate::theme::palette::mix;
-use crate::theme::tokens::{control, icon as icon_size, radius, space, stroke};
-use crate::theme::{self, Dur, Icon, Type, icons, motion};
+use crate::theme::tokens::{control, icon as icon_size, radius};
+use crate::theme::{self, Dur, Icon, Type, motion};
 
 /// One option.
 #[derive(Clone, Copy, Debug)]
@@ -23,8 +24,9 @@ pub struct Segment<'a> {
     pub label: &'a str,
 }
 
-/// Show the control. `icon_only` hides labels (view switch in the toolbar) and shows them as
-/// tooltips. Returns the group's response; `changed()` when the selection moved.
+/// Show the control. `icon_only` hides labels (the covers / list switch) and shows them as
+/// tooltips. `*selected` past the last option chooses nothing. Returns the group's
+/// response; `changed()` when the choice moved.
 pub fn segmented(
     ui: &mut Ui,
     group_label: &str,
@@ -36,7 +38,7 @@ pub fn segmented(
 }
 
 /// [`segmented`] whose options say what they do: `hints[i]` is the tooltip and the
-/// accessible description of option `i` (the protection presets).
+/// accessible description of option `i` (the protection levels).
 pub fn segmented_with_hints(
     ui: &mut Ui,
     group_label: &str,
@@ -45,6 +47,39 @@ pub fn segmented_with_hints(
     hints: &[&str],
 ) -> Response {
     segmented_impl(ui, group_label, selected, options, false, hints)
+}
+
+fn measure(
+    ui: &Ui,
+    options: &[Segment<'_>],
+    icon_only: bool,
+) -> (Vec<Option<Arc<Galley>>>, Vec<f32>) {
+    let galleys: Vec<_> = options
+        .iter()
+        .map(|o| {
+            (!icon_only).then(|| Type::BodyStrong.line(ui, o.label, egui::Color32::PLACEHOLDER))
+        })
+        .collect();
+    let widths = options
+        .iter()
+        .zip(&galleys)
+        .map(|(o, g)| content_width(o, g.as_ref()) + control::SEGMENT_PAD * 2.0)
+        .collect();
+    (galleys, widths)
+}
+
+fn content_width(o: &Segment<'_>, g: Option<&Arc<Galley>>) -> f32 {
+    let icon_w = if o.icon.is_some() {
+        icon_size::INLINE
+    } else {
+        0.0
+    };
+    let gap = if o.icon.is_some() && g.is_some() {
+        control::BUTTON_GAP
+    } else {
+        0.0
+    };
+    icon_w + gap + g.map_or(0.0, |g| g.size().x)
 }
 
 fn segmented_impl(
@@ -57,61 +92,21 @@ fn segmented_impl(
 ) -> Response {
     let theme = theme::theme(ui.ctx());
     let p = &theme.palette;
-    let h = control::MD;
+    let h = control::SM;
     let inset = control::SEGMENT_INSET;
-    let pad = if icon_only {
-        space::S2 + 2.0
-    } else {
-        space::S3
-    };
-    let icon_gap = space::S1 + 2.0;
-    let galleys: Vec<_> = options
-        .iter()
-        .map(|o| {
-            (!icon_only).then(|| {
-                WidgetText::from(o.label).into_galley(
-                    ui,
-                    Some(egui::TextWrapMode::Extend),
-                    f32::INFINITY,
-                    Type::BodyStrong.font_id(),
-                )
-            })
-        })
-        .collect();
-    let widths: Vec<f32> = options
-        .iter()
-        .zip(&galleys)
-        .map(|(o, g)| {
-            let icon_w = if o.icon.is_some() {
-                icon_size::INLINE
-            } else {
-                0.0
-            };
-            let gap = if o.icon.is_some() && g.is_some() {
-                icon_gap
-            } else {
-                0.0
-            };
-            (pad * 2.0 + icon_w + gap + g.as_ref().map_or(0.0, |g| g.size().x))
-                .max(control::MIN_TARGET)
-        })
-        .collect();
+    let (galleys, widths) = measure(ui, options, icon_only);
     let total: f32 = widths.iter().sum::<f32>() + inset * 2.0;
     let (outer, mut group) = ui.allocate_exact_size(vec2(total, h), Sense::hover());
     a11y::labelled(ui.ctx(), group.id, Role::RadioGroup, group_label);
 
     let corner = CornerRadius::same(radius::MD);
-    let inner_corner = CornerRadius::same(radius::ROW - 1);
+    let inner_corner = CornerRadius::same(radius::SM);
     let painter = ui.painter().clone();
-    painter.rect_filled(outer, corner, p.fill_hover);
-    painter.rect_stroke(
-        outer,
-        corner,
-        Stroke::new(stroke::BORDER, p.hairline),
-        StrokeKind::Inside,
-    );
+    painter.rect_filled(outer, corner, p.o1);
+    if let Some(o) = contrast_outline(outer, corner, &theme) {
+        painter.add(o);
+    }
 
-    // Segment rectangles, then interaction, so the thumb can be painted under the labels.
     let mut x = outer.left() + inset;
     let rects: Vec<Rect> = widths
         .iter()
@@ -140,11 +135,10 @@ fn segmented_impl(
                         inp.key_pressed(Key::ArrowRight) || inp.key_pressed(Key::ArrowDown),
                     )
                 });
-                if left && *selected > 0 {
-                    *selected -= 1;
-                }
-                if right && *selected + 1 < options.len() {
-                    *selected += 1;
+                if left && i > 0 {
+                    *selected = i - 1;
+                } else if right && i + 1 < options.len() {
+                    *selected = i + 1;
                 }
                 if (left || right) && *selected != i {
                     ui.memory_mut(|m| m.request_focus(group.id.with(*selected)));
@@ -161,32 +155,22 @@ fn segmented_impl(
         })
         .collect();
 
-    // The thumb.
+    // The thumb glides along the track: its place is kept relative to the track, so a
+    // page that scrolls or a row that moves the control does not make it trail.
     if let Some(target) = rects.get(*selected) {
         let secs = theme.motion.movement(Dur::Base);
-        let left = motion::glide(ui.ctx(), group.id.with("thumb.l"), target.left(), secs);
-        let right = motion::glide(ui.ctx(), group.id.with("thumb.r"), target.right(), secs);
-        let thumb = Rect::from_min_max(pos2(left, target.top()), pos2(right, target.bottom()));
-        // Lifted above the track: lighter than it in every theme.
-        let fill = if p.kind.is_dark() {
-            mix(p.bg_overlay, p.text_primary, 0.06)
-        } else {
-            p.bg_surface
-        };
-        painter.rect_filled(thumb, inner_corner, fill);
-        painter.rect_stroke(
-            thumb,
-            inner_corner,
-            Stroke::new(
-                stroke::BORDER,
-                if p.allows_translucency() {
-                    p.hairline
-                } else {
-                    p.accent
-                },
-            ),
-            StrokeKind::Inside,
+        let left = motion::glide(
+            ui.ctx(),
+            group.id.with("thumb.x"),
+            target.left() - outer.left(),
+            secs,
         );
+        let width = motion::glide(ui.ctx(), group.id.with("thumb.w"), target.width(), secs);
+        let thumb = Rect::from_min_size(
+            pos2(outer.left() + left, target.top()),
+            vec2(width, target.height()),
+        );
+        painter.rect_filled(thumb, inner_corner, p.thumb);
     }
 
     for (i, (((opt, g), r), resp)) in options
@@ -197,36 +181,37 @@ fn segmented_impl(
         .enumerate()
     {
         let is_sel = *selected == i;
-        let hover = hover_t(resp, &theme);
-        let fg = if is_sel {
-            p.text_primary
-        } else {
-            mix(p.text_muted, p.text_primary, hover)
-        };
-        let icon_w = if opt.icon.is_some() {
-            icon_size::INLINE
+        let hover = if ui.is_enabled() {
+            pointer_t(resp, &theme)
         } else {
             0.0
         };
-        let gap = if opt.icon.is_some() && g.is_some() {
-            icon_gap
-        } else {
-            0.0
-        };
-        let content = icon_w + gap + g.as_ref().map_or(0.0, |g| g.size().x);
+        let fg = if is_sel { p.t1 } else { mix(p.t3, p.t2, hover) };
+        let content = content_width(opt, g.as_ref());
         let mut cx = r.center().x - content / 2.0;
         if let Some(icon) = opt.icon {
-            painter.text(
-                pos2(cx + icon_w / 2.0, r.center().y),
-                Align2::CENTER_CENTER,
-                icon.text(is_sel),
-                icons::font(icon_size::INLINE),
+            // The design's icons are outlines whether chosen or not (the thumb shows which).
+            painter.add(glyph_shape(
+                &painter,
+                pos2(cx + icon_size::INLINE / 2.0, r.center().y),
+                icon,
+                false,
+                icon_size::INLINE,
                 fg,
-            );
-            cx += icon_w + gap;
+            ));
+            cx += icon_size::INLINE
+                + if g.is_some() {
+                    control::BUTTON_GAP
+                } else {
+                    0.0
+                };
         }
         if let Some(g) = g {
-            painter.galley(pos2(cx, r.center().y - g.size().y / 2.0), g, fg);
+            painter.add(Shape::galley(
+                pos2(cx, r.center().y - g.size().y / 2.0),
+                g,
+                fg,
+            ));
         }
         if resp.has_focus() {
             focus_ring(&painter, *r, inner_corner, &theme);
@@ -236,4 +221,30 @@ fn segmented_impl(
         group.mark_changed();
     }
     group
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_track_is_28_high_and_its_segments_are_their_labels_plus_20() {
+        let (r, label_w) = crate::widgets::test_frame(&Default::default(), |ui| {
+            let mut chosen = 0;
+            let opts = [Segment {
+                icon: None,
+                label: "Covers",
+            }];
+            let w = Type::BodyStrong
+                .line(ui, "Covers", egui::Color32::WHITE)
+                .size()
+                .x;
+            (segmented(ui, "Show as", &mut chosen, &opts, false).rect, w)
+        });
+        assert_eq!(r.height(), control::SM);
+        assert_eq!(
+            r.width(),
+            label_w + control::SEGMENT_PAD * 2.0 + control::SEGMENT_INSET * 2.0
+        );
+    }
 }

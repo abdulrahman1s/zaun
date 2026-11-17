@@ -24,6 +24,7 @@ use crate::clock::{Clock, MonoInstant, Timestamp};
 use crate::consts::{HEARTBEAT_INTERVAL, SESSION_LOG_CAP_DEFAULT, STARTING_TIMEOUT};
 use crate::error::{Error, ErrorCode};
 use crate::fsx::{Fs, safe_remove_tree};
+use crate::host::wayland::ContextRequest;
 use crate::ids::{GameId, SessionId};
 use crate::launch::LaunchPlan;
 use crate::model::{
@@ -783,6 +784,33 @@ impl Run<'_> {
             return self
                 .spawn_failure(&Error::new(ErrorCode::SbxSetupFailed).with("step", "pipes"));
         };
+        // The restricted Wayland socket (ADR-0029). Its context ends when the compositor's
+        // copy of the `--sync-fd` read end hangs up, which is when the sandbox is gone; the
+        // write end is still ours here, so a launch that fails below ends it too.
+        for a in &plan.host_actions {
+            if let HostAction::CreateWaylandContext {
+                display,
+                socket,
+                app_id,
+                instance_id,
+            } = a
+            {
+                let request = ContextRequest {
+                    display,
+                    socket,
+                    app_id,
+                    instance_id,
+                };
+                if let Err(e) = self
+                    .deps
+                    .spawner
+                    .create_wayland_context(request, sy_r.as_fd())
+                {
+                    return self.spawn_failure(&e);
+                }
+                tracing::info!(socket = %socket.display(), "restricted Wayland socket created");
+            }
+        }
         let (ev_tx, ev_rx) = mpsc::channel();
         let trigger = self.deps.trigger.clone();
         let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(move || trigger.wake());

@@ -263,7 +263,193 @@ fn summary(i: usize, s: Spec, now: Timestamp) -> GameSummary {
             needs_attention: s.attention,
             ..SummaryFlags::default()
         },
+        origin: easyplay_core::model::GameOrigin::EasyPlay,
     }
+}
+
+/// One sample Steam game: its app ID, title, play time and last play (days ago), how it
+/// runs, its update and whether Steam runs it now.
+struct SteamSpec {
+    app_id: u32,
+    name: &'static str,
+    played_min: u64,
+    last_days: Option<u64>,
+    compat: SteamKind,
+    update: easyplay_core::model::SteamUpdate,
+    download: Option<(u64, u64)>,
+    running_min: Option<u64>,
+    tags: &'static [i64],
+    favorite: bool,
+}
+
+/// How a sample Steam game runs.
+#[derive(Clone, Copy)]
+enum SteamKind {
+    /// Through Proton, the one named (`None`: Steam's default), last run with a version.
+    Proton(Option<&'static str>, &'static str),
+    /// Natively on Linux.
+    Native,
+}
+
+fn steam_specs() -> [SteamSpec; 3] {
+    use easyplay_core::model::SteamUpdate;
+    [
+        SteamSpec {
+            app_id: 2_000_001,
+            name: "Ridgeline Rally",
+            played_min: 74 * 60 + 10,
+            last_days: Some(3),
+            compat: SteamKind::Proton(Some("proton_experimental"), "10.0-200"),
+            update: SteamUpdate::Waiting,
+            download: Some((0, 1_400_000_000)),
+            running_min: None,
+            tags: &[2],
+            favorite: false,
+        },
+        SteamSpec {
+            app_id: 2_000_002,
+            name: "Brass Lighthouse",
+            played_min: 9 * 60 + 25,
+            last_days: Some(6),
+            compat: SteamKind::Native,
+            update: SteamUpdate::UpToDate,
+            download: None,
+            running_min: None,
+            tags: &[],
+            favorite: true,
+        },
+        SteamSpec {
+            app_id: 2_000_003,
+            name: "Glass Garden",
+            played_min: 31 * 60 + 5,
+            last_days: Some(0),
+            compat: SteamKind::Proton(None, "9.0-4"),
+            update: SteamUpdate::UpToDate,
+            download: None,
+            running_min: Some(18),
+            tags: &[1],
+            favorite: false,
+        },
+    ]
+}
+
+fn steam_summary(s: &SteamSpec, now: Timestamp) -> GameSummary {
+    use easyplay_core::model::{
+        GameOrigin, SteamCompat, SteamDownload, SteamFacts, SteamInstallKind,
+    };
+    let lib = PathBuf::from("/home/sam/.local/share/Steam");
+    let install = lib.join("steamapps/common").join(s.name);
+    let compat_data = lib.join(format!("steamapps/compatdata/{}", s.app_id));
+    let compat = match s.compat {
+        SteamKind::Proton(tool, version) => SteamCompat::Proton {
+            tool: tool.map(str::to_owned),
+            version: Some(version.to_owned()),
+            prefix: Some(compat_data.join("pfx")),
+            compat_data,
+            proton_dir: Some(lib.join("steamapps/common/Proton - Experimental")),
+        },
+        SteamKind::Native => SteamCompat::NotProton,
+    };
+    let facts = SteamFacts {
+        app_id: s.app_id,
+        install: SteamInstallKind::Native,
+        library_folder: lib,
+        install_dir: install.clone(),
+        size_on_disk: 23_500_000_000 / u64::from(s.app_id % 7 + 1),
+        build_id: Some(18_000_000 + u64::from(s.app_id % 1000)),
+        last_updated: Some(now.saturating_sub(Duration::from_millis(12 * DAY))),
+        update: s.update,
+        download: s
+            .download
+            .map(|(done, total)| SteamDownload { done, total }),
+        files_missing: false,
+        compat,
+        playtime_minutes: Some(s.played_min),
+    };
+    let install: Arc<Path> = Arc::from(install.as_path());
+    let activity = s.running_min.map_or(Activity::Idle, |m| Activity::Running {
+        since: now.saturating_sub(Duration::from_millis(m * M)),
+    });
+    GameSummary {
+        id: GameId::steam(s.app_id),
+        name: Arc::from(s.name),
+        sort_name: Arc::from(sort_name_of(s.name)),
+        cover: Some(art_key(9000 + u64::from(s.app_id % 1000))),
+        icon: None,
+        hero: None,
+        steam_app_id: Some(s.app_id),
+        accent: None,
+        favorite: s.favorite,
+        hidden: false,
+        tags: s.tags.iter().map(|t| TagId::new(*t)).collect(),
+        added_at: now.saturating_sub(Duration::from_millis(40 * DAY)),
+        last_played_at: s
+            .last_days
+            .map(|d| now.saturating_sub(Duration::from_millis(d * DAY + 2 * H))),
+        first_played_at: None,
+        total_playtime_ms: s.played_min * M,
+        session_count: 0,
+        launch_count: 0,
+        preset: Preset::Standard,
+        network: NetworkAccess::Full,
+        runtime_label: Arc::from(easyplay_core::library::steam::layer_label(&facts)),
+        primary_exe_path: install.clone(),
+        root: Some(install),
+        save_location: SaveLocationKind::Internal,
+        kind: EntryKind::Game,
+        availability: Availability::Present,
+        activity,
+        flags: SummaryFlags::default(),
+        origin: GameOrigin::Steam(Arc::new(facts)),
+    }
+}
+
+/// The sample Steam games (ADR-0031), as the preview shows them with "Show my Steam games"
+/// on: "Ridgeline Rally" (Proton, an update waiting), "Brass Lighthouse" (runs natively on
+/// Linux) and "Glass Garden" (Proton, Steam runs it now). Not part of [`library`], whose
+/// content the existing snapshot tests fix; [`preview_library`] has them.
+pub fn steam_samples(now: Timestamp) -> Vec<GameSummary> {
+    steam_specs()
+        .iter()
+        .map(|s| steam_summary(s, now))
+        .collect()
+}
+
+/// What the page of the Steam game `g` asks for (`SteamAction::Details`), as the preview
+/// answers it: Steam is installed; the Windows-storage tools are possible for a Proton game
+/// with storage that is not running.
+pub fn steam_detail(g: &GameSummary) -> Option<crate::bridge::SteamDetail> {
+    let facts = match &g.origin {
+        easyplay_core::model::GameOrigin::Steam(f) => f.clone(),
+        easyplay_core::model::GameOrigin::EasyPlay => return None,
+    };
+    let running = !matches!(g.activity, Activity::Idle | Activity::Launching(_));
+    let proton = matches!(
+        &facts.compat,
+        easyplay_core::model::SteamCompat::Proton {
+            proton_dir: Some(_),
+            ..
+        }
+    );
+    Some(crate::bridge::SteamDetail {
+        game: g.id,
+        prefix_tools: proton && facts.prefix().is_some() && !running,
+        facts,
+        notes: String::new(),
+        running,
+        client_found: true,
+    })
+}
+
+/// The preview's library: the sample library and the sample Steam games.
+pub fn preview_library(now: Timestamp) -> LibrarySnapshot {
+    let mut games: Vec<GameSummary> = specs(now)
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| summary(i, s, now))
+        .collect();
+    games.extend(steam_samples(now));
+    library_from(games, sample_tags(), 1, now)
 }
 
 /// The sample tags.
@@ -799,7 +985,7 @@ pub fn game_detail(g: &GameSummary, _now: Timestamp) -> GameDetail {
             seed ^ 0xC0FF,
             ExeRole::Tool,
             r.join("Config.exe"),
-            Some(strings::details::SAMPLE_TOOL_LABEL),
+            Some(strings::details::SAMPLE_TOOL_LABEL()),
             g.added_at,
         ));
     }
@@ -822,7 +1008,7 @@ pub fn game_detail(g: &GameSummary, _now: Timestamp) -> GameDetail {
         favorite: g.favorite,
         hidden: g.hidden,
         notes: if &*g.name == "Lantern Keep" {
-            strings::details::SAMPLE_NOTE.to_owned()
+            strings::details::SAMPLE_NOTE().to_owned()
         } else {
             String::new()
         },
@@ -1003,7 +1189,8 @@ fn play_log(lib: &LibrarySnapshot, now: Timestamp) -> PlayLog {
     let today = key_days(local_day(now, 0));
     let mut rows = Vec::new();
     for (i, g) in lib.games.iter().enumerate() {
-        let Some(last) = g.last_played_at else {
+        // Steam games have no sessions of EasyPlay's: Steam counts their time (ADR-0031).
+        let Some(last) = g.last_played_at.filter(|_| !g.is_steam()) else {
             continue;
         };
         let last_day = key_days(local_day(last, 0));
@@ -1227,6 +1414,10 @@ struct DemoState {
     setup_queue: VecDeque<PathBuf>,
     /// Batch size of the current setup queue.
     batch: u32,
+    /// The Steam games kept aside while "Show my Steam games" is off (ADR-0031).
+    steam_off: Vec<GameSummary>,
+    /// The notes of Steam games (the preview keeps no record for them).
+    steam_notes: HashMap<GameId, String>,
 }
 
 /// A preview backend over the sample library. Edits stay in memory; launches are simulated
@@ -1239,9 +1430,17 @@ pub struct DemoBackend {
 }
 
 impl DemoBackend {
-    /// Sample data as of `now`.
+    /// The preview (`EASYPLAY_PREVIEW=1`): the sample library with the sample Steam games,
+    /// and "Show my Steam games" on.
     pub fn new(now: Timestamp) -> Self {
-        Self::with_library(library(now), now)
+        let b = Self::with_library(preview_library(now), now);
+        {
+            let mut s = b.lock();
+            let mut p = (*s.prefs).clone();
+            p.steam.show_games = true;
+            s.prefs = Arc::new(p);
+        }
+        b
     }
 
     /// A preview backend over `library`.
@@ -1260,6 +1459,8 @@ impl DemoBackend {
                 cancelled: Vec::new(),
                 setup_queue: VecDeque::new(),
                 batch: 0,
+                steam_off: Vec::new(),
+                steam_notes: HashMap::new(),
             })),
             step: Duration::from_millis(900),
         }
@@ -1324,6 +1525,85 @@ impl DemoBackend {
                     queue: (index, s.batch),
                 },
             });
+        }
+    }
+
+    /// "Show my Steam games" turned `on` or off: the Steam games join or leave the library.
+    fn steam_enabled(s: &mut DemoState, on: bool) {
+        let now = s.now;
+        if on {
+            let games = if s.steam_off.is_empty() {
+                steam_samples(now)
+            } else {
+                std::mem::take(&mut s.steam_off)
+            };
+            let mut lib = (*s.library).clone();
+            for g in games {
+                if lib.get(g.id).is_none() {
+                    lib = lib.with_game(g, now);
+                }
+            }
+            s.library = Arc::new(lib);
+        } else {
+            let steam: Vec<GameSummary> = s
+                .library
+                .games
+                .iter()
+                .filter(|g| g.is_steam())
+                .cloned()
+                .collect();
+            let mut lib = (*s.library).clone();
+            for g in &steam {
+                lib = lib.without_game(g.id, now);
+            }
+            s.library = Arc::new(lib);
+            s.steam_off = steam;
+        }
+        s.events.push_back(UiEvent::LibraryChanged);
+    }
+
+    /// A request to Steam, as the preview answers it: what the real app would say.
+    fn steam(s: &mut DemoState, a: crate::bridge::SteamAction) {
+        use crate::bridge::SteamAction as A;
+        let name = |s: &DemoState, id: GameId| s.library.get(id).map(|g| g.name.to_string());
+        match a {
+            A::SetEnabled(on) => {
+                let mut p = (*s.prefs).clone();
+                p.steam.show_games = on;
+                s.prefs = Arc::new(p);
+                s.events.push_back(UiEvent::PreferencesChanged);
+                Self::steam_enabled(s, on);
+            }
+            A::Rescan => {
+                if s.prefs.steam.show_games {
+                    let n = s.library.games.iter().filter(|g| g.is_steam()).count();
+                    Self::toast(s, strings::steam::found(n), None);
+                }
+            }
+            A::Update(id) => {
+                let n = name(s, id);
+                Self::toast(s, strings::steam::opened_downloads(n.as_deref()), None);
+            }
+            A::OpenInSteam(id) => {
+                let n = name(s, id).unwrap_or_default();
+                Self::toast(s, strings::steam::opened_in_steam(&n), None);
+            }
+            A::Details { id, reply_to } => {
+                let payload = match s.library.get(id).and_then(steam_detail) {
+                    Some(mut d) => {
+                        d.notes = s.steam_notes.get(&id).cloned().unwrap_or_default();
+                        QueryPayload::Steam(Box::new(d))
+                    }
+                    None => QueryPayload::Failed(launch_failure(id, "")),
+                };
+                s.events.push_back(UiEvent::QueryResult {
+                    id: reply_to,
+                    payload,
+                });
+            }
+            // A file manager or a program in the game's Windows storage: nothing to show in
+            // the preview, as for the folders of the other games.
+            A::OpenStorageFolder(_) | A::WindowsSettings(_) | A::RunProgram { .. } => {}
         }
     }
 
@@ -1451,6 +1731,14 @@ impl DemoBackend {
                 }
                 Self::toast(s, strings::library::bulk_summary(changed, skipped), None);
             }
+            UiCommand::UpdateGame { id, edits } if id.is_steam() => {
+                // Only the notes are EasyPlay's to change (ADR-0031).
+                for e in edits {
+                    if let GameEdit::Notes(n) = e {
+                        s.steam_notes.insert(id, n);
+                    }
+                }
+            }
             UiCommand::UpdateGame { id, edits } => {
                 let mut summary_edits: Vec<GameEdit> = Vec::new();
                 if let Some(d) = Self::detail(s, id) {
@@ -1528,10 +1816,16 @@ impl DemoBackend {
                 s.events.push_back(UiEvent::LibraryChanged);
                 Self::toast(s, strings::feedback::removed(&name), None);
             }
+            UiCommand::Launch { id, .. } if id.is_steam() => {
+                // Handed to Steam: no phases of EasyPlay's.
+                let name = name_of(s, id);
+                Self::toast(s, strings::steam::asked_to_play(&name), None);
+            }
             UiCommand::Launch { id, .. } => {
                 s.cancelled.retain(|g| *g != id);
                 self.simulate_launch(id);
             }
+            UiCommand::CancelLaunch { id } if id.is_steam() => {}
             UiCommand::CancelLaunch { id } => {
                 s.cancelled.push(id);
                 s.events.push_back(UiEvent::LaunchProgress {
@@ -1540,6 +1834,8 @@ impl DemoBackend {
                 });
                 Self::update_game(s, id, |g| g.activity = Activity::Idle);
             }
+            // Steam runs its games: EasyPlay has no Stop for them.
+            UiCommand::Stop { id, .. } if id.is_steam() => {}
             UiCommand::Stop { id, .. } => {
                 let now = s.now;
                 s.events.push_back(UiEvent::LaunchProgress {
@@ -1688,8 +1984,13 @@ impl DemoBackend {
                 });
             }
             UiCommand::SetPreference { preview, .. } => {
+                let steam = preview.steam.show_games;
+                let was = s.prefs.steam.show_games;
                 s.prefs = Arc::new(*preview);
                 s.events.push_back(UiEvent::PreferencesChanged);
+                if steam != was {
+                    Self::steam_enabled(s, steam);
+                }
             }
             UiCommand::SetDefaultHandler { enable } => {
                 let mut h = (*s.host).clone();
@@ -1751,7 +2052,7 @@ impl DemoBackend {
                 Self::toast(s, strings::feedback::prefix_reset(&name), None);
             }
             UiCommand::ClearStatistics => {
-                Self::toast(s, strings::stats::CLEARED.to_owned(), None);
+                Self::toast(s, strings::stats::CLEARED().to_owned(), None);
             }
             UiCommand::RemoveRuntime { name } => {
                 let mut r = (*s.runtimes).clone();
@@ -1759,6 +2060,7 @@ impl DemoBackend {
                 s.runtimes = Arc::new(r);
                 s.events.push_back(UiEvent::RuntimesChanged);
             }
+            UiCommand::RunTool { id, .. } if id.is_steam() => {}
             UiCommand::RunTool { id, .. } => {
                 // A tool that needs the internet asks first (UF-18).
                 let prompt = PromptRequest {
@@ -1801,6 +2103,7 @@ impl DemoBackend {
             | UiCommand::DismissCrash
             | UiCommand::ResolveDatabase(_)
             | UiCommand::Quit => {}
+            UiCommand::Steam(a) => Self::steam(s, a),
             UiCommand::ListSessions { reply_to, .. } => {
                 s.events.push_back(UiEvent::QueryResult {
                     id: reply_to,

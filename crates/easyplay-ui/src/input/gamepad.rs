@@ -328,15 +328,31 @@ fn key(key: Key, modifiers: Modifiers) -> [Event; 2] {
     [ev(true), ev(false)]
 }
 
+/// What has keyboard focus when a controller button is read: it decides what `A` does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PadFocus {
+    /// Nothing: `A` confirms the default dialog button (`Enter`).
+    Nothing,
+    /// A control: `A` presses it (`Space`).
+    Control,
+    /// A game's cover or row: `A` plays it (`Ctrl+Enter`, the keyboard's Play), as the
+    /// controller hints say. `Space` there selects, which a controller has no use for.
+    Game,
+}
+
 /// The keyboard equivalent of an intent, as egui events, or `None` when the intent is an
 /// application action (favourite, context menu, search, collection/tab cycling).
-/// `focused` says whether a widget has keyboard focus: `A` then presses it (`Space`), else it
-/// confirms the default dialog button (`Enter`).
-pub fn key_events(intent: NavIntent, focused: bool) -> Option<Vec<Event>> {
+/// `focus` is what has keyboard focus ([`PadFocus`]).
+pub fn key_events(intent: NavIntent, focus: PadFocus) -> Option<Vec<Event>> {
     let none = Modifiers::NONE;
     Some(match intent {
         NavIntent::Move(d) => key(d.key(), none).to_vec(),
-        NavIntent::Activate => key(if focused { Key::Space } else { Key::Enter }, none).to_vec(),
+        NavIntent::Activate => match focus {
+            PadFocus::Nothing => key(Key::Enter, none),
+            PadFocus::Control => key(Key::Space, none),
+            PadFocus::Game => key(Key::Enter, Modifiers::COMMAND),
+        }
+        .to_vec(),
         NavIntent::Back => key(Key::Escape, none).to_vec(),
         NavIntent::Open => key(Key::Enter, none).to_vec(),
         NavIntent::PageUp => key(Key::PageUp, none).to_vec(),
@@ -596,11 +612,25 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         };
-        assert_eq!(keys(NavIntent::Move(Dir::Left), true), vec![Key::ArrowLeft]);
-        assert_eq!(keys(NavIntent::Activate, true), vec![Key::Space]);
-        assert_eq!(keys(NavIntent::Activate, false), vec![Key::Enter]);
-        assert_eq!(keys(NavIntent::Back, true), vec![Key::Escape]);
-        assert_eq!(keys(NavIntent::Open, true), vec![Key::Enter]);
-        assert!(key_events(NavIntent::Favorite, true).is_none());
+        let control = PadFocus::Control;
+        assert_eq!(
+            keys(NavIntent::Move(Dir::Left), control),
+            vec![Key::ArrowLeft]
+        );
+        assert_eq!(keys(NavIntent::Activate, control), vec![Key::Space]);
+        assert_eq!(
+            keys(NavIntent::Activate, PadFocus::Nothing),
+            vec![Key::Enter]
+        );
+        assert_eq!(keys(NavIntent::Back, control), vec![Key::Escape]);
+        assert_eq!(keys(NavIntent::Open, control), vec![Key::Enter]);
+        assert!(key_events(NavIntent::Favorite, control).is_none());
+        // On a game, A plays: the keyboard's Ctrl+Enter.
+        let play = key_events(NavIntent::Activate, PadFocus::Game).unwrap();
+        assert!(matches!(
+            play.first(),
+            Some(Event::Key { key: Key::Enter, pressed: true, modifiers, .. })
+                if modifiers.command && !modifiers.shift && !modifiers.alt
+        ));
     }
 }

@@ -4,65 +4,62 @@ use std::path::Path;
 
 use easyplay_core::model::BasePreset;
 
-/// Sheet title.
-pub const TITLE: &str = "Set up this game";
-/// Title after Play.
-pub const STARTING_TITLE: &str = "Starting";
-/// Field.
-pub const NAME: &str = "Name";
-/// Validation.
-pub const NAME_REQUIRED: &str = "A name is required (up to 80 characters).";
-/// Label.
-pub const GAME_FOLDER: &str = "Game folder";
-/// Option.
-pub const FILE_ONLY: &str = "This file only";
-/// Option.
-pub const CHOOSE_FOLDER: &str = "Choose folder…";
-/// Loose file explanation.
-pub const LOOSE_FILE: &str =
-    "This program is not in a folder of its own, so the game can read only this file.";
-/// Summary heading.
-pub const WILL_BE_ABLE: &str = "This game will be able to:";
-/// Honesty line.
-pub const HONESTY: &str = "Protection limits what a program can reach. It reduces risk; it cannot make untrusted software harmless.";
-/// Link.
-pub const LEARN_MORE: &str = "Learn more";
-/// Popover.
-pub const HONESTY_MORE: &str = "EasyPlay runs each game in a private space with only the access listed here. A program that finds a flaw in your system could still escape, so run software you have reason to trust.";
-/// Hint.
-pub const INSTALLER_HINT: &str =
-    "This looks like an installer. EasyPlay will run it, then ask which installed program to keep.";
-/// Hint.
-pub const ONLINE_HINT: &str =
-    "This game can probably go online. Choose Online if sign-in or multiplayer doesn't work.";
-/// Acknowledgement.
-pub const I_UNDERSTAND: &str = "I understand";
-/// Disclosure.
-pub const MORE_OPTIONS: &str = "More options";
-/// Section.
-pub const FILES: &str = "Files and folders";
-/// Section.
-pub const LAUNCH: &str = "Launch";
-/// Section.
-pub const TYPE: &str = "Type";
-/// Option.
-pub const KIND_GAME: &str = "Game";
-/// Option.
-pub const KIND_INSTALLER: &str = "Installer";
-/// Option.
-pub const KIND_TOOL: &str = "Tool";
-/// Button.
-pub const ADD_TO_LIBRARY: &str = "Add to library";
-/// Button.
-pub const USE_FOR_REST: &str = "Use these settings for the rest";
-/// Button.
-pub const RUN_IN_BACKGROUND: &str = "Run in background";
-/// Disabled reason.
-pub const FIX_TO_CONTINUE: &str = "Fix the marked problem to continue";
+texts! {
+    /// Sheet title.
+    TITLE = "setup.title";
+    /// Title after Play.
+    STARTING_TITLE = "setup.starting_title";
+    /// Field.
+    NAME = "setup.name";
+    /// Validation.
+    NAME_REQUIRED = "setup.name_required";
+    /// Label.
+    GAME_FOLDER = "setup.game_folder";
+    /// Option.
+    FILE_ONLY = "setup.file_only";
+    /// Option.
+    CHOOSE_FOLDER = "setup.choose_folder";
+    /// Loose file explanation.
+    LOOSE_FILE = "setup.loose_file";
+    /// Honesty line.
+    HONESTY = "setup.honesty";
+    /// Link.
+    LEARN_MORE = "setup.learn_more";
+    /// Popover.
+    HONESTY_MORE = "setup.honesty_more";
+    /// Hint.
+    INSTALLER_HINT = "setup.installer_hint";
+    /// Hint.
+    ONLINE_HINT = "setup.online_hint";
+    /// Acknowledgement.
+    I_UNDERSTAND = "setup.i_understand";
+    /// Disclosure.
+    MORE_OPTIONS = "setup.more_options";
+    /// Section.
+    FILES = "setup.files";
+    /// Section.
+    LAUNCH = "setup.launch";
+    /// Section.
+    TYPE = "setup.type";
+    /// Option.
+    KIND_GAME = "setup.kind_game";
+    /// Option.
+    KIND_INSTALLER = "setup.kind_installer";
+    /// Option.
+    KIND_TOOL = "setup.kind_tool";
+    /// Button.
+    ADD_TO_LIBRARY = "setup.add_to_library";
+    /// Button.
+    USE_FOR_REST = "setup.use_for_rest";
+    /// Button.
+    RUN_IN_BACKGROUND = "setup.run_in_background";
+    /// Disabled reason.
+    FIX_TO_CONTINUE = "setup.fix_to_continue";
+}
 
 /// "1 of 3".
 pub fn queue(i: u32, n: u32) -> String {
-    format!("{i} of {n}")
+    rust_i18n::t!("setup.queue", i = i, n = n).into_owned()
 }
 
 /// "Games ▸ Hollow Knight".
@@ -72,84 +69,143 @@ pub fn breadcrumb(p: &Path, home: &Path) -> String {
         .map(|c| c.as_os_str().to_string_lossy().into_owned())
         .filter(|c| c != "/")
         .collect::<Vec<_>>()
-        .join(" › ")
+        .join(crate::i18n::text("setup.breadcrumb_separator"))
 }
 
 /// "Online: can use the internet and your local network".
 pub fn announce_preset(b: BasePreset, first: Option<&str>) -> String {
     let name = super::shield::preset_name(b.into());
     match first {
-        Some(f) => format!("{name}: {}", f.to_lowercase()),
+        // Lower-casing is a no-op in scripts without case.
+        Some(f) => rust_i18n::t!(
+            "setup.announce_preset",
+            name = name,
+            first = f.to_lowercase()
+        )
+        .into_owned(),
         None => name.to_owned(),
     }
 }
 
 // ---- Add game ----------------------------------------------------------------------------
 
-/// Sheet.
-pub const ADD_TITLE: &str = "Add game";
-/// Scanning.
-pub const LOOKING: &str = "Looking for programs…";
-/// Empty.
-pub const NONE_FOUND: &str = "No Windows programs found in this folder.";
-/// Truncated.
-pub const TRUNCATED: &str = "Showing the first 2,000 files' worth of results.";
-/// Toggle.
-pub const ADD_SEVERAL: &str = "Add several";
-/// Disclosure.
-pub const SHOW_FILTERED: &str = "Show uninstallers and helpers";
-/// Disclosure.
-pub const HIDE_FILTERED: &str = "Hide uninstallers and helpers";
-/// Manual choice.
-pub const NOT_HERE: &str = "Not here?";
-/// Button.
-pub const CHOOSE_FILE: &str = "Choose a file…";
-/// Button.
-pub const CONTINUE: &str = "Continue";
-/// List name.
-pub const PROGRAMS: &str = "Programs";
+texts! {
+    /// Sheet.
+    ADD_TITLE = "setup.add_title";
+    /// Scanning.
+    LOOKING = "setup.looking";
+    /// Empty.
+    NONE_FOUND = "setup.none_found";
+    /// Truncated.
+    TRUNCATED = "setup.truncated";
+    /// Toggle.
+    ADD_SEVERAL = "setup.add_several";
+    /// Disclosure.
+    HIDE_FILTERED = "setup.hide_filtered";
+    /// Button.
+    CHOOSE_FILE = "setup.choose_file";
+    /// Button.
+    CONTINUE = "setup.continue";
+    /// Step 1: what to do.
+    CHOOSE_TEXT = "setup.choose_text";
+    /// Step 1: the drop area's first line.
+    DROP_HERE = "setup.drop_here";
+    /// Step 1: the drop area's second line.
+    OR_PICK = "setup.or_pick";
+    /// Step 2: why Continue waits after it was pressed.
+    SETTING_UP = "setup.setting_up";
+    /// Step 2 and 3: back to the step before.
+    BACK = "setup.back";
+}
+
+/// Step 2: "Programs found in “Celeste”. Pick the one that starts the game."
+pub fn found_text(folder: &str) -> String {
+    rust_i18n::t!("setup.found_text", folder = folder).into_owned()
+}
+
+/// "Show 2 uninstallers and helpers".
+pub fn show_filtered(n: usize) -> String {
+    rust_i18n::t!("setup.show_filtered", n = n).into_owned()
+}
 
 /// "Programs found in “Celeste”".
 pub fn found_in(folder: &str) -> String {
-    format!("Programs found in “{folder}”")
+    rust_i18n::t!("setup.found_in", folder = folder).into_owned()
 }
 
 /// Role guess.
 pub fn role_guess(role: easyplay_core::model::ExeRole, filtered: bool) -> &'static str {
     use easyplay_core::model::ExeRole as R;
     match (role, filtered) {
-        (R::Tool, true) => "Uninstaller or helper",
-        (R::Installer, _) => "Installer",
-        (R::Primary, _) => "Main program",
-        (R::Tool, false) | (R::Launcher, _) => "Looks like a tool",
-        (R::Alternate, _) => "Another version",
+        (R::Tool, true) => crate::i18n::text("setup.role_guess.uninstaller_or_helper"),
+        (R::Installer, _) => crate::i18n::text("setup.role_guess.installer"),
+        (R::Primary, _) => crate::i18n::text("setup.role_guess.main_program"),
+        (R::Tool, false) | (R::Launcher, _) => {
+            crate::i18n::text("setup.role_guess.looks_like_a_tool")
+        }
+        (R::Alternate, _) => crate::i18n::text("setup.role_guess.another_version"),
     }
 }
 
 /// "Celeste.exe, main program, 32 MB".
 pub fn program_row(file: &str, role: &str, size: u64) -> String {
-    format!(
-        "{file}, {}, {}",
-        role.to_lowercase(),
-        super::fmt::bytes(size)
+    rust_i18n::t!(
+        "setup.program_row",
+        file = file,
+        role = role.to_lowercase(),
+        size = super::fmt::bytes(size)
     )
+    .into_owned()
 }
 
 // ---- Quick launch ------------------------------------------------------------------------
 
-/// Button.
-pub const OPEN_EASYPLAY: &str = "Open EasyPlay";
-/// Button.
-pub const DETAILS: &str = "Details";
-/// Already running.
-pub const ALREADY_RUNNING: &str = "Already running";
+texts! {
+    /// Button.
+    OPEN_EASYPLAY = "setup.open_easyplay";
+    /// Button.
+    DETAILS = "setup.details";
+}
 
 /// "Game folder: Games › Celeste".
 pub fn folder_button(label: &str) -> String {
-    format!("{GAME_FOLDER}: {label}")
+    rust_i18n::t!("setup.folder_button", folder = GAME_FOLDER(), label = label).into_owned()
 }
 
-/// "Main program   32 MB".
+/// "Main program, 32 MB".
 pub fn role_size(role: &str, size: u64) -> String {
-    format!("{role}   {}", super::fmt::bytes(size))
+    rust_i18n::t!(
+        "setup.role_size",
+        role = role,
+        size = super::fmt::bytes(size)
+    )
+    .into_owned()
+}
+
+// ---- Set up this game (step 3 of "Add a game") -----------------------------------------
+
+texts! {
+    /// Label of the protection control.
+    PROTECTION = "setup.protection";
+    /// The poster of a game whose name is still empty.
+    UNTITLED = "setup.untitled";
+}
+
+/// The cover preview, spoken: "Cover preview: Celeste".
+pub fn cover_preview(title: &str) -> String {
+    rust_i18n::t!("setup.cover_preview", title = title).into_owned()
+}
+texts! {
+    /// The left action of step 3 when there is no step before it.
+    CANCEL = "setup.cancel";
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn role_and_size_read_as_one_phrase() {
+        assert_eq!(role_size("Main program", 32_000_000).split(", ").count(), 2);
+    }
 }

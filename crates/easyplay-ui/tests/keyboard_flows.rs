@@ -27,24 +27,49 @@ fn focused(r: &Rig) -> Option<String> {
         .map(|n| n.accesskit_node().label().unwrap_or_default())
 }
 
+/// Frames after a key: overlays and pages move in and out over a few of them.
+const AFTER_KEY: usize = 8;
+
 fn key(r: &mut Rig, k: Key) {
     r.h.key_press(k);
-    r.h.run();
+    r.h.run_steps(AFTER_KEY);
 }
 
 fn key_mod(r: &mut Rig, m: Modifiers, k: Key) {
     r.h.key_press_modifiers(m, k);
-    r.h.run();
+    r.h.run_steps(AFTER_KEY);
 }
 
 fn type_text(r: &mut Rig, text: &str) {
     r.h.input_mut().events.push(egui::Event::Text(text.into()));
-    r.h.run();
+    r.h.run_steps(AFTER_KEY);
+}
+
+/// What the reach lists on screen say ("Can use: …. Can't use: ….").
+fn reach_said(r: &Rig) -> Vec<String> {
+    // A text node: kittest reads its words (its value) as its label.
+    r.h.query_all_by_label_contains("Can use:")
+        .filter_map(|n| n.accesskit_node().value())
+        .filter(|l| l.starts_with("Can use:"))
+        .collect()
 }
 
 /// Press `Tab` (or `Shift+Tab`) until the focused control's name contains `label`.
 fn tab_to(r: &mut Rig, label: &str) {
     tab_to_dir(r, label, false);
+}
+
+/// Press `Tab` until the focused control's name is exactly `label`.
+fn tab_to_exactly(r: &mut Rig, label: &str) {
+    let mut seen = Vec::new();
+    for _ in 0..80 {
+        if focused(r).as_deref() == Some(label) {
+            return;
+        }
+        key(r, Key::Tab);
+        seen.push(focused(r).unwrap_or_default());
+    }
+    panic!("no control named exactly {label:?} reachable with Tab; visited {seen:#?}");
 }
 
 fn tab_to_dir(r: &mut Rig, label: &str, back: bool) {
@@ -136,7 +161,12 @@ fn uf2_setup_choose_online_and_play_by_keyboard() {
     // The preset selector: Tab to the option, Space chooses it.
     tab_to(&mut r, "Online");
     key(&mut r, Key::Space);
-    r.h.get_by_label_contains("Can use the internet");
+    let said = reach_said(&r);
+    assert!(
+        said.iter()
+            .any(|l| l.starts_with("Can use: Internet and local network")),
+        "{said:?}"
+    );
     tab_to(&mut r, "Play");
     key(&mut r, Key::Enter);
     let created = sent(&r).into_iter().find_map(|c| match c {
@@ -155,8 +185,12 @@ fn uf2_setup_choose_online_and_play_by_keyboard() {
 fn uf4_add_game_with_ctrl_n_then_cancel_setup_with_escape() {
     let mut r = rig(Route::Library);
     r.h.run();
+    // Ctrl+N opens Add a game at its first step.
     key_mod(&mut r, Modifiers::COMMAND, Key::N);
-    assert!(picks(&r).contains(&PickPurpose::AddGame));
+    assert_eq!(
+        r.h.state().state.nav.top_overlay(),
+        Some(easyplay_ui::route::Overlay::AddGame)
+    );
     request_setup(&r, SetupOrigin::InsideApp);
     r.h.run();
     key(&mut r, Key::Escape);
@@ -236,7 +270,8 @@ fn uf6_uf8_switch_to_online_save_and_play_by_keyboard() {
     settle(&mut r);
     tab_to(&mut r, "Online");
     key(&mut r, Key::Space);
-    tab_to(&mut r, "Save");
+    // (Focus stays on the level; the save bar's Save is further on.)
+    tab_to_exactly(&mut r, "Save");
     key(&mut r, Key::Enter);
     settle(&mut r);
     assert!(
@@ -289,8 +324,9 @@ fn uf7_a_permission_is_changed_by_keyboard() {
     key(&mut r, Key::Space);
     assert_eq!(access(&r), Some(FolderAccess::ReadOnly));
     assert_eq!(focused(&r).as_deref(), Some("Music"));
-    // Its degree is the next stop: Enter opens the choices, the arrows move among them,
-    // Enter takes one and the focus returns to the control.
+    // Its degree is the next stop (under the label, after the switch): Enter opens the
+    // choices, the arrows move among them, Enter takes one and the focus returns to the
+    // control.
     key(&mut r, Key::Tab);
     assert_eq!(focused(&r).as_deref(), Some("Music: Can read"));
     key(&mut r, Key::Enter);
@@ -420,7 +456,7 @@ fn uf13_reset_private_storage_by_keyboard() {
 // ---- UF-14 Compatibility layers ----------------------------------------------------------
 
 #[test]
-fn uf14_settings_layers_check_for_updates_by_keyboard() {
+fn uf14_settings_layers_check_now_by_keyboard() {
     let mut r = rig(Route::Library);
     r.h.run();
     key_mod(&mut r, Modifiers::COMMAND, Key::Comma);
@@ -435,7 +471,7 @@ fn uf14_settings_layers_check_for_updates_by_keyboard() {
     }
     settle(&mut r);
     r.fake.clear_sent();
-    tab_to(&mut r, "Check for updates");
+    tab_to(&mut r, "Check now");
     key(&mut r, Key::Enter);
     assert!(!sent(&r).is_empty(), "a command was sent");
     // Back to the library with Escape.
@@ -470,6 +506,39 @@ fn focus_returns_after_the_shortcut_sheet() {
 #[test]
 fn focus_returns_after_the_tag_editor() {
     returns_to_card(|r| key(r, Key::T));
+}
+
+#[test]
+fn the_tag_menu_without_tags_puts_focus_in_the_new_tag_field() {
+    let settled = settled_library();
+    let games = settled
+        .games
+        .iter()
+        .cloned()
+        .map(|mut g| {
+            g.tags.clear();
+            g
+        })
+        .collect();
+    let lib = easyplay_ui::bridge::library_from(games, Vec::new(), settled.revision, now());
+    let mut r = common::rig_with(
+        lib,
+        Route::Library,
+        Vec2::new(1280.0, 800.0),
+        ThemeChoice::Dark,
+    );
+    r.h.run();
+    type_text(&mut r, "Lantern Keep");
+    tab_to(&mut r, "Lantern Keep. ");
+    let before = focused(&r).unwrap();
+    key(&mut r, Key::T);
+    assert_eq!(
+        focused(&r).as_deref(),
+        Some(easyplay_ui::strings::tags::NEW_TAG_NAME())
+    );
+    key(&mut r, Key::Escape);
+    r.h.run();
+    assert_eq!(focused(&r), Some(before));
 }
 
 #[test]

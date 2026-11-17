@@ -193,6 +193,8 @@ pub fn arch_mesa() -> HostFacts {
     h.display.wayland = Some(WaylandSocket {
         name: "wayland-0".into(),
         path: "/run/user/1000/wayland-0".into(),
+        inode: 0,
+        security_context: false,
     });
     h.display.x11 = Some(X11Display {
         number: 0,
@@ -421,6 +423,11 @@ pub fn nixos() -> HostFacts {
     );
     h.layout.resolver = ResolverStrategy::File;
     h.layout.path_env = "/run/current-system/sw/bin:/usr/bin:/bin".into();
+    // niri offers security contexts: games get a restricted Wayland socket (ADR-0029).
+    h.display.desktop = Some("niri".into());
+    if let Some(w) = &mut h.display.wayland {
+        w.security_context = true;
+    }
     h.layout.passthrough_env = [
         "LD_LIBRARY_PATH",
         "LIBGL_DRIVERS_PATH",

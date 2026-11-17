@@ -1,64 +1,79 @@
-//! Toast stack: bottom centre, `bg.overlay`, `r.pop`, max 420 wide, icon + text + optional
-//! action (§7.5). Rendering only; timing lives in [`crate::vm::toasts::ToastQueue`].
+//! The toast (CSS `.toast`, notes §5 "Toast"): one at a time at the bottom centre, 24 from
+//! the window's edge; a 38 high pill on `raised` with a 1 pt `line` outline and the pop
+//! shadow, padded 16 before the text and 6 after; the text 13 pt, then an optional action
+//! as a 26 high pill text button in `accent_text`. Every kind looks the same. It arrives
+//! (alpha and a rise of 10 over 220 ms) and leaves (140 ms). Rendering only; timing lives in
+//! [`crate::vm::toasts::ToastQueue`].
 
 use easyplay_core::clock::MonoInstant;
-use egui::{Align, Align2, Area, Context, CornerRadius, Frame, Id, Layout, Order, Stroke, vec2};
+use egui::{
+    Align2, Area, Context, CornerRadius, Id, LayerId, Order, Rect, Sense, Shape, Stroke,
+    StrokeKind, pos2, vec2,
+};
 
-use super::button::{Button, Size, Variant};
-use super::icon_button::IconButton;
+use super::modal::{ExitKind, paint_exits, track_exit};
+use super::{focus_ring, hover_t, press_t};
 use crate::a11y;
 use crate::strings;
-use crate::theme::tokens::{icon as icon_size, layout, radius, space, stroke, travel};
-use crate::theme::{self, Type, icons};
-use crate::vm::toasts::{ToastId, ToastKind, ToastQueue};
+use crate::theme::motion::ease_out;
+use crate::theme::palette::{fade, mix};
+use crate::theme::tokens::{control, layout, overlay, radius, stroke, travel};
+use crate::theme::{self, Dur, Type};
+use crate::vm::toasts::{ToastId, ToastQueue};
 
-/// What the user did with the stack this frame.
+/// What the user did with the toast this frame.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ToastOutput {
     /// Actions activated: (toast, action key).
     pub actions: Vec<(ToastId, u64)>,
 }
 
-/// Paint the visible toasts, update hover/focus holds, handle dismiss and actions.
-/// `bottom_inset` keeps the stack above a footer.
+fn area_id() -> Id {
+    Id::unique("easyplay.toasts")
+}
+
+/// Paint the toast, update its hover/focus hold, handle its action. `bottom_inset` keeps it
+/// above a footer. Also paints whatever is leaving ([`paint_exits`]): call it last in the
+/// frame.
 pub fn show(
     ctx: &Context,
     queue: &mut ToastQueue,
     now: MonoInstant,
     bottom_inset: f32,
 ) -> ToastOutput {
+    let mut out = ToastOutput::default();
+    let Some(t) = queue.visible().last().cloned() else {
+        paint_exits(ctx);
+        return out;
+    };
     let theme = theme::theme(ctx);
     let p = theme.palette.clone();
-    let mut out = ToastOutput::default();
-    let toasts: Vec<_> = queue.visible().to_vec();
-    if toasts.is_empty() {
-        return out;
-    }
-    let mut dismiss = Vec::new();
-    let mut holds = Vec::new();
-    // While a dialog or sheet is open, toasts sit below it: the modal keeps keyboard focus
-    // (UI-006, ACCESSIBILITY §2) and the toast's buttons wait until it closes.
+    let motion = theme.motion;
+    // While a dialog is open the toast sits below it: the dialog keeps keyboard focus, and
+    // the toast's action waits until it closes.
     let modal_open = ctx.memory(|m| m.top_modal_layer()).is_some();
-    // The newest toast slides up 12 px and fades in (USER_EXPERIENCE §10); with reduced
-    // motion it only fades.
-    let newest = toasts.last().map(|t| t.id);
-    let t_in = newest.map_or(1.0, |n| {
-        theme::motion::appear(
-            ctx,
-            Id::unique(("easyplay.toast", n.0)),
-            theme.motion.fade(theme::Dur::Base),
-        )
-    });
-    let rise = (1.0 - t_in) * travel::TOAST_RISE * f32::from(u8::from(!theme.motion.reduced));
-    Area::new(Id::unique("easyplay.toasts"))
-        .order(if modal_open {
-            Order::Middle
-        } else {
-            Order::Foreground
-        })
+    let key = Id::unique(("easyplay.toast", t.id.0));
+    let alpha = theme::motion::appear(ctx, key.with("alpha"), motion.fade(Dur::Base));
+    let lift = ease_out(theme::motion::appear(
+        ctx,
+        key.with("move"),
+        motion.movement(Dur::Base),
+    ));
+    let rise = (1.0 - lift) * travel::TOAST_RISE;
+    let order = if modal_open {
+        Order::Middle
+    } else {
+        Order::Foreground
+    };
+    let mut hold = false;
+    let mut acted = false;
+    // Each toast is its own area, so one replacing another leaves while the new one comes.
+    let id = area_id().with(t.id.0);
+    Area::new(id)
+        .order(order)
         .anchor(
             Align2::CENTER_BOTTOM,
-            vec2(0.0, -(space::S6 + bottom_inset) + rise),
+            vec2(0.0, -(layout::TOAST_BOTTOM + bottom_inset) + rise),
         )
         .interactable(true)
         .show(ctx, |ui| {
@@ -66,73 +81,86 @@ pub fn show(
                 ctx,
                 ui.scope_id(),
                 egui::Role::Log,
-                strings::feedback::NOTIFICATIONS,
+                strings::feedback::NOTIFICATIONS(),
             );
-            ui.spacing_mut().item_spacing.y = space::S2;
-            for t in &toasts {
-                let fading = Some(t.id) == newest && t_in < 1.0;
-                let (icon, color) = match t.kind {
-                    ToastKind::Info => (icons::INFO, p.info),
-                    ToastKind::Success => (icons::CHECK, p.success),
-                    ToastKind::Warning => (icons::WARNING, p.warning),
-                };
-                let r = Frame::NONE
-                    .fill(p.bg_overlay)
-                    .stroke(Stroke::new(stroke::BORDER, p.hairline))
-                    .corner_radius(CornerRadius::same(radius::POP))
-                    .shadow(ctx.global_style().visuals.popup_shadow)
-                    .inner_margin(egui::Margin::symmetric(space::S4 as i8, space::S2 as i8))
-                    .multiply_with_opacity(if fading { t_in } else { 1.0 })
-                    .show(ui, |ui| {
-                        if fading {
-                            ui.multiply_opacity(t_in);
-                        }
-                        ui.set_max_width(layout::TOAST_MAX_W - space::S8);
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S3;
-                            ui.label(icons::icon(icon, icon_size::BUTTON).color(color));
-                            ui.label(Type::Body.rich(&t.text).color(p.text_primary));
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if ui
-                                    .add(
-                                        IconButton::new(icons::CLOSE, strings::feedback::DISMISS)
-                                            .size(icon_size::NAV + 4.0)
-                                            .icon_size(icon_size::INLINE),
-                                    )
-                                    .clicked()
-                                {
-                                    dismiss.push(t.id);
-                                }
-                                if let Some(a) = &t.action
-                                    && ui
-                                        .add(
-                                            Button::new(&a.label)
-                                                .variant(Variant::Link)
-                                                .size(Size::Sm),
-                                        )
-                                        .clicked()
-                                {
-                                    out.actions.push((t.id, a.key));
-                                    dismiss.push(t.id);
-                                }
-                            });
-                        });
-                    })
-                    .response;
-                a11y::labelled(ctx, r.id, egui::Role::Status, &t.text);
-                let inside = ui.rect_contains_pointer(r.rect)
-                    || ctx.memory(|m| m.focused()).is_some_and(|f| {
-                        ctx.read_response(f)
-                            .is_some_and(|fr| r.rect.contains_rect(fr.rect))
-                    });
-                holds.push((t.id, inside));
+            ui.multiply_opacity(alpha);
+            let [pad, end] = overlay::TOAST_PAD;
+            let text = Type::Body.line(ui, &t.text, p.t1);
+            let action = t
+                .action
+                .as_ref()
+                .map(|a| (a, Type::BodyStrong.line(ui, &a.label, p.accent_text)));
+            let action_w = action
+                .as_ref()
+                .map_or(0.0, |(_, g)| g.size().x + overlay::TOAST_ACTION_PAD * 2.0);
+            let w = pad
+                + text.size().x
+                + overlay::TOAST_TEXT_END
+                + if action.is_some() {
+                    overlay::TOAST_GAP + action_w
+                } else {
+                    0.0
+                }
+                + end;
+            let h = control::TOAST;
+            let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
+            let corner = CornerRadius::same(radius::PILL);
+            let painter = ui.painter();
+            painter.add(p.shade_pop.shadow().as_shape(rect, corner));
+            painter.add(Shape::rect_filled(rect, corner, p.raised));
+            painter.add(Shape::rect_stroke(
+                rect,
+                corner,
+                Stroke::new(stroke::BORDER, p.line),
+                StrokeKind::Inside,
+            ));
+            painter.galley(
+                pos2(rect.left() + pad, rect.center().y - text.size().y / 2.0),
+                text,
+                p.t1,
+            );
+            a11y::labelled(ctx, resp.id, egui::Role::Status, &t.text);
+            if let Some((a, g)) = action {
+                let ah = control::TOAST_ACTION;
+                let ar = Rect::from_min_size(
+                    pos2(rect.right() - end - action_w, rect.center().y - ah / 2.0),
+                    vec2(action_w, ah),
+                );
+                let r = ui.interact(ar, id.with("action"), Sense::click());
+                a11y::button(&r, &a.label);
+                let hover = hover_t(&r, &theme);
+                let pressed = press_t(&r, &theme);
+                let fill = mix(fade(p.o2, hover), p.o3, pressed);
+                ui.painter().rect_filled(ar, corner, fill);
+                ui.painter().galley(
+                    pos2(
+                        ar.center().x - g.size().x / 2.0,
+                        ar.center().y - g.size().y / 2.0,
+                    ),
+                    g,
+                    p.accent_text,
+                );
+                if r.has_focus() {
+                    focus_ring(ui.painter(), ar, corner, &theme);
+                }
+                if r.clicked() && !modal_open {
+                    out.actions.push((t.id, a.key));
+                    acted = true;
+                }
+                hold |= r.has_focus();
             }
+            hold |= ui.rect_contains_pointer(rect);
         });
-    for (id, hold) in holds {
-        queue.hold(id, hold, now);
+    track_exit(
+        ctx,
+        id.with("exit"),
+        LayerId::new(order, id),
+        ExitKind::Toast,
+    );
+    queue.hold(t.id, hold, now);
+    if acted {
+        queue.dismiss(t.id, now);
     }
-    for id in dismiss {
-        queue.dismiss(id, now);
-    }
+    paint_exits(ctx);
     out
 }

@@ -25,7 +25,7 @@ use easyplay_core::model::{
     SyncMode, Tool, WindowSystem,
 };
 use easyplay_core::sandbox::plan::EnvOrigin;
-use easyplay_core::sandbox::{self, ValidationInputs};
+use easyplay_core::sandbox::{self, HostAction, ValidationInputs};
 use easyplay_core::umu;
 use easyplay_testkit::fixtures::hosts::{self, SandboxWorld};
 
@@ -826,5 +826,59 @@ fn preflight_failures_map_to_errors() {
     assert_eq!(
         launch::preflight::host_requirements(&h, SessionKind::Prepare),
         Ok(())
+    );
+}
+
+/// A launch with a restricted Wayland socket (ADR-0029) gives a script that refuses to run:
+/// a shell cannot register the socket with the compositor, and binding the compositor's own
+/// socket in its place would be weaker than the launch.
+#[test]
+#[allow(clippy::disallowed_methods)]
+fn shell_rendering_refuses_a_restricted_wayland_socket() {
+    let w = SandboxWorld::new(hosts::nixos());
+    let g = game_of(&w);
+    let p = plan(
+        &w,
+        &g,
+        LaunchTarget::Game {
+            exe: &g.executables[0],
+            extra_args: &[],
+        },
+        None,
+        None,
+    )
+    .unwrap()
+    .plan;
+    assert!(
+        p.host_actions
+            .iter()
+            .any(|a| matches!(a, HostAction::CreateWaylandContext { .. }))
+    );
+    let script = launch::render_shell(&p, "2026-11-12T00:00:00Z");
+    let refusal = script.find("exit 1").expect("the script refuses");
+    let bwrap = script
+        .find("exec '")
+        .expect("the bwrap invocation is still shown");
+    assert!(refusal < bwrap, "{script}");
+    // The refusal itself: it says why and stops.
+    let from = script
+        .find("# the restricted Wayland socket")
+        .expect("the action is explained");
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(&script[from..refusal + "exit 1".len()])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr)
+            .contains("cannot create the restricted Wayland socket"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
     );
 }

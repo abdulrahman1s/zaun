@@ -6,7 +6,7 @@
 use easyplay_core::Error;
 
 use crate::cli::{Command, LaunchArgs, RuntimesCommand, SandboxCommand, exit};
-use crate::{host_verbs, library_verbs, runtime_verbs, sandbox_print, session_verbs};
+use crate::{host_verbs, library_verbs, runtime_verbs, sandbox_print, session_verbs, steam_verbs};
 
 /// Run a verb headlessly; returns the exit code.
 pub fn run(command: &Command) -> Result<u8, Error> {
@@ -40,7 +40,10 @@ pub fn run(command: &Command) -> Result<u8, Error> {
             exe,
             wait,
             extra,
-        }) => session_verbs::launch(game, exe.as_deref(), *wait, extra),
+        }) => match steam_verbs::try_launch(game, exe.as_deref(), *wait, extra)? {
+            Some(code) => Ok(code),
+            None => session_verbs::launch(game, exe.as_deref(), *wait, extra),
+        },
         Command::Stop { game, force } => session_verbs::stop(game, *force),
         Command::Status { json } => session_verbs::status(*json),
         Command::Add {
@@ -65,7 +68,11 @@ pub fn run(command: &Command) -> Result<u8, Error> {
         Command::List { json, running, tag } => {
             library_verbs::list(*json, *running, tag.as_deref())
         }
-        Command::Show { game, json } => library_verbs::show(game, *json),
+        Command::Show { game, json } => match steam_verbs::try_show(game, *json)? {
+            Some(code) => Ok(code),
+            None => library_verbs::show(game, *json),
+        },
+        Command::Steam { command } => steam_verbs::run(command),
         Command::Export { game, output } => library_verbs::export(game, output.as_deref()),
         Command::Import { file, exe } => library_verbs::import(file, exe),
         // Dispatched before reaching here.

@@ -1,0 +1,14 @@
+---
+source: crates/easyplay/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Open Steam's downloads, where the game's update is started
+
+Usage: easyplay steam update [OPTIONS] <GAME>
+
+Arguments:
+  <GAME>  The game
+
+Options:
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+  -h, --help        Print help

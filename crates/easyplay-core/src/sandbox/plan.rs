@@ -570,7 +570,28 @@ pub enum HostAction {
         #[serde(with = "codec::path")]
         log: PathBuf,
     },
+    /// Create the session's restricted Wayland socket (ADR-0029): a listening socket at
+    /// `socket` that the compositor at `display` serves with a security context, so it can
+    /// withhold its privileged protocols from the game. The supervisor does this after the
+    /// others, with the read end of the `--sync-fd` pipe as the context's close descriptor:
+    /// the compositor stops serving the socket when the sandbox is gone.
+    CreateWaylandContext {
+        /// The compositor's socket.
+        #[serde(with = "codec::path")]
+        display: PathBuf,
+        /// The restricted socket, in the session's runtime directory.
+        #[serde(with = "codec::path")]
+        socket: PathBuf,
+        /// What the compositor sees as the application: the game's ID (the session kind
+        /// when there is no game).
+        app_id: String,
+        /// What the compositor sees as the instance: the session's ID.
+        instance_id: String,
+    },
 }
+
+/// Longest path a Unix socket address holds (`sun_path` less its terminating zero).
+pub const SOCKET_PATH_MAX: usize = 107;
 
 /// The socket of the sound server started in `dir` ([`HostAction::StartSoundServer`]).
 pub fn sound_socket(dir: &Path) -> PathBuf {

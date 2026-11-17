@@ -13,6 +13,18 @@ License: OFL-1.1
 Comment: Embedded in the easyplay binary. Full text in
  /usr/share/licenses/easyplay/OFL-Inter.txt.
 
+Files: assets/fonts/NotoSansArabic-*.ttf
+Copyright: 2022 The Noto Project Authors (https://github.com/notofonts/arabic)
+License: OFL-1.1
+Comment: Embedded in the easyplay binary. Full text in
+ /usr/share/licenses/easyplay/OFL-NotoSansArabic.txt.
+
+Files: assets/fonts/InstrumentSans_*.ttf
+Copyright: 2022 The Instrument Sans Project Authors
+License: OFL-1.1
+Comment: Embedded in the easyplay binary. Full text in
+ /usr/share/licenses/easyplay/OFL-InstrumentSans.txt.
+
 Files: assets/fonts/JetBrainsMono-*.ttf
 Copyright: 2020 The JetBrains Mono Project Authors
 License: OFL-1.1

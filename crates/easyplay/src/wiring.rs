@@ -14,7 +14,8 @@ use easyplay_core::config::{self, EnvOverrides, LoadOptions, Preferences, Runtim
 use easyplay_core::error::{Error, ErrorCode};
 use easyplay_core::fsx::{Fs, MountTable, RealFs};
 use easyplay_core::host::{
-    HostFacts, HostProbe, LiveHostProbe, ProbeDeps, RealAccess, RealRunner, Revalidation,
+    HostFacts, HostProbe, LiveCompositor, LiveHostProbe, ProbeDeps, RealAccess, RealRunner,
+    Revalidation,
 };
 use easyplay_core::identity::{FsPeInspector, PeInspector, SharedLocations};
 use easyplay_core::jobs::{JobPool, JobPoolConfig};
@@ -162,6 +163,7 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
             umu_override: over.umu_run.clone(),
             user_name: Some(user_name.clone()),
             jobs: Some(Arc::clone(&jobs)),
+            compositor: Arc::new(LiveCompositor),
         }),
         bwrap: over.bwrap.clone(),
     });

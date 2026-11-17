@@ -37,7 +37,7 @@ UI_CRATES = ("egui", "eframe", "egui_extras", "egui_kittest", "winit", "wgpu", "
 LAYERS = {
     "consts": 1, "ids": 1, "clock": 1, "paths": 1, "error": 1, "model": 1, "ui_thread": 1,
     "jobs": 2, "logging": 2, "fsx": 2, "procfs": 2,
-    "storage": 3, "config": 3, "host": 3,
+    "storage": 3, "config": 3, "host": 3, "steam": 3,
     "identity": 4, "sandbox": 4, "umu": 4,
     "runtime": 5, "launch": 5, "session": 5, "library": 5, "stats": 5, "artwork": 5,
     "desktop": 5, "diagnostics": 5,

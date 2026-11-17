@@ -1,7 +1,7 @@
 //! A11Y-006: what a screen reader gets. Every screen's AccessKit tree is walked: each
 //! interactive node has a role and a name, decorative nodes are not focusable, there is one
 //! level-1 heading per route where the route has a title, and the `Tab` order visits only
-//! named controls in reading order (sidebar → toolbar → content) without losing focus.
+//! named controls in reading order (top bar → filter line → content) without losing focus.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -160,7 +160,7 @@ fn game_cards_speak_name_protection_and_playtime() {
     let r = at(Route::Library, Vec2::new(1280.0, 800.0));
     let card = r.h.get_by_label_contains("Lantern Keep. Offline. Played");
     assert_eq!(card.accesskit_node().role(), Role::Button);
-    r.h.get_by_role_and_label(Role::Grid, "Games, 24 items, 5 columns");
+    r.h.get_by_role_and_label(Role::Grid, "Games, 24 items, 6 columns");
     // The cover image is named by the game, not described (ACCESSIBILITY §4.1).
     assert!(
         r.h.query_all_by(|n| n.role() == Role::Image)
@@ -215,12 +215,18 @@ fn tab_order_follows_reading_order_and_never_loses_focus() {
         }
     }
     let first = |pred: &dyn Fn(&str) -> bool| stops.iter().position(|s| pred(s)).unwrap();
-    let sidebar = first(&|s| s.starts_with("All games"));
+    // The top bar (its destinations, then the page's search), the filter line's scopes,
+    // then the wall.
+    let destination = first(&|s| s == "Statistics");
     let search = first(&|s| s == "Search games");
+    let scope = first(&|s| s.starts_with("All, "));
     let card = first(&|s| {
         s.contains(". Offline.") || s.contains(". Online.") || s.contains(". Standard.")
     });
-    assert!(sidebar < search && search < card, "{stops:#?}");
+    assert!(
+        destination < search && search < scope && scope < card,
+        "{stops:#?}"
+    );
     // Only one card is a Tab stop (roving focus).
     let cards = stops
         .iter()

@@ -1,19 +1,29 @@
-//! Text field: label above (`caption`, `text.secondary`), field height `md`, helper or error
-//! text below; error is a `danger` border and a message with an icon. Search fields are
-//! quiet (a soft fill and a hairline: the icon and the hint identify them) and get a leading
-//! icon, a clear button when non-empty, an optional shortcut keycap while empty, and `Esc`
-//! clears (§7.4, ACCESSIBILITY §2).
+//! Text fields.
+//!
+//! - A field is 30 high on the `well`, radius 8, 10 padding, with a 1 pt `line` inside its
+//!   edge; focused, a 1.5 pt accent line instead. The placeholder is quiet text.
+//! - A multi-line field is at least 76 high, 8 / 10 padding, 19 pt lines.
+//! - The search field is 30 high on `o1` with a quiet 16 pt magnifier; focused, the `well`
+//!   with the accent line. While it is empty and not focused, its shortcut stands at the
+//!   right as a keycap; while it has text, a small clear button stands there. `Esc` clears
+//!   it. Its width (and the animation of its width) is the
+//!   caller's.
+//!
+//! An optional label stands above and help or an error below (12 pt).
+
+use std::sync::Arc;
 
 use egui::{
-    Align, Align2, CornerRadius, Frame, Key, Layout, Rect, Response, Sense, Stroke, StrokeKind,
-    TextEdit, Ui, UiBuilder, pos2, vec2,
+    Align, Align2, Color32, CornerRadius, Frame, Galley, Key, Layout, Rect, Response, Sense, Shape,
+    Stroke, StrokeKind, TextBuffer, TextEdit, Ui, UiBuilder, pos2, vec2,
 };
 
-use super::{focus_ring, tooltip};
+use super::key_hint::{key_hint_shapes, key_hint_size};
+use super::{contrast_outline, focus_ring, glyph_shape, pointer_t, tooltip};
 use crate::a11y;
 use crate::strings;
 use crate::theme::palette::{fade, mix};
-use crate::theme::tokens::{control, icon as icon_size, radius, space, stroke};
+use crate::theme::tokens::{control, icon as icon_size, layout, radius, space, stroke};
 use crate::theme::{self, Dur, Type, icons};
 
 /// A text field builder.
@@ -30,6 +40,7 @@ pub struct TextField<'a> {
     shortcut: Option<&'a str>,
     mono: bool,
     width: Option<f32>,
+    multiline: bool,
 }
 
 /// What happened this frame.
@@ -56,6 +67,7 @@ impl<'a> TextField<'a> {
             shortcut: None,
             mono: false,
             width: None,
+            multiline: false,
         }
     }
 
@@ -77,19 +89,19 @@ impl<'a> TextField<'a> {
         self
     }
 
-    /// Helper text below.
+    /// Help text below.
     pub fn help(mut self, help: &'a str) -> Self {
         self.help = Some(help);
         self
     }
 
-    /// Error text below; replaces help and turns the border red.
+    /// Error text below; replaces help and turns the field's line coral.
     pub fn error(mut self, error: Option<&'a str>) -> Self {
         self.error = error;
         self
     }
 
-    /// Search styling and behaviour.
+    /// The search field's look and behaviour.
     pub fn search(mut self) -> Self {
         self.search = true;
         self
@@ -113,213 +125,270 @@ impl<'a> TextField<'a> {
         self
     }
 
+    /// Several lines (notes, a command line): at least 76 high, growing with its text.
+    pub fn multiline(mut self) -> Self {
+        self.multiline = true;
+        self
+    }
+
     /// Show the field.
     pub fn show(self, ui: &mut Ui) -> TextFieldResponse {
         let theme = theme::theme(ui.ctx());
         let p = theme.palette.clone();
         let width = self.width.unwrap_or_else(|| ui.available_width());
-        let mut cleared = false;
         let id = ui.make_persistent_id(self.id_salt);
-        let caption_row = Type::Caption.line_height() + space::S1 + 2.0;
-        let height = control::MD
-            + if self.label.is_some() {
-                caption_row
-            } else {
-                0.0
-            }
-            + if self.help.is_some() || self.error.is_some() {
-                caption_row
-            } else {
-                0.0
-            };
+        let mut cleared = false;
         let resp = ui
-            .allocate_ui_with_layout(vec2(width, height), Layout::top_down(Align::Min), |ui| {
-                ui.spacing_mut().item_spacing.y = space::S1 + 2.0;
-                let label_resp = self
-                    .label
-                    .map(|l| ui.label(Type::Caption.rich(l).color(p.text_secondary)));
-                let (rect, _) = ui.allocate_exact_size(vec2(width, control::MD), Sense::hover());
-                let frame_idx = ui.painter().add(egui::Shape::Noop);
-                let lead = if self.search {
-                    icon_size::INLINE + space::S2
-                } else {
-                    0.0
-                };
-                let has_text = !self.text.is_empty();
-                let trail = if self.search && has_text {
-                    control::SM
-                } else {
-                    0.0
-                };
-                let inner = Rect::from_min_max(
-                    pos2(rect.left() + space::S3 + lead, rect.top()),
-                    pos2(rect.right() - space::S2 - trail, rect.bottom()),
-                );
-                let font = if self.mono {
-                    Type::Mono.font_id()
-                } else {
-                    Type::Body.font_id()
-                };
-                let mut edit = TextEdit::singleline(self.text)
-                    .id(id)
-                    .frame(Frame::NONE)
-                    .font(font)
-                    .text_color(p.text_primary)
-                    .desired_width(inner.width())
-                    .align(Align2::LEFT_CENTER)
-                    .min_size(vec2(inner.width(), inner.height()));
-                if let Some(h) = self.hint {
-                    edit = edit.hint_text(Type::Body.rich(h).color(p.text_muted));
-                }
-                let out = ui
-                    .scope_builder(
-                        UiBuilder::new()
-                            .max_rect(inner)
-                            .layout(Layout::left_to_right(Align::Center)),
-                        |ui| edit.show(ui),
-                    )
-                    .inner;
-                let mut r = out.response.response;
-                if let Some(l) = &label_resp {
-                    r = r.labelled_by(l.id);
-                } else if let Some(n) = self.accessible_name {
-                    r = r.accessible_name(n);
-                }
-                if self.search
-                    && r.has_focus()
-                    && ui.input(|i| i.key_pressed(Key::Escape))
-                    && has_text
-                {
-                    self.text.clear();
-                    cleared = true;
-                }
-                if self.search && has_text {
-                    let cr = Rect::from_center_size(
-                        pos2(
-                            rect.right() - space::S1 - control::SM / 2.0,
-                            rect.center().y,
-                        ),
-                        vec2(control::SM - space::S1, control::SM - space::S1),
-                    );
-                    let c = ui.interact(cr, id.with("clear"), Sense::click());
-                    a11y::button(&c, strings::library::CLEAR_SEARCH);
-                    let c = tooltip::attach(c, strings::library::CLEAR_SEARCH);
-                    let col = if c.hovered() {
-                        p.text_primary
+            .allocate_ui_with_layout(
+                vec2(width, control::BUTTON),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.spacing_mut().item_spacing.y = space::S1;
+                    let label_resp = self
+                        .label
+                        .map(|l| ui.label(Type::Caption.rich(l).color(p.t3)));
+                    let top = ui.cursor().min;
+                    let frame_idx = ui.painter().add(Shape::Noop);
+                    let has_text = !self.text.is_empty();
+                    let [pad_l, pad_r] = if self.search {
+                        [
+                            control::SEARCH_PAD[0] + icon_size::INLINE + control::BUTTON_GAP,
+                            // Room for the clear button while there is text.
+                            control::SEARCH_PAD[1]
+                                + if has_text {
+                                    control::WORD_X + space::S1
+                                } else {
+                                    0.0
+                                },
+                        ]
                     } else {
-                        p.text_muted
+                        [control::TEXTAREA_PAD[0], control::TEXTAREA_PAD[0]]
                     };
-                    if c.hovered() {
-                        ui.painter().rect_filled(
-                            cr,
-                            CornerRadius::same(radius::SM),
-                            p.fill_selected,
+                    let font_type = if self.mono { Type::Mono } else { Type::Body };
+                    let line_h = if self.multiline {
+                        control::TEXTAREA_LINE
+                    } else {
+                        font_type.line_height()
+                    };
+                    let mut layouter = move |ui: &Ui,
+                                             buf: &dyn TextBuffer,
+                                             wrap: f32|
+                          -> Arc<Galley> {
+                        let mut format = font_type.format(Color32::PLACEHOLDER, false);
+                        format.line_height = Some(line_h);
+                        format.color = theme::theme(ui.ctx()).palette.t1;
+                        let mut job =
+                            egui::text::LayoutJob::single_section(buf.as_str().to_owned(), format);
+                        job.wrap.max_width = wrap;
+                        ui.fonts_mut(|f| f.layout_job(job))
+                    };
+                    let hint = self.hint.map(|h| font_type.rich(h).color(p.t3));
+                    let (rect, r) = if self.multiline {
+                        let pad_y = control::TEXTAREA_PAD[1];
+                        let inner = Rect::from_min_size(
+                            pos2(top.x + pad_l, top.y + pad_y),
+                            vec2(width - pad_l - pad_r, f32::INFINITY),
                         );
+                        let min_h = layout::TEXTAREA_MIN_H - pad_y * 2.0;
+                        let mut edit = TextEdit::multiline(self.text)
+                            .id(id)
+                            .frame(Frame::NONE)
+                            .margin(egui::Margin::ZERO)
+                            .layouter(&mut layouter)
+                            .desired_width(inner.width())
+                            .min_size(vec2(inner.width(), min_h));
+                        if let Some(h) = hint {
+                            edit = edit.hint_text(h);
+                        }
+                        let out = ui
+                            .scope_builder(
+                                UiBuilder::new()
+                                    .max_rect(inner)
+                                    .layout(Layout::top_down(Align::Min)),
+                                |ui| edit.show(ui),
+                            )
+                            .inner;
+                        let h = out.response.response.rect.height().max(min_h) + pad_y * 2.0;
+                        let rect = Rect::from_min_size(top, vec2(width, h));
+                        ui.allocate_rect(rect, Sense::hover());
+                        (rect, out.response.response)
+                    } else {
+                        let (rect, _) =
+                            ui.allocate_exact_size(vec2(width, control::BUTTON), Sense::hover());
+                        let inner = Rect::from_min_max(
+                            pos2(rect.left() + pad_l, rect.top()),
+                            pos2(rect.right() - pad_r, rect.bottom()),
+                        );
+                        let mut edit = TextEdit::singleline(self.text)
+                            .id(id)
+                            .frame(Frame::NONE)
+                            .margin(egui::Margin::ZERO)
+                            .layouter(&mut layouter)
+                            .desired_width(inner.width())
+                            .align(Align2::LEFT_CENTER)
+                            .min_size(inner.size());
+                        if let Some(h) = hint {
+                            edit = edit.hint_text(h);
+                        }
+                        let out = ui
+                            .scope_builder(
+                                UiBuilder::new()
+                                    .max_rect(inner)
+                                    .layout(Layout::left_to_right(Align::Center)),
+                                |ui| edit.show(ui),
+                            )
+                            .inner;
+                        (rect, out.response.response)
+                    };
+                    let mut r = r;
+                    if let Some(l) = &label_resp {
+                        r = r.labelled_by(l.id);
+                    } else if let Some(n) = self.accessible_name {
+                        r = r.accessible_name(n);
                     }
-                    ui.painter().text(
-                        cr.center(),
-                        Align2::CENTER_CENTER,
-                        icons::CLOSE.text(false),
-                        icons::font(icon_size::INLINE - 2.0),
-                        col,
-                    );
-                    if c.clicked() {
+                    if self.search
+                        && r.has_focus()
+                        && ui.input(|i| i.key_pressed(Key::Escape))
+                        && has_text
+                    {
                         self.text.clear();
                         cleared = true;
-                        r.request_focus();
                     }
-                    if c.has_focus() {
-                        focus_ring(ui.painter(), cr, CornerRadius::same(radius::SM), &theme);
-                    }
-                }
-                let focused = r.has_focus();
-                let hovered = r.hovered();
-                let focus_t = ui.ctx().animate_bool_with_time(
-                    id.with("focus"),
-                    focused,
-                    theme.motion.fade(Dur::Fast),
-                );
-                let hover_t = ui.ctx().animate_bool_with_time(
-                    id.with("hover"),
-                    hovered || focused,
-                    theme.motion.fade(Dur::Fast),
-                );
-                // Form fields carry a boundary of their own; a search field is identified by
-                // its icon and hint, so its edge can stay a hairline.
-                let (fill, rest_border) = if self.search {
-                    (mix(p.fill_hover, p.fill_selected, hover_t), p.hairline)
-                } else {
-                    (
-                        p.bg_raised,
-                        mix(p.border_strong, p.text_secondary, 0.35 * hover_t),
-                    )
-                };
-                let border = if self.error.is_some() {
-                    p.danger
-                } else {
-                    mix(rest_border, p.accent, focus_t)
-                };
-                let corner = CornerRadius::same(radius::MD);
-                let shapes = vec![
-                    egui::Shape::rect_filled(rect, corner, fill),
-                    egui::Shape::rect_stroke(
-                        rect,
-                        corner,
-                        Stroke::new(egui::lerp(stroke::BORDER..=stroke::FOCUS, focus_t), border),
-                        StrokeKind::Inside,
-                    ),
-                ];
-                ui.painter().set(frame_idx, egui::Shape::Vec(shapes));
-                if self.search {
-                    ui.painter().text(
-                        pos2(rect.left() + space::S3, rect.center().y),
-                        Align2::LEFT_CENTER,
-                        icons::SEARCH.text(false),
-                        icons::font(icon_size::INLINE),
-                        mix(p.text_muted, p.text_primary, focus_t),
+                    let focused = r.has_focus();
+                    let focus_t = ui.ctx().animate_bool_with_time(
+                        id.with("focus"),
+                        focused,
+                        theme.motion.fade(Dur::Fast),
                     );
-                    // The shortcut keycap, while there is nothing typed and room for it.
-                    if let Some(key) = self.shortcut
-                        && !has_text
-                        && rect.width() > 200.0
-                    {
-                        let cap = Rect::from_center_size(
-                            pos2(rect.right() - space::S2 - 10.0, rect.center().y),
-                            vec2(20.0, 20.0),
-                        );
-                        let a = 1.0 - focus_t;
-                        ui.painter().rect_stroke(
-                            cap,
-                            CornerRadius::same(radius::XS + 1),
-                            Stroke::new(stroke::BORDER, fade(p.hairline, a)),
+                    let corner = CornerRadius::same(radius::MD);
+                    let mut shapes = Vec::new();
+                    let accent = if self.error.is_some() {
+                        p.coral
+                    } else {
+                        p.accent_mark
+                    };
+                    if self.search {
+                        shapes.push(Shape::rect_filled(rect, corner, mix(p.o1, p.well, focus_t)));
+                        if let Some(o) = contrast_outline(rect, corner, &theme) {
+                            shapes.push(o);
+                        }
+                    } else {
+                        shapes.push(Shape::rect_filled(rect, corner, p.well));
+                        shapes.push(Shape::rect_stroke(
+                            rect,
+                            corner,
+                            Stroke::new(stroke::BORDER, fade(p.line, 1.0 - focus_t)),
                             StrokeKind::Inside,
-                        );
-                        ui.painter().text(
-                            cap.center(),
-                            Align2::CENTER_CENTER,
-                            key,
-                            Type::Caption.font_id(),
-                            fade(p.text_muted, a),
-                        );
+                        ));
                     }
-                }
-                if let Some(err) = self.error {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S1;
-                        ui.label(icons::icon(icons::WARNING, 14.0).color(p.danger));
-                        ui.label(Type::Caption.rich(err).color(p.danger));
-                    });
-                    a11y::describe(&r, err);
-                } else if let Some(help) = self.help {
-                    ui.label(Type::Caption.rich(help).color(p.text_muted));
-                    a11y::describe(&r, help);
-                }
-                r
-            })
+                    let line = if self.error.is_some() { 1.0 } else { focus_t };
+                    if line > 0.0 {
+                        shapes.push(Shape::rect_stroke(
+                            rect,
+                            corner,
+                            Stroke::new(stroke::FIELD_FOCUS, fade(accent, line)),
+                            StrokeKind::Inside,
+                        ));
+                    }
+                    if self.search {
+                        let painter = ui.painter();
+                        shapes.push(glyph_shape(
+                            painter,
+                            pos2(
+                                rect.left() + control::SEARCH_PAD[0] + icon_size::INLINE / 2.0,
+                                rect.center().y,
+                            ),
+                            icons::SEARCH,
+                            false,
+                            icon_size::INLINE,
+                            p.t3,
+                        ));
+                        // The shortcut's keycap, while nothing is typed and it is not focused.
+                        if let Some(key) = self.shortcut
+                            && !has_text
+                            && !focused
+                        {
+                            let size = key_hint_size(ui, key);
+                            let at = pos2(
+                                rect.right() - control::SEARCH_PAD[1] - size.x,
+                                rect.center().y,
+                            );
+                            shapes.extend(key_hint_shapes(painter, at, key, p.t3, &theme));
+                        }
+                    }
+                    ui.painter().set(frame_idx, Shape::Vec(shapes));
+                    // The design hides the search field's own clear button; EasyPlay keeps
+                    // one, quiet, in the keycap's place while there is text.
+                    if self.search && has_text {
+                        let c = pos2(
+                            rect.right() - control::SEARCH_PAD[1] - control::WORD_X / 2.0,
+                            rect.center().y,
+                        );
+                        let hit = Rect::from_center_size(c, egui::Vec2::splat(control::MIN_TARGET));
+                        let x = ui.interact(hit, id.with("clear"), Sense::click());
+                        a11y::button(&x, strings::library::CLEAR_SEARCH());
+                        let hover = pointer_t(&x, &theme);
+                        let painter = ui.painter();
+                        painter.circle_filled(c, control::WORD_X / 2.0, fade(p.o2, hover));
+                        painter.add(glyph_shape(
+                            painter,
+                            c,
+                            icons::CLOSE,
+                            false,
+                            icon_size::SMALL,
+                            mix(p.t3, p.t1, hover),
+                        ));
+                        if x.has_focus() {
+                            focus_ring(
+                                painter,
+                                Rect::from_center_size(c, egui::Vec2::splat(control::WORD_X)),
+                                CornerRadius::same(radius::PILL),
+                                &theme,
+                            );
+                        }
+                        if tooltip::attach(x, strings::library::CLEAR_SEARCH()).clicked() {
+                            self.text.clear();
+                            cleared = true;
+                            r.request_focus();
+                        }
+                    }
+                    if let Some(err) = self.error {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = space::S1;
+                            ui.label(icons::icon(icons::WARNING, icon_size::SMALL).color(p.coral));
+                            ui.label(Type::Caption.rich(err).color(p.coral));
+                        });
+                        a11y::describe(&r, err);
+                    } else if let Some(help) = self.help {
+                        ui.label(Type::Caption.rich(help).color(p.t3));
+                        a11y::describe(&r, help);
+                    }
+                    r
+                },
+            )
             .inner;
         TextFieldResponse {
             response: resp,
             cleared,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_field_is_30_high_and_a_multiline_one_at_least_76() {
+        let (a, b) = crate::widgets::test_frame(&Default::default(), |ui| {
+            let mut s = String::new();
+            let mut t = String::new();
+            let a = TextField::new(&mut s, "a").search().show(ui).response;
+            let top = ui.cursor().min.y;
+            let _ = TextField::new(&mut t, "b").multiline().show(ui);
+            (a.rect, ui.cursor().min.y - top)
+        });
+        assert!(a.height() <= control::BUTTON);
+        assert!(b >= layout::TEXTAREA_MIN_H);
     }
 }

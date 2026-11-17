@@ -77,6 +77,7 @@ fn system(high_contrast: bool, reduced_motion: Option<bool>, text_scale: f32) ->
         high_contrast,
         reduced_motion,
         text_scale,
+        ..SystemPrefs::default()
     }
 }
 

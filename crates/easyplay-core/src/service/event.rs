@@ -121,6 +121,18 @@ pub enum Notice {
         /// Where.
         path: PathBuf,
     },
+    /// A request was handed to Steam (ADR-0031).
+    SteamAsked {
+        /// The game (`None` for the downloads page of every game).
+        game: Option<GameId>,
+        /// What was asked.
+        request: crate::model::SteamRequest,
+    },
+    /// Steam's files were read on request.
+    SteamScanned {
+        /// Games listed.
+        games: usize,
+    },
     /// The damaged library was resolved (repaired, restored or replaced).
     LibraryRecovered {
         /// What was done.
@@ -195,8 +207,28 @@ pub enum QueryResult {
     Processes(Vec<crate::session::ProcessInfo>),
     /// `Command::BuildReport`.
     Report(Vec<crate::diagnostics::report::ReportFile>),
+    /// `SteamCommand::Details`.
+    Steam(Box<SteamDetail>),
     /// The query failed.
     Failed(Box<UserError>),
+}
+
+/// What a Steam game's page shows beyond its summary (ADR-0031).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SteamDetail {
+    /// The game.
+    pub game: GameId,
+    /// What Steam says (the summary's facts).
+    pub facts: std::sync::Arc<crate::model::SteamFacts>,
+    /// Notes kept by EasyPlay.
+    pub notes: String,
+    /// Steam runs the game now.
+    pub running: bool,
+    /// The program that reaches Steam is installed (Play, Update in Steam, Open in Steam).
+    pub client_found: bool,
+    /// The Windows-storage actions are possible now: Proton, a prefix, the Proton build
+    /// that last ran it present, the game not running.
+    pub prefix_tools: bool,
 }
 
 /// An announcement from the AppService.

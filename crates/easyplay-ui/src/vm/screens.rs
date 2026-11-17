@@ -9,7 +9,7 @@ use easyplay_core::clock::MonoInstant;
 use easyplay_core::error::UserError;
 use easyplay_core::ids::{GameId, QueryId};
 use easyplay_core::model::ArtSlot;
-use easyplay_core::stats::{HistoryRow, LibraryOverview};
+use easyplay_core::stats::{HistoryRow, LibraryOverview, Ranking};
 
 use super::AsyncValue;
 use crate::bridge::FolderScan;
@@ -81,7 +81,8 @@ impl AddGameVm {
 pub struct StatsVm {
     /// Range index (7 days, 30 days, year, all time).
     pub range: usize,
-    /// Results per (range, library revision): returning shows them in the first frame.
+    /// Results per (range, library revision): returning shows them in the first frame. The
+    /// year's result (twelve months) also gives All time its chart.
     pub cache: HashMap<(usize, u64), LibraryOverview>,
     /// The pending overview query.
     pub pending: Option<(QueryId, usize, u64, MonoInstant)>,
@@ -95,12 +96,19 @@ pub struct StatsVm {
     pub weekdays: Option<[u64; 7]>,
     /// Its query.
     pub weekdays_q: Option<QueryId>,
+    /// The (range, library revision) the weekday distribution was asked for.
+    pub weekdays_for: Option<(usize, u64)>,
     /// Chart as a table.
     pub table: bool,
     /// Focused bar.
     pub bar: Option<usize>,
     /// "Most played": show all.
     pub all_games: bool,
+    /// The longer "Most played" list (up to twenty) per (range, library revision): the
+    /// overview carries only the first five.
+    pub top: HashMap<(usize, u64), Vec<Ranking>>,
+    /// Its query.
+    pub top_q: Option<(QueryId, usize, u64)>,
     /// Full history sheet: rows, more, query.
     pub history: Vec<HistoryRow>,
     /// More pages exist.
@@ -124,6 +132,8 @@ pub struct SettingsVm {
     pub restart: bool,
     /// New global variable rows being typed.
     pub new_env: (String, String),
+    /// Program locations being typed, by preference key; saved when the field loses focus.
+    pub paths: HashMap<String, String>,
 }
 
 /// Onboarding steps (SCREEN_SPECS §1).

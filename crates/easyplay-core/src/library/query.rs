@@ -33,6 +33,8 @@ pub enum Collection {
     Installers,
     /// `hidden`.
     Hidden,
+    /// Installed with Steam and run by Steam, `!hidden` (ADR-0031).
+    Steam,
     /// Has the tag, `!hidden`.
     Tag(TagId),
 }
@@ -102,8 +104,11 @@ impl Filters {
 
     fn matches(&self, g: &GameSummary) -> bool {
         (self.tags.is_empty() || self.tags.iter().any(|t| g.tags.contains(t)))
-            && (self.presets.is_empty() || self.presets.contains(&PresetFilter::of(g.preset)))
-            && self.network.is_none_or(|n| n == g.network)
+            // A Steam game has no preset and no EasyPlay network setting (ADR-0031): protection
+            // and network filters never match it.
+            && (self.presets.is_empty()
+                || (!g.is_steam() && self.presets.contains(&PresetFilter::of(g.preset))))
+            && self.network.is_none_or(|n| !g.is_steam() && n == g.network)
             && (self.availability.is_empty() || self.availability.contains(&g.availability))
             && (self.layers.is_empty() || self.layers.iter().any(|l| **l == *g.runtime_label))
             && (self.kinds.is_empty() || self.kinds.contains(&g.kind))
@@ -163,6 +168,8 @@ pub enum GroupKey {
     Tag(Option<TagId>),
     /// A protection value.
     Protection(PresetFilter),
+    /// Games run by Steam, which have no protection value (ADR-0031).
+    RunBySteam,
 }
 
 /// A run of `items` under one header.
@@ -230,6 +237,8 @@ pub enum IsFlag {
     Online,
     /// `is:never-played`.
     NeverPlayed,
+    /// `is:steam`: installed with Steam and run by Steam (ADR-0031).
+    Steam,
 }
 
 impl IsFlag {
@@ -243,6 +252,7 @@ impl IsFlag {
             "offline" => IsFlag::Offline,
             "online" => IsFlag::Online,
             "never-played" | "neverplayed" | "unplayed" => IsFlag::NeverPlayed,
+            "steam" => IsFlag::Steam,
             _ => return None,
         })
     }
@@ -257,9 +267,10 @@ impl IsFlag {
             ),
             IsFlag::Hidden => g.hidden,
             IsFlag::Installer => g.kind == EntryKind::Installer,
-            IsFlag::Offline => g.network == NetworkAccess::None,
-            IsFlag::Online => g.network == NetworkAccess::Full,
-            IsFlag::NeverPlayed => g.session_count == 0,
+            IsFlag::Offline => !g.is_steam() && g.network == NetworkAccess::None,
+            IsFlag::Online => !g.is_steam() && g.network == NetworkAccess::Full,
+            IsFlag::NeverPlayed => g.never_played(),
+            IsFlag::Steam => g.is_steam(),
         }
     }
 }
@@ -405,7 +416,7 @@ fn term_rank(snapshot: &LibrarySnapshot, i: usize, t: &TermKind) -> Option<u32> 
         }
         TermKind::Tag(name) => tag_matches(snapshot, g, name).then_some(0),
         TermKind::Is(f) => f.matches(g).then_some(0),
-        TermKind::Preset(p) => (PresetFilter::of(g.preset) == *p).then_some(0),
+        TermKind::Preset(p) => (!g.is_steam() && PresetFilter::of(g.preset) == *p).then_some(0),
         TermKind::Layer(text) => normalize(&g.runtime_label)
             .contains(text.as_str())
             .then_some(0),
@@ -417,13 +428,23 @@ fn in_collection(snapshot: &LibrarySnapshot, g: &GameSummary, c: Collection) -> 
         Collection::All => !g.hidden,
         Collection::Favorites => g.favorite && !g.hidden,
         Collection::Recent => !g.hidden && played_recently(g, snapshot.built_at),
-        Collection::NeverPlayed => g.session_count == 0 && g.kind == EntryKind::Game && !g.hidden,
+        Collection::NeverPlayed => g.never_played() && g.kind == EntryKind::Game && !g.hidden,
         Collection::Running => g.activity != Activity::Idle,
         Collection::Installed => g.availability == Availability::Present && !g.hidden,
         Collection::Missing => IsFlag::Missing.matches(g),
         Collection::Installers => g.kind == EntryKind::Installer && !g.hidden,
         Collection::Hidden => g.hidden,
+        Collection::Steam => g.is_steam() && !g.hidden,
         Collection::Tag(t) => g.tags.contains(&t) && !g.hidden,
+    }
+}
+
+/// Steam games, which have no preset, sort after every preset.
+fn protection_rank(g: &GameSummary) -> u8 {
+    if g.is_steam() {
+        u8::MAX
+    } else {
+        preset_rank(g.preset)
     }
 }
 
@@ -460,7 +481,7 @@ fn compare(a: &GameSummary, b: &GameSummary, key: SortKey, desc: bool) -> Orderi
         SortKey::Playtime => dir(a.total_playtime_ms.cmp(&b.total_playtime_ms)),
         SortKey::DateAdded => dir(a.added_at.cmp(&b.added_at)),
         SortKey::Launches => dir(a.launch_count.cmp(&b.launch_count)),
-        SortKey::Protection => dir(preset_rank(a.preset).cmp(&preset_rank(b.preset))),
+        SortKey::Protection => dir(protection_rank(a).cmp(&protection_rank(b))),
         SortKey::Layer => dir(natural_cmp(
             &a.runtime_label.to_lowercase(),
             &b.runtime_label.to_lowercase(),
@@ -543,7 +564,11 @@ pub fn run_query(snapshot: &LibrarySnapshot, q: &LibraryQuery) -> QueryResult {
             vec![(GroupKey::Letter(c), Arc::from(c.to_string()))]
         }),
         Grouping::Protection => group_by(&hits, |i| {
-            let p = PresetFilter::of(games[i as usize].preset);
+            let g = &games[i as usize];
+            if g.is_steam() {
+                return vec![(GroupKey::RunBySteam, Arc::from("Run by Steam"))];
+            }
+            let p = PresetFilter::of(g.preset);
             vec![(GroupKey::Protection(p), Arc::from(preset_label(p)))]
         }),
         Grouping::Tag => group_by(&hits, |i| {
@@ -572,6 +597,9 @@ fn group_order(a: &(GroupKey, Arc<str>), b: &(GroupKey, Arc<str>)) -> Ordering {
             (*x == '#').cmp(&(*y == '#')).then(x.cmp(y))
         }
         (GroupKey::Protection(x), GroupKey::Protection(y)) => x.cmp(y),
+        // "Run by Steam" after every preset.
+        (GroupKey::Protection(_), GroupKey::RunBySteam) => Ordering::Less,
+        (GroupKey::RunBySteam, GroupKey::Protection(_)) => Ordering::Greater,
         (GroupKey::Tag(x), GroupKey::Tag(y)) => x
             .is_none()
             .cmp(&y.is_none())

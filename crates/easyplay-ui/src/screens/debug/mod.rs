@@ -21,9 +21,10 @@ use crate::bridge::{InspectTarget, LogFile, QueryPayload, UiCommand};
 use crate::route::Overlay;
 use crate::screens::shell::Banner;
 use crate::strings::debug as s;
+use crate::theme::Type;
 use crate::vm::AsyncValue;
 use crate::vm::debug::{InspectorVm, LogViewerVm, ReportVm};
-use crate::widgets::banner::Severity;
+use crate::widgets::banner::{Note, Severity};
 
 /// Open the launch inspector for the next launch of `game` (dry run).
 pub fn inspect_next(state: &mut UiState, env: &mut Env<'_>, game: GameId) {
@@ -219,8 +220,8 @@ pub fn banners(state: &mut UiState, env: &mut Env<'_>) {
             state.banners.set(Banner {
                 key: "crash",
                 severity: Severity::Warning,
-                text: s::CRASHED.to_owned(),
-                action: Some(s::CREATE_REPORT.to_owned()),
+                text: s::CRASHED().to_owned(),
+                action: Some(s::CREATE_REPORT().to_owned()),
                 dismissible: true,
             });
         }
@@ -232,8 +233,8 @@ pub fn banners(state: &mut UiState, env: &mut Env<'_>) {
             state.banners.set(Banner {
                 key: "recovery",
                 severity: Severity::Danger,
-                text: s::READ_ONLY.to_owned(),
-                action: Some(s::CREATE_REPORT.to_owned()),
+                text: s::READ_ONLY().to_owned(),
+                action: Some(s::CREATE_REPORT().to_owned()),
                 dismissible: false,
             });
         }
@@ -271,7 +272,8 @@ pub fn shortcuts(ctx: &egui::Context, state: &mut UiState, env: &mut Env<'_>) {
 }
 
 /// DEVELOPER_MODE §1.4: with Developer Mode off, a game that carries developer-only options
-/// shows "Uses advanced options" with *Review* (the options keep working).
+/// shows "Uses advanced options" with *Review* (the options keep working): a quiet note above
+/// the tabs; *Review* lists the options under it.
 pub fn advanced_note(ui: &mut egui::Ui, state: &mut UiState, env: &mut Env<'_>) {
     if env.bridge.prefs().advanced.developer_mode {
         return;
@@ -285,38 +287,18 @@ pub fn advanced_note(ui: &mut egui::Ui, state: &mut UiState, env: &mut Env<'_>) 
     }
     let p = crate::theme::theme(ui.ctx()).palette.clone();
     let open = &mut state.debug.review_open;
-    egui::Frame::NONE
-        .fill(p.bg_surface)
-        .corner_radius(6)
-        .inner_margin(egui::Margin::same(crate::theme::tokens::space::S3 as i8))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    crate::theme::Type::BodyStrong
-                        .rich(s::ADVANCED_NOTE)
-                        .color(p.text_primary),
-                );
-                if ui
-                    .add(crate::widgets::button::Button::ghost(s::REVIEW))
-                    .clicked()
-                {
-                    *open = !*open;
-                }
-            });
-            if *open {
-                ui.label(
-                    crate::theme::Type::Caption
-                        .rich(s::ADVANCED_HELP)
-                        .color(p.text_secondary),
-                );
-                for o in &opts {
-                    ui.label(
-                        crate::theme::Type::Body
-                            .rich(format!("• {}", o.describe()))
-                            .color(p.text_primary),
-                    );
-                }
-            }
-        });
-    ui.add_space(crate::theme::tokens::space::S3);
+    let r = Note::new(Severity::Info, s::ADVANCED_NOTE())
+        .actions(&[s::REVIEW()])
+        .show(ui);
+    if r.clicked.is_some() {
+        *open = !*open;
+    }
+    if *open {
+        ui.add_space(crate::theme::tokens::debug::CONTROLS_GAP);
+        crate::widgets::modal::fine_print(ui, s::ADVANCED_HELP());
+        for o in &opts {
+            Type::Body.paragraph(ui, &o.describe(), p.t2);
+        }
+    }
+    ui.add_space(crate::theme::tokens::game::NOTE_TOP);
 }

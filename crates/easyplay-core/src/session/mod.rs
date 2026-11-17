@@ -16,8 +16,10 @@
 //! | [`registry`] | active sessions and their processes for the UI and CLI (§11) |
 //! | [`lock`] | the per-prefix `flock` |
 //! | [`sys`] | signals by identity, `fork`/`exec` hooks (the only `unsafe`) |
+//! | [`handoff`] | starting a program EasyPlay does not own (the Steam client, ADR-0031) |
 
 pub mod classify;
+pub mod handoff;
 pub mod heartbeat;
 pub mod launcher;
 pub mod lock;
@@ -31,6 +33,7 @@ pub mod supervisor;
 pub mod sys;
 
 pub use classify::{EndClass, EndFacts, StopOrigin, classify_end};
+pub use handoff::RealHandoff;
 pub use launcher::{RealLauncher, SessionHandle, SessionLauncher};
 pub use lock::{FlockLocks, LockError, PrefixLock};
 pub use recovery::{RecoveredSession, RecoveryOptions, recover};

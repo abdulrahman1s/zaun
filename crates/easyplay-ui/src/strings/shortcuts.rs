@@ -1,100 +1,100 @@
 //! Keyboard shortcut sheet (USER_EXPERIENCE §5.2).
 
-/// Sheet title.
-pub const TITLE: &str = "Keyboard shortcuts";
-/// Between alternatives.
-pub const OR: &str = "or";
-/// Key names.
-pub const CTRL: &str = "Ctrl";
-/// Key names.
-pub const ALT: &str = "Alt";
-/// Key names.
-pub const SHIFT: &str = "Shift";
-/// Key names.
-pub const ENTER: &str = "Enter";
-/// Key names.
-pub const SPACE: &str = "Space";
-/// Key names.
-pub const ESC: &str = "Esc";
-/// Key names.
-pub const DELETE: &str = "Delete";
-/// Key names.
-pub const BACKSPACE: &str = "Backspace";
-/// Key names.
-pub const TAB: &str = "Tab";
-/// Key names ("+" separates keys in hints).
-pub const PLUS: &str = "Plus";
-/// Key names.
-pub const PAGE_DOWN: &str = "PgDn";
-/// Key names.
-pub const PAGE_UP: &str = "PgUp";
-/// Scope.
-pub const SCOPE_GLOBAL: &str = "Everywhere";
-/// Scope.
-pub const SCOPE_LIBRARY: &str = "Library";
-/// Scope.
-pub const SCOPE_GAMES: &str = "Library and game page";
-/// Scope.
-pub const SCOPE_GAME: &str = "Game page";
-/// Scope.
-pub const SCOPE_PAGES: &str = "Pages";
-/// Action.
-pub const FOCUS_SEARCH: &str = "Search";
-/// Action.
-pub const SEARCH_ALL: &str = "Search the whole library";
-/// Action.
-pub const ADD_GAME: &str = "Add game";
-/// Action.
-pub const OPEN: &str = "Open the selected game";
-/// Action.
-pub const PLAY: &str = "Play the selected game";
-/// Action.
-pub const PLAY_CARD: &str = "Play the focused card";
-/// Action.
-pub const STOP: &str = "Stop the selected game";
-/// Action.
-pub const FAVORITE: &str = "Favourite or unfavourite";
-/// Action.
-pub const TAGS: &str = "Edit tags";
-/// Action.
-pub const HIDE: &str = "Hide or unhide";
-/// Action.
-pub const REMOVE: &str = "Remove…";
-/// Action.
-pub const RENAME: &str = "Rename";
-/// Action.
-pub const GRID: &str = "Grid view";
-/// Action.
-pub const LIST: &str = "List view";
-/// Action.
-pub const SIDEBAR: &str = "Show or hide the sidebar";
-/// Action.
-pub const SETTINGS: &str = "Settings";
-/// Action.
-pub const BACK: &str = "Back";
-/// Action.
-pub const NEXT_TAB: &str = "Next tab";
-/// Action.
-pub const PREV_TAB: &str = "Previous tab";
-/// Action.
-pub const SELECT_ALL: &str = "Select all in view";
-/// Action.
-pub const UNDO: &str = "Undo the last change";
-/// Action.
-pub const CONTEXT_MENU: &str = "Open the context menu";
-/// Action.
-pub const ZOOM_IN: &str = "Larger interface";
-/// Action.
-pub const ZOOM_OUT: &str = "Smaller interface";
-/// Action.
-pub const ZOOM_RESET: &str = "Default interface size";
-/// Action.
-pub const REFRESH: &str = "Check for missing games again";
-/// Action.
-pub const FULLSCREEN: &str = "Full screen";
-/// Action.
-pub const SHEET: &str = "Show keyboard shortcuts";
-/// Action.
-pub const QUIT: &str = "Quit EasyPlay (games keep running)";
-/// Action.
-pub const OPEN_FOLDER: &str = "Open the game folder";
+texts! {
+    /// Sheet title.
+    TITLE = "shortcuts.title";
+    /// Between alternatives.
+    OR = "shortcuts.or";
+    /// Key names.
+    CTRL = "shortcuts.ctrl";
+    /// Key names.
+    ALT = "shortcuts.alt";
+    /// Key names.
+    SHIFT = "shortcuts.shift";
+    /// Key names.
+    ENTER = "shortcuts.enter";
+    /// Key names.
+    SPACE = "shortcuts.space";
+    /// Key names.
+    ESC = "shortcuts.esc";
+    /// Key names.
+    DELETE = "shortcuts.delete";
+    /// Key names.
+    BACKSPACE = "shortcuts.backspace";
+    /// Key names.
+    TAB = "shortcuts.tab";
+    /// Key names ("+" separates keys in hints).
+    PLUS = "shortcuts.plus";
+    /// Key names.
+    PAGE_DOWN = "shortcuts.page_down";
+    /// Key names.
+    PAGE_UP = "shortcuts.page_up";
+    /// Scope.
+    SCOPE_GLOBAL = "shortcuts.scope_global";
+    /// Scope.
+    SCOPE_LIBRARY = "shortcuts.scope_library";
+    /// Scope.
+    SCOPE_GAMES = "shortcuts.scope_games";
+    /// Scope.
+    SCOPE_GAME = "shortcuts.scope_game";
+    /// Scope.
+    SCOPE_PAGES = "shortcuts.scope_pages";
+    /// Action.
+    FOCUS_SEARCH = "shortcuts.focus_search";
+    /// Action.
+    SEARCH_ALL = "shortcuts.search_all";
+    /// Action.
+    ADD_GAME = "shortcuts.add_game";
+    /// Action.
+    OPEN = "shortcuts.open";
+    /// Action.
+    PLAY = "shortcuts.play";
+    /// Action.
+    SELECT = "shortcuts.select";
+    /// Action.
+    STOP = "shortcuts.stop";
+    /// Action.
+    FAVORITE = "shortcuts.favorite";
+    /// Action.
+    TAGS = "shortcuts.tags";
+    /// Action.
+    HIDE = "shortcuts.hide";
+    /// Action.
+    REMOVE = "shortcuts.remove";
+    /// Action.
+    RENAME = "shortcuts.rename";
+    /// Action.
+    GRID = "shortcuts.grid";
+    /// Action.
+    LIST = "shortcuts.list";
+    /// Action.
+    SETTINGS = "shortcuts.settings";
+    /// Action.
+    BACK = "shortcuts.back";
+    /// Action.
+    NEXT_TAB = "shortcuts.next_tab";
+    /// Action.
+    PREV_TAB = "shortcuts.prev_tab";
+    /// Action.
+    SELECT_ALL = "shortcuts.select_all";
+    /// Action.
+    UNDO = "shortcuts.undo";
+    /// Action.
+    CONTEXT_MENU = "shortcuts.context_menu";
+    /// Action.
+    ZOOM_IN = "shortcuts.zoom_in";
+    /// Action.
+    ZOOM_OUT = "shortcuts.zoom_out";
+    /// Action.
+    ZOOM_RESET = "shortcuts.zoom_reset";
+    /// Action.
+    REFRESH = "shortcuts.refresh";
+    /// Action.
+    FULLSCREEN = "shortcuts.fullscreen";
+    /// Action.
+    SHEET = "shortcuts.sheet";
+    /// Action.
+    QUIT = "shortcuts.quit";
+    /// Action.
+    OPEN_FOLDER = "shortcuts.open_folder";
+}

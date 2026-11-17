@@ -7,127 +7,106 @@ use easyplay_core::model::{Availability, BasePreset, Permissions, SandboxPolicy}
 
 use crate::vm::details::DetailsTab;
 
-/// Sample tool label in preview data.
-pub const SAMPLE_TOOL_LABEL: &str = "Settings";
-/// Sample note in preview data.
-pub const SAMPLE_NOTE: &str = "Finished the main story. Try the hard mode next.";
-
-/// Tab list name.
-pub const TABS: &str = "Game page sections";
+texts! {
+    /// Sample tool label in preview data.
+    SAMPLE_TOOL_LABEL = "details.sample_tool_label";
+    /// Sample note in preview data.
+    SAMPLE_NOTE = "details.sample_note";
+    /// Tab list name.
+    TABS = "details.tabs";
+}
 
 /// Tab names.
 pub fn tab(t: DetailsTab) -> &'static str {
     match t {
-        DetailsTab::Overview => "Overview",
-        DetailsTab::Protection => "Protection",
-        DetailsTab::Compatibility => "Compatibility",
-        DetailsTab::LaunchOptions => "Launch options",
-        DetailsTab::Activity => "Activity",
-        DetailsTab::Logs => "Logs",
+        DetailsTab::Overview => crate::i18n::text("details.tab.overview"),
+        DetailsTab::Protection => crate::i18n::text("details.tab.protection"),
+        DetailsTab::Compatibility => crate::i18n::text("details.tab.compatibility"),
+        DetailsTab::LaunchOptions => crate::i18n::text("details.tab.launch_options"),
+        DetailsTab::Activity => crate::i18n::text("details.tab.activity"),
+        DetailsTab::Logs => crate::i18n::text("details.tab.logs"),
     }
 }
 
-/// Cover button.
-pub const CHANGE_PICTURE: &str = "Cover: change picture";
-/// On a cover that has no picture yet.
-pub const ADD_COVER: &str = "Add cover";
-/// Beside the protection, while the game has no tags.
-pub const ADD_TAG: &str = "Add tag";
-/// Title tooltip.
-pub const RENAME_TOOLTIP: &str = "Click or press F2 to rename";
-/// Rename field.
-pub const RENAME_FIELD: &str = "Name";
-/// Rename field description.
-pub const RENAME_HINT: &str = "Enter saves, Esc cancels";
-/// Stopping notice.
-pub const STOPPING_BODY: &str = "Waiting for the game to close. Force stop ends it at once.";
-/// Availability action.
-pub const CHECK_AGAIN: &str = "Check again";
-/// Tamper notice.
-pub const TAMPER: &str = "Shared files changed after this game ran";
-/// Tamper notice.
-pub const TAMPER_BODY: &str = "Files of the compatibility layer were modified while this game could reach them. They are checked again before the next start.";
+texts! {
+    /// Rename field.
+    RENAME_FIELD = "details.rename_field";
+    /// Rename field description.
+    RENAME_HINT = "details.rename_hint";
+    /// Stopping notice.
+    STOPPING_BODY = "details.stopping_body";
+    /// Availability action.
+    CHECK_AGAIN = "details.check_again";
+    /// Tamper notice.
+    TAMPER = "details.tamper";
+    /// Tamper notice.
+    TAMPER_BODY = "details.tamper_body";
+}
 
 /// Availability notice title and body.
 pub fn availability(a: Availability) -> (&'static str, &'static str) {
     match a {
         Availability::DriveDisconnected => (
-            "The drive with this game isn't connected",
-            "Connect the drive and check again, or locate the program if it moved.",
+            crate::i18n::text("details.availability.the_drive_with_this"),
+            crate::i18n::text("details.availability.connect_the_drive_and"),
         ),
         Availability::Unreadable => (
-            "This game can't be read",
-            "EasyPlay isn't allowed to read its folder. Check the folder's permissions.",
+            crate::i18n::text("details.availability.this_game_can_t"),
+            crate::i18n::text("details.availability.easyplay_isn_t_allowed"),
         ),
         _ => (
-            "This game's program can't be found",
-            "It may have been moved, renamed or deleted. Locate it to keep your settings and playtime.",
+            crate::i18n::text("details.availability.this_game_s_program"),
+            crate::i18n::text("details.availability.it_may_have_been"),
         ),
-    }
-}
-
-/// "Last played yesterday · 12 h 05 min".
-pub fn played_line(
-    total_ms: u64,
-    last: Option<Timestamp>,
-    now: Timestamp,
-    offset_s: i32,
-) -> String {
-    match last {
-        Some(t) if total_ms > 0 => format!(
-            "Last played {} · {}",
-            super::fmt::relative_inline(t, now, offset_s),
-            super::fmt::duration(total_ms)
-        ),
-        _ => super::card::NOT_PLAYED.to_owned(),
     }
 }
 
 // ---- Overview ----------------------------------------------------------------------------
 
-/// Label beside Play.
-pub const TIME_PLAYED: &str = "Time played";
-/// Label beside Play.
-pub const LAST_7_DAYS: &str = "Last 7 days";
-
-/// "Last 7 days: 1 hour 12 minutes".
-pub fn week_name(ms: u64) -> String {
-    format!("{LAST_7_DAYS}: {}", super::fmt::duration_spoken(ms))
+/// The program and its arguments as one command line: "LanternKeep.exe -screen-fullscreen 1".
+pub fn command_line(program: &str, args: &str) -> String {
+    if args.is_empty() {
+        program.to_owned()
+    } else {
+        format!("{program} {args}")
+    }
 }
 
 /// "Last played: Yesterday".
 pub fn fact_name(label: &str, value: &str) -> String {
-    format!("{label}: {value}")
+    rust_i18n::t!("details.fact_name", label = label, value = value).into_owned()
 }
 
-/// Section: what the game's files tell (ADR-0028).
-pub const WHAT_IT_IS: &str = "What it is";
-/// Fact.
-pub const ENGINE: &str = "Engine";
-/// Fact: the main program.
-pub const PROGRAM: &str = "Program";
-/// Fact: the company in the program's version resource.
-pub const MADE_BY: &str = "Made by";
-/// Fact.
-pub const ANTI_CHEAT: &str = "Anti-cheat";
-/// After the anti-cheat systems found.
-pub const ANTI_CHEAT_RISK: &str = "often refuses to run under Proton or in a sandbox";
-/// Fact: Steam and other stores' services.
-pub const STORE_SERVICES: &str = "Online services";
-/// A finding.
-pub const USES_STEAM_API: &str = "Uses Steam's services";
-/// A finding.
-pub const NEEDS_STEAM: &str = "Needs Steam running to start (Steam DRM)";
-/// A finding.
-pub const STORE_SDK: &str = "Uses Epic or GOG online services";
-/// Fact: Proton's per-game fixes.
-pub const GAME_FIXES: &str = "Game fixes";
-/// When the layer applies none.
-pub const NO_FIXES_HERE: &str = "this compatibility layer applies none";
+texts! {
+    /// Section: what the game's files tell (ADR-0028).
+    WHAT_IT_IS = "details.what_it_is";
+    /// Fact.
+    ENGINE = "details.engine";
+    /// Fact: the main program.
+    PROGRAM = "details.program";
+    /// Fact: the company in the program's version resource.
+    MADE_BY = "details.made_by";
+    /// Fact.
+    ANTI_CHEAT = "details.anti_cheat";
+    /// After the anti-cheat systems found.
+    ANTI_CHEAT_RISK = "details.anti_cheat_risk";
+    /// Fact: Steam and other stores' services.
+    STORE_SERVICES = "details.store_services";
+    /// A finding.
+    USES_STEAM_API = "details.uses_steam_api";
+    /// A finding.
+    NEEDS_STEAM = "details.needs_steam";
+    /// A finding.
+    STORE_SDK = "details.store_sdk";
+    /// Fact: Proton's per-game fixes.
+    GAME_FIXES = "details.game_fixes";
+    /// When the layer applies none.
+    NO_FIXES_HERE = "details.no_fixes_here";
+}
 
 /// The game Proton's fixes are for (a title, or a umu-database ID).
 pub fn fixes_for(known: &str) -> String {
-    format!("Proton applies the fixes for {known}")
+    rust_i18n::t!("details.fixes_for", known = known).into_owned()
 }
 
 /// Findings joined on one line.
@@ -153,12 +132,22 @@ pub fn anti_cheat(found: &[easyplay_core::identity::AntiCheat]) -> String {
             A::BattlEye => "BattlEye",
         })
         .collect();
-    format!("{}: {ANTI_CHEAT_RISK}", names.join(", "))
+    rust_i18n::t!(
+        "details.anti_cheat_names",
+        names = names.join(crate::i18n::text("list.separator")),
+        risk = ANTI_CHEAT_RISK()
+    )
+    .into_owned()
 }
 
 /// Proton's fixes for the game, under a layer that applies none.
 pub fn fixes_not_applied(known: &str) -> String {
-    format!("Fixes for {known}: {NO_FIXES_HERE}")
+    rust_i18n::t!(
+        "details.fixes_not_applied",
+        known = known,
+        hint = NO_FIXES_HERE()
+    )
+    .into_owned()
 }
 
 /// What an engine is called, with its variant.
@@ -196,95 +185,82 @@ pub fn engine_name(g: easyplay_core::identity::EngineGuess) -> String {
 
 /// What kind of program the main program is, and its version.
 pub fn program_kind(pe: &easyplay_core::model::PeInfo) -> Option<String> {
-    use easyplay_core::model::PeMachine as M;
-    let kind = if pe.is_dotnet {
-        ".NET program"
-    } else {
-        match pe.machine {
-            M::X86_64 => "64-bit Windows program",
-            M::X86 => "32-bit Windows program",
-            M::Arm64 => "ARM64 Windows program",
-            _ => return pe.file_version.as_ref().map(|v| format!("version {v}")),
+    match (machine_kind(pe), pe.file_version.as_deref()) {
+        (Some(k), Some(v)) => {
+            Some(rust_i18n::t!("details.program_kind_version", kind = k, v = v).into_owned())
         }
-    };
-    Some(match &pe.file_version {
-        Some(v) => format!("{kind} · version {v}"),
-        None => kind.to_owned(),
-    })
+        (Some(k), None) => Some(k.to_owned()),
+        (None, Some(v)) => Some(rust_i18n::t!("details.program_version", v = v).into_owned()),
+        (None, None) => None,
+    }
 }
 
-/// Section: protection, compatibility, launch options.
-pub const RUNS: &str = "How it runs";
-/// Section: the folders.
-pub const LIVES: &str = "Where it lives";
-/// The list of access statements.
-pub const REACH: &str = "What this game can reach";
-/// Row.
-pub const GAME_FOLDER: &str = "Game folder";
-/// Row, for a game that is a single file.
-pub const PROGRAM_FILE: &str = "Program";
-/// Row.
-pub const SAVE_DATA: &str = "Save data";
-/// Row.
-pub const OTHER_PROGRAMS: &str = "Other programs";
-/// Tooltip of a folder row.
-pub const OPEN_IN_FILES: &str = "Open in the file manager";
-/// Value.
-pub const PRIVATE_STORAGE: &str = "Private storage";
-/// Value.
-pub const YOUR_FOLDER: &str = "A folder you chose";
-/// Section.
-pub const NOTES: &str = "Notes";
-/// Hint.
-pub const ADD_NOTE: &str = "Add a note";
-/// Query failure.
-pub const COULDNT_LOAD: &str = "Couldn't load this.";
-/// Button.
-pub const RETRY: &str = "Retry";
+/// What kind of program a PE file is, when its machine says.
+fn machine_kind(pe: &easyplay_core::model::PeInfo) -> Option<&'static str> {
+    use easyplay_core::model::PeMachine as M;
+    if pe.is_dotnet {
+        return Some(crate::i18n::text("details.machine.dotnet"));
+    }
+    match pe.machine {
+        M::X86_64 => Some(crate::i18n::text("details.machine.x64")),
+        M::X86 => Some(crate::i18n::text("details.machine.x86")),
+        M::Arm64 => Some(crate::i18n::text("details.machine.arm64")),
+        _ => None,
+    }
+}
+
+texts! {
+    /// Section: protection, compatibility, launch options.
+    RUNS = "details.runs";
+    /// Section: the folders.
+    LIVES = "details.lives";
+    /// Row.
+    GAME_FOLDER = "details.game_folder";
+    /// Row, for a game that is a single file.
+    PROGRAM_FILE = "details.program_file";
+    /// Row.
+    SAVE_DATA = "details.save_data";
+    /// Row.
+    OTHER_PROGRAMS = "details.other_programs";
+    /// Value.
+    PRIVATE_STORAGE = "details.private_storage";
+    /// Value.
+    YOUR_FOLDER = "details.your_folder";
+    /// Section.
+    NOTES = "details.notes";
+    /// Query failure.
+    COULDNT_LOAD = "details.couldnt_load";
+    /// Button.
+    RETRY = "details.retry";
+}
 
 /// "31 sessions".
 pub fn sessions(n: u32) -> String {
-    format!("{n} {}", super::plural(u64::from(n), "session", "sessions"))
+    crate::i18n::plural::counted("details.sessions", u64::from(n))
 }
 
 /// "Protection: Offline", "Game folder: Hollow Knight, in Games".
 pub fn row_name(title: &str, value: &str, detail: Option<&str>) -> String {
     match detail {
-        Some(d) => format!("{title}: {value}, {d}"),
-        None => format!("{title}: {value}"),
+        Some(d) => rust_i18n::t!(
+            "details.row_name_detail",
+            title = title,
+            value = value,
+            detail = d
+        )
+        .into_owned(),
+        None => rust_i18n::t!("details.row_name", title = title, value = value).into_owned(),
     }
-}
-
-/// "and 3 more".
-pub fn more_statements(n: usize) -> String {
-    format!("and {n} more")
 }
 
 /// "2 more…".
 pub fn more_programs(n: usize) -> String {
-    format!("{n} more…")
+    rust_i18n::t!("details.more_programs", n = n).into_owned()
 }
 
 /// "1 variable".
 pub fn variables(n: usize) -> String {
-    format!("{n} {}", super::plural(n as u64, "variable", "variables"))
-}
-
-/// "-windowed · 1 variable": what a game's launch options add, `None` when nothing.
-pub fn launch_summary(args: &str, variables_set: usize) -> Option<String> {
-    let mut parts: Vec<String> = Vec::new();
-    if !args.is_empty() {
-        parts.push(args.to_owned());
-    }
-    if variables_set > 0 {
-        parts.push(variables(variables_set));
-    }
-    (!parts.is_empty()).then(|| parts.join(" · "))
-}
-
-/// "Added 16 Oct", "Added yesterday" (`date` as written inside a sentence).
-pub fn added(date: &str) -> String {
-    format!("Added {date}")
+    crate::i18n::plural::counted("details.variables", n as u64)
 }
 
 /// ("Hollow Knight", Some("in Games")) for a game folder; the program's file otherwise.
@@ -297,192 +273,190 @@ pub fn location(root: Option<&Path>, exe: &Path) -> (String, Option<String>) {
     let parent = p
         .parent()
         .and_then(|x| x.file_name())
-        .map(|n| format!("in {}", n.to_string_lossy()));
+        .map(|n| rust_i18n::t!("details.in_folder", name = n.to_string_lossy()).into_owned());
     (name, parent)
 }
 
 // ---- Save bar ----------------------------------------------------------------------------
 
-/// Save bar.
-pub const UNSAVED: &str = "Unsaved changes";
-/// Save bar when access widens.
-pub const UNSAVED_WIDENS: &str =
-    "Unsaved changes — this program and anything it has installed will get this access.";
-/// Button.
-pub const SAVE: &str = "Save";
-/// Button.
-pub const DISCARD: &str = "Discard";
-/// Disabled reason.
-pub const FIX_LAUNCH: &str = "Fix the launch options to save";
+texts! {
+    /// Save bar.
+    UNSAVED = "details.unsaved";
+    /// Save bar when access widens.
+    UNSAVED_WIDENS = "details.unsaved_widens";
+    /// Button.
+    SAVE = "details.save";
+    /// Button.
+    DISCARD = "details.discard";
+    /// Disabled reason.
+    FIX_LAUNCH = "details.fix_launch";
+}
 
 /// "Fix 1 problem to save".
 pub fn fix_problems(n: usize) -> String {
-    format!(
-        "Fix {n} {} to save",
-        super::plural(n as u64, "problem", "problems")
-    )
+    crate::i18n::plural::counted("details.fix_problems", n as u64)
 }
 
 // ---- Protection ----------------------------------------------------------------------------
 
-/// Overview row.
-pub const PROTECTION: &str = "Protection";
-/// Heading and radio group of the Protection tab (the tab itself is called Protection).
-pub const PROTECTION_LEVEL: &str = "Protection level";
-/// Link.
-pub const RESET_TO_PRESET: &str = "Reset to preset";
-/// Inline confirm button.
-pub const REPLACE: &str = "Replace";
-/// Banner while running.
-pub const APPLIES_NEXT_TIME: &str = "Changes apply the next time you start the game.";
-/// Policy of a newer version.
-pub const POLICY_TOO_NEW: &str =
-    "These settings were saved by a newer version of EasyPlay and can't be shown here.";
-/// On a row while it differs from what is saved.
-pub const CHANGED_MARK: &str = "changed";
-/// Permission.
-pub const INTERNET_ON: &str = "Internet and local network";
-/// List of permissions, and a section of the setup sheet.
-pub const FILES: &str = "Files and folders";
-/// Degree of access.
-pub const CAN_READ: &str = "Can read";
-/// Degree of access.
-pub const CAN_READ_CHANGE: &str = "Can read and change";
-/// Degree of access to the game folder.
-pub const CHANGES_KEPT_APART: &str = "Changes kept separately";
-/// Access (setup sheet).
-pub const CAN_CHANGE: &str = "Can change";
-/// Row.
-pub const ADD_FOLDER: &str = "Add folder…";
-/// Drop hint.
-pub const DROP_FOLDER: &str = "Drop a folder here to share it";
-/// Permission.
-pub const REMOVABLE: &str = "Removable drives";
-/// Note.
-pub const WRITABLE_WITH_INTERNET: &str =
-    "With internet access, a program can upload or alter these files.";
-/// Option.
-pub const CHOOSE_FOLDER: &str = "A folder I choose…";
-/// List of permissions.
-pub const INTERNET_AND_DEVICES: &str = "Internet and devices";
-/// Section of the setup sheet.
-pub const DEVICES: &str = "Devices";
-/// Permission.
-pub const SOUND: &str = "Sound";
-/// Permission.
-pub const MICROPHONE: &str = "Microphone";
-/// Under the microphone permission while it is off, on a computer that cannot keep it out
-/// of the sound server (ADR-0026).
-pub const MICROPHONE_INSEPARABLE: &str =
-    "This computer can't give sound without the microphone: with it off, the game is silent";
-/// Toggle (setup sheet).
-pub const CONTROLLERS: &str = "Controllers";
-/// Permission.
-pub const GAME_CONTROLLERS: &str = "Game controllers";
-/// Degree of the controllers permission.
-pub const CONNECTED_ONLY: &str = "Connected when the game starts";
-/// Degree of the controllers permission.
-pub const ALL_INPUT: &str = "All input devices";
-/// Disabled reason.
-pub const ALL_INPUT_UNAVAILABLE: &str =
-    "All input devices is unavailable because your account can read keyboards directly.";
-/// Permission.
-pub const CAMERA: &str = "Camera";
-/// Row: where the game draws.
-pub const SCREEN: &str = "Screen";
-/// X11 notice.
-pub const X11_NOTICE: &str = "Shows windows through X11 — other X11 apps are not isolated from it.";
-/// Setup sheet.
-pub const GAME_FOLDER_ACCESS: &str = "Game folder access";
-/// Option.
-pub const READ_ONLY: &str = "Read only";
-/// Option.
-pub const PROTECTED: &str = "Protected";
-/// Loose file.
-pub const FILE_ONLY_EXPLAINED: &str =
-    "This game is a single file, so it can only read its own program.";
-/// Advanced.
-pub const IDENTITY: &str = "Hide this computer's identity";
-/// Toggle.
-pub const MASK_HOSTNAME: &str = "Hide the computer's name";
-/// What breaks.
-pub const MASK_HOSTNAME_BREAKS: &str = "Rarely matters. Some local multiplayer games show it.";
-/// Toggle.
-pub const MASK_MACHINE_ID: &str = "Hide the machine ID";
-/// What breaks.
-pub const MASK_MACHINE_ID_BREAKS: &str =
-    "Some copy protection checks may ask you to activate again.";
-/// Toggle.
-pub const MASK_HARDWARE: &str = "Hide hardware serial numbers";
-/// What breaks.
-pub const MASK_HARDWARE_BREAKS: &str = "Some copy protection checks may ask you to activate again.";
-/// Toggle.
-pub const SECCOMP: &str = "Filter risky system calls";
-/// Hint.
-pub const SECCOMP_HINT: &str = "Turn off only if a game fails with a message about a blocked call.";
-/// Advanced.
-pub const LAYER_ISOLATION: &str = "Compatibility layer copy";
-/// Option.
-pub const ISO_AUTO: &str = "Automatic";
-/// Option.
-pub const ISO_PRIVATE: &str = "Always a private copy";
-/// Option.
-pub const ISO_SHARED: &str = "Shared";
-/// Toggle.
-pub const DIRECT_SOUND: &str = "Direct access to sound devices";
-/// Hint.
-pub const DIRECT_SOUND_HINT: &str = "Only for old games that cannot use the sound server.";
+texts! {
+    /// Overview row.
+    PROTECTION = "details.protection";
+    /// Heading and radio group of the Protection tab (the tab itself is called Protection).
+    PROTECTION_LEVEL = "details.protection_level";
+    /// Link.
+    RESET_TO_PRESET = "details.reset_to_preset";
+    /// Inline confirm button.
+    REPLACE = "details.replace";
+    /// Banner while running.
+    APPLIES_NEXT_TIME = "details.applies_next_time";
+    /// Policy of a newer version.
+    POLICY_TOO_NEW = "details.policy_too_new";
+    /// On a row while it differs from what is saved.
+    CHANGED_MARK = "details.changed_mark";
+    /// Permission.
+    INTERNET_ON = "details.internet_on";
+    /// List of permissions, and a section of the setup sheet.
+    FILES = "details.files";
+    /// Degree of access.
+    CAN_READ = "details.can_read";
+    /// Degree of access.
+    CAN_READ_CHANGE = "details.can_read_change";
+    /// Degree of access to the game folder.
+    CHANGES_KEPT_APART = "details.changes_kept_apart";
+    /// Access (setup sheet).
+    CAN_CHANGE = "details.can_change";
+    /// Row.
+    ADD_FOLDER = "details.add_folder";
+    /// Drop hint.
+    DROP_FOLDER = "details.drop_folder";
+    /// Permission.
+    REMOVABLE = "details.removable";
+    /// Note.
+    WRITABLE_WITH_INTERNET = "details.writable_with_internet";
+    /// Option.
+    CHOOSE_FOLDER = "details.choose_folder";
+    /// List of permissions.
+    INTERNET_AND_DEVICES = "details.internet_and_devices";
+    /// Section of the setup sheet.
+    DEVICES = "details.devices";
+    /// Permission.
+    SOUND = "details.sound";
+    /// Permission.
+    MICROPHONE = "details.microphone";
+    /// Under the microphone permission while it is off, on a computer that cannot keep it out
+    /// of the sound server (ADR-0026).
+    MICROPHONE_INSEPARABLE = "details.microphone_inseparable";
+    /// Toggle (setup sheet).
+    CONTROLLERS = "details.controllers";
+    /// Permission.
+    GAME_CONTROLLERS = "details.game_controllers";
+    /// Degree of the controllers permission.
+    CONNECTED_ONLY = "details.connected_only";
+    /// Degree of the controllers permission.
+    ALL_INPUT = "details.all_input";
+    /// Disabled reason.
+    ALL_INPUT_UNAVAILABLE = "details.all_input_unavailable";
+    /// Permission.
+    CAMERA = "details.camera";
+    /// Row: where the game draws.
+    SCREEN = "details.screen";
+    /// X11 notice.
+    X11_NOTICE = "details.x11_notice";
+    /// Setup sheet.
+    GAME_FOLDER_ACCESS = "details.game_folder_access";
+    /// Option.
+    READ_ONLY = "details.read_only";
+    /// Option.
+    PROTECTED = "details.protected";
+    /// Loose file.
+    FILE_ONLY_EXPLAINED = "details.file_only_explained";
+    /// Advanced.
+    IDENTITY = "details.identity";
+    /// Toggle.
+    MASK_HOSTNAME = "details.mask_hostname";
+    /// What breaks.
+    MASK_HOSTNAME_BREAKS = "details.mask_hostname_breaks";
+    /// Toggle.
+    MASK_MACHINE_ID = "details.mask_machine_id";
+    /// What breaks.
+    MASK_MACHINE_ID_BREAKS = "details.mask_machine_id_breaks";
+    /// Toggle.
+    MASK_HARDWARE = "details.mask_hardware";
+    /// What breaks.
+    MASK_HARDWARE_BREAKS = "details.mask_hardware_breaks";
+    /// Toggle.
+    SECCOMP = "details.seccomp";
+    /// Hint.
+    SECCOMP_HINT = "details.seccomp_hint";
+    /// Advanced.
+    LAYER_ISOLATION = "details.layer_isolation";
+    /// Option.
+    ISO_AUTO = "details.iso_auto";
+    /// Option.
+    ISO_PRIVATE = "details.iso_private";
+    /// Option.
+    ISO_SHARED = "details.iso_shared";
+    /// Toggle.
+    DIRECT_SOUND = "details.direct_sound";
+    /// Hint.
+    DIRECT_SOUND_HINT = "details.direct_sound_hint";
+}
 
 /// "Custom (based on Online)".
 pub fn custom_based_on(b: BasePreset) -> String {
-    format!("Custom (based on {})", super::shield::preset_name(b.into()))
+    rust_i18n::t!(
+        "details.custom_based_on",
+        preset = super::shield::preset_name(b.into())
+    )
+    .into_owned()
 }
 
 /// "Choosing Online replaces your changes."
 pub fn replace_custom(b: BasePreset) -> String {
-    format!(
-        "Choosing {} replaces your changes.",
-        super::shield::preset_name(b.into())
+    rust_i18n::t!(
+        "details.replace_custom",
+        preset = super::shield::preset_name(b.into())
     )
+    .into_owned()
 }
 
 /// "Share Music".
 pub fn share_toggle(name: &str) -> String {
-    format!("Share {name}")
+    rust_i18n::t!("details.share_toggle", name = name).into_owned()
 }
 
 /// "This folder can't be shared: …".
 pub fn rejected(reason: &str) -> String {
-    format!("This folder can't be shared: {reason}")
+    rust_i18n::t!("details.rejected", reason = reason).into_owned()
 }
 
 /// "in Home", "in Documents ▸ My Games".
 pub fn folder_location(path: &Path, home: &Path) -> String {
     let parent = path.parent().unwrap_or(path);
     if parent == home {
-        return "in Home".to_owned();
+        return crate::i18n::text("details.in_home").to_owned();
     }
-    match parent.strip_prefix(home) {
-        Ok(rel) => format!(
-            "in {}",
-            rel.components()
-                .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                .collect::<Vec<_>>()
-                .join(" › ")
-        ),
-        Err(_) => format!("in {}", parent.display()),
-    }
+    let name = match parent.strip_prefix(home) {
+        Ok(rel) => rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join(crate::i18n::text("setup.breadcrumb_separator")),
+        Err(_) => parent.display().to_string(),
+    };
+    rust_i18n::t!("details.in_folder", name = name).into_owned()
 }
 
 /// A permission and its degree: "Music: Can read".
 pub fn permission(title: &str, value: &str) -> String {
-    format!("{title}: {value}")
+    rust_i18n::t!("details.permission", title = title, value = value).into_owned()
 }
 
 /// "Hollow Knight in Games".
 pub fn place(name: &str, parent: Option<&str>) -> String {
     match parent {
-        Some(parent) => format!("{name} {parent}"),
+        Some(parent) => rust_i18n::t!("details.place", name = name, parent = parent).into_owned(),
         None => name.to_owned(),
     }
 }
@@ -490,9 +464,9 @@ pub fn place(name: &str, parent: Option<&str>) -> String {
 /// "Advanced · 1 changed".
 pub fn advanced(changed: usize) -> String {
     if changed == 0 {
-        "Advanced".to_owned()
+        crate::i18n::text("details.advanced").to_owned()
     } else {
-        format!("Advanced · {changed} changed")
+        rust_i18n::t!("details.advanced_changed", n = changed).into_owned()
     }
 }
 
@@ -510,287 +484,727 @@ pub fn advanced_changes(a: &SandboxPolicy, b: &SandboxPolicy) -> usize {
 
 // ---- Compatibility ------------------------------------------------------------------------
 
-/// Section.
-pub const LAYER: &str = "Compatibility layer";
-/// Group.
-pub const GROUP_DEFAULT: &str = "Default";
-/// Group.
-pub const GROUP_CHANNELS: &str = "Channels";
-/// Group.
-pub const GROUP_INSTALLED: &str = "Installed — EasyPlay";
-/// Group.
-pub const GROUP_OTHER: &str = "Installed — other sources";
-/// Checkbox.
-pub const FOLLOW_UPDATES: &str = "Follow updates";
-/// No layer yet.
-pub const NOT_DOWNLOADED: &str = "not downloaded yet";
-/// Missing layer.
-pub const LAYER_MISSING: &str = "This layer is no longer installed.";
-/// Older layer.
-pub const LAYER_OLDER: &str = "This layer is older than the one that prepared the game's storage. If the game misbehaves, reset the storage.";
-/// Button.
-pub const USE_DEFAULT: &str = "Use default";
-/// Empty catalogue.
-pub const NONE_INSTALLED: &str = "Default — will be downloaded on first start.";
-/// Button.
-pub const DOWNLOAD_NOW: &str = "Download now";
-/// Section.
-pub const FIXES: &str = "Game fixes";
-/// Layer without fixes.
-pub const NO_FIXES_IN_LAYER: &str = "This layer doesn't use game fixes.";
-/// No fix.
-pub const NO_FIX: &str = "No fix selected";
-/// Button.
-pub const CHANGE: &str = "Change…";
-/// Toggle.
-pub const TURN_OFF_FIXES: &str = "Turn off fixes";
-/// Section.
-pub const OPTIONS: &str = "Options";
-/// Row.
-pub const GRAPHICS: &str = "Graphics";
-/// Row.
-pub const WINDOW_SYSTEM: &str = "Window system";
-/// Option.
-pub const AUTOMATIC: &str = "Automatic";
-/// Row.
-pub const OVERLAY: &str = "Performance overlay";
-/// Note.
-pub const NOT_INSTALLED: &str = "not installed on this system";
-/// Row.
-pub const LANGUAGE: &str = "Game language";
-/// Option.
-pub const LANG_SYSTEM: &str = "Same as system";
-/// Disclosure.
-pub const ADVANCED_COMPAT: &str = "Advanced";
-/// Row.
-pub const SYNC: &str = "Synchronisation";
-/// Option.
-pub const NO_FSYNC: &str = "No fsync";
-/// Option.
-pub const NO_ESYNC: &str = "No esync or fsync";
-/// Field.
-pub const DLL_OVERRIDES: &str = "DLL overrides";
-/// Field.
-pub const DXVK_HUD: &str = "DXVK overlay";
-/// Toggle.
-pub const PROTON_LOG: &str = "Write a Proton log";
-/// Hint.
-pub const PROTON_LOG_HINT: &str = "Large files; turn on only to report a problem.";
-/// Card.
-pub const STORAGE: &str = "Private Windows storage";
-/// Size placeholder.
-pub const CALCULATING: &str = "Calculating…";
-/// The size could not be measured.
-pub const SIZE_UNKNOWN: &str = "Size unknown";
-/// Button.
-pub const OPEN_FOLDER: &str = "Open folder";
-/// Button.
-pub const WINDOWS_SETTINGS: &str = "Windows settings";
-/// Button.
-pub const RESET: &str = "Reset…";
-/// Sheet.
-pub const FIX_PICKER: &str = "Choose a game fix";
-/// Field.
-pub const FIX_SEARCH: &str = "Search by title, store or ID";
-/// Empty.
-pub const NO_FIX_FOUND: &str = "No fix found for this name. Most games don't need one.";
-/// Button.
-pub const NO_FIX_USE: &str = "Use no fix";
+texts! {
+    /// Section.
+    LAYER = "details.layer";
+    /// Checkbox.
+    FOLLOW_UPDATES = "details.follow_updates";
+    /// Missing layer.
+    LAYER_MISSING = "details.layer_missing";
+    /// Older layer.
+    LAYER_OLDER = "details.layer_older";
+    /// Button.
+    USE_DEFAULT = "details.use_default";
+    /// Empty catalogue.
+    NONE_INSTALLED = "details.none_installed";
+    /// Button.
+    DOWNLOAD_NOW = "details.download_now";
+    /// Section.
+    FIXES = "details.fixes";
+    /// Layer without fixes.
+    NO_FIXES_IN_LAYER = "details.no_fixes_in_layer";
+    /// No fix.
+    NO_FIX = "details.no_fix";
+    /// Button.
+    CHANGE = "details.change";
+    /// Toggle.
+    TURN_OFF_FIXES = "details.turn_off_fixes";
+    /// Section.
+    OPTIONS = "details.options";
+    /// Row.
+    GRAPHICS = "details.graphics";
+    /// Row.
+    WINDOW_SYSTEM = "details.window_system";
+    /// Option.
+    AUTOMATIC = "details.automatic";
+    /// Row.
+    OVERLAY = "details.overlay";
+    /// Row.
+    LANGUAGE = "details.language";
+    /// Option.
+    LANG_SYSTEM = "details.lang_system";
+    /// Row.
+    SYNC = "details.sync";
+    /// Option.
+    NO_FSYNC = "details.no_fsync";
+    /// Option.
+    NO_ESYNC = "details.no_esync";
+    /// Field.
+    DLL_OVERRIDES = "details.dll_overrides";
+    /// Field.
+    DXVK_HUD = "details.dxvk_hud";
+    /// Hint.
+    PROTON_LOG_HINT = "details.proton_log_hint";
+    /// Card.
+    STORAGE = "details.storage";
+    /// Size placeholder.
+    CALCULATING = "details.calculating";
+    /// The size could not be measured.
+    SIZE_UNKNOWN = "details.size_unknown";
+    /// Button.
+    OPEN_FOLDER = "details.open_folder";
+    /// Button.
+    WINDOWS_SETTINGS = "details.windows_settings";
+    /// Button.
+    RESET = "details.reset";
+    /// Sheet.
+    FIX_PICKER = "details.fix_picker";
+    /// Field.
+    FIX_SEARCH = "details.fix_search";
+    /// Empty.
+    NO_FIX_FOUND = "details.no_fix_found";
+    /// Button.
+    NO_FIX_USE = "details.no_fix_use";
+}
 
 /// "Default — UMU-Proton 10.0-4".
 pub fn default_layer(resolved: Option<&str>) -> String {
     match resolved {
-        Some(r) => format!("Default — {r}"),
-        None => NONE_INSTALLED.to_owned(),
+        Some(r) => rust_i18n::t!("details.default_layer_named", name = r).into_owned(),
+        None => NONE_INSTALLED().to_owned(),
     }
 }
 
 /// "UMU-Proton (latest)".
 pub fn channel(name: &str) -> String {
-    format!("{name} (latest)")
-}
-
-/// "Last used: … · storage prepared with the same version".
-pub fn status_line(used: &str, prepared: Option<&str>, older: bool) -> String {
-    match prepared {
-        Some(_) if older => format!("Last used: {used} · storage prepared with a newer version"),
-        Some(p)
-            if used.replace(' ', "-").eq_ignore_ascii_case(p) || p.replace('-', " ") == used =>
-        {
-            format!("Last used: {used} · storage prepared with the same version")
-        }
-        Some(p) => format!("Last used: {used} · storage prepared with {p}"),
-        None => format!("Last used: {used}"),
-    }
-}
-
-/// "2.3 GB · created 2 Nov".
-pub fn storage_line(size: &str, created: Option<&str>) -> String {
-    match created {
-        Some(c) => format!("{size} · created {c}"),
-        None => size.to_owned(),
-    }
+    rust_i18n::t!("details.channel", name = name).into_owned()
 }
 
 /// "Hollow Knight (GOG) · umu-367520".
 pub fn fix_row(title: &str, store: &str, id: &str) -> String {
-    format!("{title} ({store}) · {id}")
+    rust_i18n::t!("details.fix_row", title = title, store = store, id = id).into_owned()
 }
 
 // ---- Launch options ----------------------------------------------------------------------
 
-/// Card.
-pub const PROGRAMS_TITLE: &str = "Programs";
-/// Role.
-pub const ROLE_PRIMARY: &str = "Main program";
-/// Role.
-pub const ROLE_ALTERNATE: &str = "Other version";
-/// Role.
-pub const ROLE_LAUNCHER: &str = "Launcher";
-/// Role.
-pub const ROLE_TOOL: &str = "Tool";
-/// Role.
-pub const ROLE_INSTALLER: &str = "Installer";
-/// Menu.
-pub const MAKE_MAIN: &str = "Make main program";
-/// Menu.
-pub const REMOVE_PROGRAM: &str = "Remove from this game";
-/// Button.
-pub const ADD_PROGRAM: &str = "Add program…";
-/// Field.
-pub const ARGUMENTS: &str = "Arguments";
-/// Help.
-pub const ARGUMENTS_HELP: &str = "Passed to the program when it starts.";
-/// Error.
-pub const ARGS_UNBALANCED: &str = "A quote is not closed.";
-/// Section.
-pub const START_IN: &str = "Start in";
-/// Option.
-pub const WD_PROGRAM: &str = "Program's folder";
-/// Option.
-pub const WD_GAME: &str = "Game folder";
-/// Option.
-pub const WD_OTHER: &str = "Other…";
-/// Section.
-pub const WHEN_STOPPING: &str = "When stopping, wait";
-/// After the select.
-pub const BEFORE_FORCING: &str = "before forcing";
-/// Section.
-pub const ENV_VARS: &str = "Environment variables";
-/// Empty.
-pub const NO_VARS: &str = "No variables set.";
-/// Button.
-pub const ADD_VAR: &str = "Add variable";
-/// Rule.
-pub const DEV_ONLY_VAR: &str = "Only available in Developer Mode";
-/// Rule.
-pub const INVALID_VAR: &str = "Use letters, digits and underscores, not starting with a digit.";
-
-/// "Tool · “Settings”".
-pub fn role_with_label(role: &str, label: Option<&str>) -> String {
-    match label {
-        Some(l) => format!("{role} · “{l}”"),
-        None => role.to_owned(),
-    }
+texts! {
+    /// Card.
+    PROGRAMS_TITLE = "details.programs_title";
+    /// Role.
+    ROLE_PRIMARY = "details.role_primary";
+    /// Role.
+    ROLE_ALTERNATE = "details.role_alternate";
+    /// Role.
+    ROLE_LAUNCHER = "details.role_launcher";
+    /// Role.
+    ROLE_TOOL = "details.role_tool";
+    /// Role.
+    ROLE_INSTALLER = "details.role_installer";
+    /// Menu.
+    MAKE_MAIN = "details.make_main";
+    /// Menu.
+    REMOVE_PROGRAM = "details.remove_program";
+    /// Button.
+    ADD_PROGRAM = "details.add_program";
+    /// Field.
+    ARGUMENTS = "details.arguments";
+    /// Help.
+    ARGUMENTS_HELP = "details.arguments_help";
+    /// Error.
+    ARGS_UNBALANCED = "details.args_unbalanced";
+    /// Section.
+    START_IN = "details.start_in";
+    /// Option.
+    WD_PROGRAM = "details.wd_program";
+    /// Option.
+    WD_GAME = "details.wd_game";
+    /// Option.
+    WD_OTHER = "details.wd_other";
+    /// Section.
+    WHEN_STOPPING = "details.when_stopping";
+    /// Section.
+    ENV_VARS = "details.env_vars";
+    /// Rule.
+    DEV_ONLY_VAR = "details.dev_only_var";
+    /// Rule.
+    INVALID_VAR = "details.invalid_var";
 }
 
 /// "Actions for Config.exe".
 pub fn program_menu(file: &str) -> String {
-    format!("Actions for {file}")
+    rust_i18n::t!("details.program_menu", file = file).into_owned()
 }
 
 /// "Run Config.exe".
 pub fn run_program(file: &str) -> String {
-    format!("Run {file}")
+    rust_i18n::t!("details.run_program", file = file).into_owned()
 }
 
 /// "Mark as Tool".
 pub fn mark_as(role: &str) -> String {
-    format!("Mark as {role}")
+    rust_i18n::t!("details.mark_as", role = role).into_owned()
 }
 
 /// "3 arguments".
 pub fn args_preview(n: usize) -> String {
-    format!("{n} {}", super::plural(n as u64, "argument", "arguments"))
+    crate::i18n::plural::counted("details.argument_count", n as u64)
 }
 
 /// "10 s".
 pub fn seconds(n: u8) -> String {
-    format!("{n} s")
+    rust_i18n::t!("details.seconds", n = n).into_owned()
 }
 
 /// "PATH is managed by EasyPlay".
 pub fn reserved_var(name: &str) -> String {
-    format!("{name} is managed by EasyPlay (Compatibility and Protection settings)")
+    rust_i18n::t!("details.reserved_var", name = name).into_owned()
 }
 
-/// Placeholder of a variable's name field.
-pub const FIND_PROTON_OPTION: &str = "Type to find an option";
-/// Accessible name of the list of suggested options.
-pub const PROTON_OPTIONS: &str = "Proton options";
+texts! {
+    /// Placeholder of a variable's name field.
+    FIND_PROTON_OPTION = "details.find_proton_option";
+    /// Accessible name of the list of suggested options.
+    PROTON_OPTIONS = "details.proton_options";
+}
 
 /// Under an option the game's compatibility layer does not read.
 pub fn not_read_by(summary: &str, layer: &str) -> String {
-    format!("{summary}. Only GE-Proton and CachyOS builds read it, not {layer}")
+    rust_i18n::t!("details.not_read_by", summary = summary, layer = layer).into_owned()
 }
 
 /// "Variable name, row 1".
 pub fn var_name(row: usize) -> String {
-    format!("Variable name, row {row}")
+    rust_i18n::t!("details.var_name", row = row).into_owned()
 }
 
 /// "Value, row 1".
 pub fn var_value(row: usize) -> String {
-    format!("Value, row {row}")
+    rust_i18n::t!("details.var_value", row = row).into_owned()
 }
 
 /// "Remove variable 1".
 pub fn remove_var(row: usize) -> String {
-    format!("Remove variable {row}")
+    rust_i18n::t!("details.remove_var", row = row).into_owned()
 }
 
 // ---- Activity ----------------------------------------------------------------------------
 
-/// Empty.
-pub const NO_SESSIONS: &str = "No sessions yet.";
-/// Heading.
-pub const HISTORY: &str = "History";
-/// Button.
-pub const LOAD_MORE: &str = "Load more";
-/// Menu.
-pub const REMOVE_SESSION: &str = "Remove from history";
-/// Link.
-pub const RESET_STATS: &str = "Reset statistics for this game…";
-
-/// "Compatibility layer: Default — UMU-Proton 10.0-4".
-pub fn layer_button(label: &str) -> String {
-    format!("{LAYER}: {label}")
+texts! {
+    /// Heading.
+    HISTORY = "details.history";
+    /// Button.
+    LOAD_MORE = "details.load_more";
+    /// Menu.
+    REMOVE_SESSION = "details.remove_session";
+    /// Link.
+    RESET_STATS = "details.reset_stats";
+    /// Folder row state when the folder is gone (SCREEN_SPECS_2 §9).
+    FOLDER_NOT_FOUND = "details.folder_not_found";
+    /// Button on a missing folder row.
+    LOCATE_FOLDER = "details.locate_folder";
+    /// Program menu item.
+    RENAME_LABEL = "details.rename_label";
+    /// Program menu item.
+    PROGRAM_ARGS = "details.program_args";
+    /// Inline editor field.
+    LABEL_FIELD = "details.label_field";
+    /// Inline editor help.
+    LABEL_HELP = "details.label_help";
+    /// Inline editor field.
+    PROGRAM_ARGS_FIELD = "details.program_args_field";
+    /// Inline editor help.
+    PROGRAM_ARGS_HELP = "details.program_args_help";
+    /// Inline editor button.
+    SAVE_PROGRAM = "details.save_program";
+    /// Inline editor button.
+    CANCEL_PROGRAM = "details.cancel_program";
 }
-
-/// Folder row state when the folder is gone (SCREEN_SPECS_2 §9).
-pub const FOLDER_NOT_FOUND: &str = "Not found";
-/// Button on a missing folder row.
-pub const LOCATE_FOLDER: &str = "Locate…";
-
-/// Program menu item.
-pub const RENAME_LABEL: &str = "Rename label…";
-/// Program menu item.
-pub const PROGRAM_ARGS: &str = "Arguments for this program…";
-/// Inline editor field.
-pub const LABEL_FIELD: &str = "Label";
-/// Inline editor help.
-pub const LABEL_HELP: &str = "Shown next to the program. Leave empty for no label.";
-/// Inline editor field.
-pub const PROGRAM_ARGS_FIELD: &str = "Arguments for this program";
-/// Inline editor help.
-pub const PROGRAM_ARGS_HELP: &str =
-    "Used instead of the game's arguments when this program starts. Leave empty to use the game's.";
-/// Inline editor button.
-pub const SAVE_PROGRAM: &str = "Save";
-/// Inline editor button.
-pub const CANCEL_PROGRAM: &str = "Cancel";
 
 /// "Own arguments: -dx12".
 pub fn own_args(args: &str) -> String {
-    format!("Own arguments: {args}")
+    rust_i18n::t!("details.own_args", args = args).into_owned()
+}
+
+// ---- The game page as the redesign has it (easyplay-redesign.html §9) -------------------
+
+texts! {
+    /// The back link above the title.
+    BACK_LINK = "details.back_link";
+    /// Tooltip of the back link.
+    BACK_TIP = "details.back_tip";
+    /// The cover's button and tooltip.
+    CHANGE_ARTWORK = "details.change_artwork";
+    /// Tooltip of the play record.
+    OPEN_ACTIVITY = "details.open_activity";
+    /// The play record of a game never played.
+    NOT_PLAYED_YET = "details.not_played_yet";
+    /// Under the session clock.
+    PLAYING_NOW = "details.playing_now";
+    /// The play record while the game starts.
+    STARTING = "details.starting";
+    /// Under "Starting…".
+    GETTING_READY = "details.getting_ready";
+    /// Under the record's bars, left.
+    LAST_30_DAYS = "details.last_30_days";
+    /// Tooltip of the protection level under the title.
+    PROTECTION_TIP = "details.protection_tip";
+    /// The protection level of a game whose permissions differ from its level's.
+    CUSTOM = "details.custom";
+    /// The word that adds a tag.
+    TAG_WORD = "details.tag_word";
+    /// Tooltip of a tag and of "+ Tag".
+    TAGS_TIP = "details.tags_tip";
+    /// Round button beside Play, and its tooltip while off.
+    FAVOURITE = "details.favourite";
+    /// Tooltip of the favourite button while on.
+    UNFAVOURITE = "details.unfavourite";
+    /// Round button beside Play.
+    MORE = "details.more";
+    /// Note over a game still running in the background.
+    LINGERING_TITLE = "details.lingering_title";
+    /// Note over a game still running in the background.
+    LINGERING_BODY = "details.lingering_body";
+    /// Note while a stop was asked for.
+    STOPPING_TITLE = "details.stopping_title";
+}
+
+/// "played, most recently yesterday" (`last` as [`super::fmt::last_played`] writes it).
+pub fn record_line(last: &str) -> String {
+    // Lower-casing is a no-op in scripts without case.
+    rust_i18n::t!("details.record_line", last = last.to_lowercase()).into_owned()
+}
+
+/// The record as one sentence, in a narrow window: "Played 12 h, most recently yesterday.".
+pub fn played_sentence(time: &str, last: Option<&str>) -> String {
+    match last {
+        // Lower-casing is a no-op in scripts without case.
+        Some(last) => rust_i18n::t!(
+            "details.played_sentence_last",
+            time = time,
+            last = last.to_lowercase()
+        )
+        .into_owned(),
+        None => rust_i18n::t!("details.played_sentence", time = time).into_owned(),
+    }
+}
+
+/// The record as one sentence while the game is played: "Playing now, 0:42.".
+pub fn playing_sentence(clock: &str) -> String {
+    rust_i18n::t!("details.playing_sentence", clock = clock).into_owned()
+}
+
+texts! {
+    /// The record as one sentence of a game never played.
+    NOT_PLAYED_SENTENCE = "details.not_played_sentence";
+}
+
+/// "Last 30 days: 3 h 41 min" (the record's bars, spoken).
+pub fn days_name(total: &str) -> String {
+    rust_i18n::t!("details.days_name", label = LAST_30_DAYS(), total = total).into_owned()
+}
+
+/// The record's accessible name: "12 h played, most recently yesterday. Open Activity".
+pub fn record_name(time: &str, line: &str) -> String {
+    rust_i18n::t!(
+        "details.record_name",
+        time = time,
+        line = line,
+        open = OPEN_ACTIVITY()
+    )
+    .into_owned()
+}
+
+/// The note of a game whose program is missing, unreachable or unreadable: its title as a
+/// sentence.
+pub fn availability_title(a: Availability) -> String {
+    rust_i18n::t!("details.availability_title", title = availability(a).0).into_owned()
+}
+
+/// Days since the epoch of `t`'s local date.
+fn local_days(t: Timestamp, offset_s: i32) -> i64 {
+    use easyplay_core::stats::rollup::{key_days, local_day};
+    key_days(local_day(t, (offset_s / 60) as i16))
+}
+
+/// How many local days lie between `t` and `now`.
+pub fn days_ago(t: Timestamp, now: Timestamp, offset_s: i32) -> i64 {
+    local_days(now, offset_s) - local_days(t, offset_s)
+}
+
+/// A date: "4 Sept", or "4 Sept 2025" in another year.
+pub fn date_label(t: Timestamp, now: Timestamp, offset_s: i32) -> String {
+    use easyplay_core::stats::rollup::civil_from_days;
+    let (y, m, d) = civil_from_days(local_days(t, offset_s));
+    let (ty, _, _) = civil_from_days(local_days(now, offset_s));
+    let month = super::date::month_short((m.clamp(1, 12) - 1) as usize);
+    if y == ty {
+        super::date::day_month(d, month)
+    } else {
+        super::date::day_month_year(d, month, y)
+    }
+}
+
+/// A day in a list: "Today", "Yesterday", a weekday within the week, then a date.
+pub fn day_label(t: Timestamp, now: Timestamp, offset_s: i32) -> String {
+    let day = local_days(t, offset_s);
+    match days_ago(t, now, offset_s) {
+        0 => super::date::today().to_owned(),
+        1 => super::date::yesterday().to_owned(),
+        2..=6 => super::date::weekday_full((day + 3).rem_euclid(7) as usize).to_owned(),
+        _ => date_label(t, now, offset_s),
+    }
+}
+
+// ---- Overview, as designed -----------------------------------------------------------------
+
+texts! {
+    /// The reach lists' labels.
+    CAN_USE = "details.can_use";
+    /// The reach lists' labels.
+    CANT_USE = "details.cant_use";
+    /// An empty "Can't use" list.
+    NOTHING_HELD_BACK = "details.nothing_held_back";
+    /// A reach item.
+    REACH_INTERNET = "details.reach_internet";
+    /// A reach item.
+    REACH_OWN_FOLDER = "details.reach_own_folder";
+    /// A reach item, of a game that is a single program.
+    REACH_OWN_PROGRAM = "details.reach_own_program";
+    /// A reach item.
+    REACH_PERSONAL = "details.reach_personal";
+    /// A reach item, when some personal folder is shared.
+    REACH_OTHER_PERSONAL = "details.reach_other_personal";
+    /// A reach item.
+    REACH_CONTROLLERS = "details.reach_controllers";
+    /// A reach item.
+    REACH_SOUND = "details.reach_sound";
+    /// A reach item.
+    REACH_MICROPHONE = "details.reach_microphone";
+    /// A reach item.
+    REACH_CAMERA = "details.reach_camera";
+}
+
+/// A comma list with its first letter capitalised.
+pub fn comma_list(items: &[String]) -> String {
+    let joined = items.join(", ");
+    let mut chars = joined.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => joined,
+    }
+}
+
+texts! {
+    /// Tooltip of a door that opens the file manager.
+    OPEN_IN_FILE_MANAGER = "details.open_in_file_manager";
+    /// Placeholder of the notes.
+    NOTES_HINT = "details.notes_hint";
+    /// After the notes heading once they are saved.
+    NOTES_SAVED = "details.notes_saved";
+    /// Fact.
+    ADDED = "details.added";
+    /// Value of the Save data door.
+    SAVE_PRIVATE = "details.save_private";
+}
+
+/// ", 1 variable" after the launch options' program.
+pub fn variables_after(n: usize) -> String {
+    rust_i18n::t!("details.variables_after", variables = variables(n)).into_owned()
+}
+
+/// "64-bit Windows program, version 1.4.2.0".
+pub fn program_fact(pe: &easyplay_core::model::PeInfo) -> Option<String> {
+    match (machine_kind(pe), pe.file_version.as_deref()) {
+        (Some(k), Some(v)) => {
+            Some(rust_i18n::t!("details.program_fact_version", kind = k, v = v).into_owned())
+        }
+        (Some(k), None) => Some(k.to_owned()),
+        (None, Some(v)) => Some(rust_i18n::t!("details.program_version", v = v).into_owned()),
+        (None, None) => None,
+    }
+}
+
+// ---- Protection, as designed ---------------------------------------------------------------
+
+/// "Custom, based on Offline. ".
+pub fn custom_line(b: BasePreset) -> String {
+    rust_i18n::t!(
+        "details.custom_line",
+        preset = super::shield::preset_name(b.into())
+    )
+    .into_owned()
+}
+
+/// "Reset to Offline".
+pub fn reset_to(b: BasePreset) -> String {
+    rust_i18n::t!(
+        "details.reset_to",
+        preset = super::shield::preset_name(b.into())
+    )
+    .into_owned()
+}
+
+texts! {
+    /// Degree of the game folder.
+    CAN_ONLY_READ = "details.can_only_read";
+}
+
+// ---- Compatibility, as designed --------------------------------------------------------------
+
+/// "Default, UMU-Proton 10.0-4".
+pub fn default_layer_value(resolved: Option<&str>) -> String {
+    match resolved {
+        Some(r) => rust_i18n::t!("details.default_layer_value_named", name = r).into_owned(),
+        None => crate::i18n::text("details.default_layer_value").to_owned(),
+    }
+}
+
+/// Help of the layer row: "Last used UMU-Proton 10.0-4. Storage is prepared with the same
+/// version.".
+pub fn layer_help(used: Option<&str>, prepared: Option<&str>, older: bool) -> String {
+    let Some(used) = used else {
+        return crate::i18n::text("details.layer_help.not_used").to_owned();
+    };
+    match prepared {
+        Some(_) if older => {
+            rust_i18n::t!("details.layer_help.newer_storage", used = used).into_owned()
+        }
+        Some(p)
+            if used.replace(' ', "-").eq_ignore_ascii_case(p) || p.replace('-', " ") == used =>
+        {
+            rust_i18n::t!("details.layer_help.same_storage", used = used).into_owned()
+        }
+        Some(p) => {
+            rust_i18n::t!("details.layer_help.storage_with", used = used, prepared = p).into_owned()
+        }
+        None => rust_i18n::t!("details.layer_help.last_used", used = used).into_owned(),
+    }
+}
+
+texts! {
+    /// Row.
+    LAYER_ROW = "details.layer_row";
+    /// Help of "Follow updates".
+    FOLLOW_HELP = "details.follow_help";
+    /// Help of the chosen fix.
+    FIX_HELP = "details.fix_help";
+    /// Help of the performance overlay without MangoHud.
+    MANGOHUD_MISSING = "details.mangohud_missing";
+    /// Row of Proton's own log.
+    PROTON_LOG_ROW = "details.proton_log_row";
+    /// Help of the private storage.
+    STORAGE_HELP = "details.storage_help";
+    /// The private storage before the game first starts.
+    STORAGE_NOT_YET = "details.storage_not_yet";
+    /// Button.
+    OPEN = "details.open";
+}
+
+/// "2.3 GB, created 16 Oct".
+pub fn storage_value(size: &str, created: Option<&str>) -> String {
+    match created {
+        Some(c) => {
+            rust_i18n::t!("details.storage_value_created", size = size, created = c).into_owned()
+        }
+        None => size.to_owned(),
+    }
+}
+
+// ---- Launch options, as designed ---------------------------------------------------------------
+
+/// "Tool, shown as “Settings”".
+pub fn shown_as(role: &str, label: Option<&str>) -> String {
+    match label {
+        Some(l) => rust_i18n::t!("details.shown_as", role = role, label = l).into_owned(),
+        None => role.to_owned(),
+    }
+}
+
+texts! {
+    /// Button.
+    RUN_ONCE = "details.run_once";
+    /// Placeholder of the arguments.
+    ARGS_NONE = "details.args_none";
+    /// Heading.
+    STARTING_AND_STOPPING = "details.starting_and_stopping";
+    /// Help of the stop grace.
+    STOP_WAIT_HELP = "details.stop_wait_help";
+    /// Placeholder of a new variable's name.
+    NAME_HINT = "details.name_hint";
+    /// Placeholder of a new variable's value.
+    VALUE_HINT = "details.value_hint";
+    /// Accessible name of a new variable's name.
+    NEW_VAR_NAME = "details.new_var_name";
+    /// Accessible name of a new variable's value.
+    NEW_VAR_VALUE = "details.new_var_value";
+    /// Adds the variable.
+    ADD = "details.add";
+}
+
+/// "Passed to the program when it starts. 2 arguments." / "… None set.".
+pub fn args_note(n: usize) -> String {
+    if n == 0 {
+        rust_i18n::t!("details.args_note_none", help = ARGUMENTS_HELP()).into_owned()
+    } else {
+        rust_i18n::t!(
+            "details.args_note",
+            help = ARGUMENTS_HELP(),
+            args = args_preview(n)
+        )
+        .into_owned()
+    }
+}
+
+/// "1 set", after the heading of the environment variables.
+pub fn vars_set(n: usize) -> String {
+    rust_i18n::t!("details.vars_set", n = n).into_owned()
+}
+
+// ---- Activity, as designed -----------------------------------------------------------------
+
+/// What the headline says of each range (7 days, 30 days, year, all time).
+#[allow(non_snake_case)]
+pub fn RANGE_SAYS() -> [&'static str; 4] {
+    [
+        crate::i18n::text("details.range_says.in_the_last_7"),
+        crate::i18n::text("details.range_says.in_the_last_30"),
+        crate::i18n::text("details.range_says.in_the_last_year"),
+        crate::i18n::text("details.range_says.in_all"),
+    ]
+}
+texts! {
+    /// The sentence of a range without play.
+    NO_SESSIONS_PERIOD = "details.no_sessions_period";
+    /// Accessible name of the range control.
+    PERIOD = "details.period";
+    /// The Activity tab of a game never played.
+    NEVER_BODY = "details.never_body";
+}
+
+/// "1 h 12 min in the last 7 days".
+pub fn activity_headline(time: &str, range: usize) -> String {
+    let says = RANGE_SAYS();
+    rust_i18n::t!(
+        "details.activity_headline",
+        time = time,
+        range = says.get(range).copied().unwrap_or(says[3])
+    )
+    .into_owned()
+}
+
+/// "1 session, 1 h 12 min on average. The longest ran 1 h 12 min. First played 4 Sept."
+pub fn activity_sentence(
+    count: u32,
+    average: Option<&str>,
+    longest: Option<&str>,
+    first: Option<&str>,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if count == 0 {
+        parts.push(NO_SESSIONS_PERIOD().to_owned());
+    } else {
+        parts.push(match average {
+            Some(a) => crate::i18n::plural::counted_args(
+                "details.activity_count_average",
+                u64::from(count),
+                &[("average", a)],
+            ),
+            None => crate::i18n::plural::counted("details.activity_count", u64::from(count)),
+        });
+        if let Some(l) = longest {
+            parts.push(rust_i18n::t!("details.activity_longest", time = l).into_owned());
+        }
+    }
+    if let Some(f) = first {
+        parts.push(rust_i18n::t!("details.activity_first", time = f).into_owned());
+    }
+    parts.join(" ")
+}
+
+texts! {
+    /// History column.
+    COL_DATE = "details.col_date";
+    /// History column.
+    COL_STARTED = "details.col_started";
+    /// History column.
+    COL_DURATION = "details.col_duration";
+    /// History column.
+    COL_ENDED = "details.col_ended";
+    /// Ghost button over the chart.
+    SHOW_TABLE = "details.show_table";
+    /// Ghost button over the table.
+    SHOW_CHART = "details.show_chart";
+}
+
+// ---- Logs, as designed ----------------------------------------------------------------------
+
+/// The level control's options.
+#[allow(non_snake_case)]
+pub fn LOG_LEVELS() -> [&'static str; 4] {
+    [
+        crate::i18n::text("details.log_levels.errors"),
+        crate::i18n::text("details.log_levels.warnings"),
+        crate::i18n::text("details.log_levels.info"),
+        crate::i18n::text("details.log_levels.debug"),
+    ]
+}
+texts! {
+    /// Accessible name of the level control.
+    LOG_LEVEL = "details.log_level";
+    /// Placeholder of the log filter.
+    LOG_FILTER = "details.log_filter";
+    /// Accessible name of the log filter.
+    LOG_FILTER_NAME = "details.log_filter_name";
+    /// Checkbox button.
+    LOG_WRAP = "details.log_wrap";
+    /// Ghost button: copy the visible lines.
+    LOG_COPY = "details.log_copy";
+    /// An empty log.
+    LOG_NOTHING = "details.log_nothing";
+    /// A filter that matches no line.
+    LOG_NO_MATCH = "details.log_no_match";
+    /// Accessible name of the log view.
+    LOG_VIEW = "details.log_view";
+    /// Before the link of the fine print.
+    LOG_MORE_BEFORE = "details.log_more_before";
+    /// The link of the fine print.
+    LOG_MORE_LINK = "details.log_more_link";
+    /// After the link of the fine print.
+    LOG_MORE_AFTER = "details.log_more_after";
+}
+
+/// "3 of 3 lines shown, 0 errors, 0 warnings.".
+pub fn log_counts(shown: usize, total: usize, errors: usize, warnings: usize) -> String {
+    rust_i18n::t!(
+        "details.log_counts",
+        shown = shown,
+        lines = crate::i18n::plural::counted("details.log_lines", total as u64),
+        errors = crate::i18n::plural::counted("details.log_errors", errors as u64),
+        warnings = crate::i18n::plural::counted("details.log_warnings", warnings as u64)
+    )
+    .into_owned()
+}
+
+#[cfg(test)]
+mod redesign_tests {
+    use super::*;
+
+    #[test]
+    fn sentences_read_as_designed() {
+        assert_eq!(
+            played_sentence("12 h", Some("Yesterday")),
+            "Played 12 h, most recently yesterday."
+        );
+        assert_eq!(
+            comma_list(&["its own folder".into(), "sound".into()]),
+            "Its own folder, sound"
+        );
+        assert_eq!(
+            activity_sentence(1, Some("1 h 12 min"), Some("1 h 12 min"), Some("4 Sept")),
+            "1 session, 1 h 12 min on average. The longest ran 1 h 12 min. First played 4 Sept."
+        );
+        assert_eq!(activity_sentence(0, None, None, None), NO_SESSIONS_PERIOD());
+        assert_eq!(
+            args_note(2),
+            "Passed to the program when it starts. 2 arguments."
+        );
+        assert_eq!(
+            args_note(0),
+            "Passed to the program when it starts. None set."
+        );
+        assert_eq!(
+            log_counts(3, 3, 0, 0),
+            "3 of 3 lines shown, 0 errors, 0 warnings."
+        );
+    }
 }

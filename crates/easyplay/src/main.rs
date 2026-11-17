@@ -21,6 +21,7 @@ mod run_supervisor;
 mod runtime_verbs;
 mod sandbox_print;
 mod session_verbs;
+mod steam_verbs;
 mod wiring;
 
 use std::io::IsTerminal;

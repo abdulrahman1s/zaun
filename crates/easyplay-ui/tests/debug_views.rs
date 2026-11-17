@@ -166,31 +166,31 @@ fn inspector_tabs_and_copy() {
         id: q(1),
         payload: QueryPayload::Inspector(Box::new(sample_inspector())),
     });
-    r.h.run();
+    r.h.run_steps(8);
     has(&r, "Hollow Knight");
     has(&r, "Dry run");
     r.h.snapshot("inspector_summary_dark_1280x800");
     // Command: copy as a shell command.
     r.h.get_by_label("Command").click();
-    r.h.run();
+    r.h.run_steps(8);
     r.h.get_by_label("Copy as shell command").click();
-    r.h.run();
+    r.h.run_steps(8);
     has(&r, "Copied");
     // Sandbox: the filter narrows the mounts.
     r.h.get_by_label("Sandbox").click();
-    r.h.run();
+    r.h.run_steps(8);
     has(&r, "System-call filter: on");
     r.h.snapshot("inspector_sandbox_dark_1280x800");
     r.h.get_by_label("Only writable").click();
-    r.h.run();
+    r.h.run_steps(8);
     let vm = r.h.state().state.debug.inspector.clone().unwrap();
     let data = vm.data.ready().unwrap();
     let rows = vm.mounts(data);
     assert!(!rows.is_empty() && rows.iter().all(|m| m.writable()));
     assert!(rows.len() < launch::inspect::mount_rows(data).len());
-    for tab in ["Environment", "Access", "Events", "Raw"] {
+    for tab in ["Variables", "Access", "Events", "Raw"] {
         r.h.get_by_label(tab).click();
-        r.h.run();
+        r.h.run_steps(8);
     }
     assert_eq!(
         r.h.state().state.debug.inspector.as_ref().unwrap().tab,
@@ -241,7 +241,7 @@ fn log_viewer_loads_filters_and_stays_plain() {
         id: q(2),
         payload: QueryPayload::Sessions(vec![session(77, false)]),
     });
-    r.h.run();
+    r.h.run_steps(8);
     let read = r
         .fake
         .sent()
@@ -269,7 +269,7 @@ fn log_viewer_loads_filters_and_stays_plain() {
             missing: false,
         }),
     });
-    r.h.run();
+    r.h.run_steps(8);
     has(&r, "5 lines");
     has(&r, "<b>bold</b> [link](http://evil)");
     r.h.snapshot("log_viewer_dark_1280x800");
@@ -279,10 +279,10 @@ fn log_viewer_loads_filters_and_stays_plain() {
             .iter()
             .all(|x| !x.contains('\u{1b}') && !x.contains('\u{202e}'))
     );
-    has(&r, "2 errors · 0 warnings");
+    has(&r, "2 errors, 0 warnings");
     r.h.get_by_label_contains("The game crashed (signal 11, segmentation fault");
     r.h.state_mut().state.debug.logs.as_mut().unwrap().filter = "ERR:".into();
-    r.h.run();
+    r.h.run_steps(8);
     has(&r, "1 of 5 lines shown");
     // Errors only: Wine's `err:` channel and its crash report, whoever else printed.
     {
@@ -290,7 +290,7 @@ fn log_viewer_loads_filters_and_stays_plain() {
         l.filter.clear();
         l.level = easyplay_core::diagnostics::log_line::LineLevel::Error;
     }
-    r.h.run();
+    r.h.run_steps(8);
     has(&r, "2 of 5 lines shown");
     // One program: umu's line only.
     {
@@ -298,7 +298,7 @@ fn log_viewer_loads_filters_and_stays_plain() {
         l.level = easyplay_core::diagnostics::log_line::LineLevel::Debug;
         l.source = Some(easyplay_core::diagnostics::log_line::LineSource::Umu);
     }
-    r.h.run();
+    r.h.run_steps(8);
     has(&r, "1 of 5 lines shown");
 }
 
@@ -316,11 +316,12 @@ fn every_game_page_has_a_logs_tab() {
         .click();
     settle(&mut r);
     has(&r, "turn on “Proton log” in Compatibility");
-    // Below the fold at this size: reached by keyboard.
-    r.h.get_by_label("Open Compatibility").focus();
-    r.h.run();
+    // The link in that line leads there; below the fold at this size, by keyboard.
+    r.h.get_by_role_and_label(egui::accesskit::Role::Link, "Compatibility")
+        .focus();
+    r.h.run_steps(4);
     r.h.key_press(egui::Key::Enter);
-    r.h.run();
+    r.h.run_steps(8);
     assert_eq!(
         r.h.state().state.details.tab,
         easyplay_ui::vm::details::DetailsTab::Compatibility
@@ -349,7 +350,7 @@ fn view_log_opens_the_viewer() {
     settle(&mut r);
     r.fake.clear_sent();
     r.h.get_by_label("View log").click();
-    r.h.run();
+    r.h.run_steps(8);
     assert!(r.h.state().state.nav.overlays().contains(&Overlay::Logs));
     let sent = r.fake.sent();
     assert!(
@@ -390,14 +391,17 @@ fn report_preview_and_save() {
         id: q(3),
         payload: QueryPayload::Report(files),
     });
-    r.h.run();
-    has(&r, "3 files");
+    r.h.run_steps(8);
+    // Every file is listed, and each can be looked at.
+    for f in ["version.txt", "doctor.json", "easyplay.log"] {
+        r.h.get_by_role_and_label(egui::accesskit::Role::Button, &format!("View {f}"));
+    }
     r.h.get_by_label("View easyplay.log").click();
-    r.h.run();
+    r.h.run_steps(8);
     has(&r, "library repaired path=~/x");
     r.h.snapshot("report_preview_dark_1280x800");
     r.h.get_by_label("Save report…").click();
-    r.h.run();
+    r.h.run_steps(8);
     assert!(r.picker.asked().contains(&PickPurpose::SaveReport));
 }
 
@@ -431,7 +435,7 @@ fn crash_banner_and_doctor_section() {
     has(&r, "System check");
     r.h.snapshot("settings_doctor_crash_dark_1280x800");
     r.h.get_by_label("Check again").click();
-    r.h.run();
+    r.h.run_steps(8);
     assert!(r.fake.sent().contains(&UiCommand::RunDoctor));
     // Create a report from the banner: the preview opens and the banner goes.
     r.fake.clear_sent();
@@ -507,8 +511,73 @@ fn advanced_options_note() {
     });
     let a = easyplay_ui::bridge::PolicyAssessment::default();
     r.h.state_mut().state.details.loaded(Box::new(d), a, rev);
-    r.h.run();
+    r.h.run_steps(8);
     r.h.get_by_label("Review").click();
-    r.h.run();
+    r.h.run_steps(8);
     has(&r, "Sets LD_PRELOAD");
+}
+
+/// Review renders of every inspector tab (not a check): `target/review/debug-inspector-*.png`.
+#[test]
+#[ignore = "review renders"]
+fn review_inspector_tabs() {
+    let mut r = rig(Route::Library);
+    let lib = settled_library();
+    let g = game_id(&lib, &lib.games[0].name);
+    let target = InspectTarget::NextLaunch { game: g, exe: None };
+    {
+        let s = &mut r.h.state_mut().state;
+        s.debug.inspector = Some(InspectorVm::new(target, Some(g), q(1), MonoInstant::ZERO));
+        s.nav.open(Overlay::Inspector);
+    }
+    r.fake.push_event(UiEvent::QueryResult {
+        id: q(1),
+        payload: QueryPayload::Inspector(Box::new(sample_inspector())),
+    });
+    r.h.run_steps(8);
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/review");
+    std::fs::create_dir_all(&dir).unwrap();
+    // A session that runs, with its processes.
+    {
+        use easyplay_core::procfs::{ProcState, ProcUsage};
+        use easyplay_core::session::registry::{ProcessInfo, ProcessRole};
+        let vm = r.h.state_mut().state.debug.inspector.as_mut().unwrap();
+        vm.procs.session = Some(SessionId::from_uuid(uuid::Uuid::from_u128(9)));
+        let p = |pid: u32, ppid: u32, comm: &str, role, mb: u64| ProcessInfo {
+            pid,
+            ppid,
+            comm: comm.into(),
+            state: ProcState::Sleeping,
+            role,
+            cmdline: None,
+            usage: Some(ProcUsage {
+                cpu_ms: u64::from(pid) * 37,
+                rss_bytes: mb * 1_000_000,
+            }),
+        };
+        vm.procs.rows = vec![
+            p(4100, 1, "easyplay-init", ProcessRole::Init, 2),
+            p(4101, 4100, "umu-run", ProcessRole::Umu, 30),
+            p(4120, 4101, "wineserver", ProcessRole::Wineserver, 40),
+            p(4133, 4101, "HollowKnight.exe", ProcessRole::Game, 900),
+        ];
+        vm.procs.last = Some(MonoInstant::ZERO);
+    }
+    for (i, tab) in InspectorTab::ALL.iter().enumerate() {
+        r.h.state_mut().state.debug.inspector.as_mut().unwrap().tab = *tab;
+        if *tab == InspectorTab::Access {
+            r.h.state_mut()
+                .state
+                .debug
+                .inspector
+                .as_mut()
+                .unwrap()
+                .expanded = vec![0];
+        }
+        r.h.run_steps(20);
+        r.h.render()
+            .unwrap()
+            .save(dir.join(format!("debug-inspector-{i}.png")))
+            .unwrap();
+    }
 }

@@ -50,6 +50,22 @@ pub fn settled_library() -> LibraryView {
     })
 }
 
+/// The settled library with the sample Steam games (ADR-0031): the preview's library,
+/// without covers, with only the Steam game "Glass Garden" running.
+pub fn settled_with_steam() -> LibraryView {
+    rebuild(&demo::preview_library(now()), |g| {
+        if !g.is_steam()
+            && matches!(
+                g.activity,
+                Activity::Launching(_) | Activity::Running { .. }
+            )
+        {
+            g.activity = Activity::Idle;
+        }
+        g.cover = None;
+    })
+}
+
 /// A sample game's ID by name.
 pub fn game_id(lib: &LibraryView, name: &str) -> GameId {
     lib.games.iter().find(|g| &*g.name == name).unwrap().id
@@ -188,7 +204,7 @@ pub fn rig(start: Route) -> Rig {
 
 /// Answer every query the UI has sent and not yet seen answered, with demo data.
 pub fn serve(r: &mut Rig) {
-    use easyplay_ui::bridge::{QueryPayload, UiCommand, UiEvent};
+    use easyplay_ui::bridge::{QueryPayload, SteamAction, UiCommand, UiEvent};
     let lib = r.h.state().bridge().library().clone();
     let sent = r.fake.sent();
     r.fake.clear_sent();
@@ -222,6 +238,12 @@ pub fn serve(r: &mut Rig) {
                     demo::steam_apps(term.as_deref().unwrap_or(&name)),
                 )
             }
+            UiCommand::Steam(SteamAction::Details { id, reply_to }) => {
+                match lib.get(*id).and_then(demo::steam_detail) {
+                    Some(d) => (*reply_to, QueryPayload::Steam(Box::new(d))),
+                    None => continue,
+                }
+            }
             _ => continue,
         };
         r.fake.push_event(UiEvent::QueryResult { id, payload });
@@ -236,6 +258,7 @@ pub fn serve(r: &mut Rig) {
                 | UiCommand::MeasurePrefix { .. }
                 | UiCommand::ScanFolder { .. }
                 | UiCommand::FindSteamApp { .. }
+                | UiCommand::Steam(SteamAction::Details { .. })
         ) {
             r.fake.record(c);
         }

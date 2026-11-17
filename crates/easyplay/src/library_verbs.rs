@@ -288,12 +288,18 @@ pub(crate) fn read_snapshot() -> Result<(LibrarySnapshot, ReadDb, AppPaths), Err
         1,
         SystemClock::new().now(),
     );
+    // Steam games when "Show my Steam games" is on (ADR-0031).
+    let snap = crate::steam_verbs::with_steam(snap, Some(&mut db), &paths);
     Ok((snap, db, paths))
 }
 
 /// `<GAME>`: an ID, an ID prefix of at least 6 characters, or a unique name
 /// (CONFIGURATION §6; ambiguity lists the candidates).
 pub(crate) fn resolve(snap: &LibrarySnapshot, arg: &str) -> Result<GameId, Error> {
+    if let Some(id) = crate::steam_verbs::parse_steam_arg(arg).filter(|id| snap.get(*id).is_some())
+    {
+        return Ok(id);
+    }
     easyplay_core::library::resolve::resolve_game(snap.games.iter().map(|g| (g.id, &*g.name)), arg)
 }
 
@@ -351,19 +357,38 @@ fn hours(ms: u64) -> String {
 /// `easyplay list [--json] [--running] [--tag TAG]`.
 #[allow(clippy::print_stdout)]
 pub fn list(json: bool, running: bool, tag: Option<&str>) -> Result<u8, Error> {
-    let (snap, mut db, _) = match read_snapshot() {
-        Ok(v) => v,
+    let (snap, mut db) = match read_snapshot() {
+        Ok((s, d, _)) => (s, Some(d)),
         Err(e) if e.code == ErrorCode::LibInvalidField => {
-            if json {
-                println!("{}", serde_json::json!({"format": 1, "games": []}));
-            } else {
-                println!("No games yet.");
+            // No library yet: the Steam games, when they are shown (ADR-0031).
+            let steam = crate::steam_verbs::steam_only()?;
+            if steam.games.is_empty() {
+                if json {
+                    println!("{}", serde_json::json!({"format": 1, "games": []}));
+                } else {
+                    println!("No games yet.");
+                }
+                return Ok(exit::OK);
             }
-            return Ok(exit::OK);
+            (steam, None)
         }
         Err(e) => return Err(e),
     };
-    let open = db.open_sessions()?;
+    let open = match db.as_mut() {
+        Some(d) => d.open_sessions()?,
+        None => Vec::new(),
+    };
+    let steam_running = if snap.games.iter().any(GameSummary::is_steam) {
+        crate::steam_verbs::running()
+    } else {
+        Default::default()
+    };
+    let is_running = |g: &GameSummary| {
+        open.iter().any(|s| s.game_id == Some(g.id))
+            || g.steam_app_id
+                .filter(|_| g.is_steam())
+                .is_some_and(|a| steam_running.contains_key(&a))
+    };
     let tag_id = tag.and_then(|t| {
         snap.tags
             .iter()
@@ -376,7 +401,7 @@ pub fn list(json: bool, running: bool, tag: Option<&str>) -> Result<u8, Error> {
     let games: Vec<&GameSummary> = snap
         .games
         .iter()
-        .filter(|g| !running || open.iter().any(|s| s.game_id == Some(g.id)))
+        .filter(|g| !running || is_running(g))
         .filter(|g| tag_id.is_none_or(|t| g.tags.contains(&t)))
         .collect();
     if json {
@@ -396,6 +421,11 @@ pub fn list(json: bool, running: bool, tag: Option<&str>) -> Result<u8, Error> {
                     "sessions": g.session_count,
                     "launches": g.launch_count,
                     "last_played_at": g.last_played_at.map(|t| t.as_millis()),
+                    "origin": if g.is_steam() { "steam" } else { "easyplay" },
+                    "steam_app_id": g.steam().map(|f| f.app_id),
+                    "playtime_source": if g.is_steam() { "steam" } else { "easyplay" },
+                    "update": g.steam().map(|f| f.update.as_str()),
+                    "steam_running": g.is_steam() && is_running(g),
                     "running": session.map(|s| serde_json::json!({
                         "session": s.id.to_string(),
                         "state": s.state.as_str(),
@@ -416,14 +446,10 @@ pub fn list(json: bool, running: bool, tag: Option<&str>) -> Result<u8, Error> {
         println!("No games.");
     }
     for g in games {
-        let run = if open.iter().any(|s| s.game_id == Some(g.id)) {
-            "  running"
-        } else {
-            ""
-        };
+        let run = if is_running(g) { "  running" } else { "" };
         println!(
             "{}  {:<32} {:>8}  {}{}",
-            g.id.short(),
+            crate::steam_verbs::short_id(g),
             g.name,
             hours(g.total_playtime_ms),
             g.runtime_label,

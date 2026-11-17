@@ -61,7 +61,7 @@ expression: run_cell(c)
 --dir /tmp/.X11-unix
 --ro-bind /tmp/.X11-unix/X0 /tmp/.X11-unix/X0
 --ro-bind /run/user/1000/.mutter-Xwaylandauth.A1B2C3 /run/user/1000/easyplay-xauth
---ro-bind /run/user/1000/wayland-0 /run/user/1000/wayland-0
+--ro-bind /run/user/1000/easyplay/sessions/S/wayland /run/user/1000/wayland-0
 --dir /run/user/1000/pulse
 --ro-bind /run/user/1000/easyplay/sessions/S/sound/native /run/user/1000/pulse/native
 --ro-bind /run/udev /run/udev
@@ -120,6 +120,7 @@ expression: run_cell(c)
 12 /home/sam/.local/share/umu/steamrt3/.installed.ok ok\n
 
 # host actions
+{"create_wayland_context":{"display":"/run/user/1000/wayland-0","socket":"/run/user/1000/easyplay/sessions/S/wayland","app_id":"G","instance_id":"S"}}
 {"start_sound_server":{"program":"/usr/bin/pipewire","dir":"/run/user/1000/easyplay/sessions/S/sound","remote":"/run/user/1000/pipewire-0","log":"/home/sam/.local/state/easyplay/logs/sessions/S/sound-server.log"}}
 {"create_dir":{"path":"D/games/G/home","mode":448}}
 {"create_dir":{"path":"D/runtimes/session-var/S","mode":448}}

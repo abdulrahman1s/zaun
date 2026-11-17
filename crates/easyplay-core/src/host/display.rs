@@ -70,9 +70,13 @@ pub fn probe_display(fs: &dyn Fs, env: &PathEnv, notes: &mut Vec<String>) -> Dis
         };
         match path {
             Some(path) if is_socket(fs, &path) => {
+                let inode = fs.metadata_follow(&path).map_or(0, |m| m.inode);
+                // Whether the compositor offers security contexts is asked by `probe_all`.
                 facts.wayland = Some(WaylandSocket {
                     name: name.to_owned(),
                     path,
+                    inode,
+                    security_context: false,
                 });
             }
             _ => notes.push(format!("Wayland socket {name} not found")),

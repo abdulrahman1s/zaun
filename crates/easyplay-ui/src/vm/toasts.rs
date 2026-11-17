@@ -1,5 +1,5 @@
-//! Toast queue (USER_EXPERIENCE §6): 5 s, 8 s with an action; paused while hovered or
-//! focused; at most three on screen, the rest wait. Time comes from the injected clock's
+//! Toasts (notes §5 "Toast"): one at a time, a new one replaces the one showing; 3.2 s, 6 s
+//! with an action; paused while hovered or focused. Time comes from the injected clock's
 //! monotonic `MonoInstant`, so tests drive it with `FakeClock`.
 
 use std::collections::VecDeque;
@@ -13,7 +13,8 @@ use crate::theme::tokens::{layout, timing};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ToastId(pub u64);
 
-/// The toast's tone (icon and accent of the leading glyph).
+/// The toast's tone. The design draws every toast alike; the tone is what assistive
+/// technology hears.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ToastKind {
     /// Neutral information.
@@ -75,11 +76,12 @@ pub struct ToastQueue {
 }
 
 fn lifetime(has_action: bool) -> Duration {
-    Duration::from_secs_f32(if has_action {
+    let secs = if has_action {
         timing::TOAST_WITH_ACTION
     } else {
         timing::TOAST
-    })
+    };
+    Duration::from_millis((secs * 1000.0).round() as u64)
 }
 
 impl ToastQueue {
@@ -88,7 +90,7 @@ impl ToastQueue {
         Self::default()
     }
 
-    /// Add a toast. Returns its id.
+    /// Show a toast, replacing the one showing. Returns its id.
     pub fn push(
         &mut self,
         text: impl Into<String>,
@@ -106,6 +108,9 @@ impl ToastQueue {
             action,
             running_since: None,
         };
+        // One at a time: the new one replaces whatever shows or waits.
+        self.visible.clear();
+        self.waiting.clear();
         self.waiting.push_back(toast);
         self.promote(now);
         id
@@ -175,12 +180,18 @@ mod tests {
     use easyplay_testkit::FakeClock;
 
     #[test]
-    fn expires_after_five_seconds_or_eight_with_action() {
+    fn expires_after_three_point_two_seconds_or_six_with_action() {
         let clock = FakeClock::baseline();
         let mut q = ToastQueue::new();
         q.push("Saved", ToastKind::Success, None, clock.mono());
+        assert_eq!(q.tick(clock.mono()), Some(Duration::from_millis(3_200)));
+        clock.advance(Duration::from_millis(3_199));
+        assert_eq!(q.tick(clock.mono()).map(|d| d.as_millis()), Some(1));
+        clock.advance(Duration::from_millis(1));
+        q.tick(clock.mono());
+        assert!(q.visible().is_empty());
         q.push(
-            "Removed from favourites",
+            "Removed from Favourites",
             ToastKind::Info,
             Some(ToastAction {
                 label: "Undo".into(),
@@ -188,13 +199,8 @@ mod tests {
             }),
             clock.mono(),
         );
-        assert_eq!(q.tick(clock.mono()), Some(Duration::from_secs(5)));
-        clock.advance(Duration::from_millis(4_999));
-        assert_eq!(q.tick(clock.mono()).map(|d| d.as_millis()), Some(1));
-        clock.advance(Duration::from_millis(1));
-        q.tick(clock.mono());
-        assert_eq!(q.visible().len(), 1);
-        clock.advance(Duration::from_secs(3));
+        assert_eq!(q.tick(clock.mono()), Some(Duration::from_secs(6)));
+        clock.advance(Duration::from_secs(6));
         assert_eq!(q.tick(clock.mono()), None);
         assert!(q.visible().is_empty());
     }
@@ -212,29 +218,24 @@ mod tests {
         q.hold(id, false, clock.mono());
         assert_eq!(
             q.visible()[0].remaining(clock.mono()),
-            Duration::from_secs(3)
+            Duration::from_millis(1_200)
         );
-        clock.advance(Duration::from_secs(3));
+        clock.advance(Duration::from_millis(1_200));
         q.tick(clock.mono());
         assert!(q.visible().is_empty());
     }
 
     #[test]
-    fn at_most_three_visible_and_the_rest_wait() {
+    fn a_new_toast_replaces_the_one_showing() {
         let clock = FakeClock::baseline();
         let mut q = ToastQueue::new();
-        let ids: Vec<_> = (0..5)
+        let ids: Vec<_> = (0..3)
             .map(|i| q.push(format!("t{i}"), ToastKind::Info, None, clock.mono()))
             .collect();
-        assert_eq!(q.visible().len(), 3);
-        assert_eq!(q.waiting(), 2);
-        q.dismiss(ids[0], clock.mono());
-        assert_eq!(q.visible().len(), 3);
-        assert_eq!(q.visible()[2].text, "t3");
-        // The promoted toast's timer starts when it becomes visible.
-        clock.advance(Duration::from_secs(5));
-        q.tick(clock.mono());
         assert_eq!(q.visible().len(), 1);
-        assert_eq!(q.visible()[0].text, "t4");
+        assert_eq!(q.waiting(), 0);
+        assert_eq!(q.visible()[0].text, "t2");
+        q.dismiss(ids[2], clock.mono());
+        assert!(q.visible().is_empty());
     }
 }

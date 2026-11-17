@@ -303,6 +303,12 @@ impl ArtIndex {
             .insert(row.hash, (original_path(paths, row), row.slot));
     }
 
+    /// Add a picture that is not in EasyPlay's store: a cover in Steam's own cache
+    /// (ADR-0031 §3), referenced where it is.
+    pub fn insert_path(&self, hash: Sha256, path: PathBuf, slot: ArtSlot) {
+        self.map.write().insert(hash, (path, slot));
+    }
+
     /// Forget a hash.
     pub fn remove(&self, hash: &Sha256) {
         self.map.write().remove(hash);

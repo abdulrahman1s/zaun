@@ -44,6 +44,7 @@ const SECTIONS: &[&str] = &[
     "general",
     "appearance",
     "artwork",
+    "steam",
     "protection",
     "runtime",
     "launch",
@@ -589,6 +590,12 @@ pub fn from_table(
     };
     r.finish(s);
 
+    let mut s = r.section(&mut root, "steam");
+    let steam = super::schema::SteamPrefs {
+        show_games: r.bool(&mut s, "show_games", d.steam.show_games),
+    };
+    r.finish(s);
+
     let mut s = r.section(&mut root, "protection");
     let protection = Protection {
         default_preset: match r.string(&mut s, "default_preset") {
@@ -843,6 +850,7 @@ pub fn from_table(
         general,
         appearance,
         artwork,
+        steam,
         protection,
         runtime,
         launch,

@@ -28,9 +28,9 @@ pub use app_service::{
 };
 pub use command::{
     AfterCreate, Command, DatabaseChoice, FolderRequest, GameEdit, InspectTarget, LaunchOrigin,
-    LogFile, OpenOrigin, StopMode,
+    LogFile, OpenOrigin, SteamCommand, StopMode,
 };
-pub use event::{Event, LogChunk, Notice, QueryResult, RecoveredHow, SetupContext};
+pub use event::{Event, LogChunk, Notice, QueryResult, RecoveredHow, SetupContext, SteamDetail};
 pub use snapshot::{
     ActiveSessions, Diagnostics, HostSnapshot, RecoveryReason, RecoveryState, RuntimesSnapshot,
     SnapshotHub, Swap,

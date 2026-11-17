@@ -86,8 +86,8 @@ pub enum Action {
     GridView,
     /// List view.
     ListView,
-    /// Toggle the sidebar.
-    ToggleSidebar,
+    /// Select or unselect the focused cover (handled by the wall).
+    Select,
     /// Open settings.
     Settings,
     /// Back.
@@ -176,15 +176,15 @@ impl Combo {
     pub fn label(self) -> String {
         let mut out = String::new();
         if self.mods.command || self.mods.ctrl {
-            out.push_str(s::CTRL);
+            out.push_str(s::CTRL());
             out.push('+');
         }
         if self.mods.alt {
-            out.push_str(s::ALT);
+            out.push_str(s::ALT());
             out.push('+');
         }
         if self.mods.shift {
-            out.push_str(s::SHIFT);
+            out.push_str(s::SHIFT());
             out.push('+');
         }
         out.push_str(&key_name(self.key));
@@ -196,19 +196,19 @@ fn key_name(k: Key) -> String {
     match k {
         Key::ArrowLeft => "←".into(),
         Key::ArrowRight => "→".into(),
-        Key::Enter => s::ENTER.into(),
-        Key::Space => s::SPACE.into(),
-        Key::Escape => s::ESC.into(),
-        Key::Delete => s::DELETE.into(),
-        Key::Backspace => s::BACKSPACE.into(),
-        Key::Tab => s::TAB.into(),
-        Key::PageDown => s::PAGE_DOWN.into(),
-        Key::PageUp => s::PAGE_UP.into(),
+        Key::Enter => s::ENTER().into(),
+        Key::Space => s::SPACE().into(),
+        Key::Escape => s::ESC().into(),
+        Key::Delete => s::DELETE().into(),
+        Key::Backspace => s::BACKSPACE().into(),
+        Key::Tab => s::TAB().into(),
+        Key::PageDown => s::PAGE_DOWN().into(),
+        Key::PageUp => s::PAGE_UP().into(),
         Key::Comma => ",".into(),
         Key::Period => ".".into(),
         Key::Slash => "/".into(),
         Key::Questionmark => "?".into(),
-        Key::Plus => s::PLUS.into(),
+        Key::Plus => s::PLUS().into(),
         Key::Equals => "=".into(),
         Key::Minus => "-".into(),
         Key::Num0 => "0".into(),
@@ -227,13 +227,18 @@ pub struct Binding {
     pub action: Action,
     /// Scope.
     pub scope: Scope,
-    /// Sheet description.
-    pub label: &'static str,
+    /// Sheet description: the catalogue text, read where it is drawn.
+    pub label: fn() -> &'static str,
     /// Handled by a focused widget, not by [`dispatch`].
     pub local: bool,
 }
 
-const fn b(keys: &'static [Combo], action: Action, scope: Scope, label: &'static str) -> Binding {
+const fn b(
+    keys: &'static [Combo],
+    action: Action,
+    scope: Scope,
+    label: fn() -> &'static str,
+) -> Binding {
     Binding {
         keys,
         action,
@@ -247,7 +252,7 @@ const fn local(
     keys: &'static [Combo],
     action: Action,
     scope: Scope,
-    label: &'static str,
+    label: fn() -> &'static str,
 ) -> Binding {
     Binding {
         keys,
@@ -287,9 +292,9 @@ pub const TABLE: &[Binding] = &[
     b(&[c(CTRL, Key::Enter)], Action::Play, Scope::Games, s::PLAY),
     local(
         &[c(NONE, Key::Space)],
-        Action::Play,
+        Action::Select,
         Scope::Library,
-        s::PLAY_CARD,
+        s::SELECT,
     ),
     b(&[c(CTRL, Key::Period)], Action::Stop, Scope::Games, s::STOP),
     b(
@@ -323,12 +328,6 @@ pub const TABLE: &[Binding] = &[
         Action::ListView,
         Scope::Library,
         s::LIST,
-    ),
-    b(
-        &[c(CTRL, Key::B)],
-        Action::ToggleSidebar,
-        Scope::Global,
-        s::SIDEBAR,
     ),
     b(
         &[c(CTRL, Key::Comma)],

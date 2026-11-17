@@ -3,133 +3,180 @@
 
 use easyplay_core::model::EndReason;
 
-/// Inspector sheet title.
-pub const INSPECTOR: &str = "Launch inspector";
-/// Inspector title for the dry run.
-pub const INSPECTOR_NEXT: &str = "Launch inspector — next launch";
+texts! {
+    /// Inspector sheet title.
+    INSPECTOR = "debug.inspector";
+    /// Inspector title for the dry run.
+    INSPECTOR_NEXT = "debug.inspector_next";
+}
 /// Tab names, in order.
-pub const INSPECTOR_TABS: [&str; 8] = [
-    "Summary",
-    "Access",
-    "Command",
-    "Sandbox",
-    "Environment",
-    "Processes",
-    "Events",
-    "Raw",
-];
-/// Accessible name of the tab row.
-pub const INSPECTOR_TAB_LABEL: &str = "Inspector sections";
-/// Loading.
-pub const PLANNING: &str = "Planning the launch…";
-/// Loading.
-pub const LOADING: &str = "Loading…";
-/// No plan for an old session.
-pub const NOT_AVAILABLE_OLD: &str = "Not available for sessions created by an older version";
-/// Dry-run label.
-pub const DRY_RUN: &str = "Dry run: nothing was started, created or written.";
-/// Summary keys.
-pub const K_GAME: &str = "Game";
-/// Summary key.
-pub const K_KIND: &str = "Session kind";
-/// Summary key.
-pub const K_PRESET: &str = "Preset";
-/// Summary key.
-pub const K_NETWORK: &str = "Network";
-/// Summary key.
-pub const K_LAYER: &str = "Compatibility layer";
-/// Summary key.
-pub const K_ISOLATION: &str = "Isolation";
-/// Summary key.
-pub const K_PREFIX: &str = "Prefix";
-/// Summary key.
-pub const K_HOME: &str = "Home (in the sandbox)";
-/// Summary key.
-pub const K_WORKDIR: &str = "Working folder";
-/// Summary key.
-pub const K_SESSION: &str = "Session";
-/// Summary key.
-pub const K_END: &str = "End";
-/// Summary key.
-pub const K_TIMELINE: &str = "Timeline";
-/// Notes heading.
-pub const NOTES: &str = "Planner notes";
-/// Access tab empty.
-pub const NO_STATEMENTS: &str = "Access statements are shown for the next launch (dry run).";
-/// Command tab.
-pub const UMU_COMMAND: &str = "umu-run command";
-/// Command tab.
-pub const FULL_COMMAND: &str = "In-sandbox command (with the init shim)";
-/// Copy as list.
-pub const COPY_LIST: &str = "Copy as list";
-/// Copy as shell command.
-pub const COPY_SHELL: &str = "Copy as shell command";
-/// What the shell copy contains.
-pub const COPY_SHELL_NOTE: &str = "The script reproduces the launch by hand with the same \
-     sandbox and system-call filter. It bypasses session tracking: no statistics, no prefix \
-     lock. Review it before running it.";
-/// Sandbox tab.
-pub const NAMESPACES: &str = "Namespaces and lifecycle";
-/// Sandbox tab.
-pub const MOUNTS: &str = "Mounts";
-/// Filter field.
-pub const FILTER: &str = "Filter";
-/// Toggle.
-pub const ONLY_WRITABLE: &str = "Only writable";
-/// Toggle.
-pub const ONLY_CHOICES: &str = "Only from your choices";
+#[allow(non_snake_case)]
+pub fn INSPECTOR_TABS() -> [&'static str; 8] {
+    [
+        crate::i18n::text("debug.inspector_tabs.summary"),
+        crate::i18n::text("debug.inspector_tabs.access"),
+        crate::i18n::text("debug.inspector_tabs.command"),
+        crate::i18n::text("debug.inspector_tabs.sandbox"),
+        crate::i18n::text("debug.inspector_tabs.variables"),
+        crate::i18n::text("debug.inspector_tabs.processes"),
+        crate::i18n::text("debug.inspector_tabs.events"),
+        crate::i18n::text("debug.inspector_tabs.raw"),
+    ]
+}
+texts! {
+    /// Accessible name of the tab row.
+    INSPECTOR_TAB_LABEL = "debug.inspector_tab_label";
+    /// Loading.
+    PLANNING = "debug.planning";
+    /// Loading.
+    LOADING = "debug.loading";
+    /// Dry-run label.
+    DRY_RUN = "debug.dry_run";
+    /// Summary keys.
+    K_GAME = "debug.k_game";
+    /// Summary key.
+    K_KIND = "debug.k_kind";
+    /// Summary key.
+    K_PRESET = "debug.k_preset";
+    /// Summary key.
+    K_NETWORK = "debug.k_network";
+    /// Summary key.
+    K_LAYER = "debug.k_layer";
+    /// Summary key.
+    K_ISOLATION = "debug.k_isolation";
+    /// Summary key.
+    K_PREFIX = "debug.k_prefix";
+    /// Summary key.
+    K_HOME = "debug.k_home";
+    /// Summary key.
+    K_WORKDIR = "debug.k_workdir";
+    /// Summary key.
+    K_SESSION = "debug.k_session";
+    /// Summary key.
+    K_END = "debug.k_end";
+    /// Summary key.
+    K_TIMELINE = "debug.k_timeline";
+    /// Notes heading.
+    NOTES = "debug.notes";
+    /// Access tab empty.
+    NO_STATEMENTS = "debug.no_statements";
+    /// Command tab.
+    UMU_COMMAND = "debug.umu_command";
+    /// Command tab.
+    FULL_COMMAND = "debug.full_command";
+    /// Copy as list.
+    COPY_LIST = "debug.copy_list";
+    /// Copy as shell command.
+    COPY_SHELL = "debug.copy_shell";
+    /// What the shell copy contains.
+    COPY_SHELL_NOTE = "debug.copy_shell_note";
+    /// Sandbox tab.
+    NAMESPACES = "debug.namespaces";
+    /// Sandbox tab.
+    MOUNTS = "debug.mounts";
+    /// Filter field.
+    FILTER = "debug.filter";
+    /// Toggle.
+    ONLY_WRITABLE = "debug.only_writable";
+    /// Toggle.
+    ONLY_CHOICES = "debug.only_choices";
+}
 /// Mount table headers.
-pub const MOUNT_COLUMNS: [&str; 7] = [
-    "#",
-    "Kind",
-    "Source",
-    "Destination",
-    "Mode",
-    "Section",
-    "Reason",
-];
-/// Sandbox tab.
-pub const DESCRIPTORS: &str = "Descriptors";
-/// Sandbox tab.
-pub const SECCOMP_ON: &str = "System-call filter: on";
-/// Sandbox tab.
-pub const SECCOMP_OFF: &str = "System-call filter: off";
+#[allow(non_snake_case)]
+pub fn MOUNT_COLUMNS() -> [&'static str; 7] {
+    [
+        "#",
+        crate::i18n::text("debug.mount_columns.kind"),
+        crate::i18n::text("debug.mount_columns.source"),
+        crate::i18n::text("debug.mount_columns.destination"),
+        crate::i18n::text("debug.mount_columns.mode"),
+        crate::i18n::text("debug.mount_columns.section"),
+        crate::i18n::text("debug.mount_columns.reason"),
+    ]
+}
+texts! {
+    /// Sandbox tab.
+    DESCRIPTORS = "debug.descriptors";
+    /// Sandbox tab.
+    SECCOMP_ON = "debug.seccomp_on";
+    /// Sandbox tab.
+    SECCOMP_OFF = "debug.seccomp_off";
+}
 /// Environment headers.
-pub const ENV_COLUMNS: [&str; 3] = ["Name", "Value", "Origin"];
-/// Copy all.
-pub const COPY_ALL: &str = "Copy all";
-/// Copy one row.
-pub const COPY: &str = "Copy";
-/// umu's own variables.
-pub const UMU_ADDS: &str = "Set by umu at run time (predictions): STEAM_COMPAT_DATA_PATH, \
-     STEAM_COMPAT_CLIENT_INSTALL_PATH, STEAM_COMPAT_TOOL_PATHS, STEAM_COMPAT_LIBRARY_PATHS, \
-     STEAM_COMPAT_INSTALL_PATH, STEAM_COMPAT_SHADER_PATH.";
-/// Processes tab, past session.
-pub const PROCESSES_PAST: &str = "Processes are shown while the session runs.";
+#[allow(non_snake_case)]
+pub fn ENV_COLUMNS() -> [&'static str; 3] {
+    [
+        crate::i18n::text("debug.env_columns.name"),
+        crate::i18n::text("debug.env_columns.value"),
+        crate::i18n::text("debug.env_columns.origin"),
+    ]
+}
+texts! {
+    /// Copy all.
+    COPY_ALL = "debug.copy_all";
+    /// Copy one row.
+    COPY = "debug.copy";
+    /// umu's own variables.
+    UMU_ADDS = "debug.umu_adds";
+    /// Processes tab, past session.
+    PROCESSES_PAST = "debug.processes_past";
+}
 /// Process headers.
-pub const PROCESS_COLUMNS: [&str; 6] = ["PID", "Name", "Role", "State", "CPU time", "Memory"];
-/// Stop session.
-pub const STOP_SESSION: &str = "Stop session";
+#[allow(non_snake_case)]
+pub fn PROCESS_COLUMNS() -> [&'static str; 6] {
+    [
+        "PID",
+        crate::i18n::text("debug.process_columns.name"),
+        crate::i18n::text("debug.process_columns.role"),
+        crate::i18n::text("debug.process_columns.state"),
+        crate::i18n::text("debug.process_columns.cpu_time"),
+        crate::i18n::text("debug.process_columns.memory"),
+    ]
+}
+texts! {
+    /// Stop session.
+    STOP_SESSION = "debug.stop_session";
+}
 /// Events headers.
-pub const EVENT_COLUMNS: [&str; 3] = ["Time", "Kind", "Details"];
-/// No events.
-pub const NO_EVENTS: &str = "No events recorded.";
-/// Raw tab.
-pub const RAW_ARGS: &str = "Arguments passed through --args";
-/// Raw tab.
-pub const RAW_JSON: &str = "Plan (JSON)";
-/// Copy JSON.
-pub const COPY_JSON: &str = "Copy JSON";
-/// Copy NUL-separated.
-pub const COPY_NUL: &str = "Copy NUL-separated";
+#[allow(non_snake_case)]
+pub fn EVENT_COLUMNS() -> [&'static str; 3] {
+    [
+        crate::i18n::text("debug.event_columns.time"),
+        crate::i18n::text("debug.event_columns.kind"),
+        crate::i18n::text("debug.event_columns.details"),
+    ]
+}
+texts! {
+    /// No events.
+    NO_EVENTS = "debug.no_events";
+    /// Raw tab.
+    RAW_ARGS = "debug.raw_args";
+    /// Copy JSON.
+    COPY_JSON = "debug.copy_json";
+    /// Copy NUL-separated.
+    COPY_NUL = "debug.copy_nul";
+}
+/// Headers of a list of arguments.
+#[allow(non_snake_case)]
+pub fn ARG_COLUMNS() -> [&'static str; 2] {
+    ["#", crate::i18n::text("debug.arg_columns.argument")]
+}
+/// Headers of the descriptors table.
+#[allow(non_snake_case)]
+pub fn FD_COLUMNS() -> [&'static str; 3] {
+    [
+        "#",
+        crate::i18n::text("debug.fd_columns.kind"),
+        crate::i18n::text("debug.fd_columns.purpose"),
+    ]
+}
 
 /// "3 processes · 1 h 2 min CPU · 1.2 GB".
 pub fn process_totals(n: usize, cpu_ms: u64, rss: u64) -> String {
-    format!(
-        "{n} {} · {} CPU · {}",
-        super::plural(n as u64, "process", "processes"),
-        cpu_time(cpu_ms),
-        bytes(rss)
+    crate::i18n::plural::counted_args(
+        "debug.process_totals",
+        n as u64,
+        &[("cpu", &cpu_time(cpu_ms)), ("memory", &bytes(rss))],
     )
 }
 
@@ -165,90 +212,101 @@ pub fn offset_ms(ms: u64) -> String {
 
 // ---- logs ------------------------------------------------------------------------------------
 
-/// Viewer title.
-pub const LOGS: &str = "Logs";
+texts! {
+    /// Viewer title.
+    LOGS = "debug.logs";
+}
 /// Viewer title with the game.
 pub fn logs_of(game: &str) -> String {
-    format!("Log — {game}")
+    rust_i18n::t!("debug.logs_of", game = game).into_owned()
 }
-/// Session selector.
-pub const SESSION: &str = "Session";
+texts! {
+    /// Session selector.
+    SESSION = "debug.session";
+}
 /// File selector names (Developer Mode).
 pub const LOG_FILES: [&str; 4] = ["game.log", "events.jsonl", "supervisor.log", "Proton log"];
 /// File selector names.
-pub const PLAIN_LOG_FILES: [&str; 2] = ["Game output", "Proton log"];
-/// Level control.
-pub const LEVEL: &str = "Show";
-/// Levels, most serious first.
-pub const LEVELS: [&str; 4] = ["Errors", "Warnings", "Info", "Debug"];
+#[allow(non_snake_case)]
+pub fn PLAIN_LOG_FILES() -> [&'static str; 2] {
+    [
+        crate::i18n::text("debug.plain_log_files.game_output"),
+        crate::i18n::text("debug.plain_log_files.proton_log"),
+    ]
+}
 /// What each level shows.
-pub const LEVEL_HINTS: [&str; 4] = [
-    "Only errors",
-    "Errors and warnings",
-    "Everything but debugging detail",
-    "Everything, with Wine's fixme and trace lines",
-];
-/// Program selector.
-pub const SOURCE: &str = "From";
+#[allow(non_snake_case)]
+pub fn LEVEL_HINTS() -> [&'static str; 4] {
+    [
+        crate::i18n::text("debug.level_hints.only_errors"),
+        crate::i18n::text("debug.level_hints.errors_and_warnings"),
+        crate::i18n::text("debug.level_hints.everything_but_debugging_detail"),
+        crate::i18n::text("debug.level_hints.everything_with_wine_s"),
+    ]
+}
+texts! {
+    /// Program selector.
+    SOURCE = "debug.source";
+}
 /// Programs; `All` first.
-pub const SOURCES: [&str; 5] = ["All programs", "Wine", "Proton", "umu", "Game"];
-/// No Proton log was recorded for the session.
-pub const NO_PROTON_LOG: &str = "No Proton log was recorded for this session. Turn on “Proton log” in Compatibility to record Wine's debug output the next time the game starts.";
-/// Leads to the Compatibility tab.
-pub const TO_COMPATIBILITY: &str = "Open Compatibility";
-/// Hint under the viewer when the Proton log is off.
-pub const MORE_DETAIL: &str = "For more detail from Wine, turn on “Proton log” in Compatibility; it is recorded the next time the game starts.";
-/// "2 errors · 70 warnings".
-pub fn counts(errors: usize, warnings: usize) -> String {
-    let e = if errors == 1 { "error" } else { "errors" };
-    let w = if warnings == 1 { "warning" } else { "warnings" };
-    format!("{errors} {e} · {warnings} {w}")
+#[allow(non_snake_case)]
+pub fn SOURCES() -> [&'static str; 5] {
+    [
+        crate::i18n::text("debug.sources.all_programs"),
+        "Wine",
+        "Proton",
+        "umu",
+        crate::i18n::text("debug.sources.game"),
+    ]
+}
+texts! {
+    /// No Proton log was recorded for the session.
+    NO_PROTON_LOG = "debug.no_proton_log";
 }
 /// The usual name of a signal a game died from.
 pub fn signal_name(signal: i32) -> Option<&'static str> {
     Some(match signal {
-        4 => "illegal instruction",
-        6 => "it aborted itself",
-        7 => "bus error",
-        8 => "arithmetic error",
-        9 => "it was killed",
-        11 => "segmentation fault: it read or wrote memory it should not have",
-        15 => "it was asked to end",
+        4 => crate::i18n::text("debug.signal_name.illegal_instruction"),
+        6 => crate::i18n::text("debug.signal_name.it_aborted_itself"),
+        7 => crate::i18n::text("debug.signal_name.bus_error"),
+        8 => crate::i18n::text("debug.signal_name.arithmetic_error"),
+        9 => crate::i18n::text("debug.signal_name.it_was_killed"),
+        11 => crate::i18n::text("debug.signal_name.segmentation_fault_it_read"),
+        15 => crate::i18n::text("debug.signal_name.it_was_asked_to"),
         _ => return None,
     })
 }
 /// How a session ended, in a sentence, and whether that is bad.
 pub fn how_it_ended(reason: Option<EndReason>, running: bool) -> (String, bool) {
+    let say = |key: &str| crate::i18n::text(key).to_owned();
     let Some(r) = reason else {
         return if running {
-            ("Running now.".to_owned(), false)
+            (say("debug.ended.running_now"), false)
         } else {
-            ("How it ended was not recorded.".to_owned(), false)
+            (say("debug.ended.not_recorded"), false)
         };
     };
     match r {
-        EndReason::Exited { code: 0 } => ("The game exited normally (exit code 0).".to_owned(), false),
+        EndReason::Exited { code: 0 } => (say("debug.ended.exited_normally"), false),
         EndReason::Exited { code } => (
-            format!("The game exited with code {code}. A code other than 0 usually means it reported a problem; the last lines of the log often say which."),
+            rust_i18n::t!("debug.ended.exited_with_code", code = code).into_owned(),
             true,
         ),
         EndReason::Crashed { signal } => (
             match signal_name(signal) {
-                Some(n) => format!("The game crashed (signal {signal}, {n})."),
-                None => format!("The game crashed (signal {signal})."),
+                Some(n) => rust_i18n::t!("debug.ended.crashed_named", signal = signal, name = n)
+                    .into_owned(),
+                None => rust_i18n::t!("debug.ended.crashed", signal = signal).into_owned(),
             },
             true,
         ),
-        EndReason::StoppedByUser => ("You stopped it.".to_owned(), false),
-        EndReason::Killed => ("It did not close when asked, so it was forced to stop.".to_owned(), true),
-        EndReason::SystemShutdown => ("It ended when the computer shut down.".to_owned(), false),
-        EndReason::LauncherTerminated => ("Its launcher closed it.".to_owned(), false),
-        EndReason::Interrupted => (
-            "EasyPlay was interrupted while it ran; the session was closed at its last sign of life.".to_owned(),
-            true,
-        ),
+        EndReason::StoppedByUser => (say("debug.ended.stopped_by_user"), false),
+        EndReason::Killed => (say("debug.ended.killed"), true),
+        EndReason::SystemShutdown => (say("debug.ended.shutdown"), false),
+        EndReason::LauncherTerminated => (say("debug.ended.launcher_closed"), false),
+        EndReason::Interrupted => (say("debug.ended.interrupted"), true),
         EndReason::FailedToStart { code } => (
-            format!("It did not start ({}).", code.as_str()),
+            rust_i18n::t!("debug.ended.failed_to_start", code = code.as_str()).into_owned(),
             true,
         ),
     }
@@ -256,153 +314,147 @@ pub fn how_it_ended(reason: Option<EndReason>, running: bool) -> (String, bool) 
 /// "Started today 21:04 · ran 5 min 6 s".
 pub fn ran(started: &str, duration: Option<&str>) -> String {
     match duration {
-        Some(d) => format!("Started {started} · ran {d}"),
-        None => format!("Started {started}"),
+        Some(d) => rust_i18n::t!("debug.ran", started = started, duration = d).into_owned(),
+        None => rust_i18n::t!("debug.started", started = started).into_owned(),
     }
 }
-/// File selector label.
-pub const LOG_FILE: &str = "File";
-/// Toggle.
-pub const WRAP: &str = "Wrap";
-/// Toggle.
-pub const FOLLOW: &str = "Follow";
-/// Open session folder.
-pub const OPEN_FOLDER: &str = "Open session folder";
-/// Copy visible.
-pub const COPY_VISIBLE: &str = "Copy visible";
-/// Open inspector.
-pub const OPEN_INSPECTOR: &str = "Launch inspector";
-/// No sessions.
-pub const NO_SESSIONS: &str = "No sessions recorded yet for this game.";
-/// Removed.
-pub const LOG_REMOVED: &str = "This session's log was removed (logs are kept for 30 days).";
-/// Empty log.
-pub const LOG_EMPTY: &str = "The log is empty.";
+texts! {
+    /// File selector label.
+    LOG_FILE = "debug.log_file";
+    /// Toggle.
+    FOLLOW = "debug.follow";
+    /// Open session folder.
+    OPEN_FOLDER = "debug.open_folder";
+    /// Open inspector.
+    OPEN_INSPECTOR = "debug.open_inspector";
+    /// Removed.
+    LOG_REMOVED = "debug.log_removed";
+}
 /// Older lines dropped.
 pub fn dropped(n: usize) -> String {
-    format!("{n} older lines are not shown (at most 200,000 lines are kept)")
-}
-/// "3,412 lines · 12 match".
-pub fn line_count(total: usize, shown: usize, filtering: bool) -> String {
-    if filtering {
-        format!("{shown} of {total} lines shown")
-    } else {
-        format!("{total} {}", super::plural(total as u64, "line", "lines"))
-    }
+    rust_i18n::t!("debug.dropped", n = n).into_owned()
 }
 /// Session option label.
 pub fn session_label(when: &str, kind: &str, end: &str) -> String {
     if end.is_empty() {
-        format!("{when} — {kind}")
+        rust_i18n::t!("debug.session_label", when = when, kind = kind).into_owned()
     } else {
-        format!("{when} — {kind}, {end}")
+        rust_i18n::t!(
+            "debug.session_label_ended",
+            when = when,
+            kind = kind,
+            end = end
+        )
+        .into_owned()
     }
 }
-/// A running session.
-pub const RUNNING: &str = "running";
+texts! {
+    /// A running session.
+    RUNNING = "debug.running";
+}
 
 // ---- report ----------------------------------------------------------------------------------
 
-/// Report sheet title.
-pub const REPORT: &str = "Create a report";
-/// What the report is.
-pub const REPORT_INTRO: &str = "This report helps someone else find out what went wrong. \
-     Your home folder, user name and computer name are replaced. Look through the files before \
-     you share them: names of games and folders can still be personal.";
-/// Never included.
-pub const REPORT_EXCLUDES: &str = "Never included: the contents of games' private Windows \
-     storage, artwork, statistics, other games, your environment, the library file.";
-/// Building.
-pub const REPORT_BUILDING: &str = "Collecting…";
-/// View a file.
-pub const VIEW: &str = "View";
-/// Hide a file.
-pub const HIDE: &str = "Hide";
-/// Save.
-pub const SAVE_REPORT: &str = "Save report…";
+texts! {
+    /// Report sheet title.
+    REPORT = "debug.report";
+    /// Never included.
+    REPORT_EXCLUDES = "debug.report_excludes";
+    /// Building.
+    REPORT_BUILDING = "debug.report_building";
+    /// View a file.
+    VIEW = "debug.view";
+    /// Hide a file.
+    HIDE = "debug.hide";
+    /// Save.
+    SAVE_REPORT = "debug.save_report";
+}
 /// File name proposed in the save dialog.
 pub const REPORT_FILE_NAME: &str = "easyplay-report.tar.gz";
-/// Total size.
-pub fn report_total(files: usize, size: u64) -> String {
-    format!(
-        "{files} {} · {}",
-        super::plural(files as u64, "file", "files"),
-        bytes(size)
-    )
-}
 
 // ---- Doctor ----------------------------------------------------------------------------------
 
-/// Doctor heading in Settings → Advanced.
-pub const DOCTOR: &str = "System check";
-/// Doctor help.
-pub const DOCTOR_HELP: &str = "Every check EasyPlay makes of this computer. Problems show \
-     what to do.";
-/// Doctor pending.
-pub const DOCTOR_PENDING: &str = "Checking…";
-/// Check again.
-pub const CHECK_AGAIN: &str = "Check again";
-/// Create a report.
-pub const CREATE_REPORT: &str = "Create a report…";
-/// Copy fix command.
-pub const COPY_COMMAND: &str = "Copy command";
+texts! {
+    /// Doctor heading in Settings → Advanced.
+    DOCTOR = "debug.doctor";
+    /// Doctor pending.
+    DOCTOR_PENDING = "debug.doctor_pending";
+    /// Check again.
+    CHECK_AGAIN = "debug.check_again";
+    /// Create a report.
+    CREATE_REPORT = "debug.create_report";
+    /// Copy fix command.
+    COPY_COMMAND = "debug.copy_command";
+    /// Help before a command when the check gives no explanation of its own.
+    TO_FIX = "debug.to_fix";
+    /// The runtime check's fix: adopt the runtime umu already installed (D-15).
+    USE_UMU_RUNTIME = "debug.use_umu_runtime";
+    /// While umu's runtime is copied.
+    ADOPTING = "debug.adopting";
+}
 
 // ---- crash and recovery ----------------------------------------------------------------------
 
-/// Crash banner.
-pub const CRASHED: &str =
-    "EasyPlay closed unexpectedly last time. Running games were not affected.";
-/// Recovery banner (migration failure).
-pub const READ_ONLY: &str = "Your library is read-only until the update problem is resolved. \
-     Games can't be started.";
-/// Damaged library heading.
-pub const DAMAGED_TITLE: &str = "The library file is damaged";
-/// Damaged library body.
-pub const DAMAGED_BODY: &str = "EasyPlay could not repair it completely. Choose how to \
-     continue; the damaged file is kept in the backups folder either way. Your games' files \
-     and saves are not affected.";
-/// Restore a backup.
-pub fn restore_backup(date: &str, games: u64) -> String {
-    format!(
-        "Restore a backup ({date}, {games} {})",
-        super::plural(games, "game", "games")
-    )
+texts! {
+    /// Crash banner.
+    CRASHED = "debug.crashed";
+    /// Recovery banner (migration failure).
+    READ_ONLY = "debug.read_only";
+    /// Damaged library heading.
+    DAMAGED_TITLE = "debug.damaged_title";
+    /// Damaged library body.
+    DAMAGED_BODY = "debug.damaged_body";
+    /// Choice.
+    RESTORE_BACKUP = "debug.restore_backup";
 }
-/// Use repaired.
-pub fn use_repaired(games: u64) -> String {
-    format!(
-        "Use the repaired library ({games} {} recovered)",
-        super::plural(games, "game", "games")
-    )
+/// The backup under "Restore a backup": "Yesterday, 12 games".
+pub fn backup_note(date: &str, games: u64) -> String {
+    crate::i18n::plural::counted_args("debug.backup_note", games, &[("date", date)])
 }
-/// Missing games.
+texts! {
+    /// Choice.
+    USE_REPAIRED = "debug.use_repaired";
+}
+/// What repair saved: "9 games recovered, 2 could not be read".
+pub fn repaired_note(recovered: u64, unread: usize) -> String {
+    let saved = crate::i18n::plural::counted("debug.recovered_games", recovered);
+    if unread == 0 {
+        saved
+    } else {
+        rust_i18n::t!("debug.repaired_unread", saved = saved, unread = unread).into_owned()
+    }
+}
+/// The games repair could not read, named in the tooltip of "Use the repaired library".
 pub fn missing_games(names: &str) -> String {
-    format!("Not recovered: {names}")
+    rust_i18n::t!("debug.missing_games", names = names).into_owned()
 }
-/// Start empty.
-pub const START_EMPTY: &str = "Start with an empty library";
-/// Start empty detail.
-pub const START_EMPTY_NOTE: &str = "Games' private Windows storage is kept and is offered \
-     again when you add a game.";
-/// No backups.
-pub const NO_BACKUPS: &str = "No usable backup was found.";
-/// Continue.
-pub const CONTINUE: &str = "Continue";
-/// Quit.
-pub const QUIT: &str = "Quit";
-/// Open backups folder.
-pub const OPEN_BACKUPS: &str = "Open backups folder";
-/// Newer library heading.
-pub const NEWER_TITLE: &str = "The library was created by a newer EasyPlay";
-/// Advanced options note on the game page.
-pub const ADVANCED_NOTE: &str = "Uses advanced options";
-/// Review.
-pub const REVIEW: &str = "Review";
-/// Review heading.
-pub const ADVANCED_HELP: &str = "These options need Developer Mode to be added. They keep \
-     working while it is off.";
+/// A recovery choice read whole: "Use the repaired library. 9 games recovered, 2 could not
+/// be read. Not recovered: Celeste, Hades".
+pub fn choice_spoken(parts: &[&str]) -> String {
+    parts.join(". ")
+}
+texts! {
+    /// Start empty.
+    START_EMPTY = "debug.start_empty";
+    /// Start empty detail.
+    START_EMPTY_NOTE = "debug.start_empty_note";
+    /// No backups.
+    NO_BACKUPS = "debug.no_backups";
+    /// Continue.
+    CONTINUE = "debug.continue";
+    /// Quit.
+    QUIT = "debug.quit";
+    /// Open backups folder.
+    OPEN_BACKUPS = "debug.open_backups";
+    /// Advanced options note on the game page.
+    ADVANCED_NOTE = "debug.advanced_note";
+    /// Review.
+    REVIEW = "debug.review";
+    /// Review heading.
+    ADVANCED_HELP = "debug.advanced_help";
+}
 
 /// "crashed (status 139)".
 pub fn end_status(reason: &str, status: i32) -> String {
-    format!("{reason} (status {status})")
+    rust_i18n::t!("debug.end_status", reason = reason, status = status).into_owned()
 }

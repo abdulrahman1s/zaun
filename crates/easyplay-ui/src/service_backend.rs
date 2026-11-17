@@ -231,6 +231,7 @@ impl ServiceBackend {
                     QueryResult::LogChunk(c) => QueryPayload::LogChunk(c),
                     QueryResult::Processes(p) => QueryPayload::Processes(p),
                     QueryResult::Report(f) => QueryPayload::Report(f),
+                    QueryResult::Steam(d) => QueryPayload::Steam(d),
                     QueryResult::Failed(e) => QueryPayload::Failed(*e),
                 },
             },
@@ -300,16 +301,16 @@ fn notice_text(n: &Notice, lib: &LibrarySnapshot) -> String {
         Notice::FoundMoved { game } => text::found_moved(&name(game)),
         Notice::OnlyFirstPaths { processed } => text::only_first(*processed),
         Notice::GameRemoved { name, .. } => crate::strings::feedback::removed(name),
-        Notice::ArtworkKeptPlaceholder { .. } => text::KEPT_PLACEHOLDER.to_owned(),
+        Notice::ArtworkKeptPlaceholder { .. } => text::KEPT_PLACEHOLDER().to_owned(),
         Notice::ArtworkFetched { game, .. } => text::artwork(&name(game)),
         Notice::RuntimeAdopted { variant, .. } => text::adopted(variant.as_str()),
         Notice::PrefixReset { game } => crate::strings::feedback::prefix_reset(&name(game)),
-        Notice::StopRequested { .. } => crate::strings::card::STOPPING.to_owned(),
+        Notice::StopRequested { .. } => crate::strings::card::STOPPING().to_owned(),
         Notice::StatisticsCleared { game, sessions } => {
             let n = game.as_ref().map(name);
             text::stats_cleared(n.as_deref(), *sessions)
         }
-        Notice::SessionRemoved { .. } => text::SESSION_REMOVED.to_owned(),
+        Notice::SessionRemoved { .. } => text::SESSION_REMOVED().to_owned(),
         Notice::ProgramAdded { game } => text::program_added(&name(game)),
         Notice::ProgramLocated { game } => text::program_located(&name(game)),
         Notice::ToolStarted { game } => text::tool_started(&name(game)),
@@ -324,6 +325,16 @@ fn notice_text(n: &Notice, lib: &LibrarySnapshot) -> String {
             how,
             history_rows_lost,
         } => text::library_recovered(*how, *history_rows_lost),
+        Notice::SteamAsked { game, request } => {
+            use easyplay_core::model::SteamRequest as R;
+            let n = game.as_ref().map(name);
+            match request {
+                R::Run(_) => crate::strings::steam::asked_to_play(n.as_deref().unwrap_or("")),
+                R::Downloads => crate::strings::steam::opened_downloads(n.as_deref()),
+                R::Details(_) => crate::strings::steam::opened_in_steam(n.as_deref().unwrap_or("")),
+            }
+        }
+        Notice::SteamScanned { games } => crate::strings::steam::found(*games),
     }
 }
 
@@ -354,6 +365,32 @@ fn handler_state(i: &IntegrationState) -> HandlerState {
         Some(HandlerOverall::EasyPlay) => HandlerState::EasyPlay,
         Some(HandlerOverall::Other(name)) => HandlerState::Other(name.clone()),
         Some(HandlerOverall::Nothing) => HandlerState::None,
+    }
+}
+
+/// The service's Steam command for a UI Steam action (ADR-0031).
+fn steam_command(a: crate::bridge::SteamAction) -> easyplay_core::service::SteamCommand {
+    use crate::bridge::SteamAction as A;
+    use easyplay_core::model::Tool;
+    use easyplay_core::service::SteamCommand as C;
+    match a {
+        A::SetEnabled(on) => C::SetEnabled(on),
+        A::Rescan => C::Rescan,
+        A::Update(id) => C::Update(id),
+        A::OpenInSteam(id) => C::OpenInSteam(id),
+        A::OpenStorageFolder(id) => C::OpenPrefixFolder(id),
+        A::WindowsSettings(id) => C::RunInPrefix {
+            id,
+            tool: Tool::Winecfg,
+        },
+        A::RunProgram { id, program, args } => C::RunInPrefix {
+            id,
+            tool: Tool::RunExe {
+                path: program,
+                args,
+            },
+        },
+        A::Details { id, reply_to } => C::Details { id, reply_to },
     }
 }
 
@@ -404,7 +441,7 @@ pub fn doctor_checks(r: &easyplay_core::host::DoctorReport) -> Vec<HostCheck> {
 /// The system-check rows from the facts.
 pub fn host_checks(facts: Option<&HostFacts>) -> Vec<HostCheck> {
     let Some(f) = facts else {
-        return [text::CHECK_SANDBOX, text::CHECK_LAUNCHER]
+        return [text::CHECK_SANDBOX(), text::CHECK_LAUNCHER()]
             .iter()
             .map(|n| HostCheck {
                 id: String::new(),
@@ -424,21 +461,21 @@ pub fn host_checks(facts: Option<&HostFacts>) -> Vec<HostCheck> {
             CheckState::Fail
         },
         name: name.to_owned(),
-        result: found.unwrap_or_else(|| text::NOT_FOUND.to_owned()),
+        result: found.unwrap_or_else(|| text::NOT_FOUND().to_owned()),
         detail: None,
         fix_command: None,
     };
     let mut out = vec![
         tool(
             "D-01",
-            text::CHECK_SANDBOX,
+            text::CHECK_SANDBOX(),
             f.bwrap
                 .as_ref()
                 .map(|b| text::version("bubblewrap", b.version.map(|v| v.to_string()))),
         ),
         tool(
             "D-06",
-            text::CHECK_LAUNCHER,
+            text::CHECK_LAUNCHER(),
             f.umu
                 .as_ref()
                 .map(|u| text::version("umu", u.version.map(|v| v.to_string()))),
@@ -640,6 +677,7 @@ impl Backend for ServiceBackend {
             UiCommand::SaveReport { files, dest } => h.send(Command::SaveReport { files, dest }),
             UiCommand::DismissCrash => h.send(Command::DismissCrash),
             UiCommand::ResolveDatabase(c) => h.send(Command::ResolveDatabase(c)),
+            UiCommand::Steam(a) => h.send(Command::Steam(steam_command(a))),
         }
     }
 

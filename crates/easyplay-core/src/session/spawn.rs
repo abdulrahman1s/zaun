@@ -6,11 +6,12 @@
 //! `--json-status-fd`; 5 `--sync-fd`; 6 the init shim's status; 7 seccomp; 8… data),
 //! closes all others at `exec`, and runs `bwrap --args 3 -- <command>` with the fixed
 //! environment `PATH=/usr/bin:/bin LANG=C.UTF-8` (`session::sys` holds the `unsafe` part).
-//! It also starts the session's sound server (ADR-0026) before the sandbox.
+//! It also starts the session's sound server (ADR-0026) and registers the session's
+//! restricted Wayland socket with the compositor (ADR-0029) before the sandbox.
 
 use std::ffi::OsString;
 use std::fs::OpenOptions;
-use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, BorrowedFd, OwnedFd, RawFd};
 use std::os::unix::fs::{FileTypeExt as _, OpenOptionsExt as _};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
@@ -19,6 +20,7 @@ use std::time::Duration;
 
 use crate::error::{Error, ErrorCode};
 use crate::fsx::{Fs, FsErrorKind};
+use crate::host::wayland::{ContextRequest, create_security_context};
 use crate::ids::GameId;
 use crate::launch::{FdKind, PlanSandbox};
 use crate::sandbox::HostAction;
@@ -85,6 +87,15 @@ pub trait SandboxSpawner: Send {
         &mut self,
         server: SoundServer<'_>,
     ) -> Result<Box<dyn SandboxChild>, Error>;
+
+    /// Create the session's restricted Wayland socket and register it with the compositor
+    /// ([`HostAction::CreateWaylandContext`]). The compositor serves it until every write
+    /// end of `close_fd`'s pipe is closed.
+    fn create_wayland_context(
+        &mut self,
+        request: ContextRequest<'_>,
+        close_fd: BorrowedFd<'_>,
+    ) -> Result<(), Error>;
 }
 
 /// How long the sound server has to create its socket.
@@ -320,6 +331,15 @@ impl SandboxSpawner for RealSpawner {
         let _ = child.child.wait();
         Err(sound_err("its socket did not appear", None))
     }
+
+    fn create_wayland_context(
+        &mut self,
+        request: ContextRequest<'_>,
+        close_fd: BorrowedFd<'_>,
+    ) -> Result<(), Error> {
+        crate::ui_thread::assert_not_ui_thread("SandboxSpawner::create_wayland_context");
+        create_security_context(&request, close_fd)
+    }
 }
 
 // ---- host actions ---------------------------------------------------------------------------
@@ -391,6 +411,8 @@ pub fn run_host_actions(actions: &[HostAction], ctx: &mut HostActionCtx<'_>) -> 
             HostAction::MarkTainted { game } => (ctx.mark_tainted)(*game)?,
             // Started by the supervisor through the spawner, which owns processes.
             HostAction::StartSoundServer { .. } => {}
+            // Created by the supervisor through the spawner: it needs the `--sync-fd` pipe.
+            HostAction::CreateWaylandContext { .. } => {}
         }
     }
     Ok(())

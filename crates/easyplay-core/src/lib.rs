@@ -33,6 +33,7 @@ pub mod procfs;
 // Layer 3 — state and facts
 pub mod config;
 pub mod host;
+pub mod steam;
 pub mod storage;
 
 // Layer 4 — pure planning and recognition

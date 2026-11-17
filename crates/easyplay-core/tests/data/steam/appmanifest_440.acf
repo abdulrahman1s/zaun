@@ -1,0 +1,14 @@
+"AppState"
+{
+	"appid"		"440"
+	"universe"		"1"
+	"name"		"Team Fortress 2"
+	"StateFlags"		"518"
+	"installdir"		"Team Fortress 2"
+	"LastUpdated"		"1785000000"
+	"SizeOnDisk"		"30000000000"
+	"buildid"		"23399171"
+	"BytesToDownload"		"521772225"
+	"BytesDownloaded"		"120000000"
+	"TargetBuildID"		"24081311"
+}

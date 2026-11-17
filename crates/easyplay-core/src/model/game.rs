@@ -452,4 +452,8 @@ pub struct GameSummary {
     pub activity: Activity,
     /// Flags.
     pub flags: SummaryFlags,
+    /// Where the entry comes from (ADR-0031). For a Steam game, `preset` and `network` are
+    /// placeholders: screens use [`GameSummary::protection`]; `total_playtime_ms` and
+    /// `last_played_at` are Steam's ([`GameSummary::playtime_source`]).
+    pub origin: super::GameOrigin,
 }

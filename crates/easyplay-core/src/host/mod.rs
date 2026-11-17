@@ -20,6 +20,7 @@ pub mod probe;
 pub mod runner;
 pub mod sysfs;
 pub mod umu_probe;
+pub mod wayland;
 
 pub use access::{AccessCheck, ModeAccess, RealAccess};
 pub use doctor::{Check, CheckStatus, DOCTOR_FORMAT, DoctorContext, DoctorReport, host_checks};
@@ -33,6 +34,7 @@ pub use facts::{
 };
 pub use probe::{HostProbe, LiveHostProbe, ProbeDeps, Revalidation, StaticHostFacts, probe_all};
 pub use runner::{CommandOutput, CommandRunner, CommandSpec, RealRunner, RunError};
+pub use wayland::{CompositorProbe, LiveCompositor, NoCompositor};
 
 use crate::error::{Error, ErrorCode};
 

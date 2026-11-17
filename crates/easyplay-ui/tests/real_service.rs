@@ -181,6 +181,22 @@ fn has_label(h: &Harness<'static, EasyPlayApp>, text: &str) -> bool {
     h.query_by_label_contains(text).is_some()
 }
 
+/// Whether a control is named exactly `name` (the reach lists repeat a switch's words in
+/// their sentence, so a match by part of the name would find both).
+fn has_control(h: &Harness<'static, EasyPlayApp>, name: &str) -> bool {
+    h.query_by_label(name).is_some()
+}
+
+/// What the control named `label` says after its name contains `text`.
+fn says(h: &Harness<'static, EasyPlayApp>, label: &str, text: &str) -> bool {
+    use egui_kittest::kittest::NodeT;
+    h.query_by_label(label).is_some_and(|n| {
+        n.accesskit_node()
+            .description()
+            .is_some_and(|d| d.contains(text))
+    })
+}
+
 #[test]
 fn protection_tab_explains_the_real_policy() {
     let env = TestEnv::new().unwrap();
@@ -191,7 +207,7 @@ fn protection_tab_explains_the_real_policy() {
         h.state().state.details.record().is_some()
     });
     pump(&mut h, "the permissions", |h| {
-        has_label(h, "Internet and local network")
+        has_control(h, "Internet and local network")
     });
     assert!(has_label(&h, "Game folder: Can read and change"));
     assert!(has_label(&h, "Save data: Private storage"));
@@ -239,8 +255,9 @@ fn program_arguments_and_label_are_saved_through_the_service() {
         .expect("Save")
         .click();
     h.run_steps(2);
+    // The program's row says its own arguments under its name.
     pump(&mut h, "the own-arguments line", |h| {
-        has_label(h, "Own arguments: -dx12 -windowed")
+        says(h, "Run Beacon.exe", "Own arguments: -dx12 -windowed")
     });
     let mut db = ReadDb::open(&env.paths().db_file).unwrap();
     let (_, row) = db.executable_by_canonical_path(&exe).unwrap().unwrap();
@@ -262,7 +279,9 @@ fn program_arguments_and_label_are_saved_through_the_service() {
         .expect("Save")
         .click();
     h.run_steps(2);
-    pump(&mut h, "the label", |h| has_label(h, "DX12 build"));
+    pump(&mut h, "the label", |h| {
+        says(h, "Run Beacon.exe", "DX12 build")
+    });
     let (_, row) = db.executable_by_canonical_path(&exe).unwrap().unwrap();
     assert_eq!(row.label.as_deref(), Some("DX12 build"));
 }

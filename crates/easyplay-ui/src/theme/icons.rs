@@ -63,11 +63,6 @@ pub fn icon(icon: Icon, size: f32) -> RichText {
     RichText::new(icon.text(false)).font(font(size))
 }
 
-/// `icon` at `size` as rich text (fill weight).
-pub fn icon_filled(icon: Icon, size: f32) -> RichText {
-    RichText::new(icon.text(true)).font(font(size))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

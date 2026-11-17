@@ -431,7 +431,15 @@ pub fn host_checks(facts: &HostFacts, ctx: &DoctorContext<'_>) -> Vec<Check> {
     } else {
         let mut parts = Vec::new();
         if let Some(w) = &d.wayland {
-            parts.push(format!("Wayland {}", w.name));
+            // ADR-0029: whether games get a restricted socket or the compositor's own.
+            parts.push(if w.security_context {
+                format!("Wayland {} (games get a restricted connection)", w.name)
+            } else {
+                format!(
+                    "Wayland {} (the compositor cannot restrict games' connections)",
+                    w.name
+                )
+            });
         }
         if let Some(x) = &d.x11 {
             parts.push(if x.filesystem_socket {

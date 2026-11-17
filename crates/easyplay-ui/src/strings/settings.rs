@@ -1,4 +1,6 @@
-//! Settings (SCREEN_SPECS_2 §13).
+//! Settings (SCREEN_SPECS_2 §13). The labels and help are the design's `SETTINGS` table.
+
+use easyplay_core::model::BasePreset;
 
 use crate::bridge::HandlerState;
 use crate::route::SettingsTab;
@@ -6,329 +8,470 @@ use crate::route::SettingsTab;
 /// Tab names.
 pub fn tab(t: SettingsTab) -> &'static str {
     match t {
-        SettingsTab::General => "General",
-        SettingsTab::Appearance => "Appearance",
-        SettingsTab::Protection => "Protection",
-        SettingsTab::CompatibilityLayers => "Compatibility layers",
-        SettingsTab::Integration => "Integration",
-        SettingsTab::Advanced => "Advanced",
-        SettingsTab::About => "About",
+        SettingsTab::General => crate::i18n::text("settings.tab.general"),
+        SettingsTab::Appearance => crate::i18n::text("settings.tab.appearance"),
+        SettingsTab::Protection => crate::i18n::text("settings.tab.protection"),
+        SettingsTab::CompatibilityLayers => crate::i18n::text("settings.tab.compatibility_layers"),
+        SettingsTab::Integration => crate::i18n::text("settings.tab.integration"),
+        SettingsTab::Advanced => crate::i18n::text("settings.tab.advanced"),
+        SettingsTab::About => crate::i18n::text("settings.tab.about"),
     }
 }
 
-/// Section.
-pub const GENERAL: &str = "General";
-/// Row.
-pub const LANGUAGE: &str = "Language";
-/// Option.
-pub const LANG_SYSTEM: &str = "Same as system";
-/// Row.
-pub const CLOSE: &str = "When I close the window";
-/// Option.
-pub const CLOSE_QUIT: &str = "Quit";
-/// Option.
-pub const CLOSE_ASK: &str = "Ask if games are running";
-/// Hint.
-pub const CLOSE_HINT: &str = "Games keep running and are tracked without the window.";
-/// Toggle.
-pub const CONFIRM_REMOVE: &str = "Ask before removing a game";
-/// Toggle.
-pub const CHECK_MISSING: &str = "Check for missing games when EasyPlay comes to the front";
-/// Hint.
-pub const CHECK_MISSING_HINT: &str = "Notices moved games and disconnected drives quickly.";
-/// Section.
-pub const NOTIFICATIONS: &str = "Notifications";
-/// Toggle.
-pub const NOTIFY_EXIT: &str = "Notify me when a game ends";
-/// Toggle.
-pub const NOTIFY_CRASH: &str = "Notify me when a game crashes";
-/// Section.
-pub const STATISTICS: &str = "Statistics";
-/// Toggle.
-pub const STATS_ON: &str = "Record playtime";
-/// Hint.
-pub const STATS_ON_HINT: &str = "Kept on this computer only.";
-/// Toggle.
-pub const KEEP_REMOVED: &str = "Keep the history of removed games";
-/// Toggle.
-pub const TOOL_SESSIONS: &str = "Show tool and installer sessions in history";
-/// Row.
-pub const WEEK_START: &str = "Weeks start on";
-/// Row.
-pub const MIN_SESSION: &str = "Count sessions longer than";
-/// Section.
-pub const ARTWORK: &str = "Artwork";
-/// Row.
-pub const ARTWORK_ONLINE: &str = "Official artwork";
-/// Option.
-pub const ARTWORK_OFF: &str = "Off";
-/// Option.
-pub const ARTWORK_STEAM: &str = "From Steam's image server";
-/// Hint.
-pub const ARTWORK_HINT: &str = "When on, EasyPlay sends a game's Steam app ID to Steam's image server to download its cover. Nothing else is sent.";
-/// Toggle.
-pub const NAME_SEARCH: &str = "Look up app IDs by game name";
-/// Hint.
-pub const NAME_SEARCH_HINT: &str = "Also sends the game's name to Steam's store search.";
-/// Button.
-pub const CLEAR_STATS: &str = "Clear all statistics…";
-/// Section.
-pub const APPEARANCE: &str = "Appearance";
-/// Row.
-pub const THEME: &str = "Theme";
-/// Row.
-pub const ACCENT: &str = "Accent";
-/// Row.
-pub const UI_SCALE: &str = "Interface size";
-/// Button.
-pub const RESET: &str = "Reset";
-/// Row.
-pub const REDUCE_MOTION: &str = "Reduce motion";
-/// Row.
-pub const LIBRARY_VIEW: &str = "Library view";
-/// Row.
-pub const DENSITY: &str = "Cover size";
-/// Toggle.
-pub const PLAYTIME_ON_CARDS: &str = "Show playtime on cards";
-/// Row with a reset button for widths set by dragging list headers.
-pub const LIST_COLUMNS: &str = "List column widths";
-/// Option.
-pub const SYSTEM: &str = "System";
-/// Option.
-pub const DARK: &str = "Dark";
-/// Option.
-pub const LIGHT: &str = "Light";
-/// Option.
-pub const HIGH_CONTRAST: &str = "High contrast";
-/// Option.
-pub const ON: &str = "On";
-/// Option.
-pub const OFF: &str = "Off";
-/// Option.
-pub const GRID: &str = "Grid";
-/// Option.
-pub const LIST: &str = "List";
-/// Option.
-pub const COMPACT: &str = "Compact";
-/// Option.
-pub const COMFORTABLE: &str = "Comfortable";
-/// Option.
-pub const LARGE: &str = "Large";
-/// Option.
-pub const MONDAY: &str = "Monday";
-/// Option.
-pub const SUNDAY: &str = "Sunday";
-/// Section.
-pub const PROTECTION: &str = "Protection";
-/// Row.
-pub const DEFAULT_PRESET: &str = "New games start with";
-/// Row.
-pub const CONTROLLERS_DEFAULT: &str = "Controllers by default";
-/// Option.
-pub const CONNECTED_ONLY: &str = "Connected only";
-/// Option.
-pub const ALL_WHEN_ALLOWED: &str = "All input devices when allowed";
-/// Section.
-pub const ISOLATION: &str = "Compatibility layer copies";
-/// Explanation.
-pub const ISOLATION_REFLINK: &str =
-    "Automatic — your disk supports instant copies, so each game gets its own copy of the layer.";
-/// Explanation.
-pub const ISOLATION_SHARED: &str =
-    "Automatic — shared mode: games share the layer and its files are checked after each game.";
-/// Toggle.
-pub const ALWAYS_ISOLATE: &str = "Always use a private copy";
-/// Hint.
-pub const ALWAYS_ISOLATE_HINT: &str = "Slower starts on some disks.";
-/// Toggle.
-pub const PREPARE_ONLINE: &str = "Allow internet while preparing a brand-new game";
-/// Hint.
-pub const PREPARE_ONLINE_HINT: &str =
-    "Some games need to download runtime components the first time.";
-/// Toggle.
-pub const SECCOMP_DEFAULT: &str = "Filter risky system calls";
-/// Toggle.
-pub const WARN_X11: &str = "Warn me when my desktop uses X11";
-/// Section.
-pub const LAYERS: &str = "Compatibility layers";
-/// Row.
-pub const DEFAULT_LAYER: &str = "Default layer";
-/// Section.
-pub const INSTALLED: &str = "Installed";
-/// Empty.
-pub const NONE_YET: &str = "None yet. One will be downloaded when you first start a game.";
-/// Button.
-pub const REMOVE: &str = "Remove";
-/// Section.
-pub const RUNTIME: &str = "Steam Linux Runtime";
-/// Button.
-pub const VERIFY: &str = "Verify now";
-/// Section.
-pub const UPDATES: &str = "Updates";
-/// Button.
-pub const CHECK_UPDATES: &str = "Check for updates";
-/// Toggle.
-pub const AUTO_UPDATE: &str = "Update layers automatically";
-/// Row.
-pub const INTERVAL: &str = "Check every";
-/// Toggle.
-pub const AUTO_REMOVE: &str = "Remove layers no game uses";
-/// Section.
-pub const SEARCH_FOLDERS: &str = "Extra places to look for layers";
-/// Button.
-pub const ADD_SEARCH_FOLDER: &str = "Add folder…";
-/// Section.
-pub const FILE_TYPES: &str = "Opening Windows programs";
-/// Row.
-pub const EXE_FILES: &str = ".exe and .msi files:";
-/// Button.
-pub const USE_EASYPLAY: &str = "Use EasyPlay";
-/// Button.
-pub const RESTORE_PREVIOUS: &str = "Restore previous";
-/// Row.
-pub const HANDLE_EXE: &str = "When EasyPlay isn't the default";
-/// Option.
-pub const ASK: &str = "Ask";
-/// Option.
-pub const YES: &str = "Make it the default";
-/// Option.
-pub const NO: &str = "Don't ask";
-/// Toggle.
-pub const QUICK_WINDOW: &str = "Show a small window when starting from the file manager";
-/// Hint.
-pub const QUICK_WINDOW_HINT: &str = "Otherwise the game starts without any window from EasyPlay.";
-/// Toggle.
-pub const SINGLE_CLICK: &str = "Play with a single click on a cover";
-/// Toggle.
-pub const GAMEPAD: &str = "Use a controller to move around EasyPlay";
-/// Toggle.
-pub const SINGLE_KEYS: &str = "Single-key shortcuts (F, T, H, /)";
-/// Hint.
-pub const SINGLE_KEYS_HINT: &str =
-    "Turn off if they get in the way of screen readers or other tools.";
-/// Section.
-pub const MENU_SHORTCUTS: &str = "Applications menu shortcuts";
-/// Empty.
-pub const NO_SHORTCUTS: &str = "No games are in the applications menu.";
-/// Section.
-pub const DEVELOPER: &str = "Developer Mode";
-/// Toggle.
-pub const DEVELOPER_MODE: &str = "Use Developer Mode";
-/// Hint.
-pub const DEVELOPER_HINT: &str = "Shows logs, the launch inspector and technical options.";
-/// Row.
-pub const LOG_LEVEL: &str = "Log detail";
-/// Row.
-pub const LOG_CAP: &str = "Largest session log";
-/// Row.
-pub const KEEP_LOGS: &str = "Session logs to keep per game";
-/// Row.
-pub const KEEP_LOG_DAYS: &str = "Delete session logs older than";
-/// Toggle.
-pub const VERBOSE: &str = "Detailed launch log";
-/// Row.
-pub const STOP_GRACE: &str = "When stopping a game, wait";
-/// Row.
-pub const RENDERER: &str = "Drawing method";
-/// Option.
-pub const AUTOMATIC: &str = "Automatic";
-/// Note.
-pub const RESTART: &str = "Restart EasyPlay to apply.";
-/// Section.
-pub const GLOBAL_ENV: &str = "Environment variables for every game";
-/// Section.
-pub const PATHS: &str = "Program locations";
-/// Field.
-pub const UMU_RUN: &str = "umu-run";
-/// Field.
-pub const BWRAP: &str = "bwrap";
-/// Section.
-pub const MAINTENANCE: &str = "Maintenance";
-/// Button.
-pub const CHECK_SYSTEM: &str = "Check my system";
-/// Button.
-pub const OPEN_DATA: &str = "Open data folder";
-/// Button.
-pub const RUN_WELCOME: &str = "Show the welcome steps again";
-/// About.
-pub const PRIVACY: &str = "EasyPlay sends nothing about you or your games anywhere.";
-/// About.
-pub const PRIVACY_ENDPOINTS: &str = "It connects only to download compatibility layers and, if you turn it on, official artwork. The full list of addresses is in the privacy notes.";
-/// About.
-pub const LICENCES: &str = "Licences";
-/// About.
-pub const LICENCE_LINES: [&str; 4] = [
-    "EasyPlay: GPL-3.0-or-later",
-    "Inter and JetBrains Mono: SIL Open Font License 1.1",
-    "Phosphor Icons: MIT",
-    "Third-party crates: see the licence list shipped with EasyPlay",
-];
+texts! {
+    /// Accessible name of the tab bar.
+    TABS = "settings.tabs";
+}
 
-/// "Affects 12 games".
-pub fn affects(n: u32) -> String {
-    format!(
-        "Affects {n} {}",
-        super::plural(u64::from(n), "game", "games")
-    )
+// ── General ──────────────────────────────────────────────────────────────────────────────
+texts! {
+    /// Row.
+    LANGUAGE = "settings.language";
+    /// Option.
+    LANG_SYSTEM = "settings.lang_system";
+    /// Row.
+    CLOSE = "settings.close";
+    /// Option.
+    CLOSE_QUIT = "settings.close_quit";
+    /// Option.
+    CLOSE_ASK = "settings.close_ask";
+    /// Help.
+    CLOSE_HINT = "settings.close_hint";
+    /// Row.
+    CONFIRM_REMOVE = "settings.confirm_remove";
+    /// Row.
+    CHECK_MISSING = "settings.check_missing";
+    /// Help.
+    CHECK_MISSING_HINT = "settings.check_missing_hint";
+    /// Section.
+    NOTIFICATIONS = "settings.notifications";
+    /// Row.
+    NOTIFY_EXIT = "settings.notify_exit";
+    /// Row.
+    NOTIFY_CRASH = "settings.notify_crash";
+    /// Section.
+    STATISTICS = "settings.statistics";
+    /// Row.
+    STATS_ON = "settings.stats_on";
+    /// Help.
+    STATS_ON_HINT = "settings.stats_on_hint";
+    /// Row.
+    KEEP_REMOVED = "settings.keep_removed";
+    /// Row.
+    TOOL_SESSIONS = "settings.tool_sessions";
+    /// Row.
+    WEEK_START = "settings.week_start";
+    /// Row.
+    MIN_SESSION = "settings.min_session";
+    /// Row.
+    CLEAR_STATS = "settings.clear_stats";
+    /// Help.
+    CLEAR_STATS_HINT = "settings.clear_stats_hint";
+    /// Button.
+    CLEAR = "settings.clear";
+    /// Section.
+    ARTWORK = "settings.artwork";
+    /// Row.
+    ARTWORK_ONLINE = "settings.artwork_online";
+    /// Option.
+    ARTWORK_OFF = "settings.artwork_off";
+    /// Option.
+    ARTWORK_STEAM = "settings.artwork_steam";
+    /// Help.
+    ARTWORK_HINT = "settings.artwork_hint";
+    /// Row.
+    NAME_SEARCH = "settings.name_search";
+    /// Help.
+    NAME_SEARCH_HINT = "settings.name_search_hint";
+}
+
+// ── Appearance ───────────────────────────────────────────────────────────────────────────
+texts! {
+    /// Row.
+    THEME = "settings.theme";
+    /// Row.
+    ACCENT = "settings.accent";
+}
+/// The accents' names, in [`crate::theme::palette::Accent::ALL`] order.
+#[allow(non_snake_case)]
+pub fn ACCENTS() -> [&'static str; 4] {
+    [
+        crate::i18n::text("settings.accents.tide"),
+        crate::i18n::text("settings.accents.ember"),
+        crate::i18n::text("settings.accents.iris"),
+        crate::i18n::text("settings.accents.moss"),
+    ]
+}
+texts! {
+    /// Row.
+    UI_SCALE = "settings.ui_scale";
+    /// Button.
+    RESET = "settings.reset";
+    /// Row.
+    REDUCE_MOTION = "settings.reduce_motion";
+    /// Help.
+    REDUCE_MOTION_HINT = "settings.reduce_motion_hint";
+    /// Section.
+    LIBRARY = "settings.library";
+    /// Row.
+    LIBRARY_VIEW = "settings.library_view";
+    /// Row.
+    DENSITY = "settings.density";
+    /// Row.
+    PLAYTIME_ON_CARDS = "settings.playtime_on_cards";
+    /// Option.
+    SYSTEM = "settings.system";
+    /// Option.
+    DARK = "settings.dark";
+    /// Option.
+    LIGHT = "settings.light";
+    /// Option.
+    HIGH_CONTRAST = "settings.high_contrast";
+    /// Option.
+    ON = "settings.on";
+    /// Option.
+    OFF = "settings.off";
+    /// Option.
+    COVERS = "settings.covers";
+    /// Option.
+    LIST = "settings.list";
+    /// Option.
+    COMPACT = "settings.compact";
+    /// Option.
+    COMFORTABLE = "settings.comfortable";
+    /// Option.
+    LARGE = "settings.large";
+    /// Option.
+    MONDAY = "settings.monday";
+    /// Option.
+    SUNDAY = "settings.sunday";
+}
+
+// ── Protection ───────────────────────────────────────────────────────────────────────────
+texts! {
+    /// Section.
+    NEW_GAMES = "settings.new_games";
+    /// Row.
+    DEFAULT_PRESET = "settings.default_preset";
+}
+/// The levels' names, in [`BasePreset::ALL`] order.
+#[allow(non_snake_case)]
+pub fn PRESETS() -> [&'static str; 3] {
+    [
+        crate::i18n::text("settings.presets.offline"),
+        crate::i18n::text("settings.presets.online"),
+        crate::i18n::text("settings.presets.standard"),
+    ]
+}
+/// What a level allows, under "Start with".
+pub fn preset_help(p: BasePreset) -> &'static str {
+    match p {
+        BasePreset::Offline => crate::i18n::text("settings.preset_help.no_internet_it_can"),
+        BasePreset::Online => crate::i18n::text("settings.preset_help.internet_allowed_it_can"),
+        BasePreset::Standard => {
+            crate::i18n::text("settings.preset_help.internet_allowed_with_fewer")
+        }
+    }
+}
+texts! {
+    /// Row.
+    CONTROLLERS_DEFAULT = "settings.controllers_default";
+    /// Option.
+    CONNECTED_ONLY = "settings.connected_only";
+    /// Option.
+    ALL_WHEN_ALLOWED = "settings.all_when_allowed";
+    /// Section.
+    ISOLATION = "settings.isolation";
+    /// Help of "Always use a private copy" on a disk that makes instant copies.
+    ISOLATION_REFLINK = "settings.isolation_reflink";
+    /// Help of "Always use a private copy" on a disk that cannot.
+    ISOLATION_SHARED = "settings.isolation_shared";
+    /// Row.
+    ALWAYS_ISOLATE = "settings.always_isolate";
+    /// Section.
+    SAFETY = "settings.safety";
+    /// Row.
+    PREPARE_ONLINE = "settings.prepare_online";
+    /// Help.
+    PREPARE_ONLINE_HINT = "settings.prepare_online_hint";
+    /// Row.
+    SECCOMP_DEFAULT = "settings.seccomp_default";
+    /// Row.
+    WARN_X11 = "settings.warn_x11";
+}
+
+// ── Compatibility layers ─────────────────────────────────────────────────────────────────
+texts! {
+    /// Row.
+    DEFAULT_LAYER = "settings.default_layer";
+    /// Section.
+    INSTALLED = "settings.installed";
+}
+/// Column heads of the installed layers.
+#[allow(non_snake_case)]
+pub fn LAYER_COLUMNS() -> [&'static str; 4] {
+    [
+        crate::i18n::text("settings.layer_columns.layer"),
+        crate::i18n::text("settings.layer_columns.from"),
+        crate::i18n::text("settings.layer_columns.size"),
+        crate::i18n::text("settings.layer_columns.in_use"),
+    ]
+}
+texts! {
+    /// Empty.
+    NONE_YET = "settings.none_yet";
+    /// Button.
+    REMOVE = "settings.remove";
+    /// Where the Steam Linux Runtime comes from.
+    FROM_STEAM = "settings.from_steam";
+    /// Button.
+    VERIFY = "settings.verify";
+    /// Section.
+    UPDATES = "settings.updates";
+    /// Row.
+    CHECK_UPDATES = "settings.check_updates";
+    /// Button.
+    CHECK_NOW = "settings.check_now";
+    /// Row.
+    AUTO_UPDATE = "settings.auto_update";
+    /// Row.
+    INTERVAL = "settings.interval";
+    /// Row.
+    AUTO_REMOVE = "settings.auto_remove";
+    /// Row.
+    SEARCH_FOLDERS = "settings.search_folders";
+    /// Help.
+    SEARCH_FOLDERS_HINT = "settings.search_folders_hint";
+    /// Button.
+    ADD_SEARCH_FOLDER = "settings.add_search_folder";
+}
+
+// ── Integration ──────────────────────────────────────────────────────────────────────────
+texts! {
+    /// Section.
+    FILE_TYPES = "settings.file_types";
+    /// Row.
+    EXE_FILES = "settings.exe_files";
+    /// Button.
+    USE_EASYPLAY = "settings.use_easyplay";
+    /// Button.
+    RESTORE_PREVIOUS = "settings.restore_previous";
+    /// Row, while EasyPlay is the default.
+    PREVIOUS_HANDLER = "settings.previous_handler";
+    /// Help.
+    PREVIOUS_HANDLER_HINT = "settings.previous_handler_hint";
+    /// Row.
+    HANDLE_EXE = "settings.handle_exe";
+    /// Option.
+    ASK = "settings.ask";
+    /// Option.
+    YES = "settings.yes";
+    /// Option.
+    NO = "settings.no";
+    /// Row.
+    QUICK_WINDOW = "settings.quick_window";
+    /// Help.
+    QUICK_WINDOW_HINT = "settings.quick_window_hint";
+    /// Section.
+    CONTROLS = "settings.controls";
+    /// Row.
+    SINGLE_CLICK = "settings.single_click";
+    /// Row.
+    GAMEPAD = "settings.gamepad";
+    /// Row.
+    SINGLE_KEYS = "settings.single_keys";
+    /// Help.
+    SINGLE_KEYS_HINT = "settings.single_keys_hint";
+    /// Row.
+    ALL_KEYS = "settings.all_keys";
+    /// Button.
+    SHOW_ALL = "settings.show_all";
+    /// Section.
+    MENU_SHORTCUTS = "settings.menu_shortcuts";
+    /// Empty.
+    NO_SHORTCUTS = "settings.no_shortcuts";
+}
+
+// ── Advanced ─────────────────────────────────────────────────────────────────────────────
+texts! {
+    /// Section.
+    DEVELOPER = "settings.developer";
+    /// Row.
+    DEVELOPER_MODE = "settings.developer_mode";
+    /// Help.
+    DEVELOPER_HINT = "settings.developer_hint";
+    /// Row.
+    LOG_LEVEL = "settings.log_level";
+}
+/// Options, in `LogLevel::ALL` order.
+#[allow(non_snake_case)]
+pub fn LOG_LEVELS() -> [&'static str; 5] {
+    [
+        crate::i18n::text("settings.log_levels.errors"),
+        crate::i18n::text("settings.log_levels.warnings"),
+        crate::i18n::text("settings.log_levels.info"),
+        crate::i18n::text("settings.log_levels.debug"),
+        crate::i18n::text("settings.log_levels.trace"),
+    ]
+}
+texts! {
+    /// Row.
+    LOG_CAP = "settings.log_cap";
+    /// Row.
+    KEEP_LOGS = "settings.keep_logs";
+    /// Row.
+    KEEP_LOG_DAYS = "settings.keep_log_days";
+    /// Row.
+    VERBOSE = "settings.verbose";
+    /// Row.
+    STOP_GRACE = "settings.stop_grace";
+    /// Row.
+    RENDERER = "settings.renderer";
+    /// Help.
+    RENDERER_HINT = "settings.renderer_hint";
+    /// Option.
+    AUTOMATIC = "settings.automatic";
+    /// Section.
+    GLOBAL_ENV = "settings.global_env";
+    /// Placeholder of a new variable's name.
+    ENV_NAME = "settings.env_name";
+    /// Placeholder of a new variable's value.
+    ENV_VALUE = "settings.env_value";
+}
+/// Between name and value.
+pub const ENV_EQUALS: &str = "=";
+texts! {
+    /// Button.
+    ADD = "settings.add";
+    /// Section.
+    PATHS = "settings.paths";
+}
+/// Row.
+pub const UMU_RUN: &str = "umu-run";
+/// Row.
+pub const BWRAP: &str = "bwrap";
+texts! {
+    /// Section.
+    MAINTENANCE = "settings.maintenance";
+    /// Row.
+    DATA_FOLDER = "settings.data_folder";
+    /// Help.
+    DATA_FOLDER_HINT = "settings.data_folder_hint";
+    /// Button.
+    OPEN = "settings.open";
+    /// Row.
+    WELCOME_STEPS = "settings.welcome_steps";
+    /// Button.
+    SHOW_AGAIN = "settings.show_again";
+}
+
+// ── About ────────────────────────────────────────────────────────────────────────────────
+texts! {
+    /// About's headline.
+    PRIVACY = "settings.privacy";
+    /// The sentence under it.
+    PRIVACY_ENDPOINTS = "settings.privacy_endpoints";
+    /// Section.
+    LICENCES = "settings.licences";
+}
+/// The licences: what, and under which licence.
+#[allow(non_snake_case)]
+pub fn LICENCE_ROWS() -> [(&'static str, &'static str); 4] {
+    [
+        ("EasyPlay", "GPL-3.0-or-later"),
+        (
+            crate::i18n::text("settings.licence_rows.inter_instrument_sans_and"),
+            "SIL Open Font License 1.1",
+        ),
+        (
+            crate::i18n::text("settings.licence_rows.phosphor_icons"),
+            "MIT",
+        ),
+        (
+            crate::i18n::text("settings.licence_rows.third_party_crates"),
+            crate::i18n::text("settings.licence_rows.see_the_licence_list"),
+        ),
+    ]
+}
+
+/// "Used by every game set to Default: 17 games."
+pub fn default_used(n: Option<u32>) -> String {
+    match n {
+        Some(n) => crate::i18n::plural::counted("settings.default_used_count", u64::from(n)),
+        None => crate::i18n::text("settings.default_used").to_owned(),
+    }
 }
 /// "GE-Proton (latest)".
 pub fn channel_latest(name: &str) -> String {
-    format!("{name} (latest)")
+    rust_i18n::t!("settings.channel_latest", name = name).into_owned()
 }
-/// "Used by 3 games".
+/// "17 games", or "Not used".
 pub fn used_by(n: u32) -> String {
     match n {
-        0 => "Not used".to_owned(),
-        n => format!(
-            "Used by {n} {}",
-            super::plural(u64::from(n), "game", "games")
-        ),
+        0 => crate::i18n::text("settings.not_used").to_owned(),
+        n => crate::i18n::plural::counted("settings.used_by_count", u64::from(n)),
     }
 }
-/// "Verified yesterday".
+/// "Verified Tuesday".
 pub fn verified(when: &str) -> String {
-    format!("Verified {when}")
+    rust_i18n::t!("settings.verified", when = when).into_owned()
 }
-/// "Last checked today".
+/// "Last checked today."
 pub fn last_checked(when: &str) -> String {
-    format!("Last checked {when}")
+    rust_i18n::t!("settings.last_checked", when = when).into_owned()
 }
 /// "Downloading GE-Proton 10-25 · 120 MB".
 pub fn downloading(what: &str, bytes: &str) -> String {
-    format!("Downloading {what} · {bytes}")
+    rust_i18n::t!("settings.downloading", what = what, bytes = bytes).into_owned()
 }
-/// "Layers use 3.6 GB".
+/// "Layers use 3.6 GB on disk."
 pub fn disk_total(size: &str) -> String {
-    format!("Layers use {size} on disk.")
+    rust_i18n::t!("settings.disk_total", size = size).into_owned()
 }
 /// "Remove /opt/proton".
 pub fn remove_folder(p: &str) -> String {
-    format!("Remove {p}")
+    rust_i18n::t!("settings.remove_folder", p = p).into_owned()
 }
-/// ".exe files open with Wine".
+/// "Remove DXVK_HUD".
+pub fn remove_var(name: &str) -> String {
+    rust_i18n::t!("settings.remove_var", name = name).into_owned()
+}
+/// "Path to umu-run".
+pub fn path_to(program: &str) -> String {
+    rust_i18n::t!("settings.path_to", program = program).into_owned()
+}
+/// The help of ".exe and .msi files": who opens them.
 pub fn handler(h: &HandlerState) -> String {
     match h {
-        HandlerState::EasyPlay => "EasyPlay".to_owned(),
-        HandlerState::Other(n) => n.clone(),
-        HandlerState::None => "Nothing".to_owned(),
-        HandlerState::Unknown => "Checking…".to_owned(),
+        HandlerState::EasyPlay => crate::i18n::text("settings.handler.easyplay").to_owned(),
+        HandlerState::Other(n) => rust_i18n::t!("settings.handler.named", name = n).into_owned(),
+        HandlerState::None => crate::i18n::text("settings.handler.none").to_owned(),
+        HandlerState::Unknown => crate::i18n::text("settings.handler.unknown").to_owned(),
     }
 }
 /// "Version 0.1.0".
 pub fn version(v: &str) -> String {
-    format!("Version {v}")
+    rust_i18n::t!("settings.version", v = v).into_owned()
 }
-/// "30 s".
+/// "30 s", "1 min", "2 min".
 pub fn seconds(n: i64) -> String {
-    format!("{n} s")
+    if n >= 60 && n % 60 == 0 {
+        rust_i18n::t!("settings.minutes_short", n = n / 60).into_owned()
+    } else {
+        rust_i18n::t!("settings.seconds_short", n = n).into_owned()
+    }
 }
-/// "24 h".
+/// "24 h", "3 days", "7 days".
 pub fn hours(n: i64) -> String {
-    format!("{n} h")
+    if n >= 48 && n % 24 == 0 {
+        days(n / 24)
+    } else {
+        rust_i18n::t!("settings.hours_short", n = n).into_owned()
+    }
 }
 /// "32 MB".
 pub fn megabytes(n: i64) -> String {
-    format!("{n} MB")
+    rust_i18n::t!("settings.megabytes", n = n).into_owned()
 }
 /// "10".
 pub fn count(n: i64) -> String {
@@ -336,7 +479,7 @@ pub fn count(n: i64) -> String {
 }
 /// "30 days".
 pub fn days(n: i64) -> String {
-    format!("{n} {}", super::plural(n as u64, "day", "days"))
+    crate::i18n::plural::counted("settings.days", n as u64)
 }
 
 /// "125 %".
@@ -346,10 +489,27 @@ pub fn percent(v: f64) -> String {
 
 /// "DXVK_HUD=fps".
 pub fn env_pair(name: &str, value: &str) -> String {
-    format!("{name}={value}")
+    rust_i18n::t!("settings.env_pair", name = name, value = value).into_owned()
 }
 
-/// "EasyPlay · 1.1 GB · Used by 21 games" (narrow layer rows).
-pub fn layer_details(origin: &str, size: &str, used: &str) -> String {
-    format!("{origin} · {size} · {used}")
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn option_values_read_as_the_design_writes_them() {
+        assert_eq!(seconds(0), "0 s");
+        assert_eq!(seconds(30), "30 s");
+        assert_eq!(seconds(60), "1 min");
+        assert_eq!(seconds(300), "5 min");
+        assert_eq!(hours(24), "24 h");
+        assert_eq!(hours(168), "7 days");
+        assert_eq!(used_by(17), "17 games");
+        assert_eq!(used_by(0), "Not used");
+        assert_eq!(
+            default_used(Some(17)),
+            "Used by every game set to Default: 17 games."
+        );
+        assert_eq!(last_checked("today"), "Last checked today.");
+    }
 }

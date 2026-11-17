@@ -21,8 +21,8 @@ use crate::clock::Timestamp;
 use crate::error::ErrorCode;
 
 /// Version of the serialised [`HostFacts`] document. Bump on any incompatible change; the
-/// cache is then simply re-probed.
-pub const HOST_FACTS_FORMAT: u32 = 2;
+/// cache is then simply re-probed. 3: the compositor's security-context support (ADR-0029).
+pub const HOST_FACTS_FORMAT: u32 = 3;
 
 /// Everything known about the host.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -637,6 +637,14 @@ pub struct WaylandSocket {
     pub name: String,
     /// Absolute host path of the socket.
     pub path: PathBuf,
+    /// Inode of the socket when it was probed (0: unknown). A restarted compositor makes a
+    /// new socket, so revalidation notices that the facts below describe another one.
+    #[serde(default)]
+    pub inode: u64,
+    /// The compositor offers `wp_security_context_v1` to EasyPlay: each session gets a
+    /// restricted socket instead of this one (ADR-0029).
+    #[serde(default)]
+    pub security_context: bool,
 }
 
 /// A local X11 display (`DISPLAY=:n`).

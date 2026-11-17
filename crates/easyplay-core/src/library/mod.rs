@@ -17,6 +17,7 @@
 //! | [`export`] | exported game settings as TOML (CONFIGURATION §4) |
 //! | [`folder_scan`] | programs in a dropped folder (GAME_LIBRARY §11) |
 //! | [`resolve`] | `<GAME>` resolution of the command line (CONFIGURATION §6) |
+//! | [`steam`] | Steam games: summaries from the last scan, favourite, hidden, notes, tags (ADR-0031) |
 //!
 //! Seams left for later layers: the launch pipeline and the AppService call into
 //! [`Library`]; the library itself never launches anything. Host-dependent policy
@@ -38,6 +39,7 @@ pub mod relink;
 pub mod remove;
 pub mod resolve;
 pub mod service;
+pub mod steam;
 
 pub use draft::{DraftEnv, GameDraft, build_draft};
 pub use folder_scan::{FolderScan, FoundProgram};

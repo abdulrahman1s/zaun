@@ -1,146 +1,39 @@
-//! Onboarding (SCREEN_SPECS §1, UI-024, UF-1; ADR-0018 opt-in): Welcome · System check ·
-//! Compatibility layer · Opening Windows programs. A centred 560 px column, no sidebar. A
-//! blocking failure cannot be passed with Continue (the reason is beside it); *Skip for now*
-//! leaves a banner. The reduced form (started from a problem) shows the check only.
+//! The welcome steps (SCREEN_SPECS §1, UI-024, UF-1; ADR-0018 opt-in): Welcome · System
+//! check · Compatibility layer · Opening Windows programs. They cover the whole window: one
+//! 460 column in the middle (padding 32 / 24), the mark, a display title, a sentence, the
+//! step's body (at least 210 high), and a foot with "2 of 4" at the left and the buttons at
+//! the right, the main one a Play-sized pill. A failed required check keeps *Continue* off;
+//! *Skip for now* passes it and leaves a banner. Steps change with a short rise. The reduced
+//! form (started from a problem) shows the check only.
 
 use std::time::Duration;
 
 use easyplay_core::config::PreferencePatch;
 use easyplay_core::config::schema::ArtworkOnline;
-use easyplay_core::model::{RuntimeRef, SlrVariant};
-use egui::{Align, Key, Layout, Modifiers, Sense, Ui, vec2};
+use easyplay_core::model::RuntimeRef;
+use egui::{
+    Align, Align2, CornerRadius, Id, Key, Layout, Modifiers, Rect, Sense, Ui, UiBuilder, pos2, vec2,
+};
 
 use super::Env;
+use super::debug::doctor::{self, Adopt};
+use super::settings::band;
 use crate::app::UiState;
-use crate::bridge::{CheckState, HandlerState, HostCheck, UiCommand};
+use crate::bridge::{CheckState, HandlerState, UiCommand};
 use crate::route::Route;
 use crate::strings::onboarding as s;
-use crate::theme::tokens::{icon as icon_size, radius, space};
-use crate::theme::{self, Type, icons};
+use crate::theme::tokens::{control, icon as icon_size, layout, stroke, travel};
+use crate::theme::{self, Dur, Type, icons, motion};
 use crate::vm::screens::OnboardingStep;
 use crate::widgets::button::{Button, Size, Variant};
-use crate::widgets::progress;
+use crate::widgets::rows::SettingRow;
+use crate::widgets::toggle::switch;
+use crate::widgets::{brand, progress, tooltip};
 
 /// The size of onboarding's own window on first launch. A compositor that marks windows
 /// tiled (niri with `prefer-no-csd`) ignores later resizes, so onboarding does not share
 /// the library's window.
 pub const WINDOW_SIZE: [f32; 2] = [720.0, 680.0];
-
-fn dots(ui: &mut Ui, step: OnboardingStep, total: usize) {
-    let p = theme::theme(ui.ctx()).palette.clone();
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), space::S6), Sense::hover());
-    let w = total as f32 * space::S4;
-    let x0 = rect.center().x - w / 2.0;
-    for i in 0..total {
-        let c = egui::pos2(x0 + i as f32 * space::S4 + space::S2, rect.center().y);
-        if i == step.index() {
-            ui.painter().circle_filled(c, 4.0, p.accent);
-        } else {
-            ui.painter()
-                .circle_stroke(c, 4.0, egui::Stroke::new(1.5, p.border_strong));
-        }
-    }
-}
-
-/// "Use umu's runtime", or a note while the copy runs. True when pressed.
-fn adopt_button(ui: &mut Ui, adoptable: &[SlrVariant], adopting: bool) -> bool {
-    if adoptable.is_empty() {
-        return false;
-    }
-    if adopting {
-        let p = theme::theme(ui.ctx()).palette.clone();
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.label(Type::Body.rich(s::ADOPTING).color(p.text_secondary));
-        });
-        return false;
-    }
-    ui.add(Button::primary(s::USE_UMU_RUNTIME).icon(icons::DOWNLOAD))
-        .clicked()
-}
-
-/// Rows of the check; true when the runtime row's adopt button was pressed.
-fn check_row(ui: &mut Ui, c: &HostCheck, adoptable: &[SlrVariant], adopting: bool) -> bool {
-    let mut adopt = false;
-    let theme = theme::theme(ui.ctx());
-    let p = theme.palette.clone();
-    let (icon, color) = match c.state {
-        CheckState::Pass => (icons::CHECK, p.success),
-        CheckState::Warn => (icons::WARNING, p.warning),
-        CheckState::Fail => (icons::ERROR, p.danger),
-        CheckState::Pending => (icons::CLOCK, p.text_muted),
-    };
-    let r = ui.horizontal(|ui| {
-        ui.set_min_height(space::S8);
-        if c.state == CheckState::Pending {
-            let (rr, _) =
-                ui.allocate_exact_size(vec2(icon_size::BUTTON, icon_size::BUTTON), Sense::hover());
-            crate::widgets::skeleton::block(ui, rr, Some(egui::CornerRadius::same(radius::XS)));
-        } else {
-            ui.label(icons::icon(icon, icon_size::BUTTON).color(color));
-        }
-        ui.allocate_ui_with_layout(
-            vec2(200.0, space::S6),
-            Layout::left_to_right(Align::Center),
-            |ui| {
-                ui.set_width(200.0);
-                ui.add(
-                    egui::Label::new(Type::BodyStrong.rich(&c.name).color(p.text_primary))
-                        .truncate(),
-                );
-            },
-        );
-        ui.add(egui::Label::new(Type::Body.rich(&c.result).color(p.text_secondary)).wrap());
-    });
-    crate::a11y::labelled(
-        ui.ctx(),
-        r.response.id,
-        egui::Role::ListItem,
-        &s::check_name(c),
-    );
-    if c.state != CheckState::Pass {
-        egui::Frame::NONE
-            .inner_margin(egui::Margin {
-                left: (icon_size::BUTTON + space::S2) as i8,
-                ..Default::default()
-            })
-            .show(ui, |ui| {
-                // D-15's fix is "adopt umu's runtime": offer the button instead of the command.
-                if c.id == "D-15" && !adoptable.is_empty() {
-                    adopt = adopt_button(ui, adoptable, adopting);
-                } else if let Some(d) = &c.detail {
-                    ui.add(egui::Label::new(Type::Body.rich(d).color(p.text_secondary)).wrap());
-                }
-                if let Some(cmd) = &c.fix_command {
-                    ui.label(Type::Caption.rich(s::TO_FIX).color(p.text_secondary));
-                    ui.horizontal(|ui| {
-                        egui::Frame::NONE
-                            .fill(p.bg_sunken)
-                            .corner_radius(egui::CornerRadius::same(radius::SM))
-                            .inner_margin(space::S2)
-                            .show(ui, |ui| {
-                                ui.add(
-                                    egui::Label::new(Type::Mono.rich(cmd).color(p.text_primary))
-                                        .truncate(),
-                                );
-                            });
-                        if ui
-                            .add(
-                                Button::new(s::COPY)
-                                    .icon(icons::COPY)
-                                    .size(Size::Sm)
-                                    .accessible_name(s::COPY_COMMAND),
-                            )
-                            .clicked()
-                        {
-                            ui.ctx().copy_text(cmd.clone());
-                        }
-                    });
-                }
-            });
-    }
-    adopt
-}
 
 fn finish(state: &mut UiState, env: &mut Env<'_>, skipped: bool) {
     env.bridge.send(UiCommand::CompleteOnboarding { skipped });
@@ -161,9 +54,21 @@ fn finish(state: &mut UiState, env: &mut Env<'_>, skipped: bool) {
     }
 }
 
-/// Show the screen.
+/// What the foot's buttons asked for.
+#[derive(Default)]
+struct Foot {
+    next: bool,
+    back: bool,
+    skip: bool,
+    later: bool,
+    done: bool,
+}
+
+/// Show the steps.
 pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let p = theme::theme(ui.ctx()).palette.clone();
+    ui.painter()
+        .rect_filled(ui.max_rect(), CornerRadius::ZERO, p.bg);
     let host = env.bridge.host().clone();
     let reduced = state.onboarding.reduced;
     if reduced && state.onboarding.step != OnboardingStep::SystemCheck {
@@ -189,248 +94,62 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     {
         state.onboarding.step = OnboardingStep::ALL[step.index() - 1];
     }
-    let mut next = false;
-    let mut back = false;
-    let mut skip = false;
-    let mut done = false;
+    let mut foot = Foot::default();
+    let viewport_h = ui.available_height();
+    let [pad_y, pad_x] = layout::WELCOME_PAD;
     egui::ScrollArea::vertical()
+        .id_salt("welcome")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(space::S12);
-                let w = ui.available_width().min(560.0);
-                ui.allocate_ui_with_layout(vec2(w, 0.0), Layout::top_down(Align::Min), |ui| {
-                    ui.set_width(w);
-                    ui.spacing_mut().item_spacing.y = space::S3;
-                    if !reduced {
-                        dots(ui, step, total);
-                    }
-                    ui.add_space(space::S4);
-                    let t = ui.label(
-                        Type::Display
-                            .rich(s::step_title(step))
-                            .color(p.text_primary),
-                    );
-                    crate::a11y::labelled(ui.ctx(), t.id, egui::Role::Heading, s::step_title(step));
-                    ui.add(
-                        egui::Label::new(
-                            Type::Body.rich(s::step_body(step)).color(p.text_secondary),
-                        )
-                        .wrap(),
-                    );
-                    ui.add_space(space::S4);
-                    match step {
-                        OnboardingStep::Welcome => {
-                            for line in s::WELCOME_POINTS {
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        icons::icon(icons::CHECK, icon_size::INLINE)
-                                            .color(p.accent),
-                                    );
-                                    ui.add(
-                                        egui::Label::new(
-                                            Type::Body.rich(line).color(p.text_primary),
-                                        )
-                                        .wrap(),
-                                    );
-                                });
-                            }
-                        }
-                        OnboardingStep::SystemCheck => {
-                            if host.checks.is_empty()
-                                || host.checks.iter().any(|c| c.state == CheckState::Pending)
-                            {
-                                let since = state.onboarding.check_started.get_or_insert(env.mono);
-                                if env.mono.saturating_duration_since(*since)
-                                    > Duration::from_secs(5)
-                                {
-                                    ui.label(
-                                        Type::Caption
-                                            .rich(s::STILL_CHECKING)
-                                            .color(p.text_secondary),
-                                    );
-                                }
-                            }
-                            let rt = env.bridge.runtimes().clone();
-                            if rt.adoptable.is_empty() {
-                                state.onboarding.adopting = false;
-                            }
-                            let mut adopt = false;
-                            for c in &host.checks {
-                                adopt |= check_row(ui, c, &rt.adoptable, state.onboarding.adopting);
-                            }
-                            if adopt {
-                                state.onboarding.adopting = true;
-                                for v in &rt.adoptable {
-                                    env.bridge.send(UiCommand::AdoptRuntime { variant: *v });
-                                }
-                            }
-                            if ui
-                                .add(
-                                    Button::new(s::CHECK_AGAIN)
-                                        .icon(icons::REFRESH)
-                                        .size(Size::Sm),
-                                )
-                                .clicked()
-                            {
-                                state.onboarding.check_started = Some(env.mono);
-                                env.bridge.send(UiCommand::RefreshHostFacts);
-                            }
-                        }
-                        OnboardingStep::Layer => {
-                            let rt = env.bridge.runtimes().clone();
-                            match (&rt.default_label, rt.downloads.first()) {
-                                (_, Some(d)) => {
-                                    ui.label(
-                                        Type::BodyStrong
-                                            .rich(s::downloading(&d.label))
-                                            .color(p.text_primary),
-                                    );
-                                    progress::linear(ui, None, s::DOWNLOAD);
-                                    ui.label(
-                                        Type::Caption
-                                            .rich(crate::strings::fmt::bytes(d.bytes))
-                                            .color(p.text_secondary),
-                                    );
-                                }
-                                (Some(label), None) => {
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            icons::icon(icons::CHECK, icon_size::BUTTON)
-                                                .color(p.success),
-                                        );
-                                        ui.label(
-                                            Type::BodyStrong
-                                                .rich(s::found_layer(label))
-                                                .color(p.text_primary),
-                                        );
-                                    });
-                                }
-                                (None, None) => {
-                                    ui.label(Type::Body.rich(s::NO_LAYER).color(p.text_secondary));
-                                    ui.horizontal(|ui| {
-                                        if ui
-                                            .add(Button::primary(s::DOWNLOAD).icon(icons::DOWNLOAD))
-                                            .clicked()
-                                        {
-                                            state.onboarding.downloading = true;
-                                            env.bridge.send(UiCommand::ProvisionRuntime {
-                                                target: RuntimeRef::Default,
-                                            });
-                                        }
-                                        if ui.add(Button::ghost(s::LATER)).clicked() {
-                                            state.onboarding.later = true;
-                                            next = true;
-                                        }
-                                    });
-                                }
-                            }
-                        }
-                        OnboardingStep::Handler => {
-                            let ours = host.handler == HandlerState::EasyPlay;
-                            ui.label(
-                                Type::Body
-                                    .rich(s::handler_now(&host.handler))
-                                    .color(p.text_secondary),
-                            );
-                            ui.horizontal(|ui| {
-                                if ours {
-                                    ui.label(
-                                        icons::icon(icons::CHECK, icon_size::BUTTON)
-                                            .color(p.success),
-                                    );
-                                    ui.label(
-                                        Type::BodyStrong.rich(s::IS_DEFAULT).color(p.text_primary),
-                                    );
-                                    if ui
-                                        .add(
-                                            Button::ghost(crate::strings::feedback::UNDO)
-                                                .size(Size::Sm),
-                                        )
-                                        .clicked()
-                                    {
-                                        env.bridge
-                                            .send(UiCommand::SetDefaultHandler { enable: false });
-                                    }
-                                } else if ui
-                                    .add(Button::new(s::MAKE_DEFAULT).icon(icons::FILE_EXE))
-                                    .clicked()
-                                {
-                                    env.bridge
-                                        .send(UiCommand::SetDefaultHandler { enable: true });
-                                }
-                            });
-                            ui.add_space(space::S4);
-                            let h = ui
-                                .label(Type::Heading.rich(s::ARTWORK_TITLE).color(p.text_primary));
-                            crate::a11y::labelled(
-                                ui.ctx(),
-                                h.id,
-                                egui::Role::Heading,
-                                s::ARTWORK_TITLE,
-                            );
-                            ui.checkbox(&mut state.onboarding.artwork_online, s::ARTWORK_OPT_IN);
-                            ui.add(
-                                egui::Label::new(
-                                    Type::Caption
-                                        .rich(s::ARTWORK_DETAIL)
-                                        .color(p.text_secondary),
-                                )
-                                .wrap(),
-                            );
-                        }
-                    }
-                    ui.add_space(space::S8);
-                    let blocking =
-                        step == OnboardingStep::SystemCheck && host.has_blocking_failure();
-                    ui.horizontal(|ui| {
-                        if step.index() > 0
-                            && !reduced
-                            && ui.add(Button::ghost(s::BACK).icon(icons::BACK)).clicked()
-                        {
-                            back = true;
-                        }
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let last = reduced || step == OnboardingStep::Handler;
-                            let label = if last { s::FINISH } else { s::CONTINUE };
-                            let reason = blocking.then_some(s::BLOCKED);
-                            let c = ui.add(Button::primary(label).disabled(reason));
-                            if ui.memory(|m| m.focused().is_none()) && !blocking {
-                                c.request_focus();
-                            }
-                            if c.clicked() {
-                                if last {
-                                    done = true;
-                                } else {
-                                    next = true;
-                                }
-                            }
-                            if step == OnboardingStep::SystemCheck
-                                && ui
-                                    .add(Button::new(s::SKIP).variant(Variant::Secondary))
-                                    .clicked()
-                            {
-                                skip = true;
-                            }
-                            if let Some(r) = reason {
-                                ui.label(Type::Caption.rich(r).color(p.danger));
-                            }
-                        });
-                    });
-                });
-            });
+            // The column is centred both ways while it fits, and scrolls from the top
+            // otherwise. Its height is known from the last pass.
+            let measured = Id::unique("welcome.height");
+            let h: f32 = ui
+                .ctx()
+                .data(|d| d.get_temp(measured))
+                .unwrap_or(viewport_h - pad_y * 2.0);
+            let top = ((viewport_h - h) / 2.0).max(pad_y);
+            let avail = ui.available_width();
+            let w = (avail - pad_x * 2.0).clamp(1.0, layout::WELCOME_W);
+            let left = ui.cursor().min.x + (avail - w) / 2.0;
+            let origin = pos2(left, ui.cursor().min.y + top);
+            let mut col = ui.new_child(
+                UiBuilder::new()
+                    .id_salt("welcome.column")
+                    .max_rect(Rect::from_min_size(origin, vec2(w, f32::INFINITY)))
+                    .layout(Layout::top_down(Align::Min)),
+            );
+            col.set_width(w);
+            col.spacing_mut().item_spacing.y = 0.0;
+            column(&mut col, state, env, &host, step, reduced, total, &mut foot);
+            let used = col.min_rect().height();
+            if (used - h).abs() > 0.5 {
+                ui.ctx().data_mut(|d| d.insert_temp(measured, used));
+                ui.ctx().request_discard("welcome-column-measured");
+            }
+            ui.allocate_rect(
+                Rect::from_min_size(
+                    pos2(ui.cursor().min.x, origin.y - top),
+                    vec2(avail, top + used + pad_y),
+                ),
+                Sense::hover(),
+            );
         });
-    if back {
+    if foot.back {
         state.onboarding.step = OnboardingStep::ALL[step.index().saturating_sub(1)];
     }
-    if next {
+    if foot.later {
+        state.onboarding.later = true;
+        foot.next = true;
+    }
+    if foot.next {
         let i = (step.index() + 1).min(OnboardingStep::ALL.len() - 1);
         state.onboarding.step = OnboardingStep::ALL[i];
         if state.onboarding.step == OnboardingStep::SystemCheck {
             env.bridge.send(UiCommand::RefreshHostFacts);
         }
     }
-    if skip {
+    if foot.skip {
         if reduced {
             state.onboarding = Default::default();
             state.nav.go_to(Route::Library);
@@ -441,14 +160,275 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
             state.banners.set(super::shell::Banner {
                 key: "host",
                 severity: crate::widgets::banner::Severity::Warning,
-                text: s::BANNER.to_owned(),
-                action: Some(s::CHECK_AGAIN.to_owned()),
+                text: s::BANNER().to_owned(),
+                action: Some(s::CHECK_AGAIN().to_owned()),
                 dismissible: true,
             });
         }
     }
-    if done {
+    if foot.done {
         let skipped = host.has_blocking_failure();
         finish(state, env, skipped);
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn column(
+    ui: &mut Ui,
+    state: &mut UiState,
+    env: &mut Env<'_>,
+    host: &crate::bridge::HostView,
+    step: OnboardingStep,
+    reduced: bool,
+    total: usize,
+    foot: &mut Foot,
+) {
+    let theme = theme::theme(ui.ctx());
+    let p = theme.palette.clone();
+    let w = ui.available_width();
+    // The mark.
+    let (mark, _) = ui.allocate_exact_size(
+        vec2(layout::WELCOME_MARK, layout::WELCOME_MARK),
+        Sense::hover(),
+    );
+    brand::paint_mark(ui.painter(), mark, p.fill, p.bg);
+    ui.add_space(layout::WELCOME_MARK_GAP);
+    // The step rises into place whenever it changes.
+    let (alpha, below) = motion::arrive(
+        ui.ctx(),
+        Id::unique(("welcome.step", step)),
+        theme.motion,
+        0.0,
+        Dur::Move,
+        travel::RISE,
+    );
+    let blocking = step == OnboardingStep::SystemCheck && host.has_blocking_failure();
+    ui.scope(|ui| {
+        ui.multiply_opacity(alpha);
+        ui.spacing_mut().item_spacing.y = 0.0;
+        ui.add_space(below);
+        let title = s::step_title(step);
+        let g = Type::Welcome.galley(ui, title, p.t1, w, usize::MAX);
+        let (r, resp) = ui.allocate_exact_size(vec2(w, g.size().y), Sense::hover());
+        ui.painter().galley(r.min, g, p.t1);
+        crate::a11y::labelled(ui.ctx(), resp.id, egui::Role::Heading, title);
+        ui.add_space(layout::LEDE_GAP);
+        let g = Type::Lead.galley(ui, s::step_body(step), p.t2, w, usize::MAX);
+        let (r, _) = ui.allocate_exact_size(vec2(w, g.size().y), Sense::hover());
+        ui.painter().galley(r.min, g, p.t2);
+        ui.add_space(layout::WELCOME_BODY_GAP);
+        let top = ui.cursor().min.y;
+        match step {
+            OnboardingStep::Welcome => points(ui),
+            OnboardingStep::SystemCheck => check(ui, state, env, host),
+            OnboardingStep::Layer => layer(ui, state, env),
+            OnboardingStep::Handler => handler(ui, state, env, host),
+        }
+        let used = ui.cursor().min.y - top;
+        if used < layout::WELCOME_BODY_MIN {
+            ui.add_space(layout::WELCOME_BODY_MIN - used);
+        }
+    });
+    ui.add_space(layout::WELCOME_FOOT_GAP);
+    // The foot: where you are at the left, the buttons at the right.
+    let (row, _) = ui.allocate_exact_size(vec2(w, control::PLAY), Sense::hover());
+    if !reduced {
+        let g = Type::Body.numeric_galley(ui, &s::step_of(step.index() + 1, total), p.t3);
+        ui.painter()
+            .galley(pos2(row.left(), row.center().y - g.size().y / 2.0), g, p.t3);
+    }
+    let mut right = ui.new_child(
+        UiBuilder::new()
+            .id_salt("welcome.foot")
+            .max_rect(row)
+            .layout(Layout::right_to_left(Align::Center)),
+    );
+    right.spacing_mut().item_spacing.x = theme::tokens::space::S2;
+    let last = reduced || step == OnboardingStep::Handler;
+    let label = if last { s::FINISH } else { s::CONTINUE };
+    // The main button: Play's size, off (with why) while a required check fails.
+    let main = right.add(
+        Button::primary(label())
+            .size(Size::Lg)
+            .disabled(blocking.then_some(s::SKIP_TIP())),
+    );
+    if right.memory(|m| m.focused().is_none()) && !blocking {
+        main.request_focus();
+    }
+    if main.clicked() && !blocking {
+        if last {
+            foot.done = true;
+        } else {
+            foot.next = true;
+        }
+    }
+    if blocking {
+        let skip = right.add(Button::ghost(s::SKIP()));
+        if tooltip::tooltip(skip, s::SKIP_TIP(), None).clicked() {
+            foot.skip = true;
+        }
+    }
+    if step == OnboardingStep::Layer
+        && nothing_installed(env)
+        && !state.onboarding.downloading
+        && right.add(Button::ghost(s::LATER())).clicked()
+    {
+        foot.later = true;
+    }
+    if step.index() > 0 && !reduced && right.add(Button::ghost(s::BACK())).clicked() {
+        foot.back = true;
+    }
+}
+
+/// The first step's three lines, each over a hairline, the first under one too.
+fn points(ui: &mut Ui) {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let w = ui.available_width();
+    let pad = layout::WELCOME_POINT_PAD;
+    let rule = |ui: &Ui, y: f32| {
+        ui.painter().hline(
+            ui.max_rect().x_range(),
+            y,
+            egui::Stroke::new(stroke::BORDER, p.line),
+        );
+    };
+    rule(ui, ui.cursor().min.y + stroke::BORDER / 2.0);
+    for line in s::WELCOME_POINTS() {
+        let g = Type::Lead.galley(ui, line, p.t1, w, usize::MAX);
+        let (r, _) = ui.allocate_exact_size(vec2(w, g.size().y + pad * 2.0), Sense::hover());
+        ui.painter().galley(pos2(r.left(), r.top() + pad), g, p.t1);
+        rule(ui, r.bottom() - stroke::BORDER / 2.0);
+    }
+}
+
+/// The system check: the rows, and *Check again* under them.
+fn check(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, host: &crate::bridge::HostView) {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let rt = env.bridge.runtimes().clone();
+    if rt.adoptable.is_empty() {
+        state.onboarding.adopting = false;
+    }
+    let out = doctor::check_rows(
+        ui,
+        &host.checks,
+        Adopt {
+            available: !rt.adoptable.is_empty(),
+            busy: state.onboarding.adopting,
+        },
+    );
+    if out.adopt {
+        state.onboarding.adopting = true;
+        for v in &rt.adoptable {
+            env.bridge.send(UiCommand::AdoptRuntime { variant: *v });
+        }
+    }
+    if host.checks.is_empty() || host.checks.iter().any(|c| c.state == CheckState::Pending) {
+        let since = *state.onboarding.check_started.get_or_insert(env.mono);
+        let waited = env.mono.saturating_duration_since(since);
+        if waited > Duration::from_secs(5) {
+            ui.label(Type::Caption.rich(s::STILL_CHECKING()).color(p.t3));
+        } else {
+            ui.ctx()
+                .request_repaint_after(Duration::from_secs(5).saturating_sub(waited));
+        }
+    }
+    ui.add_space(theme::tokens::space::S2);
+    let again = super::statistics::on_axis(ui, |ui| ui.add(Button::ghost(s::CHECK_AGAIN())));
+    if again.clicked() {
+        state.onboarding.check_started = Some(env.mono);
+        env.bridge.send(UiCommand::RefreshHostFacts);
+    }
+}
+
+fn nothing_installed(env: &Env<'_>) -> bool {
+    let rt = env.bridge.runtimes();
+    rt.default_label.is_none() && rt.downloads.is_empty()
+}
+
+/// The compatibility layer (a step the design does not draw): one row saying what there is,
+/// with *Download now* while there is nothing.
+fn layer(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let rt = env.bridge.runtimes().clone();
+    match (&rt.default_label, rt.downloads.first()) {
+        (_, Some(d)) => {
+            let label = s::downloading(&d.label);
+            let size = crate::strings::fmt::bytes(d.bytes);
+            SettingRow::new(&label)
+                .help(&format!("{}: {size}", s::DOWNLOADED()))
+                .show(ui, |ui| {
+                    band(ui, control::SPINNER, |ui| {
+                        progress::spinner_widget(ui, p.t3)
+                    })
+                });
+        }
+        (Some(label), None) => {
+            let found = s::found_layer(label);
+            SettingRow::new(&found)
+                .help(s::LAYER_READY())
+                .show(ui, |ui| {
+                    band(ui, icon_size::INLINE, |ui| done_glyph(ui, &found))
+                });
+        }
+        (None, None) => {
+            let pressed = SettingRow::new(s::NO_LAYER_TITLE())
+                .help(s::NO_LAYER())
+                .show(ui, |ui| {
+                    band(ui, control::BUTTON, |ui| {
+                        ui.add(Button::new(s::DOWNLOAD()).variant(Variant::Secondary))
+                            .clicked()
+                    })
+                });
+            if pressed {
+                state.onboarding.downloading = true;
+                env.bridge.send(UiCommand::ProvisionRuntime {
+                    target: RuntimeRef::Default,
+                });
+            }
+        }
+    }
+}
+
+/// Opening Windows programs: who opens `.exe` files now, with *Make EasyPlay the default*,
+/// and the official artwork switch.
+fn handler(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, host: &crate::bridge::HostView) {
+    let ours = host.handler == HandlerState::EasyPlay;
+    let now = s::handler_now(&host.handler);
+    let make = SettingRow::new(s::EXE_FILES()).help(&now).show(ui, |ui| {
+        band(ui, control::BUTTON, |ui| {
+            if ours {
+                done_glyph(ui, s::DEFAULT_DONE());
+                false
+            } else {
+                ui.add(Button::new(s::MAKE_DEFAULT()).variant(Variant::Secondary))
+                    .clicked()
+            }
+        })
+    });
+    if make {
+        env.bridge
+            .send(UiCommand::SetDefaultHandler { enable: true });
+    }
+    SettingRow::new(s::ARTWORK_TITLE())
+        .help(s::ARTWORK_HELP())
+        .show(ui, |ui| {
+            band(ui, control::TOGGLE_H, |ui| {
+                switch(ui, &mut state.onboarding.artwork_online, s::ARTWORK_TITLE());
+            })
+        });
+}
+
+/// A check where a row's control was: the thing is done.
+fn done_glyph(ui: &mut Ui, name: &str) {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(icon_size::INLINE, icon_size::INLINE), Sense::hover());
+    crate::a11y::item(&resp, egui::Role::Image, name);
+    ui.painter().text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        icons::CHECK.text(false),
+        icons::font(icon_size::INLINE),
+        p.t1,
+    );
 }

@@ -136,6 +136,7 @@ expression: "snapshot(&w, &policy)"
 # notes
 note.ipc.shared: Shared memory is shared with the display server so X11 rendering works
 note.input.downgraded: All-device controller mode downgraded to detected controllers: keyboards are readable
+note.display.no_wayland_context: The compositor cannot restrict this Wayland connection: the game gets the compositor's own socket
 
 # issues
 SEC-INPUT-001 Warning sec.input.unsafe|Your account can read keyboards directly; all-device mode would expose them

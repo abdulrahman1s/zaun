@@ -221,6 +221,22 @@ error_codes! {
     /// The program has no icon to use.
     ArtNoIcon = "EP-ART-006", Warning;
 
+    // ---- Steam games — EP-STM (ADR-0031) -------------------------------------------------
+    /// No Steam installation was found.
+    StmNotFound = "EP-STM-001", Warning;
+    /// Steam no longer lists this game (it was uninstalled, or its drive is not connected).
+    StmGameGone = "EP-STM-002", Warning;
+    /// Steam could not be asked (its program is missing or did not start).
+    StmClientUnavailable = "EP-STM-003", Error;
+    /// The game is running, so nothing can run in its Windows storage now.
+    StmGameRunning = "EP-STM-004", Warning;
+    /// The game has no Windows storage (not run through Proton, or not played yet).
+    StmNoPrefix = "EP-STM-005", Warning;
+    /// The compatibility layer Steam uses for the game cannot be used here.
+    StmLayerUnavailable = "EP-STM-006", Error;
+    /// The action does not apply to a game Steam runs.
+    StmNotForSteam = "EP-STM-007", Info;
+
     // ---- Integration and internal — EP-DSK, EP-INT ---------------------------------------
     /// Could not change the default application.
     DskDefaultHandlerFailed = "EP-DSK-001", Error;

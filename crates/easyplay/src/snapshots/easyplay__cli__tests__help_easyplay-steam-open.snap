@@ -1,0 +1,14 @@
+---
+source: crates/easyplay/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Show the game in Steam (its properties hold the Proton choice and launch options)
+
+Usage: easyplay steam open [OPTIONS] <GAME>
+
+Arguments:
+  <GAME>  The game
+
+Options:
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+  -h, --help        Print help

@@ -25,6 +25,7 @@ use super::layout::{LayoutInput, probe_layout, read_os_release};
 use super::runner::CommandRunner;
 use super::sysfs::probe_sysfs;
 use super::umu_probe::{LocateInput, probe_umu};
+use super::wayland::CompositorProbe;
 use crate::clock::Clock;
 use crate::consts::APP_VERSION;
 use crate::error::{Error, ErrorCode};
@@ -53,6 +54,8 @@ pub struct ProbeDeps {
     pub user_name: Option<String>,
     /// Job pool for the parallel sub-probes; `None` runs them sequentially.
     pub jobs: Option<Arc<JobPool>>,
+    /// Asks the compositor whether it offers security contexts (ADR-0029).
+    pub compositor: Arc<dyn CompositorProbe>,
 }
 
 fn env_os(env: &PathEnv, key: &str) -> Option<OsString> {
@@ -205,6 +208,15 @@ pub fn probe_all(deps: &ProbeDeps) -> HostFacts {
 
     facts.etc_links = probe_etc_links(fs);
     facts.display = probe_display(fs, &deps.env, &mut facts.notes);
+    if let Some(w) = &mut facts.display.wayland {
+        w.security_context = deps.compositor.offers_security_context(&w.path);
+        if !w.security_context {
+            facts.notes.push(format!(
+                "The compositor at {} does not offer security contexts to EasyPlay",
+                w.path.display()
+            ));
+        }
+    }
     facts.audio = probe_audio(fs, &deps.env, &mut facts.notes);
     facts.input = probe_input(fs, &*deps.access);
     facts.sysfs = probe_sysfs(fs);
@@ -396,10 +408,13 @@ pub fn revalidate(fs: &dyn Fs, facts: &HostFacts, stamp: &CacheKey) -> Revalidat
     {
         changed.push(format!("umu-run {} changed", u.path.display()));
     }
-    if let Some(w) = &facts.display.wayland
-        && !socket_exists(fs, &w.path)
-    {
-        changed.push(format!("Wayland socket {} is gone", w.path.display()));
+    if let Some(w) = &facts.display.wayland {
+        if !socket_exists(fs, &w.path) {
+            changed.push(format!("Wayland socket {} is gone", w.path.display()));
+        } else if w.inode != 0 && fs.metadata_follow(&w.path).map_or(0, |m| m.inode) != w.inode {
+            // Another compositor (or the same one restarted) may offer other protocols.
+            changed.push(format!("Wayland socket {} was replaced", w.path.display()));
+        }
     }
     if let Some(x) = facts.display.x11_bindable()
         && !socket_exists(fs, &x.socket)

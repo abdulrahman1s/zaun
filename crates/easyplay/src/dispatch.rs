@@ -69,6 +69,8 @@ pub fn decide(cli: &Cli, gui_running: bool) -> Route {
         Some(Command::GenerateAssets { .. }) => Route::Generate,
         Some(Command::Service) => Route::Service,
         Some(c) if read_only(c) => Route::Headless,
+        // Steam requests go to Steam, not through the running window (ADR-0031).
+        Some(Command::Steam { .. }) => Route::Headless,
         Some(Command::Import { .. } | Command::Remove { .. }) => Route::Headless,
         _ if gui_running => Route::Forward,
         None => Route::Gui {
@@ -161,6 +163,13 @@ pub fn request_for(cli: &Cli, env: &PathEnv) -> Result<Request, Error> {
             // mistakes are reported by this process.
             let (snap, mut db, _) = library_verbs::read_snapshot()?;
             let id = library_verbs::resolve(&snap, game)?;
+            // Steam starts its games: nothing to wait for, no program to choose (ADR-0031).
+            if id.is_steam() && (*wait || exe.is_some() || !extra.is_empty()) {
+                return Err(Error::new(ErrorCode::StmNotForSteam).with(
+                    "detail",
+                    "--exe, --wait or extra arguments are not possible for a game Steam runs",
+                ));
+            }
             let exe = match exe {
                 Some(a) => {
                     use easyplay_core::storage::GameRepo;

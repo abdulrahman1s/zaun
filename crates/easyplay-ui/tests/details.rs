@@ -51,7 +51,8 @@ fn flip(r: &mut Rig, permission: &str) {
 fn degree(r: &mut Rig, control: &str, choice: &str) {
     r.h.get_by_role_and_label(Role::ComboBox, control).click();
     r.h.run();
-    r.h.get_by_role_and_label(Role::MenuItem, choice).click();
+    r.h.get_by_role_and_label(Role::MenuItemRadio, choice)
+        .click();
     r.h.run();
 }
 
@@ -81,24 +82,41 @@ fn page_renders_from_the_summary_and_fills_in() {
     );
     r.h.get_by_role_and_label(Role::Button, "Play Lantern Keep");
     r.h.get_by_role_and_label(Role::Button, "Protection: Offline");
-    r.h.get_by_role_and_label(Role::List, "What this game can reach");
-    r.h.get_by_role_and_label(Role::ListItem, "No internet or local network");
+    // What the game can and can't use, as the two lists every summary of protection is.
+    assert_eq!(reach_said(&r), vec![OFFLINE_REACH.to_owned()]);
     r.h.get_all_by_label("Notes").next().unwrap();
     assert!(r.h.state().state.details.record().is_some());
 }
 
+/// What "Can use" / "Can't use" say for a game at the Offline level.
+const OFFLINE_REACH: &str = "Can use: Its own folder, controllers, sound. Can't use: Internet \
+     and local network, your personal files, microphone, camera.";
+
+/// What the reach lists on screen say ("Can use: …. Can't use: ….").
+fn reach_said(r: &Rig) -> Vec<String> {
+    // A text node: kittest reads its words (its value) as its label.
+    r.h.query_all_by_label_contains("Can use:")
+        .filter_map(|n| n.accesskit_node().value())
+        .filter(|l| l.starts_with("Can use:"))
+        .collect()
+}
+
+/// The record of play stands under the cover, on every tab: the time played and when last;
+/// the whole record opens Activity.
+const RECORD: &str = "12 h played, most recently yesterday. Open Activity";
+
 #[test]
-fn the_facts_of_play_stand_beside_play() {
-    let (r, _) = page(
+fn the_play_record_stands_under_the_cover_and_opens_activity() {
+    let (mut r, _) = page(
         "Lantern Keep",
-        DetailsTab::Overview,
+        DetailsTab::Protection,
         big(),
         ThemeChoice::Dark,
     );
-    r.h.get_by_label("Last played: Yesterday");
-    r.h.get_by_label("Time played: 12 h 05 min");
-    r.h.get_by_label("Last 7 days: 1 hour 12 minutes");
-    // The facts are on every tab, and a game never played says so instead.
+    r.h.get_by_role_and_label(Role::Button, RECORD).click();
+    r.h.run_steps(2);
+    assert_eq!(r.h.state().state.details.tab, DetailsTab::Activity);
+    // A game never played says so instead, and leads nowhere.
     let (r, _) = page(
         "Vale of Cinders",
         DetailsTab::Protection,
@@ -106,16 +124,17 @@ fn the_facts_of_play_stand_beside_play() {
         ThemeChoice::Dark,
     );
     r.h.get_by_label("Not played yet");
-    assert!(r.h.query_by_label_contains("Time played").is_none());
-    // A narrow window keeps the facts that fit and drops the week first.
+    assert!(r.h.query_by_label_contains("most recently").is_none());
+    // A narrow window has no room for the cover: the record is one sentence under the
+    // meta row.
     let (r, _) = page(
         "Lantern Keep",
         DetailsTab::Overview,
-        Vec2::new(640.0, 480.0),
+        Vec2::new(600.0, 480.0),
         ThemeChoice::Dark,
     );
-    r.h.get_by_label("Time played: 12 h 05 min");
-    assert!(r.h.query_by_label_contains("Last 7 days").is_none());
+    r.h.get_by_label_contains("Played 12 h, most recently yesterday.");
+    assert!(r.h.query_by_label(RECORD).is_none());
 }
 
 #[test]
@@ -153,8 +172,9 @@ fn the_week_is_asked_again_when_a_session_was_counted() {
     }));
     r.h.run_steps(3);
     assert_eq!(asked(&r), 1);
-    // The week on screen stays until its successor arrives.
-    r.h.get_by_label("Last 7 days: 1 hour 12 minutes");
+    // The days on screen stay until their successor arrives.
+    assert!(r.h.state().state.details.week.ready().is_some());
+    r.h.get_by_role_and_label(Role::Button, RECORD);
 }
 
 #[test]
@@ -166,7 +186,7 @@ fn overview_rows_lead_to_their_tabs() {
             DetailsTab::Compatibility,
         ),
         (
-            "Launch options: LanternKeep.exe, -screen-fullscreen 1 · 1 variable",
+            "Launch options: LanternKeep.exe -screen-fullscreen 1, 1 variable",
             DetailsTab::LaunchOptions,
         ),
     ] {
@@ -241,7 +261,7 @@ fn a_record_that_fails_to_load_offers_retry() {
     // The page still stands on the summary; the sheet says what is missing.
     r.h.get_by_role_and_label(Role::Button, "Play Lantern Keep");
     r.h.get_by_label("Couldn't load this.");
-    r.h.get_by_role_and_label(Role::Button, "Retry").click();
+    r.h.get_by_role_and_label(Role::Button, "Try again").click();
     r.h.run_steps(2);
     assert!(load(&r).is_some());
 }
@@ -276,7 +296,17 @@ fn protection_edit_shows_the_widening_sentence_and_saves() {
         ThemeChoice::Dark,
     );
     flip(&mut r, "Music");
-    r.h.get_by_label_contains("Custom (based on Offline)");
+    // The level reads Custom, with the way back; the lists follow the switch.
+    r.h.get_by_label_contains("Custom, based on Offline.");
+    r.h.get_by_role_and_label(Role::Link, "Reset to Offline");
+    let said = reach_said(&r);
+    assert!(
+        said.iter().any(
+            |l| l.starts_with("Can use: Its own folder, Music, controllers, sound.")
+                && l.contains("your other personal files")
+        ),
+        "{said:?}"
+    );
     r.h.get_by_label_contains("will get this access");
     // The switch is on and marked until it is saved; the folder may be read.
     assert_eq!(described(&r, "Music"), "changed");
@@ -291,6 +321,169 @@ fn protection_edit_shows_the_widening_sentence_and_saves() {
     assert!(
         matches!(&edits[0], GameEdit::Policy(p) if p.folders.len() == 1 && p.folders[0].access == FolderAccess::ReadOnly)
     );
+}
+
+#[test]
+fn a_custom_level_says_what_it_is_based_on_and_goes_back_to_it() {
+    let (mut r, _) = page(
+        "Lantern Keep",
+        DetailsTab::Protection,
+        tall(),
+        ThemeChoice::Dark,
+    );
+    assert_eq!(reach_said(&r), vec![OFFLINE_REACH.to_owned()]);
+    assert!(r.h.query_by_label_contains("Custom, based on").is_none());
+    // A switch that differs from the level makes the game Custom; no level is chosen.
+    flip(&mut r, "Camera");
+    r.h.get_by_label_contains("Custom, based on Offline.");
+    for level in ["Offline", "Online", "Standard"] {
+        let b = r.h.get_by_role_and_label(Role::RadioButton, level);
+        assert!(
+            !b.accesskit_node().is_selected().unwrap_or(false),
+            "{level}"
+        );
+    }
+    let said = reach_said(&r);
+    assert!(
+        said[0].starts_with("Can use: Its own folder, controllers, sound, camera."),
+        "{said:?}"
+    );
+    // Reset to Offline puts every switch back.
+    r.h.get_by_role_and_label(Role::Link, "Reset to Offline")
+        .click();
+    r.h.run();
+    assert!(r.h.query_by_label_contains("Custom, based on").is_none());
+    assert_eq!(reach_said(&r), vec![OFFLINE_REACH.to_owned()]);
+    assert!(!r.h.state().state.details.dirty());
+}
+
+#[test]
+fn the_tab_bar_pins_with_a_compact_play_once_the_actions_scroll_away() {
+    let (mut r, id) = page(
+        "Lantern Keep",
+        DetailsTab::Overview,
+        Vec2::new(1280.0, 600.0),
+        ThemeChoice::Dark,
+    );
+    let small = |n: &egui_kittest::Node<'_>| {
+        n.accesskit_node().bounding_box().is_some_and(|b| {
+            (b.height() as f32 - easyplay_ui::theme::tokens::control::PLAY_SM).abs() < 1.0
+        })
+    };
+    let compact = |r: &Rig| {
+        r.h.query_all_by_role_and_label(Role::Button, "Play Lantern Keep")
+            .filter(|n| small(n))
+            .count()
+    };
+    assert_eq!(
+        compact(&r),
+        0,
+        "no compact Play while the actions are in view"
+    );
+    r.h.input_mut()
+        .events
+        .push(egui::Event::PointerMoved(egui::pos2(900.0, 450.0)));
+    r.h.run_steps(2);
+    for _ in 0..8 {
+        r.h.input_mut().events.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -50.0),
+            modifiers: Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Wheel,
+        });
+        r.h.run_steps(1);
+    }
+    r.h.run_steps(30);
+    assert_eq!(compact(&r), 1, "the compact Play joins the pinned tab bar");
+    // The tab bar stands at the top of the page's column, under the top bar.
+    let tab = r.h.get_by_role_and_label(Role::Tab, "Overview");
+    let tab = tab.accesskit_node().bounding_box().unwrap();
+    assert!(tab.y0 < 120.0, "{tab:?}");
+    r.fake.clear_sent();
+    r.h.query_all_by_role_and_label(Role::Button, "Play Lantern Keep")
+        .find(|n| small(n))
+        .unwrap()
+        .click();
+    r.h.run_steps(2);
+    assert!(
+        r.fake
+            .sent()
+            .iter()
+            .any(|c| matches!(c, UiCommand::Launch { id: g, .. } if *g == id))
+    );
+}
+
+#[test]
+fn notes_say_saved_once_typing_stops() {
+    let (mut r, id) = page(
+        "Lantern Keep",
+        DetailsTab::Overview,
+        tall(),
+        ThemeChoice::Dark,
+    );
+    let notes = r.h.get_by_role_and_label(Role::MultilineTextInput, "Notes");
+    notes.focus();
+    r.h.run();
+    r.h.get_by_role_and_label(Role::MultilineTextInput, "Notes")
+        .type_text(" Again.");
+    r.h.run();
+    assert!(
+        !r.fake
+            .sent()
+            .iter()
+            .any(|c| matches!(c, UiCommand::UpdateGame { .. }))
+    );
+    // Half a second after the last key the notes are saved, and the heading says so.
+    r.clock.advance(std::time::Duration::from_millis(600));
+    r.h.run_steps(2);
+    assert!(r.fake.sent().iter().any(|c| matches!(
+        c,
+        UiCommand::UpdateGame { id: g, edits } if *g == id
+            && matches!(&edits[0], GameEdit::Notes(n) if n.ends_with("Again."))
+    )));
+    let heading = r.h.get_by_role_and_label(Role::Heading, "Notes");
+    assert_eq!(
+        heading.accesskit_node().description().unwrap_or_default(),
+        "Saved"
+    );
+    // It goes again after a moment.
+    r.clock.advance(std::time::Duration::from_secs(2));
+    r.h.run_steps(2);
+    let heading = r.h.get_by_role_and_label(Role::Heading, "Notes");
+    assert!(heading.accesskit_node().description().is_none());
+}
+
+#[test]
+fn play_with_an_open_problem_shows_the_problem_instead_of_starting() {
+    let (mut r, id) = page(
+        "Lantern Keep",
+        DetailsTab::Overview,
+        big(),
+        ThemeChoice::Dark,
+    );
+    r.fake.push_event(UiEvent::LaunchProgress {
+        game: id,
+        state: LaunchState::Failed(Box::new(demo::launch_failure(id, "Lantern Keep"))),
+    });
+    r.h.run_steps(2);
+    r.fake.clear_sent();
+    r.h.get_by_role_and_label(Role::Button, "Play Lantern Keep")
+        .click();
+    r.h.run_steps(4);
+    assert!(
+        !r.fake
+            .sent()
+            .iter()
+            .any(|c| matches!(c, UiCommand::Launch { .. })),
+        "the game is not started again"
+    );
+    // The page says what is wrong, at once, where the note about it stands.
+    assert_eq!(
+        easyplay_ui::a11y::Announcer::current(&r.h.ctx).as_deref(),
+        Some("This game needs a folder that isn't there")
+    );
+    r.h.get_by_role(Role::Alert);
 }
 
 #[test]
@@ -383,7 +576,7 @@ fn every_permission_is_a_switch_and_some_have_degrees() {
         "Game controllers: Connected when the game starts",
         "All input devices",
     );
-    degree(&mut r, "Game folder: Can read and change", "Can read");
+    degree(&mut r, "Game folder: Can read and change", "Can only read");
     let (d, _) = draft(&r);
     assert_eq!(d.removable, RemovableAccess::ReadWrite);
     assert_eq!(d.devices.controllers, ControllerAccess::AllInput);
@@ -399,7 +592,7 @@ fn every_permission_is_a_switch_and_some_have_degrees() {
     flip(&mut r, "Camera");
     flip(&mut r, "Sound");
     flip(&mut r, "Removable drives");
-    degree(&mut r, "Game folder: Can read", "Can read and change");
+    degree(&mut r, "Game folder: Can only read", "Can read and change");
     let (d, dirty) = draft(&r);
     assert_eq!(d.permissions(), offline);
     assert!(!dirty);
@@ -481,20 +674,18 @@ fn a_choice_that_cannot_be_made_says_why() {
     settle(&mut r);
     // On an X11 desktop the page says what that means for every game.
     assert!(described(&r, "Screen").contains("not isolated"));
+    // All input devices is not offered where the account can read keyboards directly, and
+    // the row says why.
+    assert!(described(&r, "Game controllers").contains("can read keyboards directly"));
     r.h.get_by_role_and_label(
         Role::ComboBox,
         "Game controllers: Connected when the game starts",
     )
     .click();
     r.h.run();
-    let all =
-        r.h.get_by_role_and_label(Role::MenuItem, "All input devices");
-    assert!(all.accesskit_node().is_disabled());
     assert!(
-        all.accesskit_node()
-            .description()
-            .unwrap_or_default()
-            .contains("can read keyboards directly")
+        r.h.query_by_role_and_label(Role::MenuItemRadio, "All input devices")
+            .is_none()
     );
 }
 
@@ -545,14 +736,33 @@ fn reserved_variables_cannot_be_saved() {
         tall(),
         ThemeChoice::Dark,
     );
-    r.h.get_by_label_contains("Advanced").click();
+    // A new variable named PATH is refused where it is typed: Add leaves it out.
+    r.h.get_by_label("Variable name").focus();
     r.h.run();
-    r.h.get_by_label("Add variable").click();
-    r.h.run();
-    r.h.get_by_label("Variable name, row 2").focus();
-    r.h.get_by_label("Variable name, row 2").type_text("PATH");
+    r.h.get_by_label("Variable name").type_text("PATH");
     r.h.run();
     r.h.get_by_label_contains("PATH is managed by EasyPlay");
+    r.h.get_by_role_and_label(Role::Button, "Add").click();
+    r.h.run();
+    let names = |r: &Rig| {
+        let l = r.h.state().state.details.launch.as_ref().unwrap();
+        l.config
+            .env
+            .iter()
+            .map(|v| v.name.clone())
+            .collect::<Vec<_>>()
+    };
+    assert!(!names(&r).contains(&"PATH".to_owned()));
+    // A variable already set and renamed PATH holds the save back.
+    r.h.get_by_label("Variable name, row 1").focus();
+    r.h.run();
+    r.h.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    r.h.event(egui::Event::Text("PATH".into()));
+    r.h.run_steps(2);
+    assert!(names(&r).contains(&"PATH".to_owned()));
+    r.h.get_all_by_label_contains("PATH is managed by EasyPlay")
+        .next()
+        .unwrap();
     assert!(
         r.h.get_by_role_and_label(Role::Button, "Save")
             .accesskit_node()
@@ -582,12 +792,10 @@ fn a_variable_name_suggests_proton_options_with_what_they_do() {
         tall(),
         ThemeChoice::Dark,
     );
-    r.h.get_by_label_contains("Advanced").click();
+    // The options are offered as a name is typed in the row that adds a variable.
+    r.h.get_by_label("Variable name").focus();
     r.h.run();
-    r.h.get_by_label("Add variable").click();
-    r.h.run_steps(2);
-    // The new name has the focus, and the options are offered at once.
-    r.h.get_by_label("Variable name, row 2").type_text("frame");
+    r.h.get_by_label("Variable name").type_text("frame");
     r.h.run_steps(2);
     r.h.get_by_role_and_label(
         Role::ListBoxOption,
@@ -597,6 +805,8 @@ fn a_variable_name_suggests_proton_options_with_what_they_do() {
     r.h.key_press(Key::ArrowDown);
     r.h.run();
     r.h.key_press(Key::Enter);
+    r.h.run_steps(2);
+    r.h.get_by_role_and_label(Role::Button, "Add").click();
     r.h.run_steps(2);
     let l = r.h.state().state.details.launch.as_ref().unwrap();
     let v = l.config.env.last().unwrap();
@@ -621,7 +831,7 @@ fn launch_progress_cancels_and_failures_show_the_problem_panel() {
         state: LaunchState::Validating,
     });
     r.h.run_steps(2);
-    r.h.get_all_by_label("Checking…").next().unwrap();
+    r.h.get_all_by_label_contains("Checking…").next().unwrap();
     r.h.get_by_role_and_label(Role::Button, "Cancel").click();
     r.h.run_steps(2);
     assert!(r.fake.sent().contains(&UiCommand::CancelLaunch { id }));
@@ -630,7 +840,7 @@ fn launch_progress_cancels_and_failures_show_the_problem_panel() {
         state: LaunchState::Failed(Box::new(demo::launch_failure(id, "Lantern Keep"))),
     });
     r.h.run_steps(2);
-    r.h.get_all_by_label("This game needs a folder that isn't there")
+    r.h.get_all_by_label_contains("This game needs a folder that isn't there")
         .next()
         .unwrap();
     r.h.get_by_role_and_label(Role::Button, "Edit permissions")
@@ -833,7 +1043,6 @@ fn snapshot_page_launch_options_dark() {
         Vec2::new(1280.0, 1000.0),
         ThemeChoice::Dark,
     );
-    r.h.get_by_label_contains("Advanced").click();
     r.h.run_steps(4);
     r.h.snapshot("game_launch_dark_1280x1000");
 }
@@ -846,12 +1055,9 @@ fn snapshot_launch_options_suggestions_dark() {
         tall(),
         ThemeChoice::Dark,
     );
-    r.h.get_by_label_contains("Advanced").click();
+    r.h.get_by_label("Variable name").focus();
     r.h.run();
-    r.h.get_by_label("Add variable").click();
-    r.h.run_steps(2);
-    r.h.get_by_label("Variable name, row 2")
-        .type_text("PROTON_");
+    r.h.get_by_label("Variable name").type_text("PROTON_");
     r.h.run_steps(4);
     r.h.snapshot("game_launch_suggestions_dark_1280x1600");
 }

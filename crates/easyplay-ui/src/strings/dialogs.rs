@@ -2,269 +2,263 @@
 
 use easyplay_core::model::BasePreset;
 
-/// Button.
-pub const CANCEL: &str = "Cancel";
-/// Button.
-pub const CLOSE: &str = "Close";
-/// Button.
-pub const REMOVE: &str = "Remove game";
-/// Button.
-pub const RESET: &str = "Reset";
-/// Button.
-pub const KEEP_EDITING: &str = "Keep editing";
-/// Button.
-pub const DISCARD: &str = "Discard";
-/// Button.
-pub const ALLOW: &str = "Allow";
-/// Button.
-pub const REMOVE_LAYER: &str = "Remove";
-/// Button.
-pub const CLEAR: &str = "Clear history";
-/// Button.
-pub const TURN_ON: &str = "Turn on";
-/// Button.
-pub const SET_UP_NEW: &str = "Set up as new";
-/// Button.
-pub const ITS_AN_UPDATE: &str = "It's an update";
-/// Button.
-pub const RUN_WITH_SETTINGS: &str = "Run with the game's settings";
-/// Button.
-pub const USE_SAME: &str = "Use the same settings";
-/// Button.
-pub const ALLOW_NEW_LOCATION: &str = "Allow the new location";
-/// Button.
-pub const USE_DEFAULT: &str = "Use the default layer";
-/// Button.
-pub const NOT_NOW: &str = "Not now";
-/// Button.
-pub const TURN_OFF_FIXES: &str = "Turn off game fixes";
-/// Button.
-pub const ALLOW_ONCE: &str = "Allow once";
-/// Button.
-pub const KEEP_AS_INSTALLER: &str = "Keep as installer";
-/// Button.
-pub const REMOVE_ENTRY: &str = "Remove from library";
-/// Button.
-pub const USE_PROGRAM: &str = "Use this program";
-/// Button.
-pub const SHARE_ANYWAY: &str = "Share anyway";
-/// Button.
-pub const STOP_AND_REMOVE: &str = "Stop and remove";
-/// Button.
-pub const COPY: &str = "Copy";
-/// Disclosure.
-pub const SHOW_DETAILS: &str = "Details";
-/// Disclosure.
-pub const HIDE_DETAILS: &str = "Hide details";
-/// Remove body.
-pub const REMOVE_BODY: &str = "The game's own files stay where they are.";
-/// Option.
-pub const REMOVE_STORAGE: &str = "Delete its private Windows storage";
-/// Option hint.
-pub const REMOVE_STORAGE_HINT: &str = "Settings the game saved in its Windows storage are deleted.";
-/// Option.
-pub const KEEP_SAVES: &str = "Keep save data";
-/// Option.
-pub const REMOVE_SHORTCUTS: &str = "Remove menu shortcuts";
-/// Option.
-pub const KEEP_HISTORY: &str = "Keep play history";
-/// Reset lists.
-pub const RESET_DELETED: &str = "Deleted:";
-/// Reset lists.
-pub const RESET_DELETED_1: &str = "Windows settings and installed extras";
-/// Reset lists.
-pub const RESET_DELETED_2: &str = "Files the game wrote outside its folder";
-/// Reset lists.
-pub const RESET_KEPT: &str = "Kept:";
-/// Reset lists.
-pub const RESET_KEPT_1: &str = "The game's own folder and play history";
-/// Discard.
-pub const DISCARD_TITLE: &str = "Discard your changes?";
-/// Discard.
-pub const DISCARD_BODY: &str = "The changes you made on this page haven't been saved.";
-/// Widen.
-pub const WIDEN_BODY: &str = "It will be able to:";
-/// Clear statistics.
-pub const CLEAR_TITLE: &str = "Clear all play history?";
-/// Developer Mode.
-pub const DEV_TITLE: &str = "Turn on Developer Mode?";
-/// Developer Mode.
-pub const DEV_BODY: &str = "Developer Mode shows logs, the launch inspector and technical options.";
-/// Developer Mode.
-pub const DEV_UNSAFE: &str =
-    "Options marked unsafe can stop games from starting or weaken protection.";
-/// Exe changed.
-pub const EXE_CHANGED_BODY: &str = "If you just updated it, that's expected.";
-/// Runtime missing.
-pub const RUNTIME_MISSING_BODY: &str =
-    "The compatibility layer this game uses is no longer installed.";
-/// Fix needs network.
-pub const FIX_NETWORK_TITLE: &str = "A game fix needs the internet";
-/// Tool needs network.
-pub const TOOL_NETWORK_TITLE: &str = "Let this tool use the internet once?";
-/// Tainted prefix.
-pub const TAINTED: &str = "This game has already run in this storage, so anything it left there could also use the connection.";
-/// Installer finished.
-pub const INSTALLER_TITLE: &str = "Which program is the game?";
-/// Grant moved.
-pub const GRANT_MOVED_TITLE: &str = "A shared folder moved";
-/// Broad grant.
-pub const BROAD_REMINDER: &str = "The game will be able to read everything in it.";
-/// Removing a running game.
-pub const RUNNING_REMOVE_BODY: &str =
-    "It will be stopped first. Unsaved progress in the game may be lost.";
-/// Remember choice.
-pub const REMEMBER: &str = "Remember for this file";
-
-/// "Remove Hollow Knight from EasyPlay?"
-pub fn remove_title(name: &str) -> String {
-    format!("Remove {name} from EasyPlay?")
+texts! {
+    /// Button.
+    CANCEL = "dialogs.cancel";
+    /// Button.
+    CLOSE = "dialogs.close";
+    /// Button.
+    REMOVE = "dialogs.remove";
+    /// Button.
+    RESET = "dialogs.reset";
+    /// Button.
+    KEEP_EDITING = "dialogs.keep_editing";
+    /// Button.
+    DISCARD = "dialogs.discard";
+    /// Button.
+    ALLOW = "dialogs.allow";
+    /// Button.
+    REMOVE_LAYER = "dialogs.remove_layer";
+    /// Button.
+    CLEAR = "dialogs.clear";
+    /// Button.
+    TURN_ON = "dialogs.turn_on";
+    /// Button.
+    SET_UP_NEW = "dialogs.set_up_new";
+    /// Button.
+    ITS_AN_UPDATE = "dialogs.its_an_update";
+    /// Button.
+    RUN_WITH_SETTINGS = "dialogs.run_with_settings";
+    /// Button.
+    USE_SAME = "dialogs.use_same";
+    /// Button.
+    ALLOW_NEW_LOCATION = "dialogs.allow_new_location";
+    /// Button.
+    USE_DEFAULT = "dialogs.use_default";
+    /// Button.
+    NOT_NOW = "dialogs.not_now";
+    /// Button.
+    TURN_OFF_FIXES = "dialogs.turn_off_fixes";
+    /// Button.
+    ALLOW_ONCE = "dialogs.allow_once";
+    /// Button.
+    KEEP_AS_INSTALLER = "dialogs.keep_as_installer";
+    /// Button.
+    REMOVE_ENTRY = "dialogs.remove_entry";
+    /// Button.
+    USE_PROGRAM = "dialogs.use_program";
+    /// Button.
+    SHARE_ANYWAY = "dialogs.share_anyway";
+    /// Button.
+    STOP_AND_REMOVE = "dialogs.stop_and_remove";
+    /// Remove body.
+    REMOVE_BODY = "dialogs.remove_body";
+    /// Option.
+    REMOVE_STORAGE = "dialogs.remove_storage";
+    /// Option hint.
+    REMOVE_STORAGE_HINT = "dialogs.remove_storage_hint";
+    /// Option.
+    KEEP_SAVES = "dialogs.keep_saves";
+    /// Option.
+    REMOVE_SHORTCUTS = "dialogs.remove_shortcuts";
+    /// Option.
+    KEEP_HISTORY = "dialogs.keep_history";
+    /// Discard.
+    DISCARD_TITLE = "dialogs.discard_title";
+    /// Discard.
+    DISCARD_BODY = "dialogs.discard_body";
+    /// Clear statistics.
+    CLEAR_TITLE = "dialogs.clear_title";
+    /// Developer Mode.
+    DEV_TITLE = "dialogs.dev_title";
+    /// Developer Mode.
+    DEV_BODY = "dialogs.dev_body";
+    /// Developer Mode.
+    DEV_UNSAFE = "dialogs.dev_unsafe";
+    /// Exe changed.
+    EXE_CHANGED_BODY = "dialogs.exe_changed_body";
+    /// Runtime missing.
+    RUNTIME_MISSING_BODY = "dialogs.runtime_missing_body";
+    /// Fix needs network.
+    FIX_NETWORK_TITLE = "dialogs.fix_network_title";
+    /// Tool needs network.
+    TOOL_NETWORK_TITLE = "dialogs.tool_network_title";
+    /// Tainted prefix.
+    TAINTED = "dialogs.tainted";
+    /// Installer finished.
+    INSTALLER_TITLE = "dialogs.installer_title";
+    /// Grant moved.
+    GRANT_MOVED_TITLE = "dialogs.grant_moved_title";
+    /// Broad grant.
+    BROAD_REMINDER = "dialogs.broad_reminder";
+    /// Removing a running game.
+    RUNNING_REMOVE_BODY = "dialogs.running_remove_body";
+    /// Remember choice.
+    REMEMBER = "dialogs.remember";
+    /// Button: removing several games.
+    REMOVE_MANY = "dialogs.remove_many";
+    /// Remove body, several games.
+    REMOVE_BODY_MANY = "dialogs.remove_body_many";
+    /// Clear all statistics: the text.
+    CLEAR_ALL_TEXT = "dialogs.clear_all_text";
+    /// Button: clear all statistics.
+    CLEAR_ALL = "dialogs.clear_all";
+    /// Reset private Windows storage: the text.
+    RESET_TEXT = "dialogs.reset_text";
+    /// The report dialog's text.
+    REPORT_TEXT = "dialogs.report_text";
 }
-/// "Remove 3 games from EasyPlay?"
+
+/// "Remove Lantern Keep?"
+pub fn remove_title(name: &str) -> String {
+    rust_i18n::t!("dialogs.remove_title", name = name).into_owned()
+}
+/// "Remove 3 games?"
 pub fn remove_many_title(n: usize) -> String {
-    format!("Remove {n} games from EasyPlay?")
+    rust_i18n::t!("dialogs.remove_many_title", n = n).into_owned()
 }
 /// "Reset private Windows storage for Hollow Knight?"
 pub fn reset_title(name: &str) -> String {
-    format!("Reset private Windows storage for {name}?")
+    rust_i18n::t!("dialogs.reset_title", name = name).into_owned()
 }
 /// "Give Hollow Knight internet access?"
 pub fn widen_title(name: &str, p: BasePreset) -> String {
     match p {
-        BasePreset::Standard => format!("Switch {name} to Standard protection?"),
-        _ => format!("Give {name} internet access?"),
+        BasePreset::Standard => {
+            rust_i18n::t!("dialogs.widen_title_standard", name = name).into_owned()
+        }
+        _ => rust_i18n::t!("dialogs.widen_title_online", name = name).into_owned(),
     }
 }
 /// "Give 3 games internet access?"
 pub fn widen_many_title(n: usize, p: BasePreset) -> String {
     match p {
-        BasePreset::Standard => format!("Switch {n} games to Standard protection?"),
-        _ => format!("Give {n} games internet access?"),
-    }
-}
-/// The statements a wider preset adds.
-pub fn widen_statements(p: BasePreset) -> Vec<&'static str> {
-    match p {
-        BasePreset::Offline => vec![],
-        BasePreset::Online => vec!["Use the internet and your local network"],
-        BasePreset::Standard => vec![
-            "Use the internet and your local network",
-            "Read all input devices, where your system allows it",
-            "Show windows with fewer restrictions",
-        ],
+        BasePreset::Standard => {
+            crate::i18n::plural::counted("dialogs.widen_many_standard", n as u64)
+        }
+        _ => crate::i18n::plural::counted("dialogs.widen_many_online", n as u64),
     }
 }
 /// "1 running game is skipped."
 pub fn skipped_running(n: usize) -> String {
-    format!(
-        "{n} running {} skipped.",
-        super::plural(n as u64, "game is", "games are")
-    )
+    crate::i18n::plural::counted("dialogs.skipped_running", n as u64)
 }
 /// "Remove GE-Proton 10-25?"
 pub fn remove_layer_title(label: &str) -> String {
-    format!("Remove {label}?")
+    rust_i18n::t!("dialogs.remove_layer_title", label = label).into_owned()
 }
 /// "Frees 1.4 GB."
 pub fn frees(bytes: u64) -> String {
-    format!("Frees {}.", super::fmt::bytes(bytes))
+    rust_i18n::t!("dialogs.frees", size = super::fmt::bytes(bytes)).into_owned()
 }
 /// "No games use it." / "3 games use it; they switch to the default."
 pub fn layer_users(n: u32) -> String {
     match n {
-        0 => "No games use it.".to_owned(),
-        n => format!(
-            "{n} {} it; they will use the default layer.",
-            super::plural(u64::from(n), "game uses", "games use")
-        ),
+        0 => crate::i18n::text("dialogs.layer_users_none").to_owned(),
+        n => crate::i18n::plural::counted("dialogs.layer_users", u64::from(n)),
+    }
+}
+/// "Every recorded session of Lantern Keep is deleted…"
+pub fn clear_game_text(name: &str) -> String {
+    rust_i18n::t!("dialogs.clear_game_text", name = name).into_owned()
+}
+/// "It will be able to use the internet and your local network."
+pub fn widen_text(p: BasePreset, skipped: usize) -> String {
+    let can = match p {
+        BasePreset::Offline => String::new(),
+        BasePreset::Online => crate::i18n::text("dialogs.widen_text.online").to_owned(),
+        BasePreset::Standard => crate::i18n::text("dialogs.widen_text.standard").to_owned(),
+    };
+    match skipped {
+        0 => can,
+        n => format!("{can} {}", skipped_running(n)).trim().to_owned(),
     }
 }
 /// "Clear play history for Hollow Knight?"
 pub fn clear_game_title(name: &str) -> String {
-    format!("Clear play history for {name}?")
-}
-/// "57 sessions and 41 h 20 min of play will be deleted."
-pub fn clear_body(sessions: u64, ms: u64) -> String {
-    format!(
-        "{sessions} {} and {} of play will be deleted.",
-        super::plural(sessions, "session", "sessions"),
-        super::fmt::duration(ms)
-    )
+    rust_i18n::t!("dialogs.clear_game_title", name = name).into_owned()
 }
 /// "Hollow Knight looks different"
 pub fn exe_changed_title(name: &str) -> String {
-    format!("{name} looks different")
+    rust_i18n::t!("dialogs.exe_changed_title", name = name).into_owned()
 }
 /// "Was 32 MB, now 33 MB."
 pub fn exe_changed_sizes(old: u64, new: u64) -> String {
-    format!(
-        "Was {}, now {}.",
-        super::fmt::bytes(old),
-        super::fmt::bytes(new)
+    rust_i18n::t!(
+        "dialogs.exe_changed_sizes",
+        old = super::fmt::bytes(old),
+        new = super::fmt::bytes(new)
     )
+    .into_owned()
 }
 /// "Run Config.exe with Hollow Knight's settings?"
 pub fn inside_root_title(file: &str, name: &str) -> String {
-    format!("Run {file} with {name}'s settings?")
+    rust_i18n::t!("dialogs.inside_root_title", file = file, name = name).into_owned()
 }
 /// Body.
 pub fn inside_root_body(name: &str) -> String {
-    format!(
-        "This program is inside {name}'s folder. It can use the same protection and storage, or be set up as its own game."
-    )
+    rust_i18n::t!("dialogs.inside_root_body", name = name).into_owned()
 }
 /// "This is a copy of Hollow Knight"
 pub fn copy_title(name: &str) -> String {
-    format!("This is a copy of {name}")
+    rust_i18n::t!("dialogs.copy_title", name = name).into_owned()
 }
 /// Body.
 pub fn copy_body(file: &str, name: &str) -> String {
-    format!("{file} is identical to {name}'s program in another place.")
+    rust_i18n::t!("dialogs.copy_body", file = file, name = name).into_owned()
 }
 /// Body.
 pub fn grant_moved_body(name: &str, folder: &str, new: &str) -> String {
-    format!("{name} may use “{folder}”, which now points to {new}.")
+    rust_i18n::t!(
+        "dialogs.grant_moved_body",
+        name = name,
+        folder = folder,
+        new = new
+    )
+    .into_owned()
 }
 /// "The compatibility layer for Hollow Knight is missing"
 pub fn runtime_missing_title(name: &str) -> String {
-    format!("The compatibility layer for {name} is missing")
+    rust_i18n::t!("dialogs.runtime_missing_title", name = name).into_owned()
 }
 /// Body.
 pub fn fix_network_body(name: &str) -> String {
-    format!("A fix for {name} downloads a component from the internet before it starts.")
+    rust_i18n::t!("dialogs.fix_network_body", name = name).into_owned()
 }
 /// Body.
 pub fn tool_network_body(name: &str) -> String {
-    format!("This tool downloads components into {name}'s private Windows storage.")
+    rust_i18n::t!("dialogs.tool_network_body", name = name).into_owned()
 }
 /// Body.
 pub fn installer_body(name: &str) -> String {
-    format!("{name} finished installing. Choose the program to start from now on.")
+    rust_i18n::t!("dialogs.installer_body", name = name).into_owned()
 }
 /// "Celeste.exe · 32 MB".
 pub fn program_choice(label: &str, size: u64) -> String {
-    format!("{label} · {}", super::fmt::bytes(size))
+    rust_i18n::t!(
+        "dialogs.program_choice",
+        label = label,
+        size = super::fmt::bytes(size)
+    )
+    .into_owned()
 }
 /// "Share all of Documents?"
 pub fn broad_title(folder: &str) -> String {
-    format!("Share all of {folder}?")
+    rust_i18n::t!("dialogs.broad_title", folder = folder).into_owned()
 }
 /// The reason, from a catalogue key.
 pub fn broad_reason(key: &str) -> String {
     match key {
-        "mount_root" => "This is an entire drive.".to_owned(),
-        "user_dir" => "This is one of your main personal folders.".to_owned(),
-        _ => "This folder holds a large number of files.".to_owned(),
+        "mount_root" => crate::i18n::text("dialogs.broad_reason.mount_root").to_owned(),
+        "user_dir" => crate::i18n::text("dialogs.broad_reason.user_dir").to_owned(),
+        _ => crate::i18n::text("dialogs.broad_reason.many_files").to_owned(),
     }
 }
 /// "Hollow Knight is running"
 pub fn running_remove_title(name: &str) -> String {
-    format!("{name} is running")
+    rust_i18n::t!("dialogs.running_remove_title", name = name).into_owned()
 }
 /// "1 more problem".
 pub fn more_problems(n: usize) -> String {
-    format!(
-        "{n} more {}",
-        super::plural(n as u64, "problem", "problems")
-    )
+    crate::i18n::plural::counted("dialogs.more_problems", n as u64)
 }

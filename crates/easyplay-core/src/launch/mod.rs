@@ -26,7 +26,8 @@ pub use plan_file::{
     PlanSandbox, PlanSession,
 };
 pub use planner::{
-    HostEnv, LaunchPlanError, LaunchTarget, PlanRequest, PlannedLaunch, plan_launch, with_context,
+    HostEnv, LaunchPlanError, LaunchTarget, PlanRequest, PlannedLaunch, plan_launch,
+    plan_launch_in_prefix, with_context,
 };
 pub use preflight::{
     FingerprintCheck, GrantChange, NoLocks, PrefixLocks, PreflightFailure, PreflightInput,

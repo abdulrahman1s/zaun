@@ -62,25 +62,25 @@ impl ThemeChoice {
     }
 }
 
-/// Grid density (`appearance.grid_density`).
+/// Cover size on the wall (`appearance.grid_density`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Density {
-    /// 132 px cards, name only.
+    /// 132 px covers.
     Compact,
-    /// 168 px cards with status line (default).
+    /// 164 px covers (default).
     #[default]
     Comfortable,
-    /// 220 px cards with tag chips.
+    /// 200 px covers.
     Large,
 }
 
 impl Density {
-    /// Minimum card width.
-    pub const fn card_min_width(self) -> f32 {
+    /// Narrowest a cover is drawn on the wall.
+    pub const fn cover_width(self) -> f32 {
         match self {
-            Density::Compact => tokens::layout::CARD_MIN_COMPACT,
-            Density::Comfortable => tokens::layout::CARD_MIN_COMFORTABLE,
-            Density::Large => tokens::layout::CARD_MIN_LARGE,
+            Density::Compact => tokens::layout::COVER_COMPACT,
+            Density::Comfortable => tokens::layout::COVER_COMFORTABLE,
+            Density::Large => tokens::layout::COVER_LARGE,
         }
     }
 }
@@ -96,7 +96,7 @@ pub struct Appearance {
     pub reduce_motion: bool,
     /// Multiplies the system scale factor (0.75 ..= 2.0).
     pub ui_scale: f32,
-    /// Grid density.
+    /// Cover size.
     pub density: Density,
 }
 
@@ -123,7 +123,7 @@ pub enum SystemScheme {
 
 /// Appearance preferences of the desktop (XDG portal `org.freedesktop.appearance` and the
 /// desktop keys it exposes), read by the binary off the UI thread (task A11Y-004).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SystemPrefs {
     /// Colour scheme, when the desktop states one.
     pub scheme: Option<SystemScheme>,
@@ -133,6 +133,8 @@ pub struct SystemPrefs {
     pub reduced_motion: Option<bool>,
     /// Desktop text scale (GNOME `text-scaling-factor`), multiplied into the UI scale.
     pub text_scale: f32,
+    /// The desktop's locale ("ar_EG.UTF-8", "en_GB"...), when known.
+    pub locale: Option<String>,
 }
 
 impl Default for SystemPrefs {
@@ -142,6 +144,7 @@ impl Default for SystemPrefs {
             high_contrast: false,
             reduced_motion: None,
             text_scale: 1.0,
+            locale: None,
         }
     }
 }
@@ -153,7 +156,7 @@ fn system_id() -> Id {
 /// Remember the desktop's preferences and follow its colour scheme where egui's own
 /// detection (winit) has none.
 pub fn set_system(ctx: &Context, system: SystemPrefs) {
-    ctx.data_mut(|d| d.insert_temp(system_id(), system));
+    ctx.data_mut(|d| d.insert_temp(system_id(), system.clone()));
     if let Some(s) = system.scheme {
         ctx.options_mut(|o| {
             o.fallback_theme = match s {
@@ -301,7 +304,7 @@ mod tests {
         install(&ctx, &a);
         let dark = theme(&ctx);
         assert_eq!(dark.palette.kind, ThemeKind::Dark);
-        assert_eq!(ctx.global_style().visuals.panel_fill, dark.palette.bg_base);
+        assert_eq!(ctx.global_style().visuals.panel_fill, dark.palette.bg);
 
         a.theme = ThemeChoice::Light;
         a.accent = Accent::Iris;
@@ -309,13 +312,13 @@ mod tests {
         let light = theme(&ctx);
         assert_eq!(light.palette.kind, ThemeKind::Light);
         assert_eq!(
-            light.palette.accent,
-            Palette::new(ThemeKind::Light, Accent::Iris).accent
+            light.palette.fill,
+            Palette::new(ThemeKind::Light, Accent::Iris).fill
         );
-        assert_eq!(ctx.global_style().visuals.panel_fill, light.palette.bg_base);
+        assert_eq!(ctx.global_style().visuals.panel_fill, light.palette.bg);
         assert_eq!(
             ctx.global_style().visuals.hyperlink_color,
-            light.palette.accent
+            light.palette.accent_text
         );
 
         a.theme = ThemeChoice::HighContrast;

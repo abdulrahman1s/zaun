@@ -537,6 +537,7 @@ impl AppService {
         }
         self.refresh_integration();
         self.load_crash();
+        self.steam_start();
     }
 
     fn run(&mut self, rx: &Receiver<Msg>) {
@@ -577,6 +578,10 @@ impl AppService {
         if self.refuse_in_recovery(&cmd) {
             return;
         }
+        // Steam commands and commands addressed to a Steam game (ADR-0031).
+        let Some(cmd) = self.steam_route(cmd) else {
+            return;
+        };
         match cmd {
             Command::OpenPaths { paths, origin } => self.open_paths(paths, origin),
             Command::CreateGame { draft, then } => self.create_game(*draft, then),
@@ -648,6 +653,8 @@ impl AppService {
             Command::SaveReport { files, dest } => self.save_report(files, dest),
             Command::DismissCrash => self.dismiss_crash(),
             Command::ResolveDatabase(choice) => self.resolve_database(&choice),
+            // Handled by `steam_route`.
+            Command::Steam(_) => {}
             Command::Shutdown => self.stopping = true,
         }
     }
@@ -787,6 +794,7 @@ impl AppService {
                 .replace_all(&self.deps.paths, &rows.artwork),
             Err(e) => tracing::warn!(error = %e, "artwork index not refreshed"),
         }
+        self.steam_index_art();
     }
 
     /// Add the artwork rows of one game to the index (and work out its accent again).
@@ -1038,6 +1046,7 @@ impl AppService {
             self.install_policy_check();
         }
         self.emit(Event::PreferencesChanged);
+        self.steam_preference_changed();
     }
 
     // ---- headless use ------------------------------------------------------------------

@@ -65,3 +65,7 @@ caret.right     caret-right             extra
 sidebar         sidebar-simple          extra
 library         books                   extra
 recent          clock-counter-clockwise extra
+caret.left      caret-left              extra
+arrow.up        arrow-up                extra
+arrow.down      arrow-down              extra
+check.circle    check-circle            extra

@@ -7,7 +7,7 @@ use easyplay_core::model::{Activity, BasePreset, GameSummary, NetworkAccess};
 
 use super::Env;
 use crate::app::UiState;
-use crate::bridge::{FolderTarget, UiCommand};
+use crate::bridge::{FolderTarget, SteamAction, UiCommand};
 use crate::input::picker::PickPurpose;
 use crate::route::{Overlay, Route};
 use crate::strings;
@@ -16,7 +16,7 @@ use crate::vm::dialogs::{AfterDiscard, Confirm, Dialog};
 use crate::vm::screens::ArtworkVm;
 use crate::vm::toasts::ToastKind;
 use crate::widgets::button::PlayState;
-use crate::widgets::card::play_state;
+use crate::widgets::card::{PlayView, play_view};
 
 /// A per-game action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,6 +33,9 @@ pub enum GameAction {
     ToggleTag(TagId),
     /// Open the tag editor.
     EditTags,
+    /// The `T` key: the tag menu hanging from the focused cover in the library (the tag
+    /// editor elsewhere).
+    TagMenu,
     /// Switch preset (asks when widening).
     Preset(BasePreset),
     /// Open the Protection tab.
@@ -51,10 +54,39 @@ pub enum GameAction {
     Hide,
     /// Remove (dialog).
     Remove,
+    /// The `Delete` key: remove the selection when there is one, else this game.
+    Delete,
     /// Copy the launch command (Developer Mode).
     CopyCommand,
     /// Open the launch inspector for the next launch (Developer Mode).
     Inspect,
+    /// A Steam game: show it in Steam, whose properties hold its compatibility layer and
+    /// launch options (ADR-0031).
+    OpenInSteam,
+    /// A Steam game: open Steam's downloads, where its update is started.
+    UpdateInSteam,
+    /// A Steam game run through Proton: open its Windows storage in the file manager.
+    OpenStorage,
+}
+
+impl GameAction {
+    /// Whether the action applies to a Steam game (ADR-0031): Steam runs it, so EasyPlay
+    /// cannot stop it, protect it, remove it, give it artwork, a shortcut or another
+    /// program, nor inspect its launch.
+    pub fn applies_to_steam(self) -> bool {
+        !matches!(
+            self,
+            GameAction::Stop
+                | GameAction::Preset(_)
+                | GameAction::EditProtection
+                | GameAction::OpenSaveData
+                | GameAction::Shortcut(_)
+                | GameAction::Artwork
+                | GameAction::CopyCommand
+                | GameAction::Inspect
+                | GameAction::Remove
+        )
+    }
 }
 
 /// Whether switching `g` to `preset` widens its access (network is the preset's main
@@ -75,6 +107,18 @@ pub fn apply(state: &mut UiState, env: &mut Env<'_>, id: GameId, action: GameAct
     let Some(g) = lib.get(id) else {
         return;
     };
+    if g.is_steam() && !action.applies_to_steam() {
+        // "Remove" is the one a person may ask for by key or menu: say how it is done.
+        if action == GameAction::Remove {
+            state.toast(
+                strings::steam::selection::NOT_REMOVED(),
+                ToastKind::Info,
+                None,
+                env.mono,
+            );
+        }
+        return;
+    }
     match action {
         GameAction::Play => play(state, env, g),
         GameAction::Stop => {
@@ -97,31 +141,26 @@ pub fn apply(state: &mut UiState, env: &mut Env<'_>, id: GameId, action: GameAct
             );
         }
         GameAction::ToggleTag(t) => {
+            // Ticked and unticked in a menu that stays open: no toast.
             let mut tags: Vec<TagId> = g.tags.to_vec();
             if let Some(i) = tags.iter().position(|x| *x == t) {
                 tags.remove(i);
             } else {
                 tags.push(t);
             }
-            let names = |ids: &[TagId]| {
-                ids.iter()
-                    .filter_map(|t| lib.tag(*t))
-                    .filter_map(|t| easyplay_core::ids::TagName::new(&*t.name).ok())
-                    .collect::<Vec<_>>()
-            };
-            let before = names(&g.tags);
-            env.bridge.send(UiCommand::SetTags {
-                id,
-                tags: names(&tags),
-            });
-            state.toast(
-                strings::feedback::tags_changed(&g.name),
-                ToastKind::Success,
-                Some(UiCommand::SetTags { id, tags: before }),
-                env.mono,
-            );
+            let names = tags
+                .iter()
+                .filter_map(|t| lib.tag(*t))
+                .filter_map(|t| easyplay_core::ids::TagName::new(&*t.name).ok())
+                .collect();
+            env.bridge.send(UiCommand::SetTags { id, tags: names });
         }
-        GameAction::EditTags => {
+        GameAction::TagMenu
+            if state.nav.current() == Route::Library && state.library.cursor_rect.is_some() =>
+        {
+            state.library.tag_menu = Some(id);
+        }
+        GameAction::EditTags | GameAction::TagMenu => {
             state.tag_text.clear();
             state.nav.open(Overlay::Tags(id));
         }
@@ -157,6 +196,7 @@ pub fn apply(state: &mut UiState, env: &mut Env<'_>, id: GameId, action: GameAct
                 env.mono,
             );
         }
+        // For a Steam game the picked program runs in its Windows storage (`app.rs`).
         GameAction::RunOther => state.picks.push(PickPurpose::RunProgram(id)),
         GameAction::Artwork => {
             state.artwork = Some(ArtworkVm::new(id, None));
@@ -165,12 +205,16 @@ pub fn apply(state: &mut UiState, env: &mut Env<'_>, id: GameId, action: GameAct
         GameAction::Hide => {
             let on = !g.hidden;
             env.bridge.send(UiCommand::SetHidden { id, hidden: on });
-            state.toast(
-                strings::feedback::hidden(&g.name, on),
-                ToastKind::Success,
-                Some(UiCommand::SetHidden { id, hidden: !on }),
-                env.mono,
-            );
+            state.library.selection.clear();
+            // Hiding offers Undo; showing a game again says nothing.
+            if on {
+                state.toast(
+                    strings::feedback::hidden(&g.name, on),
+                    ToastKind::Success,
+                    Some(UiCommand::SetHidden { id, hidden: !on }),
+                    env.mono,
+                );
+            }
         }
         GameAction::Remove => {
             state.show_dialog(Dialog::Confirm(Confirm::RemoveGames {
@@ -178,12 +222,38 @@ pub fn apply(state: &mut UiState, env: &mut Env<'_>, id: GameId, action: GameAct
                 options: RemoveOptions::default(),
             }));
         }
+        GameAction::Delete => {
+            if state.library.selection.is_empty() {
+                if g.is_steam() {
+                    state.toast(
+                        strings::steam::selection::NOT_REMOVED(),
+                        ToastKind::Info,
+                        None,
+                        env.mono,
+                    );
+                } else {
+                    state.show_dialog(Dialog::Confirm(Confirm::RemoveGames {
+                        ids: vec![id],
+                        options: RemoveOptions::default(),
+                    }));
+                }
+            } else {
+                bulk(state, env, BulkAction::Remove);
+            }
+        }
+        GameAction::OpenInSteam => env
+            .bridge
+            .send(UiCommand::Steam(SteamAction::OpenInSteam(id))),
+        GameAction::UpdateInSteam => env.bridge.send(UiCommand::Steam(SteamAction::Update(id))),
+        GameAction::OpenStorage => env
+            .bridge
+            .send(UiCommand::Steam(SteamAction::OpenStorageFolder(id))),
         GameAction::Inspect => super::debug::inspect_next(state, env, id),
         GameAction::CopyCommand => {
             let cmd = strings::menu::launch_command(&g.id.to_string());
             env.ctx.copy_text(cmd);
             state.toast(
-                strings::feedback::COPIED,
+                strings::feedback::COPIED(),
                 ToastKind::Success,
                 None,
                 env.mono,
@@ -192,96 +262,165 @@ pub fn apply(state: &mut UiState, env: &mut Env<'_>, id: GameId, action: GameAct
     }
 }
 
-/// The Play pill: play, stop, or locate by state.
+/// The Play pill: play, stop, or locate by state. A Steam game is handed to Steam while it
+/// is idle and nothing else: never a Stop, never "Locate…" (ADR-0031).
 pub fn play(state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
     let id = g.id;
     state.library.selected = Some(id);
-    match play_state(g) {
+    let st = match play_view(g) {
+        PlayView::State(st) => st,
+        PlayView::Blocked(_) => return,
+    };
+    if g.is_steam() {
+        if st == PlayState::Ready {
+            env.bridge.send(UiCommand::Launch { id, exe: None });
+        }
+        return;
+    }
+    match st {
         PlayState::Running => env.bridge.send(UiCommand::Stop { id, force: false }),
         PlayState::Stopping => env.bridge.send(UiCommand::Stop { id, force: true }),
         PlayState::Launching(_) => {}
         PlayState::Unavailable => state.picks.push(PickPurpose::Locate(id)),
         PlayState::Ready | PlayState::NeedsRuntime | PlayState::Installer => {
-            env.bridge.send(UiCommand::Launch { id, exe: None });
+            if !show_problem(state, env, id) {
+                env.bridge.send(UiCommand::Launch { id, exe: None });
+            }
         }
     }
 }
 
-/// Bulk actions of the selection bar.
+/// A game with a problem open shows the problem instead of failing to start again: the
+/// failed start as its dialog (which offers *Try again*), a session that ended at once on
+/// the game's page, where the note about it is. Returns whether there was one to show.
+fn show_problem(state: &mut UiState, env: &mut Env<'_>, id: GameId) -> bool {
+    if let Some(e) = state.launches.failures.get(&id).cloned() {
+        state.show_dialog(Dialog::Error(e));
+        return true;
+    }
+    if state.launches.ended_early.contains_key(&id) {
+        env.ctx
+            .data_mut(|d| d.insert_temp(egui::Id::unique(("details.show_problem", id)), true));
+        state.navigate(AfterDiscard::Route(Route::Game(id)));
+        return true;
+    }
+    false
+}
+
+/// Actions on the selection (the filter line while games are selected).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BulkAction {
     /// Add a tag to all.
     AddTag(TagId),
     /// Remove a tag from all.
     RemoveTag(TagId),
-    /// Favourite all.
+    /// Tick or untick a tag: on for all unless all have it (the design's tag menu).
+    ToggleTag(TagId),
+    /// Favourite all, or unfavourite all when all are favourites.
     Favorite,
     /// Hide all.
     Hide,
-    /// Switch all to a preset (summary dialog when widening).
+    /// Switch all to a level (asks first when that widens any).
     Preset(BasePreset),
     /// Remove all (one dialog).
     Remove,
 }
 
-/// Apply a bulk action to the selection; reports "3 changed, 1 skipped" for presets.
+/// Apply an action to the selection.
 pub fn bulk(state: &mut UiState, env: &mut Env<'_>, action: BulkAction) {
     let lib = env.bridge.library().clone();
-    let ids: Vec<GameId> = state.library.selection.clone();
-    let games: Vec<&GameSummary> = ids.iter().filter_map(|i| lib.get(*i)).collect();
+    let mut ids: Vec<GameId> = state.library.selection.clone();
+    let mut games: Vec<&GameSummary> = ids.iter().filter_map(|i| lib.get(*i)).collect();
+    // A change of protection and a removal skip Steam games: Steam runs them, and they are
+    // removed by uninstalling them in Steam (ADR-0031). A toast says how many were left, last
+    // (a new toast replaces the one showing).
+    let mut skipped = 0;
+    if matches!(action, BulkAction::Preset(_) | BulkAction::Remove) {
+        skipped = games.iter().filter(|g| g.is_steam()).count();
+        games.retain(|g| !g.is_steam());
+        ids.retain(|i| !i.is_steam());
+    }
+    if !games.is_empty() {
+        bulk_on(state, env, action, ids, &games, &lib);
+    }
+    if skipped > 0 {
+        let text = if games.is_empty() && action == BulkAction::Remove {
+            strings::steam::selection::NOT_REMOVED().to_owned()
+        } else {
+            strings::steam::selection::skipped(skipped)
+        };
+        state.toast(text, ToastKind::Info, None, env.mono);
+    }
+}
+
+/// [`bulk`] on `games` (`ids`), which it applies to.
+fn bulk_on(
+    state: &mut UiState,
+    env: &mut Env<'_>,
+    action: BulkAction,
+    ids: Vec<GameId>,
+    games: &[&GameSummary],
+    lib: &crate::bridge::LibraryView,
+) {
+    let names = |tags: &[TagId]| {
+        tags.iter()
+            .filter_map(|t| lib.tag(*t))
+            .filter_map(|t| easyplay_core::ids::TagName::new(&*t.name).ok())
+            .collect::<Vec<_>>()
+    };
     match action {
-        BulkAction::AddTag(t) | BulkAction::RemoveTag(t) => {
-            let add = matches!(action, BulkAction::AddTag(_));
-            for g in &games {
+        BulkAction::AddTag(t) | BulkAction::RemoveTag(t) | BulkAction::ToggleTag(t) => {
+            let add = match action {
+                BulkAction::AddTag(_) => true,
+                BulkAction::RemoveTag(_) => false,
+                _ => !games.iter().all(|g| g.tags.contains(&t)),
+            };
+            for g in games {
                 let mut tags: Vec<TagId> = g.tags.to_vec();
                 tags.retain(|x| *x != t);
                 if add {
                     tags.push(t);
                 }
-                let names = tags
-                    .iter()
-                    .filter_map(|t| lib.tag(*t))
-                    .filter_map(|t| easyplay_core::ids::TagName::new(&*t.name).ok())
-                    .collect();
                 env.bridge.send(UiCommand::SetTags {
                     id: g.id,
-                    tags: names,
+                    tags: names(&tags),
                 });
             }
-            state.toast(
-                strings::library::bulk_changed(games.len()),
-                ToastKind::Success,
-                None,
-                env.mono,
-            );
         }
         BulkAction::Favorite => {
-            for g in &games {
+            let on = !games.iter().all(|g| g.favorite);
+            for g in games {
                 env.bridge.send(UiCommand::SetFavorite {
                     id: g.id,
-                    favorite: true,
+                    favorite: on,
                 });
             }
             state.toast(
-                strings::library::bulk_changed(games.len()),
+                strings::feedback::favorited_many(games.len(), on),
                 ToastKind::Success,
                 None,
                 env.mono,
             );
         }
         BulkAction::Hide => {
-            for g in &games {
+            for g in games {
                 env.bridge.send(UiCommand::SetHidden {
                     id: g.id,
                     hidden: true,
                 });
             }
-            state.toast(
-                strings::library::bulk_changed(games.len()),
-                ToastKind::Success,
-                None,
-                env.mono,
-            );
+            let undo: Vec<UiCommand> = games
+                .iter()
+                .map(|g| UiCommand::SetHidden {
+                    id: g.id,
+                    hidden: false,
+                })
+                .collect();
+            let text = match games {
+                [g] => strings::feedback::hidden(&g.name, true),
+                _ => strings::feedback::hid_many(games.len()),
+            };
+            state.toast_undoing(text, ToastKind::Success, undo, env.mono);
             state.library.selection.clear();
         }
         BulkAction::Preset(p) => {
@@ -289,6 +428,12 @@ pub fn bulk(state: &mut UiState, env: &mut Env<'_>, action: BulkAction) {
                 state.show_dialog(Dialog::Confirm(Confirm::WidenProtection { ids, preset: p }));
             } else {
                 env.bridge.send(UiCommand::ApplyPreset { ids, preset: p });
+                state.toast(
+                    strings::feedback::set_to(games.len(), strings::shield::preset_name(p.into())),
+                    ToastKind::Success,
+                    None,
+                    env.mono,
+                );
             }
         }
         BulkAction::Remove => {
@@ -407,7 +552,7 @@ pub fn recover(
         R::CopyDetails => {
             env.ctx.copy_text(strings::errors::copy_text(err));
             state.toast(
-                strings::feedback::COPIED,
+                strings::feedback::COPIED(),
                 ToastKind::Success,
                 None,
                 env.mono,

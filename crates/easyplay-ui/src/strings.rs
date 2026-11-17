@@ -1,11 +1,25 @@
-//! Every user-visible string as a function or constant, grouped by screen. The single place to
-//! localise later. See MODULES §8, USER_EXPERIENCE §9 and task UI-029.
+//! Every user-visible string of the interface, grouped by screen: a function per text, read
+//! from the language catalogues (`locales/*.yml`, ADR-0032). See MODULES §8 and task UI-029.
 //!
 //! Screens never concatenate sentences: anything with a variable part is a function here.
 //! Number and date formatting follows STATISTICS §8.
 
 use easyplay_core::clock::Timestamp;
 use easyplay_core::model::{Activity, Availability, BasePreset, LaunchStateTag, Preset};
+
+/// Declares catalogue texts: each becomes a function, named like the constant it replaces,
+/// that returns the text of its key in the current language (ADR-0032).
+macro_rules! texts {
+    ($( $(#[$m:meta])* $name:ident = $key:literal; )*) => {
+        $(
+            $(#[$m])*
+            #[allow(non_snake_case)]
+            pub fn $name() -> &'static str {
+                crate::i18n::text($key)
+            }
+        )*
+    };
+}
 
 pub mod a11y;
 pub mod artwork;
@@ -23,6 +37,7 @@ pub mod settings;
 pub mod setup;
 pub mod shortcuts;
 pub mod stats;
+pub mod steam;
 pub mod tags;
 
 /// The application name.
@@ -32,225 +47,260 @@ pub const APP_NAME: &str = "EasyPlay";
 pub mod title {
     /// "<Route> — EasyPlay".
     pub fn window(route: &str) -> String {
-        format!("{route} — {}", super::APP_NAME)
+        rust_i18n::t!("title.window", route = route, app = super::APP_NAME).into_owned()
     }
 }
 
-/// Plural helper: `one` when `n == 1`, otherwise `many`.
-pub fn plural<'a>(n: u64, one: &'a str, many: &'a str) -> &'a str {
-    if n == 1 { one } else { many }
-}
-
-/// Sidebar and routes.
+/// The top bar's destinations and routes.
 pub mod nav {
-    /// Section label.
-    pub const LIBRARY: &str = "Library";
-    /// Section label.
-    pub const TAGS: &str = "Tags";
-    /// Route.
-    pub const STATISTICS: &str = "Statistics";
-    /// Route.
-    pub const SETTINGS: &str = "Settings";
-    /// Route.
-    pub const ONBOARDING: &str = "Welcome";
-    /// Debug route.
-    pub const GALLERY: &str = "Widget gallery";
-    /// Accessible name of the sidebar landmark.
-    pub const LANDMARK: &str = "Library navigation";
-    /// Toggle.
-    pub const COLLAPSE: &str = "Collapse sidebar";
-    /// Toggle.
-    pub const EXPAND: &str = "Expand sidebar";
-    /// Shortcut hint for the toggle.
-    pub const SIDEBAR_SHORTCUT: &str = "Ctrl+B";
-    /// Back button.
-    pub const BACK: &str = "Back";
-    /// Back shortcut.
-    pub const BACK_SHORTCUT: &str = "Alt+←";
+    texts! {
+        /// Section label.
+        LIBRARY = "nav.library";
+        /// Route.
+        STATISTICS = "nav.statistics";
+        /// Route.
+        SETTINGS = "nav.settings";
+        /// Route.
+        ONBOARDING = "nav.onboarding";
+        /// Debug route.
+        GALLERY = "nav.gallery";
+        /// Accessible name of the top bar's destinations.
+        LANDMARK = "nav.landmark";
+        /// The running game in the top bar, while it starts.
+        STARTING = "nav.starting";
+        /// Tooltip of the running game's title in the top bar.
+        OPEN_PAGE = "nav.open_page";
+    }
 
-    /// "All games, 42".
-    pub fn item_with_count(label: &str, count: usize) -> String {
-        format!("{label}, {count}")
+    /// "Open the page of Lantern Keep".
+    pub fn open_page_of(name: &str) -> String {
+        rust_i18n::t!("nav.open_page_of", name = name).into_owned()
     }
 }
 
 /// Collections (GAME_LIBRARY §6).
 pub mod collection {
-    /// All games.
-    pub const ALL: &str = "All games";
-    /// Favourites.
-    pub const FAVORITES: &str = "Favourites";
-    /// Recently played.
-    pub const RECENT: &str = "Recently played";
-    /// Never played.
-    pub const NEVER_PLAYED: &str = "Never played";
-    /// Running.
-    pub const RUNNING: &str = "Running";
-    /// Installed.
-    pub const INSTALLED: &str = "Installed";
-    /// Missing.
-    pub const MISSING: &str = "Missing";
-    /// Installers.
-    pub const INSTALLERS: &str = "Installers";
-    /// Hidden.
-    pub const HIDDEN: &str = "Hidden";
-
-    /// The empty-collection sentence.
-    pub fn empty_sentence(label: &str) -> &'static str {
-        match label {
-            FAVORITES => "Games you mark with a star appear here.",
-            RECENT => "Games you played in the last 30 days appear here.",
-            NEVER_PLAYED => "Every game in your library has been played.",
-            HIDDEN => "Games you hide from the library appear here.",
-            _ => "Games with this tag appear here.",
-        }
+    texts! {
+        /// All games.
+        ALL = "collection.all";
+        /// Favourites.
+        FAVORITES = "collection.favorites";
+        /// Played within two weeks.
+        RECENT = "collection.recent";
+        /// Never played.
+        NEVER_PLAYED = "collection.never_played";
+        /// Running.
+        RUNNING = "collection.running";
+        /// Installed.
+        INSTALLED = "collection.installed";
+        /// Missing.
+        MISSING = "collection.missing";
+        /// Installers.
+        INSTALLERS = "collection.installers";
+        /// Hidden.
+        HIDDEN = "collection.hidden";
     }
 }
 
 /// Host status row (SCREEN_SPECS §0).
 pub mod host {
-    /// All checks pass.
-    pub const READY: &str = "Ready";
-    /// Something needs the user.
-    pub const NEEDS_ATTENTION: &str = "Needs attention";
-    /// Background jobs are running.
-    pub const BUSY: &str = "Working in the background";
-    /// Before the first snapshot.
-    pub const CHECKING: &str = "Checking…";
+    texts! {
+        /// Something needs the user.
+        NEEDS_ATTENTION = "host.needs_attention";
+        /// Background jobs are running.
+        BUSY = "host.busy";
+    }
     /// Accessible name prefix.
     pub fn status(label: &str) -> String {
-        format!("System status: {label}")
+        rust_i18n::t!("host.status", label = label).into_owned()
     }
 }
 
 /// Library screen (SCREEN_SPECS §2).
 pub mod library {
-    /// Screen title.
-    pub const TITLE: &str = "Library";
-    /// Search hint.
-    pub const SEARCH_HINT: &str = "Search games…";
-    /// Search field accessible name.
-    pub const SEARCH: &str = "Search games";
-    /// Clear search.
-    pub const CLEAR_SEARCH: &str = "Clear search";
-    /// View switch.
-    pub const VIEW_GRID: &str = "Grid view";
-    /// View switch.
-    pub const VIEW_LIST: &str = "List view";
-    /// View switch group name.
-    pub const VIEW: &str = "View";
-    /// Sort select label.
-    pub const SORT: &str = "Sort";
-    /// Filter button.
-    pub const FILTER: &str = "Filter";
-    /// Primary action.
-    pub const ADD_GAME: &str = "Add game";
-    /// Grid accessible name prefix.
-    pub const GRID: &str = "Games";
-    /// Empty library.
-    pub const EMPTY_TITLE: &str = "Your library is empty";
-    /// Empty library.
-    pub const EMPTY_BODY: &str =
-        "Double-click a Windows program in your file manager, or add one here.";
-    /// Empty library drop target.
-    pub const DROP_HERE: &str = "Drop a program here";
-    /// No results action.
-    pub const CLEAR_FILTERS: &str = "Clear filters";
-    /// No results action.
-    pub const SEARCH_ALL: &str = "Search all games";
-    /// Empty collection title.
-    pub const EMPTY_COLLECTION: &str = "Nothing here yet";
+    texts! {
+        /// Screen title.
+        TITLE = "library.title";
+        /// Search hint.
+        SEARCH_HINT = "library.search_hint";
+        /// Search field accessible name.
+        SEARCH = "library.search";
+        /// Clear search.
+        CLEAR_SEARCH = "library.clear_search";
+        /// View switch.
+        VIEW_GRID = "library.view_grid";
+        /// View switch.
+        VIEW_LIST = "library.view_list";
+        /// View switch group name.
+        VIEW = "library.view";
+    }
+    /// The search field's key hint.
+    pub const KEY_SEARCH: &str = "/";
+    texts! {
+        /// "Add game" in the top bar: its tooltip.
+        ADD_GAME_TIP = "library.add_game_tip";
+        /// "Add game": its shortcut.
+        KEY_ADD = "library.key_add";
+        /// The sort word's tooltip.
+        SORT_TIP = "library.sort_tip";
+        /// The filter line's accessible name.
+        FILTER_LINE = "library.filter_line";
+        /// Clearing the selection: its shortcut.
+        KEY_ESC = "library.key_esc";
+        /// Selection actions.
+        SEL_TAGS = "library.sel_tags";
+        /// Selection actions.
+        SEL_FAVOURITE = "library.sel_favourite";
+        /// Selection actions.
+        SEL_HIDE = "library.sel_hide";
+        /// Selection actions.
+        SEL_PROTECTION = "library.sel_protection";
+        /// Sort menu: orders.
+        ORDER_RECENT_FIRST = "library.order_recent_first";
+        /// Sort menu: orders.
+        ORDER_OLDEST_FIRST = "library.order_oldest_first";
+        /// Sort menu: orders.
+        ORDER_Z_A = "library.order_z_a";
+        /// Sort menu: orders.
+        ORDER_A_Z = "library.order_a_z";
+        /// Sort menu: orders.
+        ORDER_MOST_PLAYED = "library.order_most_played";
+        /// Sort menu: orders.
+        ORDER_LEAST_PLAYED = "library.order_least_played";
+        /// Sort menu: orders.
+        ORDER_NEWEST_FIRST = "library.order_newest_first";
+        /// Sort menu: orders.
+        ORDER_MOST_LAUNCHED = "library.order_most_launched";
+        /// Sort menu: orders.
+        ORDER_LEAST_LAUNCHED = "library.order_least_launched";
+        /// Sort menu: orders (protection, Custom last when ascending).
+        ORDER_OPEN_FIRST = "library.order_open_first";
+        /// Sort menu: orders.
+        ORDER_CLOSED_FIRST = "library.order_closed_first";
+        /// Grouping.
+        GROUP_PLAYED = "library.group_played";
+        /// Group heading.
+        GROUP_NOT_PLAYED = "library.group_not_played";
+        /// Group heading.
+        GROUP_HAS_PLAYED = "library.group_has_played";
+        /// Group heading of games without a tag.
+        NO_TAG = "library.no_tag";
+        /// Empty states: the first game.
+        FIRST_TITLE = "library.first_title";
+        /// Empty states.
+        FIRST_TEXT = "library.first_text";
+        /// Empty states.
+        FIRST_FINE = "library.first_fine";
+        /// Empty states.
+        TRY_AGAIN = "library.try_again";
+        /// Empty states: nothing matches.
+        NO_MATCH_FILTERS = "library.no_match_filters";
+        /// Empty states.
+        NO_MATCH_TEXT = "library.no_match_text";
+        /// Empty states.
+        CLEAR = "library.clear";
+        /// Empty states.
+        FAV_TITLE = "library.fav_title";
+        /// Empty states.
+        FAV_TEXT = "library.fav_text";
+        /// Empty states.
+        RECENT_TITLE = "library.recent_title";
+        /// Empty states.
+        RECENT_TEXT = "library.recent_text";
+        /// Empty states.
+        NEVER_TITLE = "library.never_title";
+        /// Empty states.
+        NEVER_TEXT = "library.never_text";
+        /// Empty states.
+        OTHER_TITLE = "library.other_title";
+        /// Empty states.
+        OTHER_TEXT = "library.other_text";
+        /// Empty states.
+        SHOW_ALL = "library.show_all";
+        /// The list's accessible name.
+        LIST = "library.list";
+    }
 
-    /// Sort keys.
-    pub const SORT_NAME: &str = "Name";
-    /// Sort keys.
-    pub const SORT_RECENT: &str = "Recently played";
-    /// Sort keys.
-    pub const SORT_PLAYTIME: &str = "Playtime";
-    /// Sort keys.
-    pub const SORT_ADDED: &str = "Date added";
-    /// Sort keys.
-    pub const SORT_LAUNCHES: &str = "Times launched";
-    /// Sort keys.
-    pub const SORT_PROTECTION: &str = "Protection";
-    /// Sort keys.
-    pub const SORT_LAYER: &str = "Compatibility layer";
-    /// Sort direction.
-    pub const ASCENDING: &str = "Ascending order";
-    /// Sort direction.
-    pub const DESCENDING: &str = "Descending order";
-    /// Sort menu: section label.
-    pub const SORT_BY: &str = "Sort by";
-    /// Sort menu: direction.
-    pub const ORDER_ASCENDING: &str = "Ascending";
-    /// Sort menu: direction.
-    pub const ORDER_DESCENDING: &str = "Descending";
-    /// Sort menu: section label.
-    pub const GROUP_BY: &str = "Group by";
-    /// Grouping select.
-    pub const GROUP: &str = "Group";
-    /// Groupings.
-    pub const GROUP_NONE: &str = "None";
-    /// Groupings.
-    pub const GROUP_LETTER: &str = "First letter";
-    /// Groupings.
-    pub const GROUP_TAG: &str = "Tag";
-    /// Groupings.
-    pub const GROUP_PROTECTION: &str = "Protection";
-    /// List columns.
-    pub const COL_NAME: &str = "Name";
-    /// List columns.
-    pub const COL_PROTECTION: &str = "Protection";
-    /// List columns.
-    pub const COL_LAST_PLAYED: &str = "Last played";
-    /// List columns.
-    pub const COL_PLAYTIME: &str = "Playtime";
-    /// List columns.
-    pub const COL_TAGS: &str = "Tags";
-    /// List columns.
-    pub const COL_LAYER: &str = "Compatibility layer";
-    /// List columns.
-    pub const COL_ADDED: &str = "Added";
-    /// Column chooser.
-    pub const COLUMNS: &str = "Choose columns";
-    /// Filter groups.
-    pub const FILTER_TAGS: &str = "Tags";
-    /// Filter groups.
-    pub const FILTER_PROTECTION: &str = "Protection";
-    /// Filter groups.
-    pub const FILTER_INTERNET: &str = "Internet";
-    /// Filter groups.
-    pub const FILTER_AVAILABILITY: &str = "Availability";
-    /// Filter groups.
-    pub const FILTER_LAYER: &str = "Compatibility layer";
-    /// Filter groups.
-    pub const FILTER_TYPE: &str = "Type";
-    /// Chip row.
-    pub const CLEAR_ALL: &str = "Clear all";
-    /// Selection bar.
-    pub const CLEAR_SELECTION: &str = "Clear selection";
-    /// Selection bar.
-    pub const ADD_TAG: &str = "Add tag";
-    /// Selection bar.
-    pub const REMOVE_TAG: &str = "Remove tag";
-    /// Selection bar.
-    pub const CHANGE_PROTECTION: &str = "Change protection";
-    /// Selection bar.
-    pub const REMOVE_SELECTED: &str = "Remove…";
+    /// "Nothing matches “lantern”".
+    pub fn no_match(query: &str) -> String {
+        rust_i18n::t!("library.no_match", query = query).into_owned()
+    }
 
-    /// A sparse library: how to add more.
-    pub const DROP_HINT: &str = "Drop a Windows program anywhere in this window to add it.";
+    /// "13 of 17".
+    pub fn of_count(shown: usize, total: usize) -> String {
+        rust_i18n::t!("library.of_count", shown = shown, total = total).into_owned()
+    }
+    texts! {
+        /// Sort select label.
+        SORT = "library.sort";
+        /// Filter button.
+        FILTER = "library.filter";
+        /// Primary action.
+        ADD_GAME = "library.add_game";
+        /// Grid accessible name prefix.
+        GRID = "library.grid";
+        /// Sort keys.
+        SORT_NAME = "library.sort_name";
+        /// Sort keys.
+        SORT_RECENT = "library.sort_recent";
+        /// Sort keys.
+        SORT_PLAYTIME = "library.sort_playtime";
+        /// Sort keys.
+        SORT_ADDED = "library.sort_added";
+        /// Sort keys.
+        SORT_LAUNCHES = "library.sort_launches";
+        /// Sort keys.
+        SORT_PROTECTION = "library.sort_protection";
+        /// Sort keys.
+        SORT_LAYER = "library.sort_layer";
+        /// Sort menu: section label.
+        SORT_BY = "library.sort_by";
+        /// Sort menu: section label.
+        GROUP_BY = "library.group_by";
+        /// Groupings.
+        GROUP_NONE = "library.group_none";
+        /// Groupings.
+        GROUP_LETTER = "library.group_letter";
+        /// Groupings.
+        GROUP_TAG = "library.group_tag";
+        /// Groupings.
+        GROUP_PROTECTION = "library.group_protection";
+        /// List columns.
+        COL_NAME = "library.col_name";
+        /// List columns.
+        COL_PROTECTION = "library.col_protection";
+        /// List columns.
+        COL_LAST_PLAYED = "library.col_last_played";
+        /// List columns.
+        COL_PLAYTIME = "library.col_playtime";
+        /// Filter groups.
+        FILTER_TAGS = "library.filter_tags";
+        /// Filter groups.
+        FILTER_PROTECTION = "library.filter_protection";
+        /// Filter groups.
+        FILTER_INTERNET = "library.filter_internet";
+        /// Filter groups.
+        FILTER_AVAILABILITY = "library.filter_availability";
+        /// Filter groups.
+        FILTER_LAYER = "library.filter_layer";
+        /// Filter groups.
+        FILTER_TYPE = "library.filter_type";
+        /// Selection bar.
+        CLEAR_SELECTION = "library.clear_selection";
+        /// Selection bar.
+        REMOVE_TAG = "library.remove_tag";
+        /// Selection bar.
+        REMOVE_SELECTED = "library.remove_selected";
+    }
 
     /// The sort button's accessible name: "Sort: Name, ascending".
     pub fn sort_button(label: &str, descending: bool) -> String {
-        format!(
-            "{SORT}: {label}, {}",
-            if descending {
-                "descending"
-            } else {
-                "ascending"
-            }
-        )
+        let key = if descending {
+            "library.sort_button.descending"
+        } else {
+            "library.sort_button.ascending"
+        };
+        rust_i18n::t!(key, sort = SORT(), label = label).into_owned()
     }
 
     /// The sort button's tooltip: "Sorted by Name, ascending" and, while grouping is on,
@@ -258,94 +308,84 @@ pub mod library {
     pub fn arranged_by(sort: &str, descending: bool, group: Option<&str>) -> String {
         let by = sorted_by(sort, descending);
         match group {
-            Some(g) => format!("{by}, grouped by {g}"),
+            Some(g) => rust_i18n::t!("library.arranged_by_group", by = by, group = g).into_owned(),
             None => by,
         }
-    }
-
-    /// "Filter" or "Filter · 2".
-    pub fn filter_button(active: usize) -> String {
-        if active == 0 {
-            FILTER.to_owned()
-        } else {
-            format!("{FILTER} · {active}")
-        }
-    }
-
-    /// "tag:rpg".
-    pub fn tag_chip(name: &str) -> String {
-        format!("tag:{name}")
     }
 
     /// Preset filter labels.
     pub fn preset_filter(p: easyplay_core::library::PresetFilter) -> &'static str {
         use easyplay_core::library::PresetFilter as P;
         match p {
-            P::Offline => "Offline",
-            P::Online => "Online",
-            P::Standard => "Standard",
-            P::Custom => "Custom",
+            P::Offline => crate::i18n::text("library.preset_filter.offline"),
+            P::Online => crate::i18n::text("library.preset_filter.online"),
+            P::Standard => crate::i18n::text("library.preset_filter.standard"),
+            P::Custom => crate::i18n::text("library.preset_filter.custom"),
         }
     }
 
     /// Internet filter labels.
     pub fn network_filter(n: easyplay_core::model::NetworkAccess) -> &'static str {
         match n {
-            easyplay_core::model::NetworkAccess::None => "No internet",
-            easyplay_core::model::NetworkAccess::Full => "Internet allowed",
+            easyplay_core::model::NetworkAccess::None => {
+                crate::i18n::text("library.network_filter.no_internet")
+            }
+            easyplay_core::model::NetworkAccess::Full => {
+                crate::i18n::text("library.network_filter.internet_allowed")
+            }
         }
     }
 
     /// Availability filter labels.
     pub fn availability_filter(a: super::Availability) -> &'static str {
         match a {
-            super::Availability::Present => "Installed",
-            super::Availability::Missing => "Not found",
-            super::Availability::DriveDisconnected => "Drive not connected",
-            super::Availability::Unreadable => "Can’t be read",
-            super::Availability::Unknown => "Not checked yet",
+            super::Availability::Present => {
+                crate::i18n::text("library.availability_filter.installed")
+            }
+            super::Availability::Missing => {
+                crate::i18n::text("library.availability_filter.not_found")
+            }
+            super::Availability::DriveDisconnected => {
+                crate::i18n::text("library.availability_filter.drive_not_connected")
+            }
+            super::Availability::Unreadable => {
+                crate::i18n::text("library.availability_filter.can_t_be_read")
+            }
+            super::Availability::Unknown => {
+                crate::i18n::text("library.availability_filter.not_checked_yet")
+            }
         }
     }
 
     /// Type filter labels.
     pub fn kind_filter(k: easyplay_core::model::EntryKind) -> &'static str {
         match k {
-            easyplay_core::model::EntryKind::Game => "Games",
-            easyplay_core::model::EntryKind::Installer => "Installers",
-            easyplay_core::model::EntryKind::Tool => "Tools",
+            easyplay_core::model::EntryKind::Game => crate::i18n::text("library.kind_filter.games"),
+            easyplay_core::model::EntryKind::Installer => {
+                crate::i18n::text("library.kind_filter.installers")
+            }
+            easyplay_core::model::EntryKind::Tool => crate::i18n::text("library.kind_filter.tools"),
         }
     }
 
     /// "3 selected".
     pub fn selected_count(n: usize) -> String {
-        format!("{n} selected")
-    }
-
-    /// "R · 4".
-    pub fn group_header(label: &str, n: usize) -> String {
-        format!("{label} · {n}")
-    }
-
-    /// Header text with the sort arrow.
-    pub fn sorted_header(label: &str, descending: bool) -> String {
-        format!("{label} {}", if descending { "↓" } else { "↑" })
+        rust_i18n::t!("library.selected_count", n = n).into_owned()
     }
 
     /// "Sorted by Playtime, descending".
     pub fn sorted_by(label: &str, descending: bool) -> String {
-        format!(
-            "Sorted by {label}, {}",
-            if descending {
-                "descending"
-            } else {
-                "ascending"
-            }
-        )
+        let key = if descending {
+            "library.sorted_by.descending"
+        } else {
+            "library.sorted_by.ascending"
+        };
+        rust_i18n::t!(key, label = label).into_owned()
     }
 
     /// "Changed 3 games".
     pub fn bulk_changed(n: usize) -> String {
-        format!("Changed {n} {}", super::plural(n as u64, "game", "games"))
+        crate::i18n::plural::counted("library.bulk_changed", n as u64)
     }
 
     /// "3 changed, 1 skipped (running)".
@@ -353,36 +393,33 @@ pub mod library {
         if skipped == 0 {
             bulk_changed(changed)
         } else {
-            format!("{changed} changed, {skipped} skipped (running)")
+            rust_i18n::t!("library.bulk_summary", changed = changed, skipped = skipped).into_owned()
         }
     }
 
     /// "42 games" or "3 of 42".
     pub fn result_count(shown: usize, total: usize) -> String {
         if shown == total {
-            format!("{total} {}", super::plural(total as u64, "game", "games"))
+            crate::i18n::plural::counted("library.result_count", total as u64)
         } else {
-            format!("{shown} of {total}")
+            of_count(shown, total)
         }
-    }
-
-    /// "No games match “query”."
-    pub fn no_results(query: &str) -> String {
-        format!("No games match “{query}”.")
     }
 
     /// "Remove rpg" for a removable chip.
     pub fn remove_chip(label: &str) -> String {
-        format!("Remove {label}")
+        rust_i18n::t!("library.remove_chip", label = label).into_owned()
     }
 
     /// "Games, 42 items, 6 columns".
     pub fn grid_name(items: usize, columns: usize) -> String {
-        format!(
-            "{GRID}, {items} {}, {columns} {}",
-            super::plural(items as u64, "item", "items"),
-            super::plural(columns as u64, "column", "columns")
+        rust_i18n::t!(
+            "library.grid_name",
+            grid = GRID(),
+            items = crate::i18n::plural::counted("library.grid_items", items as u64),
+            columns = crate::i18n::plural::counted("library.grid_columns", columns as u64)
         )
+        .into_owned()
     }
 }
 
@@ -390,89 +427,105 @@ pub mod library {
 pub mod card {
     use super::*;
 
-    /// Favourite toggle.
-    pub const FAVORITE: &str = "Favourite";
-    /// Status: no sessions yet.
-    pub const NOT_PLAYED: &str = "Not played yet";
-    /// Status.
-    pub const NOT_FOUND: &str = "Not found";
-    /// Status.
-    pub const DRIVE_DISCONNECTED: &str = "Drive not connected";
-    /// Status.
-    pub const UNREADABLE: &str = "Can’t be read";
-    /// Status.
-    pub const INSTALLER: &str = "Installer";
-    /// Status.
-    pub const NEEDS_ATTENTION: &str = "Needs attention";
-    /// Status.
-    pub const STILL_RUNNING: &str = "Still running in the background";
-    /// Status.
-    pub const STOPPING: &str = "Stopping…";
-
-    /// The favourite toggle on a card, named for assistive technology:
-    /// "Favourite Hollow Knight".
-    pub fn favorite_name(name: &str) -> String {
-        format!("{FAVORITE} {name}")
+    texts! {
+        /// Favourite toggle.
+        FAVORITE = "card.favorite";
+        /// Status: no sessions yet.
+        NOT_PLAYED = "card.not_played";
+        /// Status: played, with no date of last play (a Steam game Steam gives no date for,
+        /// ADR-0031) and its time not shown under covers.
+        PLAYED = "card.played";
+        /// Status.
+        NOT_FOUND = "card.not_found";
+        /// Status.
+        DRIVE_DISCONNECTED = "card.drive_disconnected";
+        /// Status.
+        UNREADABLE = "card.unreadable";
+        /// Status.
+        INSTALLER = "card.installer";
+        /// Status.
+        NEEDS_ATTENTION = "card.needs_attention";
+        /// Status.
+        STILL_RUNNING = "card.still_running";
+        /// Status.
+        STOPPING = "card.stopping";
+        /// Status: a session is running (the elapsed time follows).
+        RUNNING = "card.running";
+        /// Caption: the game is starting.
+        STARTING = "card.starting";
     }
 
-    /// The more control on a card, named: "More actions for Hollow Knight".
-    pub fn more_name(name: &str) -> String {
-        format!("{MORE} for {name}")
-    }
+    // Time played, last played and a session's clock are written by `strings::fmt`
+    // (`fmt::play_time`, `fmt::last_played`, `fmt::session_clock`).
 
-    /// Status: a session is running (the elapsed time follows).
-    pub const RUNNING: &str = "Running";
-    /// The control that opens the game's menu.
-    pub const MORE: &str = "More actions";
-
-    /// The two ends of a card's status line: what is true now on the left ("12 h 05 min",
-    /// "Running", "Not found"), when on the right ("Yesterday", "0:42:10").
-    pub fn status_parts(
+    /// The line under a cover: what the game is doing, or how much it has been played
+    /// ("12 h, yesterday", "Not played yet", "Not found", "Installer", "Running 0:42",
+    /// "Starting…"). Without playtime only when it was last played.
+    #[allow(clippy::too_many_arguments)]
+    pub fn caption_meta(
         activity: Activity,
         availability: Availability,
+        installer: bool,
         total_ms: u64,
         last: Option<Timestamp>,
-        now: Timestamp,
-        offset_s: i32,
-    ) -> (String, Option<String>) {
-        if let Activity::Running { since } = activity {
-            let ms = now.since(since).map_or(0, |d| d.as_millis() as u64);
-            return (RUNNING.to_owned(), Some(fmt::clock(ms)));
-        }
-        if let Some(s) = state(activity, availability, now) {
-            return (s, None);
-        }
-        match last {
-            Some(t) if total_ms > 0 => (
-                fmt::duration(total_ms),
-                Some(fmt::relative_date(t, now, offset_s)),
-            ),
-            Some(t) => (fmt::relative_date(t, now, offset_s), None),
-            None => (NOT_PLAYED.to_owned(), None),
-        }
-    }
-
-    /// One sentence about playtime for the spotlight: "12 h 05 min played, last yesterday".
-    pub fn played_sentence(
-        total_ms: u64,
-        last: Option<Timestamp>,
+        show_playtime: bool,
         now: Timestamp,
         offset_s: i32,
     ) -> String {
-        match last {
-            Some(t) if total_ms > 0 => format!(
-                "{} played, last {}",
-                fmt::duration(total_ms),
-                fmt::relative_inline(t, now, offset_s)
-            ),
-            Some(t) => format!("Last opened {}", fmt::relative_inline(t, now, offset_s)),
-            None => NOT_PLAYED.to_owned(),
+        match activity {
+            Activity::Running { since } => {
+                let ms = now.since(since).map_or(0, |d| d.as_millis() as u64);
+                return rust_i18n::t!(
+                    "card.caption_running",
+                    state = RUNNING(),
+                    clock = fmt::session_clock(ms)
+                )
+                .into_owned();
+            }
+            Activity::Launching(_) => return STARTING().to_owned(),
+            Activity::Stopping => return STOPPING().to_owned(),
+            Activity::Lingering => return STILL_RUNNING().to_owned(),
+            Activity::Idle => {}
+        }
+        match availability {
+            Availability::Missing => return NOT_FOUND().to_owned(),
+            Availability::DriveDisconnected => return DRIVE_DISCONNECTED().to_owned(),
+            Availability::Unreadable => return UNREADABLE().to_owned(),
+            Availability::Present | Availability::Unknown => {}
+        }
+        if installer {
+            return INSTALLER().to_owned();
+        }
+        if last.is_none() {
+            // Time without a date: a Steam game Steam gives no date for (ADR-0031).
+            return match (total_ms, show_playtime) {
+                (0, _) => NOT_PLAYED().to_owned(),
+                (_, true) => fmt::play_time(total_ms),
+                (_, false) => PLAYED().to_owned(),
+            };
+        }
+        let when = fmt::last_played(last, now, offset_s);
+        if show_playtime {
+            // Lower-casing is a no-op in scripts without case.
+            rust_i18n::t!(
+                "card.caption_time_last",
+                time = fmt::play_time(total_ms),
+                when = when.to_lowercase()
+            )
+            .into_owned()
+        } else {
+            when
         }
     }
 
-    /// "Running · 0:42:10".
+    /// "Running · 42:10" (the session's clock, as the caption writes it).
     pub fn running(elapsed_ms: u64) -> String {
-        format!("Running · {}", fmt::clock(elapsed_ms))
+        rust_i18n::t!(
+            "card.running_clock",
+            state = RUNNING(),
+            clock = fmt::session_clock(elapsed_ms)
+        )
+        .into_owned()
     }
 
     /// The short phase text for a launch state.
@@ -480,28 +533,14 @@ pub mod card {
         match tag {
             LaunchStateTag::Validating
             | LaunchStateTag::ResolvingRuntime
-            | LaunchStateTag::AuditingRuntime => "Checking…",
-            LaunchStateTag::Provisioning => "Downloading…",
-            LaunchStateTag::Preparing | LaunchStateTag::Planning => "Preparing…",
-            LaunchStateTag::Spawning | LaunchStateTag::Starting => "Starting…",
-        }
-    }
-
-    /// The lower-case phase for spoken names ("preparing").
-    pub fn phase_spoken(tag: LaunchStateTag) -> String {
-        phase(tag).trim_end_matches('…').to_lowercase()
-    }
-
-    /// "12 h 05 min · Yesterday", "Not played yet".
-    pub fn played(total_ms: u64, last: Option<Timestamp>, now: Timestamp, offset_s: i32) -> String {
-        match last {
-            Some(t) if total_ms > 0 => format!(
-                "{} · {}",
-                fmt::duration(total_ms),
-                fmt::relative_date(t, now, offset_s)
-            ),
-            Some(t) => fmt::relative_date(t, now, offset_s),
-            None => NOT_PLAYED.to_owned(),
+            | LaunchStateTag::AuditingRuntime => crate::i18n::text("card.phase.checking"),
+            LaunchStateTag::Provisioning => crate::i18n::text("card.phase.downloading"),
+            LaunchStateTag::Preparing | LaunchStateTag::Planning => {
+                crate::i18n::text("card.phase.preparing")
+            }
+            LaunchStateTag::Spawning | LaunchStateTag::Starting => {
+                crate::i18n::text("card.phase.starting")
+            }
         }
     }
 
@@ -512,74 +551,87 @@ pub mod card {
                 let ms = now.since(since).map_or(0, |d| d.as_millis() as u64);
                 Some(running(ms))
             }
-            Activity::Lingering => Some(STILL_RUNNING.to_owned()),
+            Activity::Lingering => Some(STILL_RUNNING().to_owned()),
             Activity::Launching(tag) => Some(phase(tag).to_owned()),
-            Activity::Stopping => Some(STOPPING.to_owned()),
+            Activity::Stopping => Some(STOPPING().to_owned()),
             Activity::Idle => match availability {
-                Availability::Missing => Some(NOT_FOUND.to_owned()),
-                Availability::DriveDisconnected => Some(DRIVE_DISCONNECTED.to_owned()),
-                Availability::Unreadable => Some(UNREADABLE.to_owned()),
+                Availability::Missing => Some(NOT_FOUND().to_owned()),
+                Availability::DriveDisconnected => Some(DRIVE_DISCONNECTED().to_owned()),
+                Availability::Unreadable => Some(UNREADABLE().to_owned()),
                 Availability::Present | Availability::Unknown => None,
             },
         }
     }
 
-    /// "Hollow Knight. Offline. Played 12 hours 5 minutes, last yesterday."
+    /// "Hollow Knight. Offline. Played 12 hours 5 minutes, last yesterday." `protection`
+    /// is the level's name, or "Run by Steam" for a Steam game (ADR-0031).
     pub fn accessible_name(
         name: &str,
-        preset: Preset,
+        protection: &str,
         state: Option<&str>,
         total_ms: u64,
         last: Option<Timestamp>,
         now: Timestamp,
         offset_s: i32,
     ) -> String {
-        let mut s = format!("{name}. {}.", shield::preset_name(preset));
+        let mut parts = vec![
+            rust_i18n::t!("card.a11y.head", name = name, protection = protection).into_owned(),
+        ];
         if let Some(state) = state {
-            s.push_str(&format!(" {}.", state.trim_end_matches('…')));
+            parts.push(
+                rust_i18n::t!("card.a11y.state", state = state.trim_end_matches('…')).into_owned(),
+            );
         }
-        match last {
-            Some(t) if total_ms > 0 => s.push_str(&format!(
-                " Played {}, last {}.",
-                fmt::duration_spoken(total_ms),
-                fmt::relative_inline(t, now, offset_s)
-            )),
-            _ => s.push_str(&format!(" {NOT_PLAYED}.")),
-        }
-        s
+        parts.push(match last {
+            Some(t) if total_ms > 0 => rust_i18n::t!(
+                "card.a11y.played_last",
+                time = fmt::duration_spoken(total_ms),
+                last = fmt::relative_inline(t, now, offset_s)
+            )
+            .into_owned(),
+            // Time without a date (a Steam game, ADR-0031).
+            None if total_ms > 0 => {
+                rust_i18n::t!("card.a11y.played", time = fmt::duration_spoken(total_ms))
+                    .into_owned()
+            }
+            _ => rust_i18n::t!("card.a11y.not_played", state = NOT_PLAYED()).into_owned(),
+        });
+        parts.join(" ")
     }
 }
 
 /// The Play pill (UI_DESIGN_SYSTEM §7.1).
 pub mod play {
-    /// Ready.
-    pub const PLAY: &str = "Play";
-    /// Running.
-    pub const STOP: &str = "Stop";
-    /// Stopping.
-    pub const STOPPING: &str = "Stopping…";
-    /// Unavailable.
-    pub const LOCATE: &str = "Locate…";
-    /// Needs runtime.
-    pub const DOWNLOAD_AND_PLAY: &str = "Download and play";
-    /// Installer.
-    pub const RUN_INSTALLER: &str = "Run installer";
+    texts! {
+        /// Ready.
+        PLAY = "play.play";
+        /// Running.
+        STOP = "play.stop";
+        /// Stopping.
+        STOPPING = "play.stopping";
+        /// Unavailable.
+        LOCATE = "play.locate";
+        /// Needs runtime.
+        DOWNLOAD_AND_PLAY = "play.download_and_play";
+        /// Installer.
+        RUN_INSTALLER = "play.run_installer";
+    }
 
     /// "Play Hollow Knight".
     pub fn play_name(name: &str) -> String {
-        format!("Play {name}")
+        rust_i18n::t!("play.play_name", name = name).into_owned()
     }
     /// "Stop Hollow Knight".
     pub fn stop_name(name: &str) -> String {
-        format!("Stop {name}")
+        rust_i18n::t!("play.stop_name", name = name).into_owned()
     }
     /// "Starting Hollow Knight, preparing".
     pub fn busy_name(name: &str, phase: &str) -> String {
-        format!("Starting {name}, {phase}")
+        rust_i18n::t!("play.busy_name", name = name, phase = phase).into_owned()
     }
     /// "Locate Hollow Knight".
     pub fn locate_name(name: &str) -> String {
-        format!("Locate {name}")
+        rust_i18n::t!("play.locate_name", name = name).into_owned()
     }
 }
 
@@ -590,19 +642,23 @@ pub mod shield {
     /// "Offline", "Custom".
     pub fn preset_name(p: Preset) -> &'static str {
         match p {
-            Preset::Offline => "Offline",
-            Preset::Online => "Online",
-            Preset::Standard => "Standard",
-            Preset::Custom { .. } => "Custom",
+            Preset::Offline => crate::i18n::text("shield.preset_name.offline"),
+            Preset::Online => crate::i18n::text("shield.preset_name.online"),
+            Preset::Standard => crate::i18n::text("shield.preset_name.standard"),
+            Preset::Custom { .. } => crate::i18n::text("shield.preset_name.custom"),
         }
     }
 
     /// The preset's one-line description.
     pub fn base_description(b: BasePreset) -> &'static str {
         match b {
-            BasePreset::Offline => "No internet. Can use only its own folder.",
-            BasePreset::Online => "Internet allowed. Can use only its own folder.",
-            BasePreset::Standard => "Internet allowed. Fewer restrictions for best compatibility.",
+            BasePreset::Offline => crate::i18n::text("shield.base_description.no_internet_can_use"),
+            BasePreset::Online => {
+                crate::i18n::text("shield.base_description.internet_allowed_can_use")
+            }
+            BasePreset::Standard => {
+                crate::i18n::text("shield.base_description.internet_allowed_fewer_restrictions")
+            }
         }
     }
 
@@ -612,291 +668,456 @@ pub mod shield {
             Preset::Offline => base_description(BasePreset::Offline).to_owned(),
             Preset::Online => base_description(BasePreset::Online).to_owned(),
             Preset::Standard => base_description(BasePreset::Standard).to_owned(),
-            Preset::Custom { base } => format!(
-                "Changed from {}. {}",
-                preset_name(match base {
+            Preset::Custom { base } => rust_i18n::t!(
+                "shield.changed_from",
+                preset = preset_name(match base {
                     BasePreset::Offline => Preset::Offline,
                     BasePreset::Online => Preset::Online,
                     BasePreset::Standard => Preset::Standard,
                 }),
-                base_description(base)
-            ),
+                description = base_description(base)
+            )
+            .into_owned(),
         }
     }
 
     /// "Protection: Offline. No internet. Can use only its own folder."
     pub fn accessible_name(p: Preset) -> String {
-        format!("Protection: {}. {}", preset_name(p), description(p))
+        rust_i18n::t!(
+            "shield.accessible_name",
+            preset = preset_name(p),
+            description = description(p)
+        )
+        .into_owned()
     }
 
-    /// Shown instead when attention is needed.
-    pub const ATTENTION: &str = "Protection needs attention";
+    texts! {
+        /// Shown instead when attention is needed.
+        ATTENTION = "shield.attention";
+    }
 }
 
 /// Access statements (SANDBOX `explain` sentences arrive with SANDBOX-019).
-pub mod access {
-    /// Network off.
-    pub const NO_INTERNET: &str = "Cannot use the internet";
-    /// Network on.
-    pub const INTERNET: &str = "Can use the internet";
-    /// Own folder.
-    pub const OWN_FOLDER: &str = "Can read and change files in its own folder";
-    /// Controllers.
-    pub const CONTROLLERS: &str = "Can use connected controllers";
-    /// Link to the full list.
-    pub const SEE_ALL: &str = "See everything this game can reach";
-}
+pub mod access {}
 
 /// Toasts and banners.
 pub mod feedback {
-    /// Dismiss button.
-    pub const DISMISS: &str = "Dismiss";
-    /// Undo action.
-    pub const UNDO: &str = "Undo";
-    /// Details action.
-    pub const DETAILS: &str = "Details";
-    /// Close button.
-    pub const CLOSE: &str = "Close";
-    /// Toast region name.
-    pub const NOTIFICATIONS: &str = "Notifications";
-    /// Demo banner shown while the UI runs without a backend.
-    pub const PREVIEW_BANNER: &str =
-        "Preview mode: this library is sample data. Games cannot be started yet.";
-
-    /// Clipboard.
-    pub const COPIED: &str = "Copied";
-    /// `Ctrl+Z`.
-    pub const UNDONE: &str = "Undone";
-    /// Image dropped on a card.
-    pub const COVER_SET: &str = "Cover changed";
+    texts! {
+        /// Dismiss button.
+        DISMISS = "feedback.dismiss";
+        /// Undo action.
+        UNDO = "feedback.undo";
+        /// Close button.
+        CLOSE = "feedback.close";
+        /// Toast region name.
+        NOTIFICATIONS = "feedback.notifications";
+        /// Demo banner shown while the UI runs without a backend.
+        PREVIEW_BANNER = "feedback.preview_banner";
+        /// Clipboard.
+        COPIED = "feedback.copied";
+        /// `Ctrl+Z`.
+        UNDONE = "feedback.undone";
+        /// Image dropped on a card.
+        COVER_SET = "feedback.cover_set";
+    }
 
     /// "Removed Hollow Knight".
     pub fn removed(name: &str) -> String {
-        format!("Removed {name}")
+        rust_i18n::t!("feedback.removed", name = name).into_owned()
     }
     /// "Stopped Hollow Knight".
     pub fn stopped(name: &str) -> String {
-        format!("Stopped {name}")
+        rust_i18n::t!("feedback.stopped", name = name).into_owned()
     }
-    /// "Added Hollow Knight to the library".
+    /// "Added Hollow Knight".
     pub fn added(name: &str) -> String {
-        format!("Added {name} to the library")
+        rust_i18n::t!("feedback.added", name = name).into_owned()
+    }
+    /// "Hid 3 games".
+    pub fn hid_many(n: usize) -> String {
+        crate::i18n::plural::counted("feedback.hid_many", n as u64)
+    }
+    /// "3 games set to Online".
+    pub fn set_to(n: usize, level: &str) -> String {
+        crate::i18n::plural::counted_args("feedback.set_to", n as u64, &[("level", level)])
+    }
+    /// "Added 3 games to Favourites", "Removed 3 games from Favourites".
+    pub fn favorited_many(n: usize, on: bool) -> String {
+        let games = crate::i18n::plural::counted("feedback.games", n as u64);
+        let key = if on {
+            "feedback.favorites_added_many"
+        } else {
+            "feedback.favorites_removed_many"
+        };
+        rust_i18n::t!(key, games = games).into_owned()
     }
     /// "Reset private Windows storage for Hollow Knight".
     pub fn prefix_reset(name: &str) -> String {
-        format!("Reset private Windows storage for {name}")
-    }
-    /// "Changed tags of Hollow Knight".
-    pub fn tags_changed(name: &str) -> String {
-        format!("Changed tags of {name}")
+        rust_i18n::t!("feedback.prefix_reset", name = name).into_owned()
     }
     /// Menu shortcut toast.
     pub fn shortcut(name: &str, on: bool) -> String {
-        if on {
-            format!("Added {name} to the applications menu")
+        let key = if on {
+            "feedback.shortcut_added"
         } else {
-            format!("Removed {name} from the applications menu")
-        }
+            "feedback.shortcut_removed"
+        };
+        rust_i18n::t!(key, name = name).into_owned()
     }
     /// Hide toast.
     pub fn hidden(name: &str, on: bool) -> String {
-        if on {
-            format!("Hid {name}")
+        let key = if on {
+            "feedback.hidden_on"
         } else {
-            format!("{name} is shown again")
-        }
+            "feedback.hidden_off"
+        };
+        rust_i18n::t!(key, name = name).into_owned()
     }
     /// "Renamed to Hollow Knight".
     pub fn renamed(name: &str) -> String {
-        format!("Renamed to {name}")
+        rust_i18n::t!("feedback.renamed", name = name).into_owned()
     }
-    /// Saved tick.
-    pub const SAVED: &str = "Saved";
+    texts! {
+        /// Saved tick.
+        SAVED = "feedback.saved";
+    }
 
-    /// "Starting Hollow Knight is not available in preview mode."
-    pub fn preview_action(action: &str, name: &str) -> String {
-        format!("{action} {name} is not available in preview mode.")
-    }
-    /// "Added Hollow Knight to favourites."
-    pub fn favorited(name: &str, on: bool) -> String {
-        if on {
-            format!("Added {name} to favourites")
+    /// "Added to Favourites", "Removed from Favourites" (the game is the one in front of
+    /// you; `_name` is kept for callers).
+    pub fn favorited(_name: &str, on: bool) -> String {
+        let key = if on {
+            "feedback.favorites_added"
         } else {
-            format!("Removed {name} from favourites")
-        }
+            "feedback.favorites_removed"
+        };
+        crate::i18n::text(key).to_owned()
     }
 }
 
 /// Placeholder screens that later tasks fill in.
-pub mod placeholder {
-    /// Title.
-    pub const COMING_TITLE: &str = "Not built yet";
-    /// Body.
-    pub const COMING_BODY: &str =
-        "This part of EasyPlay arrives in a later version of the preview.";
-    /// Back to library.
-    pub const BACK_TO_LIBRARY: &str = "Back to library";
-}
+pub mod placeholder {}
 
 /// The widget gallery (debug-only route, UI-004).
 pub mod gallery {
-    /// Section.
-    pub const BUTTONS: &str = "Buttons";
-    /// Section.
-    pub const PLAY: &str = "Play pill";
-    /// Section.
-    pub const INPUTS: &str = "Inputs";
-    /// Section.
-    pub const DISPLAY: &str = "Display";
-    /// Section.
-    pub const CARDS: &str = "Game cards";
-    /// Section.
-    pub const OVERLAYS: &str = "Overlays";
-    /// Section.
-    pub const TYPE: &str = "Type scale";
-    /// Section.
-    pub const ICONS: &str = "Icons";
-    /// Theme switch label.
-    pub const THEME: &str = "Theme";
-    /// Accent switch label.
-    pub const ACCENT: &str = "Accent";
-    /// Reduced motion toggle.
-    pub const REDUCE_MOTION: &str = "Reduce motion";
-    /// Reduced motion description.
-    pub const REDUCE_MOTION_HINT: &str = "Turns off movement; short fades remain.";
-    /// Sample labels.
-    pub const PRIMARY: &str = "Primary";
-    /// Sample labels.
-    pub const SECONDARY: &str = "Secondary";
-    /// Sample labels.
-    pub const GHOST: &str = "Ghost";
-    /// Sample labels.
-    pub const DANGER: &str = "Remove game";
-    /// Sample labels.
-    pub const LINK: &str = "Open folder";
-    /// Sample labels.
-    pub const BUSY: &str = "Saving";
-    /// Disabled reason.
-    pub const DISABLED_REASON: &str = "Nothing to save yet.";
-    /// Sample labels.
-    pub const DISABLED: &str = "Save";
-    /// Sample field.
-    pub const FIELD_LABEL: &str = "Name";
-    /// Sample field.
-    pub const FIELD_HELP: &str = "Shown in the library and on the game page.";
-    /// Sample field.
-    pub const FIELD_ERROR: &str = "A name is required.";
-    /// Sample toggle.
-    pub const TOGGLE_LABEL: &str = "Show playtime on cards";
-    /// Sample toggle.
-    pub const TOGGLE_HINT: &str = "Playtime and last played under each title.";
-    /// Sample chips.
-    pub const CHIP_OFFLINE: &str = "Offline";
-    /// Sample chips.
-    pub const CHIP_RPG: &str = "rpg";
-    /// Sample banner.
-    pub const BANNER_INFO: &str = "A newer compatibility layer is available.";
-    /// Sample banner.
-    pub const BANNER_WARNING: &str = "Some games are on a drive that is not connected.";
-    /// Sample banner.
-    pub const BANNER_ACTION: &str = "Review";
-    /// Sample sheet.
-    pub const OPEN_SHEET: &str = "Open sheet";
-    /// Sample dialog.
-    pub const OPEN_DIALOG: &str = "Open dialog";
-    /// Sample toast.
-    pub const SHOW_TOAST: &str = "Show toast";
-    /// Sample sheet.
-    pub const SHEET_TITLE: &str = "Set up Hollow Knight";
-    /// Sample sheet.
-    pub const SHEET_BODY: &str = "Choose how much this game can reach. You can change this later.";
-    /// Sample dialog.
-    pub const DIALOG_TITLE: &str = "Remove Hollow Knight?";
-    /// Sample dialog.
-    pub const DIALOG_BODY: &str = "This removes the game from your library and deletes 2.1 GB of private storage. Your game files are kept.";
-    /// Sample dialog.
-    pub const KEEP: &str = "Keep game";
-    /// Sample toast.
-    pub const TOAST_TEXT: &str = "Saved";
-    /// Stat tile.
-    pub const STAT_LABEL: &str = "Total playtime";
-    /// Stat tile.
-    pub const STAT_CAPTION: &str = "across 24 games";
-    /// Progress.
-    pub const PROGRESS: &str = "Downloading";
-    /// Segmented sample.
-    pub const SEG_READ: &str = "Read only";
-    /// Segmented sample.
-    pub const SEG_WRITE: &str = "Read and change";
-    /// Segmented sample group.
-    pub const SEG_ACCESS: &str = "Access";
-    /// Select sample.
-    pub const SELECT_LABEL: &str = "Sort";
-    /// Folder sample.
-    pub const PATH_NAME: &str = "Music";
-    /// Folder sample.
-    pub const PATH_LOCATION: &str = "in Home";
-    /// Permission row sample: why a degree cannot be chosen.
-    pub const CHOICE_UNAVAILABLE: &str = "A choice that cannot be made says why.";
-    /// Key hint sample.
-    pub const SHORTCUT_PLAY: &str = "Play the selected game";
-    /// Tab sample.
-    pub const TAB_OVERVIEW: &str = "Overview";
-    /// Tab sample.
-    pub const TAB_PROTECTION: &str = "Protection";
-    /// Tab sample.
-    pub const TAB_COMPAT: &str = "Compatibility";
-    /// Tab sample.
-    pub const TABS: &str = "Game page sections";
-    /// Sample game name.
-    pub const SAMPLE_GAME: &str = "Lantern Keep";
-    /// Sample tag.
-    pub const CHIP_COOP: &str = "co-op";
-    /// Sample path.
-    pub const PATH_FULL: &str = "/home/user/Music";
-    /// Shortest card name.
-    pub const SHORT_NAME: &str = "A";
-    /// Longest card name.
-    pub const LONG_NAME: &str =
-        "An Extraordinarily Long Name That Keeps Going: The Complete Collector’s Edition";
-    /// Sample stat value.
-    pub const STAT_VALUE: &str = "1,240 h";
-    /// Sample stat value, spoken.
-    pub const STAT_SPOKEN: &str = "1,240 hours";
-    /// Sample clock.
-    pub const CLOCK_SAMPLE: &str = "1:11:11 · 0:42:10";
-    /// Fact sample.
-    pub const FACT_LABEL: &str = "Last played";
-    /// Fact sample.
-    pub const FACT_VALUE: &str = "Yesterday";
-    /// Fact sample with a strip.
-    pub const WEEK_LABEL: &str = "Last 7 days";
-    /// Fact sample with a strip.
-    pub const WEEK_VALUE: &str = "3 h 40 min";
-    /// Strip sample: a day and its value.
-    pub const WEEK_DAY: &str = "Tuesday 3 November: 2 h 10 min";
-    /// Link row sample.
-    pub const ROW_PROTECTION: &str = "Protection";
-    /// Link row sample.
-    pub const ROW_PRESET: &str = "Offline";
-    /// Link row sample.
-    pub const ROW_ATTENTION: &str = "Needs attention";
-    /// Link row sample: the list of points.
-    pub const ROW_REACH: &str = "What this game can reach";
-    /// Link row sample: points.
-    pub const ROW_POINTS: [&str; 3] = [
-        "No internet or local network",
-        "Cannot see your personal files",
-        "Can use your cameras",
-    ];
-    /// Link row sample.
-    pub const ROW_FOLDER: &str = "Game folder";
-    /// Link row sample.
-    pub const ROW_FOLDER_HINT: &str = "Open in the file manager";
-    /// Control row sample.
-    pub const ROW_PROGRAMS: &str = "Other programs";
-    /// Control row sample.
-    pub const ROW_TOOL: &str = "Settings";
+    texts! {
+        /// Section.
+        APPEARANCE = "gallery.appearance";
+        /// Section.
+        TYPE = "gallery.type";
+        /// Section.
+        ICONS = "gallery.icons";
+        /// Section.
+        BUTTONS = "gallery.buttons";
+        /// Section.
+        PLAY = "gallery.play";
+        /// Section.
+        WORDS = "gallery.words";
+        /// Section.
+        INPUTS = "gallery.inputs";
+        /// Section.
+        ROWS = "gallery.rows";
+        /// Section.
+        NOTES = "gallery.notes";
+        /// Section.
+        LOADING = "gallery.loading";
+        /// Section.
+        BLANK = "gallery.blank";
+        /// Section.
+        COVERS = "gallery.covers";
+        /// Section.
+        OVERLAYS = "gallery.overlays";
+        /// Section.
+        MARKS = "gallery.marks";
+        /// Chart sample: its name.
+        CHART_NAME = "gallery.chart_name";
+    }
+    /// Chart sample: the days.
+    #[allow(non_snake_case)]
+    pub fn CHART_DAYS() -> [&'static str; 7] {
+        [
+            crate::i18n::text("gallery.chart_days.10_nov"),
+            crate::i18n::text("gallery.chart_days.11_nov"),
+            crate::i18n::text("gallery.chart_days.12_nov"),
+            crate::i18n::text("gallery.chart_days.13_nov"),
+            crate::i18n::text("gallery.chart_days.14_nov"),
+            crate::i18n::text("gallery.chart_days.15_nov"),
+            crate::i18n::text("gallery.chart_days.16_nov"),
+        ]
+    }
+    /// Chart sample: the values.
+    #[allow(non_snake_case)]
+    pub fn CHART_VALUES() -> [&'static str; 7] {
+        [
+            crate::i18n::text("gallery.chart_values.0_min"),
+            crate::i18n::text("gallery.chart_values.2_h_10_min"),
+            crate::i18n::text("gallery.chart_values.0_min_2"),
+            crate::i18n::text("gallery.chart_values.45_min"),
+            crate::i18n::text("gallery.chart_values.0_min_3"),
+            crate::i18n::text("gallery.chart_values.0_min_4"),
+            crate::i18n::text("gallery.chart_values.45_min_2"),
+        ]
+    }
+    texts! {
+        /// Theme switch label.
+        THEME = "gallery.theme";
+        /// Accent switch label.
+        ACCENT = "gallery.accent";
+        /// Reduced motion switch.
+        REDUCE_MOTION = "gallery.reduce_motion";
+        /// Reduced motion description.
+        REDUCE_MOTION_HINT = "gallery.reduce_motion_hint";
+        /// Sample labels.
+        PRIMARY = "gallery.primary";
+        /// Sample labels.
+        SECONDARY = "gallery.secondary";
+        /// Sample labels.
+        GHOST = "gallery.ghost";
+        /// Sample labels.
+        DANGER = "gallery.danger";
+        /// Sample labels.
+        WARN = "gallery.warn";
+        /// Sample labels.
+        LINK = "gallery.link";
+        /// Sample labels.
+        BUSY = "gallery.busy";
+        /// Disabled reason.
+        DISABLED_REASON = "gallery.disabled_reason";
+        /// Sample labels.
+        DISABLED = "gallery.disabled";
+        /// Sample labels: a button that opens a menu.
+        MENU = "gallery.menu";
+        /// Sample labels: a button with a count.
+        COUNTED = "gallery.counted";
+        /// Sample field.
+        FIELD_LABEL = "gallery.field_label";
+        /// Sample field.
+        FIELD_HELP = "gallery.field_help";
+        /// Sample field.
+        FIELD_ERROR = "gallery.field_error";
+        /// Sample field: mono.
+        FIELD_MONO = "gallery.field_mono";
+        /// Sample switch row.
+        TOGGLE_LABEL = "gallery.toggle_label";
+        /// Sample switch row.
+        TOGGLE_HINT = "gallery.toggle_hint";
+        /// Sample checkbox.
+        CHECK_LABEL = "gallery.check_label";
+        /// Sample radio rows.
+        PICK_A = "gallery.pick_a";
+        /// Sample radio rows.
+        PICK_A_NOTE = "gallery.pick_a_note";
+        /// Sample radio rows.
+        PICK_B = "gallery.pick_b";
+        /// Sample slider.
+        SLIDER = "gallery.slider";
+        /// Sample slider value.
+        SLIDER_VALUE = "gallery.slider_value";
+        /// Sample segmented group.
+        SEG_ACCESS = "gallery.seg_access";
+        /// Sample select.
+        SELECT_LABEL = "gallery.select_label";
+    }
+    /// Sample select options.
+    #[allow(non_snake_case)]
+    pub fn SELECT_OPTIONS() -> [&'static str; 3] {
+        [
+            crate::i18n::text("gallery.select_options.keep_running"),
+            crate::i18n::text("gallery.select_options.close_it"),
+            crate::i18n::text("gallery.select_options.ask_every_time"),
+        ]
+    }
+    texts! {
+        /// Sample inline select.
+        INLINE_LABEL = "gallery.inline_label";
+    }
+    /// Sample inline select options.
+    #[allow(non_snake_case)]
+    pub fn INLINE_OPTIONS() -> [&'static str; 2] {
+        [
+            crate::i18n::text("gallery.inline_options.all_controllers"),
+            crate::i18n::text("gallery.inline_options.the_first_controller"),
+        ]
+    }
+    texts! {
+        /// Swatch names.
+        SWATCH = "gallery.swatch";
+        /// Tab sample.
+        TAB_OVERVIEW = "gallery.tab_overview";
+        /// Tab sample.
+        TAB_PROTECTION = "gallery.tab_protection";
+        /// Tab sample.
+        TAB_COMPAT = "gallery.tab_compat";
+        /// Tab sample.
+        TABS = "gallery.tabs";
+        /// Key hint sample.
+        SHORTCUT = "gallery.shortcut";
+        /// Key hint sample.
+        SHORTCUT_PLAY = "gallery.shortcut_play";
+        /// Sample game name.
+        SAMPLE_GAME = "gallery.sample_game";
+        /// Why Play cannot start.
+        BLOCKED = "gallery.blocked";
+        /// Sample words: a tag.
+        TAG = "gallery.tag";
+        /// Sample words: a filter's remove name.
+        REMOVE_TAG = "gallery.remove_tag";
+        /// Sample words: the result count.
+        COUNT = "gallery.count";
+        /// Sample words: the selection.
+        SELECTED = "gallery.selected";
+        /// Sample words: the clear-selection word.
+        CLEAR = "gallery.clear";
+        /// Sample words: an action that destroys.
+        REMOVE = "gallery.remove";
+        /// Sample words: the sort word.
+        SORT = "gallery.sort";
+        /// Sample menu: section.
+        MENU_SECTION = "gallery.menu_section";
+    }
+    /// Sample menu: options.
+    #[allow(non_snake_case)]
+    pub fn MENU_OPTIONS() -> [&'static str; 3] {
+        [
+            crate::i18n::text("gallery.menu_options.recently_played"),
+            crate::i18n::text("gallery.menu_options.name"),
+            crate::i18n::text("gallery.menu_options.time_played"),
+        ]
+    }
+    /// Sample menu: a checklist with counts.
+    #[allow(non_snake_case)]
+    pub fn MENU_CHECKS() -> [&'static str; 2] {
+        [
+            crate::i18n::text("gallery.menu_checks.offline"),
+            crate::i18n::text("gallery.menu_checks.online"),
+        ]
+    }
+    texts! {
+        /// Sample menu: a submenu.
+        MENU_SUB = "gallery.menu_sub";
+        /// Sample menu: an item that cannot be chosen, and why.
+        MENU_OFF = "gallery.menu_off";
+        /// Sample menu: why.
+        MENU_OFF_WHY = "gallery.menu_off_why";
+        /// Heading sample.
+        HEADING = "gallery.heading";
+        /// Heading sample with a note.
+        HEADING_NOTED = "gallery.heading_noted";
+        /// Heading sample: its note.
+        HEADING_NOTE = "gallery.heading_note";
+        /// Setting row sample.
+        ROW_LABEL = "gallery.row_label";
+        /// Setting row sample help.
+        ROW_HELP = "gallery.row_help";
+        /// Setting row sample, unmet.
+        ROW_OFF = "gallery.row_off";
+        /// Setting row sample, mono.
+        ROW_MONO = "gallery.row_mono";
+        /// Setting row sample, mono: its action.
+        ROW_RUN = "gallery.row_run";
+        /// Fact sample.
+        FACT_LABEL = "gallery.fact_label";
+        /// Fact sample.
+        FACT_VALUE = "gallery.fact_value";
+        /// Door sample.
+        DOOR_LABEL = "gallery.door_label";
+        /// Door sample.
+        DOOR_VALUE = "gallery.door_value";
+        /// Door sample, spoken.
+        DOOR_NAME = "gallery.door_name";
+        /// Door sample leading outside.
+        DOOR_FOLDER = "gallery.door_folder";
+        /// Door sample leading outside.
+        DOOR_PATH = "gallery.door_path";
+        /// Door sample leading outside, spoken.
+        DOOR_FOLDER_NAME = "gallery.door_folder_name";
+        /// Reach sample.
+        CAN = "gallery.can";
+        /// Reach sample.
+        CAN_LIST = "gallery.can_list";
+        /// Reach sample.
+        CANT = "gallery.cant";
+        /// Reach sample.
+        CANT_LIST = "gallery.cant_list";
+    }
+    /// Table sample: header.
+    #[allow(non_snake_case)]
+    pub fn TABLE_HEAD() -> [&'static str; 3] {
+        [
+            crate::i18n::text("gallery.table_head.day"),
+            crate::i18n::text("gallery.table_head.sessions"),
+            crate::i18n::text("gallery.table_head.time_played"),
+        ]
+    }
+    /// Table sample: rows.
+    #[allow(non_snake_case)]
+    pub fn TABLE_ROWS() -> [[&'static str; 3]; 2] {
+        [
+            [
+                crate::i18n::text("gallery.table_rows.monday"),
+                "2",
+                crate::i18n::text("gallery.table_rows.1_h_10_min"),
+            ],
+            [
+                crate::i18n::text("gallery.table_rows.tuesday"),
+                "1",
+                crate::i18n::text("gallery.table_rows.45_min"),
+            ],
+        ]
+    }
+    texts! {
+        /// Sample banner.
+        BANNER_INFO = "gallery.banner_info";
+        /// Sample banner.
+        BANNER_WARNING = "gallery.banner_warning";
+        /// Sample banner.
+        BANNER_ACTION = "gallery.banner_action";
+        /// Sample note: a problem.
+        NOTE_PROBLEM = "gallery.note_problem";
+        /// Sample note: a problem's text.
+        NOTE_PROBLEM_TEXT = "gallery.note_problem_text";
+        /// Sample note: its code.
+        NOTE_CODE = "gallery.note_code";
+    }
+    /// Sample note: its fixes.
+    #[allow(non_snake_case)]
+    pub fn NOTE_ACTIONS() -> [&'static str; 2] {
+        [
+            crate::i18n::text("gallery.note_actions.try_again"),
+            crate::i18n::text("gallery.note_actions.create_a_report"),
+        ]
+    }
+    texts! {
+        /// Sample note: a missing game.
+        NOTE_MISSING = "gallery.note_missing";
+        /// Sample note: a missing game's text.
+        NOTE_MISSING_TEXT = "gallery.note_missing_text";
+        /// Sample note: something left running.
+        NOTE_LINGERING = "gallery.note_lingering";
+        /// Sample note: its text.
+        NOTE_LINGERING_TEXT = "gallery.note_lingering_text";
+        /// Progress.
+        PROGRESS = "gallery.progress";
+        /// Blank sample.
+        BLANK_TITLE = "gallery.blank_title";
+        /// Blank sample.
+        BLANK_TEXT = "gallery.blank_text";
+        /// Blank sample.
+        BLANK_FINE = "gallery.blank_fine";
+        /// Sample sheet.
+        OPEN_SHEET = "gallery.open_sheet";
+        /// Sample dialog.
+        OPEN_DIALOG = "gallery.open_dialog";
+        /// Sample toast.
+        SHOW_TOAST = "gallery.show_toast";
+        /// Sample toast.
+        TOAST_TEXT = "gallery.toast_text";
+        /// Sample clock.
+        CLOCK_SAMPLE = "gallery.clock_sample";
+        /// Shortest cover name.
+        SHORT_NAME = "gallery.short_name";
+        /// Longest cover name.
+        LONG_NAME = "gallery.long_name";
+    }
 }
 
 /// Theme names for pickers.
@@ -906,21 +1127,121 @@ pub mod appearance {
     /// Theme name.
     pub fn theme(c: ThemeChoice) -> &'static str {
         match c {
-            ThemeChoice::System => "System",
-            ThemeChoice::Dark => "Dark",
-            ThemeChoice::Light => "Light",
-            ThemeChoice::HighContrast => "High contrast",
+            ThemeChoice::System => crate::i18n::text("appearance.theme.system"),
+            ThemeChoice::Dark => crate::i18n::text("appearance.theme.dark"),
+            ThemeChoice::Light => crate::i18n::text("appearance.theme.light"),
+            ThemeChoice::HighContrast => crate::i18n::text("appearance.theme.high_contrast"),
         }
     }
 
     /// Accent name.
     pub fn accent(a: Accent) -> &'static str {
         match a {
-            Accent::Tide => "Tide",
-            Accent::Ember => "Ember",
-            Accent::Iris => "Iris",
-            Accent::Moss => "Moss",
+            Accent::Tide => crate::i18n::text("appearance.accent.tide"),
+            Accent::Ember => crate::i18n::text("appearance.accent.ember"),
+            Accent::Iris => crate::i18n::text("appearance.accent.iris"),
+            Accent::Moss => crate::i18n::text("appearance.accent.moss"),
         }
+    }
+}
+
+/// Names of months and weekdays, and how a date is written (ADR-0032).
+pub mod date {
+    const MONTH_SHORT: [&str; 12] = [
+        "date.month_short.1",
+        "date.month_short.2",
+        "date.month_short.3",
+        "date.month_short.4",
+        "date.month_short.5",
+        "date.month_short.6",
+        "date.month_short.7",
+        "date.month_short.8",
+        "date.month_short.9",
+        "date.month_short.10",
+        "date.month_short.11",
+        "date.month_short.12",
+    ];
+    const MONTH_ABBR: [&str; 12] = [
+        "date.month_abbr.1",
+        "date.month_abbr.2",
+        "date.month_abbr.3",
+        "date.month_abbr.4",
+        "date.month_abbr.5",
+        "date.month_abbr.6",
+        "date.month_abbr.7",
+        "date.month_abbr.8",
+        "date.month_abbr.9",
+        "date.month_abbr.10",
+        "date.month_abbr.11",
+        "date.month_abbr.12",
+    ];
+    const MONTH_FULL: [&str; 12] = [
+        "date.month_full.1",
+        "date.month_full.2",
+        "date.month_full.3",
+        "date.month_full.4",
+        "date.month_full.5",
+        "date.month_full.6",
+        "date.month_full.7",
+        "date.month_full.8",
+        "date.month_full.9",
+        "date.month_full.10",
+        "date.month_full.11",
+        "date.month_full.12",
+    ];
+    const WEEKDAY_FULL: [&str; 7] = [
+        "date.weekday_full.1",
+        "date.weekday_full.2",
+        "date.weekday_full.3",
+        "date.weekday_full.4",
+        "date.weekday_full.5",
+        "date.weekday_full.6",
+        "date.weekday_full.7",
+    ];
+
+    /// The short month ("Sept"), `i` counted from 0.
+    pub fn month_short(i: usize) -> &'static str {
+        crate::i18n::text(MONTH_SHORT[i % 12])
+    }
+
+    /// The abbreviated month ("Sep"), `i` counted from 0.
+    pub fn month_abbr(i: usize) -> &'static str {
+        crate::i18n::text(MONTH_ABBR[i % 12])
+    }
+
+    /// The full month name, `i` counted from 0.
+    pub fn month_full(i: usize) -> &'static str {
+        crate::i18n::text(MONTH_FULL[i % 12])
+    }
+
+    /// The weekday, Monday first, `i` counted from 0.
+    pub fn weekday_full(i: usize) -> &'static str {
+        crate::i18n::text(WEEKDAY_FULL[i % 7])
+    }
+
+    /// "Today".
+    pub fn today() -> &'static str {
+        crate::i18n::text("date.today")
+    }
+
+    /// "Yesterday".
+    pub fn yesterday() -> &'static str {
+        crate::i18n::text("date.yesterday")
+    }
+
+    /// "16 Nov" from a day and a month name.
+    pub fn day_month(d: u32, month: &str) -> String {
+        rust_i18n::t!("date.day_month", d = d, month = month).into_owned()
+    }
+
+    /// "16 Nov 2025".
+    pub fn day_month_year(d: u32, month: &str, y: impl std::fmt::Display) -> String {
+        rust_i18n::t!("date.day_month_year", d = d, month = month, y = y).into_owned()
+    }
+
+    /// "November 2025".
+    pub fn month_year(month: &str, y: impl std::fmt::Display) -> String {
+        rust_i18n::t!("date.month_year", month = month, y = y).into_owned()
     }
 }
 
@@ -931,42 +1252,65 @@ pub mod fmt {
     const MS_PER_MIN: u64 = 60_000;
     const MS_PER_HOUR: u64 = 3_600_000;
 
-    /// "under a minute", "42 min", "12 h 05 min", "1,240 h".
-    pub fn duration(ms: u64) -> String {
-        if ms < MS_PER_MIN {
-            "under a minute".to_owned()
-        } else if ms < MS_PER_HOUR {
-            format!("{} min", ms / MS_PER_MIN)
-        } else if ms < 100 * MS_PER_HOUR {
-            format!(
-                "{} h {:02} min",
-                ms / MS_PER_HOUR,
-                (ms % MS_PER_HOUR) / MS_PER_MIN
-            )
-        } else {
-            format!("{} h", thousands(ms / MS_PER_HOUR))
-        }
-    }
-
     /// Full units for screen readers: "12 hours 5 minutes".
     pub fn duration_spoken(ms: u64) -> String {
         let h = ms / MS_PER_HOUR;
         let m = (ms % MS_PER_HOUR) / MS_PER_MIN;
-        let hours = format!("{h} {}", super::plural(h, "hour", "hours"));
-        let minutes = format!("{m} {}", super::plural(m, "minute", "minutes"));
+        let hours = crate::i18n::plural::counted("fmt.hours_spoken", h);
+        let minutes = crate::i18n::plural::counted("fmt.minutes_spoken", m);
         match (h, m) {
-            (0, 0) => "under a minute".to_owned(),
+            (0, 0) => crate::i18n::text("fmt.under_a_minute").to_owned(),
             (0, _) => minutes,
             (_, 0) => hours,
             _ if h >= 100 => hours,
-            _ => format!("{hours} {minutes}"),
+            _ => rust_i18n::t!(
+                "fmt.hours_and_minutes_spoken",
+                hours = hours,
+                minutes = minutes
+            )
+            .into_owned(),
         }
     }
 
-    /// Elapsed time as a clock: "0:42:10".
-    pub fn clock(ms: u64) -> String {
+    /// A game's or a period's time played (the design's `fmtTime`): "0 min", "45 min",
+    /// "3 h 30 min", "3 h", then whole hours from ten: "21 h", "1,240 h".
+    pub fn play_time(ms: u64) -> String {
+        let min = ms / MS_PER_MIN;
+        if min < 60 {
+            return rust_i18n::t!("fmt.minutes_short", n = min).into_owned();
+        }
+        let (h, m) = (min / 60, min % 60);
+        if h >= 10 || m == 0 {
+            rust_i18n::t!("fmt.hours_short", n = thousands(h)).into_owned()
+        } else {
+            rust_i18n::t!("fmt.hours_minutes_short", h = h, m = m).into_owned()
+        }
+    }
+
+    /// When a game was last played, by whole local days (the design's `fmtLast`): "Never",
+    /// "Today", "Yesterday", "3 days ago", "Last week", "2 weeks ago", "Last month",
+    /// "5 months ago", "Over a year ago". `offset_s` is the local UTC offset.
+    pub fn last_played(last: Option<Timestamp>, now: Timestamp, offset_s: i32) -> String {
+        let Some(t) = last else {
+            return crate::i18n::text("fmt.never").to_owned();
+        };
+        match (local_day(now, offset_s) - local_day(t, offset_s)).max(0) {
+            0 => crate::i18n::text("date.today").to_owned(),
+            1 => crate::i18n::text("date.yesterday").to_owned(),
+            d @ 2..=6 => crate::i18n::plural::counted("fmt.days_ago", d as u64),
+            7..=13 => crate::i18n::text("fmt.last_week").to_owned(),
+            d @ 14..=30 => crate::i18n::plural::counted("fmt.weeks_ago", (d / 7) as u64),
+            31..=60 => crate::i18n::text("fmt.last_month").to_owned(),
+            d @ 61..=364 => crate::i18n::plural::counted("fmt.months_ago", (d / 30) as u64),
+            _ => crate::i18n::text("fmt.over_a_year_ago").to_owned(),
+        }
+    }
+
+    /// A session's elapsed time as minutes and seconds (the design's `clock`): "0:42",
+    /// "75:03".
+    pub fn session_clock(ms: u64) -> String {
         let s = ms / 1000;
-        format!("{}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60)
+        format!("{}:{:02}", s / 60, s % 60)
     }
 
     /// "32 MB", "2.1 GB", "640 KB".
@@ -997,19 +1341,6 @@ pub mod fmt {
         out
     }
 
-    const WEEKDAYS: [&str; 7] = [
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-        "Sunday",
-    ];
-    const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-
     /// Days since 1970-01-01 in local time.
     fn local_day(t: Timestamp, offset_s: i32) -> i64 {
         (t.as_millis() + i64::from(offset_s) * 1000).div_euclid(86_400_000)
@@ -1031,11 +1362,12 @@ pub mod fmt {
 
     /// [`relative_date`] inside a sentence: "today", "yesterday", "Tuesday", "3 Nov".
     pub fn relative_inline(t: Timestamp, now: Timestamp, offset_s: i32) -> String {
-        let s = relative_date(t, now, offset_s);
-        if s == "Today" || s == "Yesterday" {
-            s.to_lowercase()
-        } else {
-            s
+        let (day, today) = (local_day(t, offset_s), local_day(now, offset_s));
+        match today - day {
+            // Lower-casing is a no-op in scripts without case.
+            0 => crate::i18n::text("date.today").to_lowercase(),
+            1 => crate::i18n::text("date.yesterday").to_lowercase(),
+            _ => relative_date(t, now, offset_s),
         }
     }
 
@@ -1044,17 +1376,17 @@ pub mod fmt {
     pub fn relative_date(t: Timestamp, now: Timestamp, offset_s: i32) -> String {
         let (day, today) = (local_day(t, offset_s), local_day(now, offset_s));
         match today - day {
-            0 => "Today".to_owned(),
-            1 => "Yesterday".to_owned(),
-            2..=6 => WEEKDAYS[(day + 3).rem_euclid(7) as usize].to_owned(),
+            0 => super::date::today().to_owned(),
+            1 => super::date::yesterday().to_owned(),
+            2..=6 => super::date::weekday_full((day + 3).rem_euclid(7) as usize).to_owned(),
             _ => {
                 let (y, m, d) = civil(day);
                 let (ty, _, _) = civil(today);
-                let month = MONTHS[(m - 1) as usize];
+                let month = super::date::month_abbr((m - 1) as usize);
                 if y == ty {
-                    format!("{d} {month}")
+                    super::date::day_month(d, month)
                 } else {
-                    format!("{d} {month} {y}")
+                    super::date::day_month_year(d, month, y)
                 }
             }
         }
@@ -1066,18 +1398,49 @@ mod tests {
     use super::*;
 
     #[test]
-    fn durations_follow_statistics_rules() {
-        assert_eq!(fmt::duration(30_000), "under a minute");
-        assert_eq!(fmt::duration(42 * 60_000), "42 min");
-        assert_eq!(fmt::duration(12 * 3_600_000 + 5 * 60_000), "12 h 05 min");
-        assert_eq!(fmt::duration(1240 * 3_600_000), "1,240 h");
+    fn spoken_durations_and_thousands() {
+        assert_eq!(fmt::duration_spoken(30_000), "under a minute");
         assert_eq!(
             fmt::duration_spoken(12 * 3_600_000 + 5 * 60_000),
             "12 hours 5 minutes"
         );
         assert_eq!(fmt::duration_spoken(60_000), "1 minute");
-        assert_eq!(fmt::clock(42 * 60_000 + 10_000), "0:42:10");
         assert_eq!(fmt::thousands(1_234_567), "1,234,567");
+    }
+
+    #[test]
+    fn play_time_last_played_and_the_clock_read_as_the_design_writes_them() {
+        let m = 60_000;
+        for (ms, said) in [
+            (0, "0 min"),
+            (59_000, "0 min"),
+            (45 * m, "45 min"),
+            (64 * m, "1 h 4 min"),
+            (210 * m, "3 h 30 min"),
+            (180 * m, "3 h"),
+            (588 * m, "9 h 48 min"),
+            (21 * 60 * m + 7 * m, "21 h"),
+            (1240 * 60 * m, "1,240 h"),
+        ] {
+            assert_eq!(fmt::play_time(ms), said);
+        }
+        let now = Timestamp::from_millis(1_794_441_600_000 + 15 * 3_600_000);
+        let ago = |n: i64| Some(Timestamp::from_millis(now.as_millis() - n * 86_400_000));
+        for (d, said) in [
+            (0, "Today"),
+            (1, "Yesterday"),
+            (3, "3 days ago"),
+            (7, "Last week"),
+            (14, "2 weeks ago"),
+            (31, "Last month"),
+            (150, "5 months ago"),
+            (400, "Over a year ago"),
+        ] {
+            assert_eq!(fmt::last_played(ago(d), now, 0), said);
+        }
+        assert_eq!(fmt::last_played(None, now, 0), "Never");
+        assert_eq!(fmt::session_clock(42_000), "0:42");
+        assert_eq!(fmt::session_clock(3_730_000), "62:10");
     }
 
     #[test]
@@ -1094,42 +1457,20 @@ mod tests {
     }
 
     #[test]
-    fn card_status_has_a_what_and_a_when() {
+    fn a_running_game_says_its_session_clock_and_sorting_is_said() {
         let now = Timestamp::from_millis(1_794_441_600_000 + 15 * 3_600_000);
-        let yesterday = Timestamp::from_millis(now.as_millis() - 86_400_000);
-        let parts = |activity, availability, total, last| {
-            card::status_parts(activity, availability, total, last, now, 0)
-        };
-        assert_eq!(
-            parts(
-                Activity::Idle,
-                Availability::Present,
-                12 * 3_600_000 + 5 * 60_000,
-                Some(yesterday)
-            ),
-            ("12 h 05 min".to_owned(), Some("Yesterday".to_owned()))
-        );
-        assert_eq!(
-            parts(Activity::Idle, Availability::Present, 0, None),
-            ("Not played yet".to_owned(), None)
-        );
-        assert_eq!(
-            parts(Activity::Idle, Availability::Missing, 5, Some(yesterday)),
-            ("Not found".to_owned(), None)
-        );
         let since = Timestamp::from_millis(now.as_millis() - 42 * 60_000 - 10_000);
         assert_eq!(
-            parts(
-                Activity::Running { since },
-                Availability::Present,
-                5,
-                Some(yesterday)
-            ),
-            ("Running".to_owned(), Some("0:42:10".to_owned()))
+            card::state(Activity::Running { since }, Availability::Present, now).as_deref(),
+            Some("Running · 42:10")
         );
         assert_eq!(
-            card::played_sentence(12 * 3_600_000 + 5 * 60_000, Some(yesterday), now, 0),
-            "12 h 05 min played, last yesterday"
+            card::state(Activity::Idle, Availability::Missing, now).as_deref(),
+            Some("Not found")
+        );
+        assert_eq!(
+            card::state(Activity::Idle, Availability::Present, now),
+            None
         );
         assert_eq!(library::sort_button("Name", false), "Sort: Name, ascending");
         assert_eq!(
@@ -1203,24 +1544,8 @@ mod tests {
     /// SECURITY_MODEL §10 / USER_EXPERIENCE §9: no security theatre in any string.
     #[test]
     fn no_forbidden_claims() {
-        let files = [
-            include_str!("strings.rs"),
-            include_str!("strings/artwork.rs"),
-            include_str!("strings/details.rs"),
-            include_str!("strings/dialogs.rs"),
-            include_str!("strings/dnd.rs"),
-            include_str!("strings/errors.rs"),
-            include_str!("strings/launch.rs"),
-            include_str!("strings/menu.rs"),
-            include_str!("strings/onboarding.rs"),
-            include_str!("strings/picker.rs"),
-            include_str!("strings/service.rs"),
-            include_str!("strings/settings.rs"),
-            include_str!("strings/setup.rs"),
-            include_str!("strings/shortcuts.rs"),
-            include_str!("strings/stats.rs"),
-            include_str!("strings/tags.rs"),
-        ];
+        // The English catalogue holds every user-visible string (ADR-0032).
+        let files = [include_str!("../locales/en.yml")];
         for src in files {
             let body = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
             let lower = body.to_lowercase();

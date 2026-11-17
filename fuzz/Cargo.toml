@@ -1,4 +1,4 @@
-# cargo-fuzz targets for the parsers of untrusted input (TESTING_STRATEGY §5,
+# cargo-fuzz targets for the parsers of untrusted input (TESTING_STRATEGY §5, T-22 Steam files,
 # THREAT_MODEL T-18, IDENT-002, IDENT-006, ART-001). Not a workspace member and not
 # built in CI:
 #   cargo install cargo-fuzz && cargo +nightly fuzz run pe_inspect
@@ -50,6 +50,13 @@ bench = false
 [[bin]]
 name = "vdf"
 path = "fuzz_targets/vdf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "steam_kv"
+path = "fuzz_targets/steam_kv.rs"
 test = false
 doc = false
 bench = false

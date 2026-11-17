@@ -1,0 +1,18 @@
+"AppState"
+{
+	"appid"		"12210"
+	"universe"		"1"
+	"name"		"Grand Theft Auto IV: The Complete Edition"
+	"StateFlags"		"4"
+	"installdir"		"Grand Theft Auto IV"
+	"LastUpdated"		"1780000000"
+	"LastPlayed"		"0"
+	"SizeOnDisk"		"22000000000"
+	"buildid"		"14009960"
+	"BytesToDownload"		"0"
+	"BytesDownloaded"		"0"
+	"TargetBuildID"		"14009960"
+	"InstalledDepots"
+	{
+	}
+}

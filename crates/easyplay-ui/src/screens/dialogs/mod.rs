@@ -1,7 +1,9 @@
-//! Dialogs (SCREEN_SPECS_2 §16, UI-027): the standard confirmations of §16.1, one dialog per
-//! prompt kind of LOGIC_SPECS §4, and the generic error dialog built from a `UserError` with
-//! a queue ("1 more problem"). Every default button is the safe choice; `Enter` activates it,
-//! `Esc` cancels.
+//! Dialogs (script §16 "DIALOGS", UI-027): the confirmations, one dialog per prompt kind of
+//! LOGIC_SPECS §4, and the error dialog built from a `UserError` with a queue ("1 more
+//! problem"). Every dialog is the design's one dialog ([`crate::widgets::modal`]): title,
+//! a sentence, a body of switch rows, pick rows or a detail block, and boxed actions with
+//! the main one rightmost. The action that has focus when a dialog opens is its first, the
+//! safe choice; `Enter` activates it and `Esc` cancels.
 
 pub mod artwork;
 pub mod shortcuts;
@@ -9,7 +11,7 @@ pub mod tags;
 
 use easyplay_core::error::{RecoveryAction, UserError};
 use easyplay_core::model::{PromptAnswer, PromptKind, PromptRequest};
-use egui::{Context, Id, Ui};
+use egui::{Context, Id, Sense, Ui, pos2, vec2};
 
 use super::Env;
 use super::actions;
@@ -18,13 +20,13 @@ use crate::bridge::UiCommand;
 use crate::route::{DialogId, Overlay};
 use crate::strings;
 use crate::strings::dialogs as d;
-use crate::theme::tokens::space;
-use crate::theme::{self, Icon, Type, icons};
+use crate::theme::{self, Type};
 use crate::vm::dialogs::{Confirm, Dialog};
-use crate::vm::toasts::ToastKind;
 use crate::widgets::button::Variant;
-use crate::widgets::modal::{Action, DialogOutcome, rich_dialog};
-use crate::widgets::toggle::toggle;
+use crate::widgets::choice::{PickKind, checkbox, pick};
+use crate::widgets::modal::{Action, DialogOutcome, Spec, choose, detail_block, fine_print};
+use crate::widgets::rows::SettingRow;
+use crate::widgets::toggle::switch;
 
 fn secondary(label: &str) -> Action<'_> {
     Action {
@@ -47,17 +49,12 @@ fn danger(label: &str) -> Action<'_> {
     }
 }
 
-fn text(ui: &mut Ui, s: &str) {
-    let p = theme::theme(ui.ctx()).palette.clone();
-    ui.label(Type::Body.rich(s).color(p.text_secondary));
-}
-
-fn bullet(ui: &mut Ui, icon: Icon, s: &str) {
-    let p = theme::theme(ui.ctx()).palette.clone();
-    ui.horizontal(|ui| {
-        ui.label(icons::icon(icon, theme::tokens::icon::INLINE).color(p.text_muted));
-        ui.label(Type::Body.rich(s).color(p.text_primary));
-    });
+/// A setting row with a switch at its right end. Returns whether it flipped.
+fn switch_row(ui: &mut Ui, on: &mut bool, label: &str, help: Option<&str>, enabled: bool) -> bool {
+    SettingRow::new(label)
+        .help(help.unwrap_or_default())
+        .enabled(enabled)
+        .show(ui, |ui| switch(ui, on, label).changed())
 }
 
 fn game_name(env: &Env<'_>, g: Option<easyplay_core::ids::GameId>) -> String {
@@ -95,32 +92,49 @@ fn confirm(
     let lib = env.bridge.library().clone();
     match c {
         Confirm::RemoveGames { ids, mut options } => {
-            let title = if ids.len() == 1 {
+            let one = ids.len() == 1;
+            let title = if one {
                 d::remove_title(&game_name(env, ids.first().copied()))
             } else {
                 d::remove_many_title(ids.len())
             };
-            let o = rich_dialog(
+            let (text, verb) = if one {
+                (d::REMOVE_BODY(), d::REMOVE())
+            } else {
+                (d::REMOVE_BODY_MANY(), d::REMOVE_MANY())
+            };
+            let o = choose(
                 ctx,
                 id,
-                Some(icons::TRASH),
-                &title,
-                &[secondary(d::CANCEL), danger(d::REMOVE)],
+                Spec::new(&title).text(text),
+                &[secondary(d::CANCEL()), danger(verb)],
                 0,
                 |ui| {
-                    text(ui, d::REMOVE_BODY);
-                    ui.add_space(space::S1);
-                    toggle(
+                    switch_row(
                         ui,
                         &mut options.delete_private_storage,
-                        d::REMOVE_STORAGE,
-                        Some(d::REMOVE_STORAGE_HINT),
+                        d::REMOVE_STORAGE(),
+                        Some(d::REMOVE_STORAGE_HINT()),
+                        true,
                     );
-                    if options.delete_private_storage {
-                        toggle(ui, &mut options.keep_save_data, d::KEEP_SAVES, None);
-                    }
-                    toggle(ui, &mut options.delete_shortcuts, d::REMOVE_SHORTCUTS, None);
-                    toggle(ui, &mut options.keep_history, d::KEEP_HISTORY, None);
+                    // Saves live in that storage: keeping them means something only while
+                    // it is deleted.
+                    let deleting = options.delete_private_storage;
+                    switch_row(
+                        ui,
+                        &mut options.keep_save_data,
+                        d::KEEP_SAVES(),
+                        None,
+                        deleting,
+                    );
+                    switch_row(
+                        ui,
+                        &mut options.delete_shortcuts,
+                        d::REMOVE_SHORTCUTS(),
+                        None,
+                        true,
+                    );
+                    switch_row(ui, &mut options.keep_history, d::KEEP_HISTORY(), None, true);
                 },
             );
             if let Some(Dialog::Confirm(Confirm::RemoveGames { options: o2, .. })) =
@@ -141,20 +155,15 @@ fn confirm(
             mut options,
         } => {
             let name = game_name(env, Some(game));
-            let o = rich_dialog(
+            let title = d::reset_title(&name);
+            let o = choose(
                 ctx,
                 id,
-                Some(icons::REFRESH),
-                &d::reset_title(&name),
-                &[secondary(d::CANCEL), danger(d::RESET)],
+                Spec::new(&title).text(d::RESET_TEXT()),
+                &[secondary(d::CANCEL()), danger(d::RESET())],
                 0,
                 |ui| {
-                    text(ui, d::RESET_DELETED);
-                    bullet(ui, icons::TRASH, d::RESET_DELETED_1);
-                    bullet(ui, icons::TRASH, d::RESET_DELETED_2);
-                    text(ui, d::RESET_KEPT);
-                    bullet(ui, icons::CHECK, d::RESET_KEPT_1);
-                    toggle(ui, &mut options.keep_save_data, d::KEEP_SAVES, None);
+                    switch_row(ui, &mut options.keep_save_data, d::KEEP_SAVES(), None, true);
                 },
             );
             if let Some(Dialog::Confirm(Confirm::ResetPrefix { options: o2, .. })) =
@@ -169,16 +178,16 @@ fn confirm(
             o != DialogOutcome::Open
         }
         Confirm::DiscardChanges(after) => {
-            let o = crate::widgets::modal::dialog(
+            // Keeping the edits is the main action and has focus.
+            let o = choose(
                 ctx,
                 id,
-                None,
-                d::DISCARD_TITLE,
-                d::DISCARD_BODY,
-                &[primary(d::KEEP_EDITING), secondary(d::DISCARD)],
-                0,
+                Spec::new(d::DISCARD_TITLE()).text(d::DISCARD_BODY()),
+                &[secondary(d::DISCARD()), primary(d::KEEP_EDITING())],
+                1,
+                |_| {},
             );
-            if o == DialogOutcome::Chose(1) {
+            if o == DialogOutcome::Chose(0) {
                 state.details.discard();
                 state.apply_nav(after);
             }
@@ -197,22 +206,14 @@ fn confirm(
                         .is_some_and(|s| s.activity != easyplay_core::model::Activity::Idle)
                 })
                 .count();
-            let o = rich_dialog(
+            let text = d::widen_text(preset, running);
+            let o = choose(
                 ctx,
                 id,
-                Some(icons::GLOBE),
-                &title,
-                &[secondary(d::CANCEL), primary(d::ALLOW)],
+                Spec::new(&title).text(&text),
+                &[secondary(d::CANCEL()), primary(d::ALLOW())],
                 0,
-                |ui| {
-                    text(ui, d::WIDEN_BODY);
-                    for s in d::widen_statements(preset) {
-                        bullet(ui, icons::PLUS, s);
-                    }
-                    if running > 0 {
-                        text(ui, &d::skipped_running(running));
-                    }
-                },
+                |_| {},
             );
             if o == DialogOutcome::Chose(1) {
                 env.bridge.send(UiCommand::ApplyPreset { ids, preset });
@@ -225,19 +226,18 @@ fn confirm(
             size,
             used_by,
         } => {
-            let o = rich_dialog(
+            let title = d::remove_layer_title(&label);
+            let text = match size {
+                Some(s) => format!("{} {}", d::frees(s), d::layer_users(used_by)),
+                None => d::layer_users(used_by),
+            };
+            let o = choose(
                 ctx,
                 id,
-                Some(icons::LAYERS),
-                &d::remove_layer_title(&label),
-                &[secondary(d::CANCEL), danger(d::REMOVE_LAYER)],
+                Spec::new(&title).text(&text),
+                &[secondary(d::CANCEL()), danger(d::REMOVE_LAYER())],
                 0,
-                |ui| {
-                    if let Some(s) = size {
-                        text(ui, &d::frees(s));
-                    }
-                    text(ui, &d::layer_users(used_by));
-                },
+                |_| {},
             );
             if o == DialogOutcome::Chose(1) {
                 env.bridge.send(UiCommand::RemoveRuntime { name });
@@ -249,26 +249,28 @@ fn confirm(
                 Confirm::ResetGameStatistics(g) => Some(g),
                 _ => None,
             };
-            let (sessions, ms) = match game {
-                Some(g) => lib.get(g).map_or((0, 0), |s| {
-                    (u64::from(s.session_count), s.total_playtime_ms)
-                }),
-                None => lib.games.iter().fold((0, 0), |(n, t), g| {
-                    (n + u64::from(g.session_count), t + g.total_playtime_ms)
-                }),
+            let (title, text, verb) = match game {
+                Some(g) => {
+                    let name = game_name(env, Some(g));
+                    (
+                        d::clear_game_title(&name),
+                        d::clear_game_text(&name),
+                        d::CLEAR(),
+                    )
+                }
+                None => (
+                    d::CLEAR_TITLE().to_owned(),
+                    d::CLEAR_ALL_TEXT().to_owned(),
+                    d::CLEAR_ALL(),
+                ),
             };
-            let title = match game {
-                Some(g) => d::clear_game_title(&game_name(env, Some(g))),
-                None => d::CLEAR_TITLE.to_owned(),
-            };
-            let o = rich_dialog(
+            let o = choose(
                 ctx,
                 id,
-                Some(icons::CHART),
-                &title,
-                &[secondary(d::CANCEL), danger(d::CLEAR)],
+                Spec::new(&title).text(&text),
+                &[secondary(d::CANCEL()), danger(verb)],
                 0,
-                |ui| text(ui, &d::clear_body(sessions, ms)),
+                |_| {},
             );
             if o == DialogOutcome::Chose(1) {
                 env.bridge.send(match game {
@@ -279,17 +281,14 @@ fn confirm(
             o != DialogOutcome::Open
         }
         Confirm::DeveloperMode => {
-            let o = rich_dialog(
+            let text = format!("{} {}", d::DEV_BODY(), d::DEV_UNSAFE());
+            let o = choose(
                 ctx,
                 id,
-                Some(icons::TERMINAL),
-                d::DEV_TITLE,
-                &[secondary(d::CANCEL), primary(d::TURN_ON)],
+                Spec::new(d::DEV_TITLE()).text(&text),
+                &[secondary(d::CANCEL()), primary(d::TURN_ON())],
                 0,
-                |ui| {
-                    text(ui, d::DEV_BODY);
-                    text(ui, d::DEV_UNSAFE);
-                },
+                |_| {},
             );
             if o == DialogOutcome::Chose(1) {
                 super::settings::set_bool(state, env, "advanced.developer_mode", true, |p, v| {
@@ -301,13 +300,8 @@ fn confirm(
     }
 }
 
-/// Title, icon, body lines and (label, emphasis, answer) actions of a prompt dialog.
-type PromptView<'a> = (
-    String,
-    Icon,
-    Vec<String>,
-    Vec<(&'a str, Variant, PromptAnswer)>,
-);
+/// Title, text and (label, emphasis, answer) actions of a prompt dialog.
+type PromptView<'a> = (String, String, Vec<(&'a str, Variant, PromptAnswer)>);
 
 fn answer(env: &mut Env<'_>, p: &PromptRequest, a: PromptAnswer) {
     debug_assert!(p.kind.accepts(&a));
@@ -327,20 +321,23 @@ fn prompt(
     let name = game_name(env, p.kind.game());
     let mut remember = state.dialogs.form.remember;
     let mut choice = state.dialogs.form.choice;
-    // (title, body lines, actions with answers, default index, icon)
-    let (title, icon, body, acts): PromptView<'_> = match &p.kind {
+    let lines = |v: &[String]| v.join(" ");
+    let (title, text, acts): PromptView<'_> = match &p.kind {
         PromptKind::ExeChanged { old, new, .. } => (
             d::exe_changed_title(&name),
-            icons::FILE_EXE,
-            vec![
+            lines(&[
                 d::exe_changed_sizes(old.size, new.size),
-                d::EXE_CHANGED_BODY.to_owned(),
-            ],
+                d::EXE_CHANGED_BODY().to_owned(),
+            ]),
             vec![
-                (d::CANCEL, Variant::Secondary, PromptAnswer::Cancel),
-                (d::SET_UP_NEW, Variant::Secondary, PromptAnswer::SetUpAsNew),
+                (d::CANCEL(), Variant::Secondary, PromptAnswer::Cancel),
                 (
-                    d::ITS_AN_UPDATE,
+                    d::SET_UP_NEW(),
+                    Variant::Secondary,
+                    PromptAnswer::SetUpAsNew,
+                ),
+                (
+                    d::ITS_AN_UPDATE(),
                     Variant::Primary,
                     PromptAnswer::ItsAnUpdate,
                 ),
@@ -348,13 +345,16 @@ fn prompt(
         ),
         PromptKind::InsideKnownRoot { path, .. } => (
             d::inside_root_title(&file_name(path), &name),
-            icons::FILE_EXE,
-            vec![d::inside_root_body(&name)],
+            d::inside_root_body(&name),
             vec![
-                (d::CANCEL, Variant::Secondary, PromptAnswer::Cancel),
-                (d::SET_UP_NEW, Variant::Secondary, PromptAnswer::SetUpAsNew),
+                (d::CANCEL(), Variant::Secondary, PromptAnswer::Cancel),
                 (
-                    d::RUN_WITH_SETTINGS,
+                    d::SET_UP_NEW(),
+                    Variant::Secondary,
+                    PromptAnswer::SetUpAsNew,
+                ),
+                (
+                    d::RUN_WITH_SETTINGS(),
                     Variant::Primary,
                     PromptAnswer::RunWithGameSettings { remember },
                 ),
@@ -362,26 +362,28 @@ fn prompt(
         ),
         PromptKind::CopyOfKnown { path, .. } => (
             d::copy_title(&name),
-            icons::COPY,
-            vec![d::copy_body(&file_name(path), &name)],
+            d::copy_body(&file_name(path), &name),
             vec![
-                (d::CANCEL, Variant::Secondary, PromptAnswer::Cancel),
-                (d::SET_UP_NEW, Variant::Secondary, PromptAnswer::SetUpAsNew),
-                (d::USE_SAME, Variant::Primary, PromptAnswer::UseSameSettings),
+                (d::CANCEL(), Variant::Secondary, PromptAnswer::Cancel),
+                (
+                    d::SET_UP_NEW(),
+                    Variant::Secondary,
+                    PromptAnswer::SetUpAsNew,
+                ),
+                (
+                    d::USE_SAME(),
+                    Variant::Primary,
+                    PromptAnswer::UseSameSettings,
+                ),
             ],
         ),
         PromptKind::GrantTargetChanged { grant, new, .. } => (
-            d::GRANT_MOVED_TITLE.to_owned(),
-            icons::FOLDER,
-            vec![d::grant_moved_body(
-                &name,
-                &file_name(grant),
-                &new.display().to_string(),
-            )],
+            d::GRANT_MOVED_TITLE().to_owned(),
+            d::grant_moved_body(&name, &file_name(grant), &new.display().to_string()),
             vec![
-                (d::CANCEL, Variant::Secondary, PromptAnswer::Cancel),
+                (d::CANCEL(), Variant::Secondary, PromptAnswer::Cancel),
                 (
-                    d::ALLOW_NEW_LOCATION,
+                    d::ALLOW_NEW_LOCATION(),
                     Variant::Primary,
                     PromptAnswer::AllowNewLocation,
                 ),
@@ -389,55 +391,52 @@ fn prompt(
         ),
         PromptKind::RuntimeUnavailable { .. } => (
             d::runtime_missing_title(&name),
-            icons::LAYERS,
-            vec![d::RUNTIME_MISSING_BODY.to_owned()],
+            d::RUNTIME_MISSING_BODY().to_owned(),
             vec![
-                (d::CANCEL, Variant::Secondary, PromptAnswer::Cancel),
+                (d::CANCEL(), Variant::Secondary, PromptAnswer::Cancel),
                 (
-                    d::USE_DEFAULT,
+                    d::USE_DEFAULT(),
                     Variant::Primary,
                     PromptAnswer::UseDefaultRuntime,
                 ),
             ],
         ),
         PromptKind::FixNeedsNetwork { prefix_tainted, .. } => (
-            d::FIX_NETWORK_TITLE.to_owned(),
-            icons::GLOBE,
+            d::FIX_NETWORK_TITLE().to_owned(),
             {
                 let mut v = vec![d::fix_network_body(&name)];
                 if *prefix_tainted {
-                    v.push(d::TAINTED.to_owned());
+                    v.push(d::TAINTED().to_owned());
                 }
-                v
+                lines(&v)
             },
             vec![
-                (d::NOT_NOW, Variant::Secondary, PromptAnswer::NotNow),
+                (d::NOT_NOW(), Variant::Secondary, PromptAnswer::NotNow),
                 (
-                    d::TURN_OFF_FIXES,
+                    d::TURN_OFF_FIXES(),
                     Variant::Secondary,
                     PromptAnswer::TurnOffGameFixes,
                 ),
                 (
-                    d::ALLOW_ONCE,
+                    d::ALLOW_ONCE(),
                     Variant::Primary,
                     PromptAnswer::AllowNetworkOnce,
                 ),
             ],
         ),
         PromptKind::ToolNeedsNetwork { prefix_tainted, .. } => (
-            d::TOOL_NETWORK_TITLE.to_owned(),
-            icons::GLOBE,
+            d::TOOL_NETWORK_TITLE().to_owned(),
             {
                 let mut v = vec![d::tool_network_body(&name)];
                 if *prefix_tainted {
-                    v.push(d::TAINTED.to_owned());
+                    v.push(d::TAINTED().to_owned());
                 }
-                v
+                lines(&v)
             },
             vec![
-                (d::CANCEL, Variant::Secondary, PromptAnswer::Cancel),
+                (d::CANCEL(), Variant::Secondary, PromptAnswer::Cancel),
                 (
-                    d::ALLOW_ONCE,
+                    d::ALLOW_ONCE(),
                     Variant::Primary,
                     PromptAnswer::AllowNetworkOnce,
                 ),
@@ -451,38 +450,36 @@ fn prompt(
                 .unwrap_or_default();
             let mut acts = vec![
                 (
-                    d::KEEP_AS_INSTALLER,
+                    d::KEEP_AS_INSTALLER(),
                     Variant::Secondary,
                     PromptAnswer::KeepAsInstaller,
                 ),
                 (
-                    d::REMOVE_ENTRY,
+                    d::REMOVE_ENTRY(),
                     Variant::Secondary,
                     PromptAnswer::RemoveGame,
                 ),
             ];
             if !programs.is_empty() {
                 acts.push((
-                    d::USE_PROGRAM,
+                    d::USE_PROGRAM(),
                     Variant::Primary,
                     PromptAnswer::PickProgram { path },
                 ));
             }
             (
-                d::INSTALLER_TITLE.to_owned(),
-                icons::DOWNLOAD,
-                vec![d::installer_body(&name)],
+                d::INSTALLER_TITLE().to_owned(),
+                d::installer_body(&name),
                 acts,
             )
         }
         PromptKind::ConfirmBroadGrant { path, reason, .. } => (
             d::broad_title(&file_name(path)),
-            icons::FOLDER,
-            vec![d::broad_reason(reason), d::BROAD_REMINDER.to_owned()],
+            lines(&[d::broad_reason(reason), d::BROAD_REMINDER().to_owned()]),
             vec![
-                (d::CANCEL, Variant::Secondary, PromptAnswer::Cancel),
+                (d::CANCEL(), Variant::Secondary, PromptAnswer::Cancel),
                 (
-                    d::SHARE_ANYWAY,
+                    d::SHARE_ANYWAY(),
                     Variant::Secondary,
                     PromptAnswer::AllowAnyway,
                 ),
@@ -490,12 +487,11 @@ fn prompt(
         ),
         PromptKind::RemoveRunningGame { .. } => (
             d::running_remove_title(&name),
-            icons::STOP,
-            vec![d::RUNNING_REMOVE_BODY.to_owned()],
+            d::RUNNING_REMOVE_BODY().to_owned(),
             vec![
-                (d::CANCEL, Variant::Secondary, PromptAnswer::Cancel),
+                (d::CANCEL(), Variant::Secondary, PromptAnswer::Cancel),
                 (
-                    d::STOP_AND_REMOVE,
+                    d::STOP_AND_REMOVE(),
                     Variant::Danger,
                     PromptAnswer::StopAndRemove,
                 ),
@@ -509,27 +505,30 @@ fn prompt(
             variant: *v,
         })
         .collect();
-    let o = rich_dialog(ctx, id, Some(icon), &title, &actions, 0, |ui| {
-        for line in &body {
-            text(ui, line);
-        }
-        match &p.kind {
+    let o = choose(
+        ctx,
+        id,
+        Spec::new(&title).text(&text),
+        &actions,
+        0,
+        |ui| match &p.kind {
             PromptKind::InsideKnownRoot { .. } => {
-                toggle(ui, &mut remember, d::REMEMBER, None);
+                checkbox(ui, &mut remember, d::REMEMBER());
             }
             PromptKind::InstallerFinished { programs, .. } => {
-                let pal = theme::theme(ui.ctx()).palette.clone();
                 for (i, prog) in programs.iter().enumerate() {
-                    let label = d::program_choice(&prog.label, prog.size);
-                    let r = ui.radio(choice == i, Type::Body.rich(&label).color(pal.text_primary));
+                    let spoken = d::program_choice(&prog.label, prog.size);
+                    let (r, ()) = pick(ui, PickKind::Radio, choice == i, &spoken, |ui| {
+                        name_and_size(ui, &prog.label, &strings::fmt::bytes(prog.size));
+                    });
                     if r.clicked() {
                         choice = i;
                     }
                 }
             }
             _ => {}
-        }
-    });
+        },
+    );
     state.dialogs.form.remember = remember;
     state.dialogs.form.choice = choice;
     match o {
@@ -554,6 +553,31 @@ fn prompt(
     }
 }
 
+/// One line of a pick row: `name` in `t1` at the left, `size` in `t3` at the right.
+pub(crate) fn name_and_size(ui: &mut Ui, name: &str, size: &str) {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let w = ui.available_width();
+    let h = Type::Body.line_height();
+    let (rect, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
+    let sg = Type::Body.numeric_galley(ui, size, p.t3);
+    let sw = sg.size().x;
+    let ng = Type::Body.galley(ui, name, p.t1, (w - sw - layout_gap()).max(1.0), 1);
+    ui.painter().galley(
+        pos2(rect.left(), rect.center().y - ng.size().y / 2.0),
+        ng,
+        p.t1,
+    );
+    ui.painter().galley(
+        pos2(rect.right() - sw, rect.center().y - sg.size().y / 2.0),
+        sg,
+        p.t3,
+    );
+}
+
+fn layout_gap() -> f32 {
+    theme::tokens::control::PICK_GAP
+}
+
 fn file_name(p: &std::path::Path) -> String {
     p.file_name().map_or_else(
         || p.display().to_string(),
@@ -562,7 +586,6 @@ fn file_name(p: &std::path::Path) -> String {
 }
 
 fn error(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>, e: &UserError) -> bool {
-    let mut details = state.dialogs.form.details;
     let more = state.dialogs.more_errors();
     let recov: Vec<RecoveryAction> = e
         .actions
@@ -571,95 +594,48 @@ fn error(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>, e: &User
         .filter(|a| !matches!(a, RecoveryAction::Dismiss | RecoveryAction::CopyDetails))
         .take(3)
         .collect();
-    let labels: Vec<&str> = recov.iter().map(|a| strings::errors::action(*a)).collect();
-    let mut actions = vec![secondary(d::CLOSE)];
-    for (i, l) in labels.iter().enumerate() {
-        actions.push(Action {
-            label: l,
-            variant: if i == 0 {
-                Variant::Primary
-            } else {
-                Variant::Secondary
-            },
-        });
+    // Close first, then the other fixes, then the main fix (the first) rightmost.
+    let mut order: Vec<Option<usize>> = vec![None];
+    order.extend((1..recov.len()).map(Some));
+    if !recov.is_empty() {
+        order.push(Some(0));
     }
-    // Focus starts on the primary recovery action when there is one.
-    let default = if recov.is_empty() { 0 } else { 1 };
-    let o = rich_dialog(
+    let actions: Vec<Action<'_>> = order
+        .iter()
+        .map(|o| match o {
+            None => secondary(d::CLOSE()),
+            Some(0) => primary(strings::errors::action(recov[0])),
+            Some(i) => secondary(strings::errors::action(recov[*i])),
+        })
+        .collect();
+    let detail = match &e.details {
+        Some(x) if !x.trim().is_empty() => format!("{}\n{}", x.trim_end(), e.code.as_str()),
+        _ => e.code.as_str().to_owned(),
+    };
+    let o = choose(
         ctx,
         id,
-        Some(icons::WARNING),
-        &e.title,
+        Spec::new(&e.title).text(&e.message),
         &actions,
-        default,
+        0,
         |ui| {
-            let p = theme::theme(ui.ctx()).palette.clone();
-            text(ui, &e.message);
-            let label = if details {
-                d::HIDE_DETAILS
-            } else {
-                d::SHOW_DETAILS
-            };
-            ui.horizontal(|ui| {
-                if ui
-                    .add(
-                        crate::widgets::button::Button::ghost(label).icon(if details {
-                            icons::CARET_DOWN
-                        } else {
-                            icons::CARET_RIGHT
-                        }),
-                    )
-                    .clicked()
-                {
-                    details = !details;
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(Type::Caption.rich(e.code.as_str()).color(p.text_muted));
-                });
-            });
-            if details {
-                let mut t = strings::errors::copy_text(e);
-                let r = ui.add(
-                    egui::TextEdit::multiline(&mut t)
-                        .font(Type::Mono.font_id())
-                        .desired_rows(4)
-                        .desired_width(f32::INFINITY)
-                        .interactive(true),
-                );
-                crate::a11y::labelled(
-                    ui.ctx(),
-                    r.id,
-                    egui::Role::MultilineTextInput,
-                    d::SHOW_DETAILS,
-                );
-                if ui
-                    .add(crate::widgets::button::Button::ghost(d::COPY).icon(icons::COPY))
-                    .clicked()
-                {
-                    ui.ctx().copy_text(strings::errors::copy_text(e));
-                }
-            }
+            detail_block(ui, &detail, false);
             if more > 0 {
-                ui.label(
-                    Type::Caption
-                        .rich(d::more_problems(more))
-                        .color(p.text_muted),
-                );
+                ui.add_space(theme::tokens::overlay::PRE[0]);
+                fine_print(ui, &d::more_problems(more));
             }
         },
     );
-    state.dialogs.form.details = details;
     match o {
         DialogOutcome::Open => false,
-        DialogOutcome::Chose(i) if i > 0 => {
-            if let Some(a) = recov.get(i - 1) {
+        DialogOutcome::Chose(i) => {
+            if let Some(Some(r)) = order.get(i)
+                && let Some(a) = recov.get(*r)
+            {
                 actions::recover(state, env, e, *a);
             }
             true
         }
-        _ => {
-            let _ = ToastKind::Info;
-            true
-        }
+        DialogOutcome::Cancelled => true,
     }
 }

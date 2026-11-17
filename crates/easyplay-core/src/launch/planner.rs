@@ -223,6 +223,16 @@ pub fn with_context<R>(
     req: &PlanRequest<'_>,
     f: impl FnOnce(&SandboxContext<'_>, &UmuInvocation, &SandboxPolicy) -> R,
 ) -> Result<R, LaunchPlanError> {
+    with_context_in(req, None, f)
+}
+
+/// [`with_context`] with the prefix at `prefix` instead of the game's own
+/// (`AppPaths::prefix_dir`): a program run in a Steam game's prefix (ADR-0031 §6).
+fn with_context_in<R>(
+    req: &PlanRequest<'_>,
+    prefix: Option<&Path>,
+    f: impl FnOnce(&SandboxContext<'_>, &UmuInvocation, &SandboxPolicy) -> R,
+) -> Result<R, LaunchPlanError> {
     let kind = req.target.kind();
     let Some(umu_facts) = &req.host.umu else {
         return Err(LaunchPlanError::Host(ErrorCode::HostUmuNotFound));
@@ -262,7 +272,13 @@ pub fn with_context<R>(
     };
     let owned = Owned {
         session: SessionDirs::new(paths, req.session_id),
-        game_paths: game.map(|g| GamePaths::new(paths, g.id)),
+        game_paths: game.map(|g| {
+            let mut gp = GamePaths::new(paths, g.id);
+            if let Some(p) = prefix {
+                gp.prefix = p.to_path_buf();
+            }
+            gp
+        }),
         exe,
         launch_args,
         default_launch: LaunchConfig::default(),
@@ -379,11 +395,28 @@ fn check_consistency(plan: &SandboxPlan, inv: &UmuInvocation) -> Result<(), Laun
 
 /// Build the complete launch plan of `req`.
 pub fn plan_launch(req: &PlanRequest<'_>) -> Result<PlannedLaunch, LaunchPlanError> {
+    plan_launch_in(req, None)
+}
+
+/// Build the launch plan of a session that runs in the prefix at `prefix` (a Steam game's
+/// `compatdata/<appid>`, ADR-0031 §6) instead of the game's own. Everything else — sandbox
+/// sections, validation, the umu invocation — is [`plan_launch`]'s.
+pub fn plan_launch_in_prefix(
+    req: &PlanRequest<'_>,
+    prefix: &Path,
+) -> Result<PlannedLaunch, LaunchPlanError> {
+    plan_launch_in(req, Some(prefix))
+}
+
+fn plan_launch_in(
+    req: &PlanRequest<'_>,
+    prefix: Option<&Path>,
+) -> Result<PlannedLaunch, LaunchPlanError> {
     let Some(bwrap) = &req.host.bwrap else {
         return Err(LaunchPlanError::Host(ErrorCode::HostBwrapNotFound));
     };
     let kind = req.target.kind();
-    let (planned, inv, policy) = with_context(req, |ctx, inv, policy| {
+    let (planned, inv, policy) = with_context_in(req, prefix, |ctx, inv, policy| {
         (
             sandbox::plan(policy, ctx, req.host),
             inv.clone(),

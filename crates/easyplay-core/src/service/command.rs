@@ -157,6 +157,41 @@ impl LogFile {
     }
 }
 
+/// Steam games (ADR-0031). Favourite, hidden, tags, notes (`UpdateGame` with
+/// `GameEdit::Notes`), Play (`Launch`) and folders (`OpenFolder`) use the general commands
+/// with the game's [`GameId::steam`] ID.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SteamCommand {
+    /// Turn "Show my Steam games" on or off (`steam.show_games`).
+    SetEnabled(bool),
+    /// Read Steam's files again now.
+    Rescan,
+    /// "Update in Steam": show Steam's downloads, where the game's update is started.
+    Update(GameId),
+    /// "Open in Steam": show the game in Steam's library (Properties: Proton choice and
+    /// launch options).
+    OpenInSteam(GameId),
+    /// Show the game's Windows storage (`compatdata/<appid>/pfx`) in the file manager.
+    OpenPrefixFolder(GameId),
+    /// Run a tool in the game's Windows storage with the Proton build Steam last used for
+    /// it, inside EasyPlay's protection, only while the game is not running (ADR-0031 §6).
+    /// `Tool::Winecfg` is "Windows settings"; `Tool::RunExe` "Run another program".
+    RunInPrefix {
+        /// The game.
+        id: GameId,
+        /// The tool.
+        tool: crate::model::Tool,
+    },
+    /// What Steam says about the game, with the notes kept here; answered with
+    /// `QueryResult::Steam`.
+    Details {
+        /// The game.
+        id: GameId,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
+}
+
 /// What to do with a damaged library (PERSISTENCE §8, the `EP-DB-001` choices).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DatabaseChoice {
@@ -467,6 +502,9 @@ pub enum Command {
     DismissCrash,
     /// Answer the damaged-library choice (recovery mode).
     ResolveDatabase(DatabaseChoice),
+    // ---- Steam games (ADR-0031)
+    /// A Steam action.
+    Steam(SteamCommand),
     // ---- lifecycle
     /// Stop the service: parked flows are cancelled, running games are left alone.
     Shutdown,
@@ -524,6 +562,7 @@ impl Command {
             Command::SaveReport { .. } => "save_report",
             Command::DismissCrash => "dismiss_crash",
             Command::ResolveDatabase(_) => "resolve_database",
+            Command::Steam(_) => "steam",
             Command::Shutdown => "shutdown",
         }
     }

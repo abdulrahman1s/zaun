@@ -26,6 +26,7 @@ enum Kind {
     Symlink(PathBuf),
     CharDevice,
     Fifo,
+    Socket,
 }
 
 #[derive(Clone, Debug)]
@@ -220,6 +221,7 @@ impl Inner {
             Kind::Symlink(t) => (FileType::Symlink, t.as_os_str().len() as u64),
             Kind::CharDevice => (FileType::CharDevice, 0),
             Kind::Fifo => (FileType::Fifo, 0),
+            Kind::Socket => (FileType::Socket, 0),
         };
         let nlink = match node.kind {
             Kind::Dir => {
@@ -258,7 +260,7 @@ impl Inner {
             Kind::File(d) => Ok(d.clone()),
             Kind::Dir => Err(err(op, path, FsErrorKind::IsADirectory)),
             Kind::Symlink(_) => Err(err(op, path, FsErrorKind::Symlink)),
-            Kind::CharDevice | Kind::Fifo => Ok(Vec::new()),
+            Kind::CharDevice | Kind::Fifo | Kind::Socket => Ok(Vec::new()),
         }
     }
 }
@@ -338,6 +340,20 @@ impl MemFs {
         }
         let mut g = self.inner.lock();
         let node = g.new_node(Kind::Fifo, 0o600);
+        g.nodes.insert(path.to_owned(), node);
+        drop(g);
+        self
+    }
+
+    /// Create a Unix socket file (parents created). Creating it again replaces it with a new
+    /// inode, as a restarted server does.
+    pub fn socket(&self, path: impl AsRef<Path>) -> &Self {
+        let path = path.as_ref();
+        if let Some(parent) = path.parent() {
+            self.dir(parent);
+        }
+        let mut g = self.inner.lock();
+        let node = g.new_node(Kind::Socket, 0o755);
         g.nodes.insert(path.to_owned(), node);
         drop(g);
         self
@@ -564,6 +580,7 @@ impl Fs for MemFs {
                         Kind::Symlink(_) => FileType::Symlink,
                         Kind::CharDevice => FileType::CharDevice,
                         Kind::Fifo => FileType::Fifo,
+                        Kind::Socket => FileType::Socket,
                     },
                 }
             })

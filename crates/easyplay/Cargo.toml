@@ -15,10 +15,10 @@ name = "easyplay"
 path = "src/main.rs"
 
 [features]
-default = ["gamepad", "seccomp"]
+default = ["gamepad", "seccomp", "wayland-security-context"]
 gamepad = ["easyplay-ui/gamepad"]
 seccomp = ["easyplay-core/seccomp"]
-wayland-security-context = []
+wayland-security-context = ["easyplay-core/wayland-security-context"]
 dev-inspection = ["easyplay-ui/dev-inspection"]
 
 [dependencies]

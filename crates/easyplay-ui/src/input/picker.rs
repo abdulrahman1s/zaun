@@ -27,9 +27,10 @@ pub enum PickKind {
 /// Why it is being picked: where the result goes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PickPurpose {
-    /// *Add game* / `Ctrl+O`.
-    AddGame,
-    /// *Choose a file…* in the add-game sheet.
+    /// *Choose folder…* in the first step of the *Add a game* dialog: a folder to scan for
+    /// its programs, as a folder dropped on the window is.
+    AddGameFolder,
+    /// *Choose a file instead…* in the second step of the *Add a game* dialog.
     AddGameFile,
     /// *Add folder…* in a folder list (`None`: the setup sheet's draft).
     FolderGrant(Option<GameId>),
@@ -59,8 +60,7 @@ impl PickPurpose {
     /// The kind of dialog this purpose needs.
     pub fn kind(&self) -> PickKind {
         match self {
-            PickPurpose::AddGame
-            | PickPurpose::AddGameFile
+            PickPurpose::AddGameFile
             | PickPurpose::AddProgram(_)
             | PickPurpose::RunProgram(_)
             | PickPurpose::Locate(_) => PickKind::Programs,
@@ -69,6 +69,7 @@ impl PickPurpose {
             | PickPurpose::RelocateFolder(..)
             | PickPurpose::SaveFolder(_)
             | PickPurpose::SetupRoot
+            | PickPurpose::AddGameFolder
             | PickPurpose::WorkingDir(_)
             | PickPurpose::LayerFolder => PickKind::Folder,
             PickPurpose::SaveReport => PickKind::Save,
@@ -120,8 +121,8 @@ impl Picker for RfdPicker {
                 let paths: Vec<PathBuf> = match kind {
                     PickKind::Programs => {
                         let d = dialog
-                            .add_filter(strings::picker::PROGRAMS, &["exe", "msi", "EXE", "MSI"]);
-                        if purpose == PickPurpose::AddGame || purpose == PickPurpose::AddGameFile {
+                            .add_filter(strings::picker::PROGRAMS(), &["exe", "msi", "EXE", "MSI"]);
+                        if purpose == PickPurpose::AddGameFile {
                             d.pick_files().unwrap_or_default()
                         } else {
                             d.pick_file().into_iter().collect()
@@ -129,7 +130,7 @@ impl Picker for RfdPicker {
                     }
                     PickKind::Image => dialog
                         .add_filter(
-                            strings::picker::IMAGES,
+                            strings::picker::IMAGES(),
                             &["png", "jpg", "jpeg", "webp", "bmp", "ico"],
                         )
                         .pick_file()

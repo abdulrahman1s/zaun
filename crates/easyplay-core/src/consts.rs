@@ -30,7 +30,7 @@ pub const LIBEXEC_DIR: &str = match option_env!("EASYPLAY_LIBEXEC_DIR") {
 // ---- Stored-format versions -------------------------------------------------------------
 
 /// Version of the SQLite schema written by this build.
-pub const DB_SCHEMA_VERSION: u32 = 1;
+pub const DB_SCHEMA_VERSION: u32 = 2;
 /// `PRAGMA application_id` of `library.db` ("EPLY").
 pub const DB_APPLICATION_ID: u32 = 0x4550_4C59;
 /// Version of the `SandboxPolicy` JSON document.

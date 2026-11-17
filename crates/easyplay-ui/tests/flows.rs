@@ -35,6 +35,15 @@ fn request_setup(r: &Rig, path: &str, origin: SetupOrigin) {
     });
 }
 
+/// What the reach lists on screen say ("Can use: …. Can't use: ….").
+fn reach_said(r: &Rig) -> Vec<String> {
+    // A text node: kittest reads its words (its value) as its label.
+    r.h.query_all_by_label_contains("Can use:")
+        .filter_map(|n| n.accesskit_node().value())
+        .filter(|l| l.starts_with("Can use:"))
+        .collect()
+}
+
 fn created(r: &Rig) -> Option<(String, AfterCreate)> {
     r.fake.sent().into_iter().find_map(|c| match c {
         UiCommand::CreateGame { draft, then } => Some((draft.name, then)),
@@ -49,7 +58,12 @@ fn uf2_enter_plays_from_the_file_manager_and_shows_progress() {
     request_setup(&r, EXE, SetupOrigin::FileManager);
     r.h.run();
     r.h.get_by_role_and_label(Role::Dialog, "Set up this game");
-    r.h.get_by_label_contains("No internet or local network");
+    let said = reach_said(&r);
+    assert!(
+        said.iter()
+            .any(|l| l.contains("Can't use: Internet and local network")),
+        "{said:?}"
+    );
     r.h.key_press(Key::Enter);
     r.h.run();
     assert_eq!(created(&r), Some(("Celeste".into(), AfterCreate::Launch)));
@@ -106,7 +120,12 @@ fn alt_digits_switch_presets_and_the_summary_follows() {
     r.h.run();
     r.h.key_press_modifiers(Modifiers::ALT, Key::Num2);
     r.h.run();
-    r.h.get_by_label_contains("Can use the internet and your local network");
+    let said = reach_said(&r);
+    assert!(
+        said.iter()
+            .any(|l| l.starts_with("Can use: Internet and local network, its own folder")),
+        "{said:?}"
+    );
     let draft = &r.h.state().state.setup.as_ref().unwrap().draft;
     assert_eq!(draft.policy.preset.base(), BasePreset::Online);
 }
@@ -168,7 +187,7 @@ fn a_dropped_folder_lists_programs_and_continue_opens_the_choice() {
     });
     r.h.run();
     assert_eq!(r.h.state().state.nav.top_overlay(), Some(Overlay::AddGame));
-    r.h.get_by_label("Programs found in “Celeste”");
+    r.h.get_by_label("Programs found in “Celeste”. Pick the one that starts the game.");
     r.h.get_by_role_and_label(Role::RadioButton, "Celeste.exe, main program, 32 MB");
     r.h.get_by_role_and_label(Role::Button, "Continue").click();
     r.h.run();
@@ -324,11 +343,12 @@ fn errors_queue_and_say_how_many_more() {
     r.h.get_by_role_and_label(Role::Dialog, "First problem");
     r.h.get_by_label("1 more problem");
     r.h.key_press(Key::Escape);
-    r.h.run();
+    r.h.run_steps(12);
     r.h.get_by_role_and_label(Role::Dialog, "Second problem");
-    // Enter = the primary recovery action.
-    r.h.key_press(Key::Enter);
-    r.h.run();
+    // The fix is picked by its name (Enter would choose Close, the safe action).
+    r.h.get_by_role_and_label(Role::Button, "Edit permissions")
+        .click();
+    r.h.run_steps(12);
     assert_eq!(r.h.state().state.nav.current(), Route::Game(g));
 }
 
@@ -341,7 +361,8 @@ fn artwork_sheet_shows_import_errors_inline_and_keeps_the_old_art() {
     r.h.state_mut().state.nav.open(Overlay::Artwork(g));
     r.picker.answer(vec!["/home/sam/Pictures/huge.png".into()]);
     r.h.run();
-    r.h.get_all_by_label("Choose…").next().unwrap().click();
+    r.h.get_by_role_and_label(Role::Button, "Cover: change. No image yet.")
+        .click();
     r.h.run_steps(3);
     assert!(r.fake.sent().iter().any(|c| matches!(
         c,
@@ -735,8 +756,6 @@ fn snapshot_error_dialog_dark() {
         .push_event(UiEvent::Failure(demo::launch_failure(g, "Lantern Keep")));
     r.fake
         .push_event(UiEvent::Failure(demo::launch_failure(g, "Moss & Iron")));
-    r.h.run();
-    r.h.get_by_label("Details").click();
     r.h.run_steps(6);
     r.h.snapshot("dialog_error_dark_1280x800");
 }
@@ -894,4 +913,275 @@ fn closing_the_window_discards_the_setup_and_cancels_prompts() {
     let sent = r.fake.sent();
     assert!(sent.contains(&UiCommand::DiscardDraft), "{sent:?}");
     assert_eq!(answers(&r), vec![PromptAnswer::Cancel]);
+}
+
+/// Add a game is one dialog in three steps that morph into each other: choose the folder
+/// (the picker scans it; the dialog stays up between the steps), pick the program, set it
+/// up. *Back* returns to the programs, and the poster follows the name as it is typed.
+#[test]
+fn add_a_game_takes_three_steps_in_one_dialog() {
+    let mut r = rig(Route::Library);
+    r.h.run();
+    easyplay_ui::screens::add_game::open(&mut r.h.state_mut().state);
+    r.h.run_steps(4);
+    r.h.get_by_role_and_label(Role::Dialog, "Add a game");
+    let folder = PathBuf::from("/home/sam/Games/Celeste");
+    r.picker.answer(vec![folder.clone()]);
+    r.h.get_by_role_and_label(Role::Button, "Choose folder…")
+        .click();
+    // The folder is asked for with a folder picker, and scanned; the dialog never closes
+    // on the way to the second step.
+    for _ in 0..6 {
+        r.h.step();
+        assert_eq!(r.h.state().state.nav.top_overlay(), Some(Overlay::AddGame));
+        assert!(r.h.state().state.add_game.is_some());
+    }
+    assert_eq!(
+        r.picker.asked(),
+        vec![easyplay_ui::input::picker::PickPurpose::AddGameFolder]
+    );
+    let q = r
+        .fake
+        .sent()
+        .into_iter()
+        .find_map(|c| match c {
+            UiCommand::ScanFolder {
+                folder: f,
+                reply_to,
+            } if f == folder => Some(reply_to),
+            _ => None,
+        })
+        .expect("the folder is scanned");
+    r.fake.push_event(UiEvent::QueryResult {
+        id: q,
+        payload: easyplay_ui::bridge::QueryPayload::Folder(demo::folder_scan(&folder)),
+    });
+    r.h.run_steps(4);
+    r.h.get_by_label("Programs found in “Celeste”. Pick the one that starts the game.");
+    r.h.get_by_role_and_label(Role::Button, "Continue").click();
+    r.h.run_steps(2);
+    assert!(r.fake.sent().contains(&UiCommand::OpenPaths {
+        paths: vec![folder.join("Celeste.exe")],
+        origin: OpenOrigin::Picker,
+    }));
+    // The service asks for the setup: the third step, in the same dialog.
+    request_setup(&r, EXE, SetupOrigin::InsideApp);
+    r.h.run_steps(6);
+    r.h.get_by_role_and_label(Role::Dialog, "Set up this game");
+    r.h.get_by_role_and_label(Role::Image, "Cover preview: Celeste");
+    let name = r.h.get_by_role_and_label(Role::TextInput, "Name");
+    name.focus();
+    r.h.run();
+    r.h.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    r.h.event(egui::Event::Text("Celeste Classic".into()));
+    r.h.run_steps(2);
+    r.h.get_by_role_and_label(Role::Image, "Cover preview: Celeste Classic");
+    // Back: the programs of the folder again, and the draft is let go.
+    r.fake.clear_sent();
+    r.h.get_by_role_and_label(Role::Button, "Back").click();
+    r.h.run_steps(8);
+    assert!(r.fake.sent().contains(&UiCommand::DiscardDraft));
+    assert_eq!(r.h.state().state.nav.top_overlay(), Some(Overlay::AddGame));
+    r.h.get_by_role_and_label(Role::RadioButton, "Celeste.exe, main program, 32 MB");
+}
+
+/// Toasts show one at a time: a new one takes the place of the one showing, and goes after
+/// its time.
+#[test]
+fn toasts_show_one_at_a_time() {
+    use easyplay_ui::vm::toasts::ToastKind;
+    let mut r = rig(Route::Library);
+    r.h.run();
+    let mono = easyplay_core::clock::Clock::mono(&*r.clock);
+    let s = &mut r.h.state_mut().state;
+    s.toast("First toast", ToastKind::Info, None, mono);
+    s.toast("Second toast", ToastKind::Info, None, mono);
+    r.h.run_steps(4);
+    // (The toast, and what is announced of it.)
+    r.h.get_all_by_label("Second toast").next().unwrap();
+    assert!(r.h.query_all_by_label("First toast").next().is_none());
+    r.clock.advance(Duration::from_secs(4));
+    r.h.run_steps(20);
+    assert!(
+        r.h.query_all_by_role_and_label(Role::Status, "Second toast")
+            .all(|n| n.accesskit_node().bounding_box().is_none())
+    );
+}
+
+/// Hiding several games offers one *Undo*, which brings every one of them back.
+#[test]
+fn undo_of_hiding_several_games_brings_all_of_them_back() {
+    let lib = settled_library();
+    let ids: Vec<_> = ["Lantern Keep", "Amber Sky", "Hollow Bell"]
+        .iter()
+        .map(|n| game_id(&lib, n))
+        .collect();
+    let mut r = rig(Route::Library);
+    r.h.run();
+    r.h.state_mut().state.library.selection = ids.clone();
+    r.h.run_steps(4);
+    // The filter line has become the selection's actions.
+    r.h.get_by_role_and_label(Role::Button, "Hide").click();
+    r.h.run_steps(4);
+    for id in &ids {
+        assert!(r.fake.sent().contains(&UiCommand::SetHidden {
+            id: *id,
+            hidden: true
+        }));
+    }
+    r.h.get_all_by_label("Hid 3 games").next().unwrap();
+    r.fake.clear_sent();
+    r.h.get_by_role_and_label(Role::Button, "Undo").click();
+    r.h.run_steps(4);
+    let sent = r.fake.sent();
+    for id in &ids {
+        assert!(
+            sent.contains(&UiCommand::SetHidden {
+                id: *id,
+                hidden: false
+            }),
+            "{id:?} comes back"
+        );
+    }
+}
+
+/// Remove asks with four switches; keeping the saves means something only while the
+/// private storage is deleted, and the choices go with the removal.
+#[test]
+fn the_remove_dialog_has_four_switches() {
+    let mut r = rig(Route::Library);
+    r.h.run();
+    let g = game_id(&settled_library(), "Lantern Keep");
+    r.h.state_mut()
+        .state
+        .show_dialog(easyplay_ui::vm::dialogs::Dialog::Confirm(
+            easyplay_ui::vm::dialogs::Confirm::RemoveGames {
+                ids: vec![g],
+                options: Default::default(),
+            },
+        ));
+    r.h.run_steps(6);
+    r.h.get_by_role_and_label(Role::Dialog, "Remove Lantern Keep?");
+    let switch = |r: &Rig, l: &str| {
+        let n = r.h.get_by_role_and_label(Role::Switch, l);
+        let n = n.accesskit_node();
+        (
+            n.toggled() == Some(egui::accesskit::Toggled::True),
+            n.is_disabled(),
+        )
+    };
+    assert_eq!(switch(&r, "Delete private Windows storage"), (true, false));
+    assert_eq!(switch(&r, "Keep save data"), (true, false));
+    assert_eq!(switch(&r, "Remove menu shortcuts"), (true, false));
+    assert_eq!(switch(&r, "Keep play history"), (true, false));
+    r.h.get_by_role_and_label(Role::Switch, "Delete private Windows storage")
+        .click();
+    r.h.run();
+    assert!(switch(&r, "Keep save data").1, "nothing to keep");
+    r.h.get_by_role_and_label(Role::Switch, "Keep play history")
+        .click();
+    r.h.run();
+    r.h.get_by_role_and_label(Role::Button, "Remove game")
+        .click();
+    r.h.run_steps(4);
+    let options = r
+        .fake
+        .sent()
+        .into_iter()
+        .find_map(|c| match c {
+            UiCommand::RemoveGame { id, options } if id == g => Some(options),
+            _ => None,
+        })
+        .expect("the game is removed");
+    assert!(!options.delete_private_storage);
+    assert!(!options.keep_history);
+    assert!(options.delete_shortcuts);
+}
+
+/// Play from the wall on a game whose last start failed shows that failure (its dialog
+/// offers *Try again*) instead of failing again; a game whose last session ended at once
+/// opens its page, where the note about it is.
+#[test]
+fn play_from_the_wall_with_an_open_problem_shows_the_problem() {
+    let lib = settled_library();
+    let g = game_id(&lib, "Lantern Keep");
+    let mut r = rig(Route::Library);
+    r.h.run();
+    r.fake.push_event(UiEvent::LaunchProgress {
+        game: g,
+        state: LaunchState::Failed(Box::new(demo::launch_failure(g, "Lantern Keep"))),
+    });
+    r.h.run_steps(8);
+    assert!(r.h.state().state.launches.failures.contains_key(&g));
+    assert!(r.h.state().state.nav.overlays().is_empty());
+    r.fake.clear_sent();
+    r.h.get_by_role_and_label(Role::Button, "Play Lantern Keep")
+        .click();
+    r.h.run_steps(8);
+    assert!(
+        !r.fake
+            .sent()
+            .iter()
+            .any(|c| matches!(c, UiCommand::Launch { .. })),
+        "not started again"
+    );
+    r.h.get_all_by_role_and_label(Role::Dialog, "This game needs a folder that isn't there")
+        .next()
+        .unwrap();
+    // A session that ended at once: the page, with its note.
+    let h = game_id(&lib, "Amber Sky");
+    r.h.state_mut()
+        .state
+        .launches
+        .ended_early
+        .insert(h, easyplay_core::model::EndReason::Crashed { signal: 11 });
+    r.h.key_press(Key::Escape);
+    r.h.run_steps(12);
+    assert!(r.h.state().state.nav.overlays().is_empty());
+    r.fake.clear_sent();
+    r.h.get_by_role_and_label(Role::Button, "Play Amber Sky")
+        .click();
+    r.h.run_steps(8);
+    assert!(
+        !r.fake
+            .sent()
+            .iter()
+            .any(|c| matches!(c, UiCommand::Launch { .. }))
+    );
+    assert_eq!(r.h.state().state.nav.current(), Route::Game(h));
+}
+
+/// *Choose a file instead…* in the second step: the dialog stays while the file is set
+/// up, and the third step offers *Back* to the programs.
+#[test]
+fn choose_a_file_instead_keeps_the_dialog_and_back_returns() {
+    let mut r = rig(Route::Library);
+    r.h.run();
+    let folder = PathBuf::from("/home/sam/Games/Celeste");
+    let mut vm = easyplay_ui::vm::screens::AddGameVm {
+        folder: folder.clone(),
+        ..Default::default()
+    };
+    vm.set_scan(demo::folder_scan(&folder));
+    r.h.state_mut().state.add_game = Some(vm);
+    r.h.state_mut().state.nav.open(Overlay::AddGame);
+    r.h.run_steps(6);
+    r.picker.answer(vec![PathBuf::from(EXE)]);
+    r.h.get_by_role_and_label(Role::Button, "Choose a file instead…")
+        .click();
+    for _ in 0..6 {
+        r.h.step();
+        assert_eq!(r.h.state().state.nav.top_overlay(), Some(Overlay::AddGame));
+    }
+    assert!(r.fake.sent().contains(&UiCommand::OpenPaths {
+        paths: vec![PathBuf::from(EXE)],
+        origin: OpenOrigin::Picker,
+    }));
+    request_setup(&r, EXE, SetupOrigin::InsideApp);
+    r.h.run_steps(6);
+    r.h.get_by_role_and_label(Role::Dialog, "Set up this game");
+    r.h.get_by_role_and_label(Role::Button, "Back").click();
+    r.h.run_steps(8);
+    assert_eq!(r.h.state().state.nav.top_overlay(), Some(Overlay::AddGame));
+    r.h.get_by_role_and_label(Role::RadioButton, "Celeste.exe, main program, 32 MB");
 }

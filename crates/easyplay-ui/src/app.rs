@@ -87,12 +87,10 @@ pub struct UiState {
     /// Toasts.
     pub toasts: ToastQueue,
     /// Undo commands offered by toasts, by action key.
-    pub undo: HashMap<u64, UiCommand>,
+    pub undo: HashMap<u64, Vec<UiCommand>>,
     /// The last undo key offered (for `Ctrl+Z`).
     pub last_undo: Option<u64>,
     next_undo: u64,
-    /// The user's sidebar choice (`Some(collapsed)`), else automatic.
-    pub sidebar_pref: Option<bool>,
     /// Banner slot.
     pub banners: BannerQueue,
     /// Widget gallery state.
@@ -151,6 +149,14 @@ pub struct UiState {
     pub game_started: bool,
     /// Developer Mode views, the report preview, recovery choices.
     pub debug: crate::vm::debug::DebugVm,
+    /// Where covers are, for the flight between the wall and a game page.
+    pub flight: crate::screens::flight::Flight,
+    /// The page shown in the last pass (a change of page fades).
+    pub shown_page: Option<Route>,
+    /// A change of page in progress.
+    pub turn: Option<shell::PageTurn>,
+    /// The Settings tab last visited: where "Settings" in the top bar leads.
+    pub settings_tab: crate::route::SettingsTab,
 }
 
 impl UiState {
@@ -163,7 +169,6 @@ impl UiState {
             undo: HashMap::new(),
             last_undo: None,
             next_undo: 1,
-            sidebar_pref: None,
             banners: BannerQueue::default(),
             gallery: GalleryState::default(),
             pending_focus: None,
@@ -192,6 +197,10 @@ impl UiState {
             prev_route: None,
             game_started: false,
             debug: crate::vm::debug::DebugVm::default(),
+            flight: crate::screens::flight::Flight::default(),
+            shown_page: None,
+            turn: None,
+            settings_tab: crate::route::SettingsTab::default(),
         }
     }
 
@@ -220,13 +229,25 @@ impl UiState {
         undo: Option<UiCommand>,
         now: easyplay_core::clock::MonoInstant,
     ) {
-        let action = undo.map(|cmd| {
+        self.toast_undoing(text, kind, undo.into_iter().collect(), now);
+    }
+
+    /// A toast whose *Undo* takes several commands (hiding several games); none, and the
+    /// toast has no action.
+    pub fn toast_undoing(
+        &mut self,
+        text: impl Into<String>,
+        kind: ToastKind,
+        undo: Vec<UiCommand>,
+        now: easyplay_core::clock::MonoInstant,
+    ) {
+        let action = (!undo.is_empty()).then(|| {
             let key = self.next_undo;
             self.next_undo += 1;
-            self.undo.insert(key, cmd);
+            self.undo.insert(key, undo);
             self.last_undo = Some(key);
             ToastAction {
-                label: strings::feedback::UNDO.to_owned(),
+                label: strings::feedback::UNDO().to_owned(),
                 key,
             }
         });
@@ -313,7 +334,7 @@ impl EasyPlayApp {
             state.banners.set(Banner {
                 key: "preview",
                 severity: Severity::Info,
-                text: strings::feedback::PREVIEW_BANNER.to_owned(),
+                text: strings::feedback::PREVIEW_BANNER().to_owned(),
                 action: None,
                 dismissible: true,
             });
@@ -418,13 +439,25 @@ impl EasyPlayApp {
 
     /// The desktop's preferences changed (tests call this directly).
     pub fn set_system_prefs(&mut self, ctx: &Context, system: theme::SystemPrefs) {
-        self.system = system;
+        self.system = system.clone();
         theme::set_system(ctx, system);
         self.reapply_appearance(ctx, true);
     }
 
+    /// Make the interface's language the one `general.language` and the desktop's locale
+    /// resolve to; repaint when it changed.
+    fn apply_language(&self, ctx: &Context) {
+        let choice = crate::i18n::LanguageChoice::parse(&self.bridge.prefs().general.language);
+        let language = crate::i18n::resolve(choice, theme::system(ctx).locale.as_deref());
+        if language != crate::i18n::language() {
+            crate::i18n::set(language);
+            ctx.request_repaint();
+        }
+    }
+
     /// Recompute the appearance from the preferences and the desktop; restyle if it changed.
     fn reapply_appearance(&mut self, ctx: &Context, zoom_too: bool) {
+        self.apply_language(ctx);
         let prefs = self.bridge.prefs().clone();
         let a = appearance_of(&prefs, self.appearance, &self.system);
         if a != self.appearance || zoom_too {
@@ -483,9 +516,15 @@ impl EasyPlayApp {
             ctx.request_repaint();
             return;
         }
-        let focused = ctx.memory(|m| m.focused()).is_some();
+        let focus = match ctx.memory(|m| m.focused()) {
+            None => gamepad::PadFocus::Nothing,
+            Some(f) if crate::screens::library::is_game_focus(&self.state, f) => {
+                gamepad::PadFocus::Game
+            }
+            Some(_) => gamepad::PadFocus::Control,
+        };
         for intent in intents {
-            match gamepad::key_events(intent, focused) {
+            match gamepad::key_events(intent, focus) {
                 Some(events) => {
                     if matches!(intent, NavIntent::Scroll(_))
                         && ctx.input(|i| i.pointer.latest_pos()).is_none()
@@ -519,12 +558,13 @@ impl EasyPlayApp {
             return;
         }
         let _ui = easyplay_core::ui_thread::enter();
-        theme::set_system(ctx, self.system);
+        theme::set_system(ctx, self.system.clone());
         if self.system != theme::SystemPrefs::default() {
             let prefs = self.bridge.prefs().clone();
             self.appearance = appearance_of(&prefs, self.appearance, &self.system);
         }
         theme::install(ctx, &self.appearance);
+        self.apply_language(ctx);
         ctx.set_zoom_factor(theme::zoom(ctx, &self.appearance));
         let waker_ctx = ctx.clone();
         self.bridge
@@ -573,7 +613,7 @@ impl EasyPlayApp {
             self.on_event(ctx, ev);
         }
         while let Some(r) = self.picker.as_ref().and_then(|p| p.try_result()) {
-            self.on_pick(r);
+            self.on_pick(ctx, r);
         }
         if let Some(next) = self.state.toasts.tick(mono) {
             ctx.request_repaint_after(next.max(Duration::from_millis(16)));
@@ -697,6 +737,13 @@ impl EasyPlayApp {
                 }
                 if let Route::Game(id) = s.nav.current()
                     && lib.get(id).is_none()
+                    && id.is_steam()
+                {
+                    // A Steam game leaves when Steam no longer lists it or the option is
+                    // turned off (ADR-0031): its page closes; nothing was removed here.
+                    s.nav.back();
+                } else if let Route::Game(id) = s.nav.current()
+                    && lib.get(id).is_none()
                 {
                     let name = s
                         .details
@@ -751,6 +798,21 @@ impl EasyPlayApp {
             return;
         }
         let d = &mut s.details;
+        if d.steam_q == Some(id) {
+            d.steam_q = None;
+            d.steam = match payload {
+                QueryPayload::Steam(x) => {
+                    // The notes arrive with it; typing in them meanwhile is not overwritten.
+                    if d.notes_edited.is_none() {
+                        d.notes.clone_from(&x.notes);
+                    }
+                    AsyncValue::Ready(x)
+                }
+                QueryPayload::Failed(e) => AsyncValue::Failed(e),
+                _ => AsyncValue::Idle,
+            };
+            return;
+        }
         if d.detail_q == Some(id) {
             d.detail_q = None;
             match payload {
@@ -860,6 +922,15 @@ impl EasyPlayApp {
             };
             return;
         }
+        if let Some((q, range, rev)) = st.top_q
+            && q == id
+        {
+            st.top_q = None;
+            if let QueryPayload::Stats(easyplay_core::stats::StatsResult::Top(t)) = payload {
+                st.top.insert((range, rev), t);
+            }
+            return;
+        }
         if st.weekdays_q == Some(id) {
             st.weekdays_q = None;
             if let QueryPayload::Stats(easyplay_core::stats::StatsResult::Weekdays(w)) = payload {
@@ -892,7 +963,7 @@ impl EasyPlayApp {
         }
     }
 
-    fn on_pick(&mut self, r: PickResult) {
+    fn on_pick(&mut self, ctx: &Context, r: PickResult) {
         let s = &mut self.state;
         let Some(first) = r.paths.first().cloned() else {
             return;
@@ -901,16 +972,11 @@ impl EasyPlayApp {
             PickPurpose::SaveReport => {
                 crate::screens::debug::report::save_to(s, &self.bridge, first);
             }
-            PickPurpose::AddGame | PickPurpose::AddGameFile => {
-                s.add_game = None;
-                if s.nav.top_overlay() == Some(Overlay::AddGame) {
-                    s.nav.close(Overlay::AddGame);
-                }
-                self.bridge.send(UiCommand::OpenPaths {
-                    paths: r.paths,
-                    origin: OpenOrigin::Picker,
-                });
+            // The dialog stays open between its steps.
+            PickPurpose::AddGameFile => {
+                crate::screens::add_game::picked_programs(ctx, s, &self.bridge, r.paths);
             }
+            PickPurpose::AddGameFolder => crate::screens::add_game::scan(s, &self.bridge, first),
             PickPurpose::FolderGrant(game) => s.shares.push((game, first)),
             PickPurpose::RelocateFolder(game, old) => {
                 crate::screens::details::permissions::relocate_folder(s, game, &old, first);
@@ -964,6 +1030,15 @@ impl EasyPlayApp {
                 path: first,
                 role: easyplay_core::model::ExeRole::Alternate,
             }),
+            // In a Steam game's Windows storage (ADR-0031).
+            PickPurpose::RunProgram(game) if game.is_steam() => {
+                self.bridge
+                    .send(UiCommand::Steam(crate::bridge::SteamAction::RunProgram {
+                        id: game,
+                        program: first,
+                        args: Vec::new(),
+                    }));
+            }
             PickPurpose::RunProgram(game) => self.bridge.send(UiCommand::RunTool {
                 id: game,
                 tool: Tool::RunExe {
@@ -1016,6 +1091,8 @@ impl EasyPlayApp {
         let _ui = easyplay_core::ui_thread::enter();
         let ctx = ui.ctx().clone();
         self.install(&ctx);
+        // A language chosen in Settings applies at once, before the preference round trip.
+        self.apply_language(&ctx);
         let (Some(textures), Some(art)) = (self.textures.as_mut(), self.art.as_deref()) else {
             return;
         };

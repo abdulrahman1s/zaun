@@ -37,7 +37,8 @@ pub use migrate::{MigrateOptions, MigrationOutcome};
 pub use repo::{
     ArtworkRepo, AuditState, CloseOutcome, DailyPlaytime, ExecutableRepo, GamePatch, GameRecord,
     GameRepo, KvRepo, LibraryRows, MetaKey, NewSession, PlaytimePiece, RuntimeEvent, RuntimeRepo,
-    SessionClose, SessionEvent, SessionRepo, SlrInstall, StatsRepo, TagRepo,
+    SessionClose, SessionEvent, SessionRepo, SlrInstall, StatsRepo, SteamOverlay, SteamPatch,
+    SteamRepo, TagRepo,
 };
 
 use crate::error::{Error, ErrorCode};

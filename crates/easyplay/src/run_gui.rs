@@ -210,7 +210,10 @@ pub(crate) fn ui_deps(
         focus: None,
         on_waker: None,
         display: easyplay_ui::DisplayBackend::Auto,
-        system: easyplay_ui::theme::SystemPrefs::default(),
+        system: easyplay_ui::theme::SystemPrefs {
+            locale: desktop_settings::locale(),
+            ..easyplay_ui::theme::SystemPrefs::default()
+        },
         system_changes: None,
         on_close: None,
     }
@@ -592,6 +595,7 @@ pub(crate) mod desktop_settings {
             high_contrast,
             reduced_motion,
             text_scale,
+            locale: None,
         }
     }
 
@@ -615,9 +619,14 @@ pub(crate) mod desktop_settings {
         let conn = zbus::blocking::Connection::session()?;
         let proxy = zbus::blocking::Proxy::new(&conn, DEST, PATH, IFACE)?;
         let mut raw = read_all(&proxy);
-        let mut last = interpret(&raw);
+        let locale = locale();
+        let with_locale = |p: SystemPrefs| SystemPrefs {
+            locale: locale.clone(),
+            ..p
+        };
+        let mut last = with_locale(interpret(&raw));
         tracing::debug!(?last, "desktop appearance preferences");
-        if tx.send(last).is_err() {
+        if tx.send(last.clone()).is_err() {
             return Ok(());
         }
         wake();
@@ -631,9 +640,9 @@ pub(crate) mod desktop_settings {
                 continue;
             }
             raw.insert(format!("{ns} {key}"), value);
-            let now = interpret(&raw);
+            let now = with_locale(interpret(&raw));
             if now != last {
-                last = now;
+                last = now.clone();
                 if tx.send(now).is_err() {
                     return Ok(());
                 }
@@ -641,6 +650,20 @@ pub(crate) mod desktop_settings {
             }
         }
         Ok(())
+    }
+
+    /// The first non-empty of `LC_ALL`, `LC_MESSAGES`, `LANG` that is not "C" or "POSIX".
+    pub fn locale_of(get: impl Fn(&str) -> Option<String>) -> Option<String> {
+        ["LC_ALL", "LC_MESSAGES", "LANG"]
+            .into_iter()
+            .filter_map(get)
+            .map(|v| v.trim().to_owned())
+            .find(|v| !v.is_empty() && v != "C" && v != "POSIX")
+    }
+
+    /// The desktop's locale from the process environment, when it names one.
+    pub fn locale() -> Option<String> {
+        locale_of(|k| std::env::var(k).ok())
     }
 
     /// Start following the desktop's appearance preferences; `wake` is called after each
@@ -666,6 +689,32 @@ pub(crate) mod desktop_settings {
                 .iter()
                 .map(|(k, v)| ((*k).to_owned(), OwnedValue::try_from(v.clone()).unwrap()))
                 .collect()
+        }
+
+        #[test]
+        fn the_locale_comes_from_the_first_usable_variable() {
+            let env = |pairs: &'static [(&'static str, &'static str)]| {
+                move |k: &str| {
+                    pairs
+                        .iter()
+                        .find(|(n, _)| *n == k)
+                        .map(|(_, v)| (*v).to_owned())
+                }
+            };
+            assert_eq!(locale_of(env(&[])), None);
+            assert_eq!(
+                locale_of(env(&[("LANG", "ar_EG.UTF-8")])).as_deref(),
+                Some("ar_EG.UTF-8")
+            );
+            assert_eq!(
+                locale_of(env(&[("LC_ALL", "en_GB"), ("LANG", "ar_EG.UTF-8")])).as_deref(),
+                Some("en_GB")
+            );
+            assert_eq!(
+                locale_of(env(&[("LC_ALL", "C"), ("LC_MESSAGES", ""), ("LANG", "ar")])).as_deref(),
+                Some("ar")
+            );
+            assert_eq!(locale_of(env(&[("LANG", "POSIX")])), None);
         }
 
         #[test]

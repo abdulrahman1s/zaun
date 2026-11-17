@@ -57,6 +57,15 @@
 //! | `Inspect`, `ListSessions`, `ReadLog`, `ListProcesses` | Developer Mode queries (DEVELOPER_MODE §3) | `QueryResult(Inspector / Sessions / LogChunk / Processes)` |
 //! | `RunDoctor`, `BuildReport`, `SaveReport`, `DismissCrash`, `ResolveDatabase` | diagnostics (ERROR_HANDLING §5–7) | `DiagnosticsChanged`, `QueryResult(Report)`, `Toast` |
 //! | `Quit` | `Command::Shutdown` | window closes |
+//! | `Steam(SteamAction)` | `Command::Steam(SteamCommand)` (ADR-0031): the option, rescan, Update in Steam, Open in Steam, the Windows-storage actions, details | `PreferencesChanged` + `LibraryChanged`, `Toast`, `QueryResult(Steam)`, `Failure` |
+//!
+//! **Steam games** (ADR-0031) are ordinary entries of the library snapshot with
+//! [`GameSummary::origin`] `GameOrigin::Steam(facts)` and the ID `GameId::steam(app_id)`.
+//! Favourite, hidden, tags (`SetFavorite`, `SetHidden`, `SetTags`), notes
+//! (`UpdateGame` with `GameEdit::Notes`), Play (`Launch`, handed to Steam) and the game folder
+//! (`OpenFolder(GameFolder)`) use the general commands. Screens read
+//! [`GameSummary::protection`] (never `preset`: a Steam game has none) and
+//! [`GameSummary::playtime_source`]; a Steam game has no Stop and no protection editor.
 //!
 //! **Events** ([`UiEvent`]): `LibraryChanged`, `PreferencesChanged`, `HostChanged`,
 //! `RuntimesChanged` (snapshots), `LaunchProgress { game, state }` (core `LaunchState`),
@@ -92,6 +101,11 @@ pub use easyplay_core::diagnostics::report::ReportFile;
 pub use easyplay_core::launch::InspectorData;
 pub use easyplay_core::library::TagInfo;
 pub use easyplay_core::model::Session;
+pub use easyplay_core::model::{
+    GameOrigin, PlaytimeSource, ProtectionState, SteamCompat, SteamDownload, SteamFacts,
+    SteamInstallKind, SteamRequest, SteamUpdate,
+};
+pub use easyplay_core::service::SteamDetail;
 pub use easyplay_core::service::{
     DatabaseChoice, Diagnostics, InspectTarget, LogChunk, LogFile, RecoveryReason, RecoveryState,
 };
@@ -480,8 +494,47 @@ pub enum QueryPayload {
     Processes(Vec<ProcessInfo>),
     /// The diagnostics report's files, for the preview.
     Report(Vec<ReportFile>),
+    /// A Steam game's page (`SteamAction::Details`).
+    Steam(Box<SteamDetail>),
     /// The query failed.
     Failed(UserError),
+}
+
+/// What the Steam screens ask for (ADR-0031). Mapped one-to-one onto
+/// `easyplay_core::service::SteamCommand`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SteamAction {
+    /// "Show my Steam games" on or off (`steam.show_games`); the library follows.
+    SetEnabled(bool),
+    /// "Check Steam again": read Steam's files now (a toast with the count follows).
+    Rescan,
+    /// "Update in Steam": opens Steam's downloads (no request updates one game on demand).
+    Update(GameId),
+    /// "Open in Steam": the game in Steam's library, whose Properties hold the Proton choice
+    /// and launch options.
+    OpenInSteam(GameId),
+    /// "Open Windows storage folder" (`compatdata/<appid>/pfx`).
+    OpenStorageFolder(GameId),
+    /// "Windows settings" (winecfg) in the game's Windows storage, inside EasyPlay's
+    /// protection; refused while the game runs.
+    WindowsSettings(GameId),
+    /// "Run another program here…": a program (an installer for a mod, a tool) in the game's
+    /// Windows storage, inside EasyPlay's protection; refused while the game runs.
+    RunProgram {
+        /// Game.
+        id: GameId,
+        /// The program (chosen in a file dialog).
+        program: PathBuf,
+        /// Its arguments.
+        args: Vec<String>,
+    },
+    /// What Steam says about the game, with its notes: `QueryPayload::Steam`.
+    Details {
+        /// Game.
+        id: GameId,
+        /// Reply ID.
+        reply_to: QueryId,
+    },
 }
 
 /// Toast emphasis.
@@ -823,6 +876,8 @@ pub enum UiCommand {
     DismissCrash,
     /// Answer the damaged-library choice.
     ResolveDatabase(DatabaseChoice),
+    /// A Steam action (ADR-0031).
+    Steam(SteamAction),
     /// Quit EasyPlay (games keep running).
     Quit,
 }

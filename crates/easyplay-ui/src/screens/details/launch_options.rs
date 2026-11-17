@@ -1,31 +1,37 @@
-//! Launch options tab (SCREEN_SPECS_2 §11, UI-020): programs with roles and a run button,
-//! arguments with a live split preview, working folder, stop grace, and environment
-//! variables whose names are checked against EasyPlay's rules (reserved names name the
-//! setting that controls them). A variable's name field suggests Proton's options as it is
-//! typed, each with what it does (ADR-0027).
+//! Launch options tab (easyplay-redesign.html `tabLaunch`; SCREEN_SPECS_2 §11, UI-020):
+//! setting rows in a 620 column. *Programs*: each program's file name in mono with its role
+//! under it, a run button and a menu (make main, mark as, rename its label, its own
+//! arguments, remove); then *Add program…* and *Run another program once…*. *Arguments*: a
+//! mono field with what it comes to under it. *Starting and stopping*: the working folder
+//! and how long a stop waits. *Environment variables*: a NAME = value row that adds one, and
+//! the variables set, each editable; a name is checked against EasyPlay's rules (reserved
+//! names name the setting that controls them) and suggests Proton's options as it is typed,
+//! each with what it does (ADR-0027).
 
 use easyplay_core::model::{EnvVar, ExeRole, GameSummary, WorkingDir};
 use easyplay_core::umu::env::{EnvRule, classify};
 use easyplay_core::umu::flags::{self, Builds, Flag};
 use egui::{
-    Align, CornerRadius, Key, Layout, Modifiers, Popup, Response, Sense, Ui, WidgetText, vec2,
+    Align, CornerRadius, Key, Layout, Modifiers, Popup, Rect, Response, Sense, Ui, UiBuilder, pos2,
+    vec2,
 };
 
-use super::card;
-use super::permissions::{issue_line, section};
+use super::column;
+use super::permissions::issue_line;
 use crate::app::UiState;
 use crate::bridge::{GameEdit, UiCommand};
 use crate::input::picker::PickPurpose;
 use crate::screens::Env;
 use crate::strings;
 use crate::strings::details as s;
-use crate::theme::tokens::{icon as icon_size, radius, space};
+use crate::theme::tokens::{control, game as gm, layout, radius, space};
 use crate::theme::{self, Type, icons};
 use crate::vm::details::{LaunchDraft, ProgramEdit, ProgramField};
 use crate::vm::toasts::ToastKind;
-use crate::widgets::button::{Button, Size};
+use crate::widgets::button::Button;
 use crate::widgets::context_menu::{danger_item, item};
 use crate::widgets::icon_button::IconButton;
+use crate::widgets::rows::{self, SettingRow};
 use crate::widgets::segmented::{Segment, segmented};
 use crate::widgets::select::select;
 use crate::widgets::text_field::TextField;
@@ -35,8 +41,6 @@ pub const GRACE: [u8; 5] = [5, 10, 20, 30, 60];
 
 /// Proton options offered at once under a name field.
 const SUGGESTIONS: usize = 6;
-/// Width of the list of suggestions.
-const SUGGESTIONS_W: f32 = 420.0;
 
 /// Whether this game's compatibility layer (by its name) may read `f`: every build reads
 /// the common options; the others are read by GE-Proton and CachyOS builds, and a layer
@@ -52,36 +56,23 @@ fn layer_reads(f: &Flag, layer: &str) -> bool {
 fn suggestion(ui: &mut Ui, f: &Flag, lit: bool) -> Response {
     let p = theme::theme(ui.ctx()).palette.clone();
     let w = ui.available_width();
-    let pad = space::S3;
-    let name = WidgetText::from(Type::Mono.rich(f.name).color(p.text_primary)).into_galley(
-        ui,
-        Some(egui::TextWrapMode::Truncate),
-        w - pad * 2.0,
-        Type::Mono.font_id(),
-    );
-    let what = WidgetText::from(Type::Caption.rich(f.summary).color(p.text_secondary)).into_galley(
-        ui,
-        Some(egui::TextWrapMode::Wrap),
-        w - pad * 2.0,
-        Type::Caption.font_id(),
-    );
-    let h = space::S2 * 2.0 + name.size().y + space::S0 + what.size().y;
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
+    let pad = space::S3 - space::S1;
+    let name = Type::Mono.galley(ui, f.name, p.t1, w - pad * 2.0, 1);
+    let what = Type::Caption.galley(ui, f.summary, p.t3, w - pad * 2.0, usize::MAX);
+    let h = space::S1 * 2.0 + name.size().y + what.size().y;
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, h.max(control::MENU_ITEM)), Sense::click());
     let label = format!("{}: {}", f.name, f.summary);
     crate::a11y::option(&resp, egui::accesskit::Role::ListBoxOption, &label, lit);
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
         if lit || resp.hovered() {
-            painter.rect_filled(rect, CornerRadius::same(radius::ROW), p.fill_selected);
+            painter.rect_filled(rect, CornerRadius::same(radius::SM), p.o2);
         }
         let x = rect.left() + pad;
-        let top = rect.top() + space::S2;
-        painter.galley(egui::pos2(x, top), name.clone(), p.text_primary);
-        painter.galley(
-            egui::pos2(x, top + name.size().y + space::S0),
-            what,
-            p.text_secondary,
-        );
+        let top = rect.top() + space::S1;
+        let nh = name.size().y;
+        painter.galley(pos2(x, top), name, p.t1);
+        painter.galley(pos2(x, top + nh), what, p.t3);
     }
     resp
 }
@@ -123,14 +114,15 @@ fn suggestions(ui: &mut Ui, field: &Response, v: &mut EnvVar, taken: &[&str]) ->
         at = 0;
     }
     let mut picked = enter.then_some(at);
+    let w = layout::MENU_W[1];
     let shown = Popup::from_response(field)
         .open(true)
-        .accessible_name(s::PROTON_OPTIONS)
-        .width(SUGGESTIONS_W)
+        .accessible_name(s::PROTON_OPTIONS())
+        .width(w)
         .frame(egui::Frame::NONE)
         .show(|ui| {
             crate::widgets::context_menu::frame(ui, |ui| {
-                ui.set_width(SUGGESTIONS_W);
+                ui.set_width(w);
                 for (i, f) in list.iter().enumerate() {
                     if suggestion(ui, f, i == at).clicked() {
                         picked = Some(i);
@@ -166,8 +158,8 @@ pub fn env_problem(v: &EnvVar, developer: bool) -> Option<String> {
         EnvRule::Allowed => None,
         EnvRule::Reserved => Some(s::reserved_var(&v.name)),
         EnvRule::Dangerous if developer => None,
-        EnvRule::Dangerous => Some(s::DEV_ONLY_VAR.to_owned()),
-        EnvRule::Invalid => Some(s::INVALID_VAR.to_owned()),
+        EnvRule::Dangerous => Some(s::DEV_ONLY_VAR().to_owned()),
+        EnvRule::Invalid => Some(s::INVALID_VAR().to_owned()),
     }
 }
 
@@ -185,11 +177,11 @@ pub fn env_errors(l: &LaunchDraft) -> usize {
 
 fn role_label(r: ExeRole) -> &'static str {
     match r {
-        ExeRole::Primary => s::ROLE_PRIMARY,
-        ExeRole::Alternate => s::ROLE_ALTERNATE,
-        ExeRole::Launcher => s::ROLE_LAUNCHER,
-        ExeRole::Tool => s::ROLE_TOOL,
-        ExeRole::Installer => s::ROLE_INSTALLER,
+        ExeRole::Primary => s::ROLE_PRIMARY(),
+        ExeRole::Alternate => s::ROLE_ALTERNATE(),
+        ExeRole::Launcher => s::ROLE_LAUNCHER(),
+        ExeRole::Tool => s::ROLE_TOOL(),
+        ExeRole::Installer => s::ROLE_INSTALLER(),
     }
 }
 
@@ -197,8 +189,8 @@ fn role_label(r: ExeRole) -> &'static str {
 /// `Some(None)` cancelled, `None` still editing.
 fn program_editor(ui: &mut Ui, pe: &mut ProgramEdit) -> Option<Option<GameEdit>> {
     let (name, help) = match pe.field {
-        ProgramField::Label => (s::LABEL_FIELD, s::LABEL_HELP),
-        ProgramField::Args => (s::PROGRAM_ARGS_FIELD, s::PROGRAM_ARGS_HELP),
+        ProgramField::Label => (s::LABEL_FIELD(), s::LABEL_HELP()),
+        ProgramField::Args => (s::PROGRAM_ARGS_FIELD(), s::PROGRAM_ARGS_HELP()),
     };
     let mut out = None;
     let field = TextField::new(&mut pe.text, "launch.program_edit")
@@ -218,12 +210,14 @@ fn program_editor(ui: &mut Ui, pe: &mut ProgramEdit) -> Option<Option<GameEdit>>
         ProgramField::Args => split.is_ok(),
     };
     if pe.field == ProgramField::Args && split.is_err() {
-        issue_line(ui, s::ARGS_UNBALANCED, true);
+        issue_line(ui, s::ARGS_UNBALANCED(), true);
     }
     let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
     let escape = ui.input(|i| i.key_pressed(Key::Escape));
+    ui.add_space(gm::FINE_TOP);
     ui.horizontal(|ui| {
-        let save = ui.add_enabled(valid, Button::new(s::SAVE_PROGRAM).size(Size::Sm));
+        ui.spacing_mut().item_spacing.x = space::S2;
+        let save = ui.add_enabled(valid, Button::new(s::SAVE_PROGRAM()));
         if (save.clicked() || (enter && valid)) && out.is_none() {
             let text = pe.text.trim().to_owned();
             out = Some(Some(match pe.field {
@@ -236,9 +230,7 @@ fn program_editor(ui: &mut Ui, pe: &mut ProgramEdit) -> Option<Option<GameEdit>>
                 ),
             }));
         }
-        let cancel = ui
-            .add(Button::ghost(s::CANCEL_PROGRAM).size(Size::Sm))
-            .clicked();
+        let cancel = ui.add(Button::ghost(s::CANCEL_PROGRAM())).clicked();
         if (cancel || escape) && out.is_none() {
             out = Some(None);
         }
@@ -246,241 +238,222 @@ fn program_editor(ui: &mut Ui, pe: &mut ProgramEdit) -> Option<Option<GameEdit>>
     out
 }
 
-/// Show the Launch options tab.
-pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
-    let p = theme::theme(ui.ctx()).palette.clone();
-    let id = g.id;
+/// A row of buttons whose text keeps the column's axis (their plates hang 10 to the left).
+fn hanging<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let at = ui.cursor().min;
+    let w = ui.available_width();
+    let mut line = ui.new_child(
+        UiBuilder::new()
+            .max_rect(Rect::from_min_size(
+                pos2(at.x - gm::ROW_BUTTONS[1], at.y),
+                vec2(w + gm::ROW_BUTTONS[1], f32::INFINITY),
+            ))
+            .layout(Layout::left_to_right(Align::Min)),
+    );
+    let out = add(&mut line);
+    ui.allocate_exact_size(vec2(w, line.min_rect().height()), Sense::hover());
+    out
+}
+
+/// *Programs*.
+fn programs(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
     let Some(d) = state.details.record().cloned() else {
-        if state.details.detail.show_skeleton(env.mono) {
-            super::skeleton_lines(ui, 6);
-        }
         return;
     };
-    ui.set_max_width(ui.available_width().min(840.0));
-    // Programs.
+    let id = g.id;
+    rows::heading(ui, s::PROGRAMS_TITLE(), true);
     let mut exes = d.game.executables.clone();
     exes.sort_by_key(|e| (e.role != ExeRole::Primary, e.role.as_str(), e.path.clone()));
     let mut edit = None;
     let mut open_edit: Option<ProgramEdit> = None;
-    card(ui, s::PROGRAMS_TITLE, |ui| {
-        for e in &exes {
-            ui.horizontal(|ui| {
-                let glyph = if e.role == ExeRole::Primary {
-                    icons::PLAY
-                } else {
-                    icons::FILE_EXE
-                };
-                ui.label(icons::icon(glyph, icon_size::INLINE).color(p.text_secondary));
-                let file = e
-                    .path
-                    .file_name()
-                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-                ui.label(Type::BodyStrong.rich(&file).color(p.text_primary));
-                ui.label(
-                    Type::Body
-                        .rich(s::role_with_label(role_label(e.role), e.label.as_deref()))
-                        .color(p.text_secondary),
-                );
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let more = ui.add(IconButton::new(icons::DOTS, &s::program_menu(&file)));
-                    Popup::menu(&more).show(|ui| {
-                        if e.role != ExeRole::Primary
-                            && item(ui, Some(icons::PLAY), s::MAKE_MAIN, None, false).clicked()
-                        {
-                            edit = Some(GameEdit::ExeRole(e.id, ExeRole::Primary));
-                        }
-                        for r in [ExeRole::Alternate, ExeRole::Launcher, ExeRole::Tool] {
-                            if e.role != r
-                                && e.role != ExeRole::Primary
-                                && item(ui, None, &s::mark_as(role_label(r)), None, false).clicked()
-                            {
-                                edit = Some(GameEdit::ExeRole(e.id, r));
-                            }
-                        }
-                        if item(ui, None, s::RENAME_LABEL, None, false).clicked() {
-                            open_edit = Some(ProgramEdit {
-                                exe: e.id,
-                                field: ProgramField::Label,
-                                text: e.label.clone().unwrap_or_default(),
-                            });
-                        }
-                        if item(ui, None, s::PROGRAM_ARGS, None, false).clicked() {
-                            open_edit = Some(ProgramEdit {
-                                exe: e.id,
-                                field: ProgramField::Args,
-                                text: e
-                                    .args_override
-                                    .as_deref()
-                                    .map(easyplay_core::model::join_args)
-                                    .unwrap_or_default(),
-                            });
-                        }
-                        if e.role != ExeRole::Primary
-                            && danger_item(ui, Some(icons::TRASH), s::REMOVE_PROGRAM).clicked()
-                        {
-                            edit = Some(GameEdit::RemoveExe(e.id));
-                        }
+    for e in &exes {
+        let file = e
+            .path
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        let mut help = s::shown_as(role_label(e.role), e.label.as_deref());
+        let editing = state
+            .details
+            .program_edit
+            .as_ref()
+            .is_some_and(|x| x.exe == e.id);
+        if let Some(args) = e.args_override.as_deref().filter(|_| !editing) {
+            help = format!(
+                "{help}\n{}",
+                s::own_args(&easyplay_core::model::join_args(args))
+            );
+        }
+        SettingRow::new(&file)
+            .mono()
+            .help(&help)
+            .id_salt(("program", e.id))
+            .show(ui, |ui| {
+                let run_name = s::run_program(&file);
+                let run = ui.add(IconButton::new(icons::PLAY, &run_name).filled(true));
+                // What the row says under the file name: its role and its own arguments.
+                crate::a11y::describe(&run, &help);
+                if run.clicked() {
+                    env.bridge.send(UiCommand::Launch {
+                        id,
+                        exe: Some(e.id),
                     });
-                    if ui
-                        .add(IconButton::new(icons::PLAY, &s::run_program(&file)))
-                        .clicked()
+                }
+                let more = ui.add(IconButton::new(icons::DOTS, &s::program_menu(&file)));
+                Popup::menu(&more).show(|ui| {
+                    if e.role != ExeRole::Primary
+                        && item(ui, None, s::MAKE_MAIN(), None, false).clicked()
                     {
-                        env.bridge.send(UiCommand::Launch {
-                            id,
-                            exe: Some(e.id),
+                        edit = Some(GameEdit::ExeRole(e.id, ExeRole::Primary));
+                    }
+                    for r in [ExeRole::Alternate, ExeRole::Launcher, ExeRole::Tool] {
+                        if e.role != r
+                            && e.role != ExeRole::Primary
+                            && item(ui, None, &s::mark_as(role_label(r)), None, false).clicked()
+                        {
+                            edit = Some(GameEdit::ExeRole(e.id, r));
+                        }
+                    }
+                    if item(ui, None, s::RENAME_LABEL(), None, false).clicked() {
+                        open_edit = Some(ProgramEdit {
+                            exe: e.id,
+                            field: ProgramField::Label,
+                            text: e.label.clone().unwrap_or_default(),
                         });
+                    }
+                    if item(ui, None, s::PROGRAM_ARGS(), None, false).clicked() {
+                        open_edit = Some(ProgramEdit {
+                            exe: e.id,
+                            field: ProgramField::Args,
+                            text: e
+                                .args_override
+                                .as_deref()
+                                .map(easyplay_core::model::join_args)
+                                .unwrap_or_default(),
+                        });
+                    }
+                    if e.role != ExeRole::Primary
+                        && danger_item(ui, None, s::REMOVE_PROGRAM()).clicked()
+                    {
+                        edit = Some(GameEdit::RemoveExe(e.id));
                     }
                 });
             });
-            if e.args_override.is_some()
-                && state
-                    .details
-                    .program_edit
-                    .as_ref()
-                    .is_none_or(|x| x.exe != e.id)
-            {
-                let args = e
-                    .args_override
-                    .as_deref()
-                    .map(easyplay_core::model::join_args)
-                    .unwrap_or_default();
-                ui.label(Type::Caption.rich(s::own_args(&args)).color(p.text_muted));
+        if let Some(pe) = state.details.program_edit.as_mut()
+            && pe.exe == e.id
+            && let Some(done) = program_editor(ui, pe)
+        {
+            if let Some(x) = done {
+                edit = Some(x);
             }
-            if let Some(pe) = state.details.program_edit.as_mut()
-                && pe.exe == e.id
-                && let Some(done) = program_editor(ui, pe)
-            {
-                if let Some(x) = done {
-                    edit = Some(x);
-                }
-                state.details.program_edit = None;
-            }
+            state.details.program_edit = None;
         }
-        ui.horizontal(|ui| {
-            if ui
-                .add(Button::new(s::ADD_PROGRAM).icon(icons::PLUS).size(Size::Sm))
-                .clicked()
-            {
-                state.picks.push(PickPurpose::AddProgram(id));
-            }
-            if ui
-                .add(Button::ghost(strings::menu::RUN_OTHER).size(Size::Sm))
-                .clicked()
-            {
-                state.picks.push(PickPurpose::RunProgram(id));
-            }
-        });
+    }
+    ui.add_space(gm::ROW_BUTTONS[0]);
+    let (add, once) = hanging(ui, |ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        let add = ui
+            .add(Button::ghost(s::ADD_PROGRAM()).icon(icons::PLUS))
+            .clicked();
+        let once = ui.add(Button::ghost(s::RUN_ONCE())).clicked();
+        (add, once)
     });
+    if add {
+        state.picks.push(PickPurpose::AddProgram(id));
+    }
+    if once {
+        state.picks.push(PickPurpose::RunProgram(id));
+    }
     if let Some(pe) = open_edit {
         state.details.program_edit = Some(pe);
     }
     if let Some(e) = edit {
         env.bridge
             .send(UiCommand::UpdateGame { id, edits: vec![e] });
-        state.toast(strings::feedback::SAVED, ToastKind::Success, None, env.mono);
+        state.toast(
+            strings::feedback::SAVED(),
+            ToastKind::Success,
+            None,
+            env.mono,
+        );
     }
+}
+
+/// The widths of an environment row's name and value fields, given the button at its end.
+fn env_widths(w: f32, end: f32, equals: f32) -> (f32, f32) {
+    let gaps = space::S2 * 3.0;
+    let room = (w - end - equals - gaps).max(space::S16);
+    let name = room / (1.0 + gm::ENV_VALUE_SHARE);
+    (name, room - name)
+}
+
+/// *Environment variables*: the row that adds one, then those set.
+fn variables(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary, layer: &str) {
+    let p = theme::theme(ui.ctx()).palette.clone();
     let developer = env.bridge.prefs().advanced.developer_mode;
     let Some(l) = state.details.launch.as_mut() else {
         return;
     };
-    // Arguments.
-    section(ui, s::ARGUMENTS, None);
-    let split = easyplay_core::model::split_args(&l.args_text);
-    TextField::new(&mut l.args_text, "launch.args")
-        .accessible_name(s::ARGUMENTS)
-        .mono()
-        .help(s::ARGUMENTS_HELP)
-        .show(ui);
-    match &split {
-        Ok(a) if !l.args_text.trim().is_empty() => {
-            let r = ui.label(
-                Type::Caption
-                    .rich(s::args_preview(a.len()))
-                    .color(p.text_muted),
-            );
-            crate::a11y::labelled(
-                ui.ctx(),
-                r.id,
-                egui::Role::Status,
-                &s::args_preview(a.len()),
-            );
-        }
-        Err(_) => issue_line(ui, s::ARGS_UNBALANCED, true),
-        _ => {}
-    }
-    // Working folder.
-    section(ui, s::START_IN, None);
-    let mut wd = match l.config.working_dir {
-        WorkingDir::ExeDir => 0,
-        WorkingDir::GameRoot => 1,
-        WorkingDir::Custom(_) => 2,
+    let set = l.config.env.iter().filter(|v| !v.name.is_empty()).count();
+    let note = (set > 0).then(|| s::vars_set(set));
+    rows::heading_note(ui, s::ENV_VARS(), note.as_deref(), false, false);
+    let w = ui.available_width();
+    let equals = Type::Mono.line(ui, "=", p.t3).size().x;
+    let taken: Vec<String> = l.config.env.iter().map(|v| v.name.clone()).collect();
+    let taken: Vec<&str> = taken.iter().map(String::as_str).collect();
+
+    // The row that adds a variable.
+    let mut fresh = EnvVar {
+        name: std::mem::take(&mut state.details.new_var_name),
+        value: std::mem::take(&mut state.details.new_var_value),
     };
-    let opts: Vec<Segment<'_>> = [s::WD_PROGRAM, s::WD_GAME, s::WD_OTHER]
-        .iter()
-        .map(|x| Segment {
-            icon: None,
-            label: x,
-        })
-        .collect();
-    if segmented(ui, s::START_IN, &mut wd, &opts, false).changed() {
-        match wd {
-            0 => l.config.working_dir = WorkingDir::ExeDir,
-            1 => l.config.working_dir = WorkingDir::GameRoot,
-            _ => state.picks.push(PickPurpose::WorkingDir(id)),
-        }
-    }
-    let Some(l) = state.details.launch.as_mut() else {
-        return;
-    };
-    if let WorkingDir::Custom(p2) = &l.config.working_dir {
-        ui.label(
-            Type::Mono
-                .rich(p2.display().to_string())
-                .color(p.text_secondary),
-        );
-    }
-    // Stop grace.
-    section(ui, s::WHEN_STOPPING, None);
+    let add_w = Button::new(s::ADD()).width(ui);
+    let (nw, vw) = env_widths(w, add_w, equals);
+    let mut added = false;
     ui.horizontal(|ui| {
-        let mut gi = GRACE
-            .iter()
-            .position(|x| *x == l.config.stop_grace_secs)
-            .unwrap_or(1);
-        let labels: Vec<String> = GRACE.iter().map(|x| s::seconds(*x)).collect();
-        let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-        if select(ui, s::WHEN_STOPPING, None, None, &mut gi, &refs, false).changed() {
-            l.config.stop_grace_secs = GRACE[gi];
+        ui.spacing_mut().item_spacing.x = space::S2;
+        let name = TextField::new(&mut fresh.name, "env.new.name")
+            .accessible_name(s::NEW_VAR_NAME())
+            .hint(s::NAME_HINT())
+            .mono()
+            .width(nw)
+            .show(ui)
+            .response;
+        ui.label(Type::Mono.rich("=").color(p.t3));
+        let value = TextField::new(&mut fresh.value, "env.new.value")
+            .accessible_name(s::NEW_VAR_VALUE())
+            .hint(s::VALUE_HINT())
+            .mono()
+            .width(vw)
+            .show(ui)
+            .response;
+        if suggestions(ui, &name, &mut fresh, &taken) {
+            value.request_focus();
         }
-        ui.label(Type::Body.rich(s::BEFORE_FORCING).color(p.text_secondary));
+        let enter = value.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+        if (ui.add(Button::new(s::ADD())).clicked() || enter) && !fresh.name.trim().is_empty() {
+            added = true;
+        }
     });
-    // Advanced: environment.
-    ui.add_space(space::S4);
-    let adv = state.details.launch_advanced;
-    let n = l.config.env.len();
-    if ui
-        .add(Button::ghost(&s::advanced(n)).icon(if adv {
-            icons::CARET_DOWN
-        } else {
-            icons::CARET_RIGHT
-        }))
-        .clicked()
-    {
-        state.details.launch_advanced = !adv;
+    if let Some(pr) = env_problem(&fresh, developer) {
+        issue_line(ui, &pr, true);
     }
-    if !state.details.launch_advanced {
-        return;
+    if added && env_problem(&fresh, developer).is_none() {
+        l.config.env.push(EnvVar {
+            name: fresh.name.trim().to_owned(),
+            value: fresh.value,
+        });
+    } else {
+        state.details.new_var_name = fresh.name;
+        state.details.new_var_value = fresh.value;
     }
     let Some(l) = state.details.launch.as_mut() else {
         return;
     };
-    ui.label(Type::BodyStrong.rich(s::ENV_VARS).color(p.text_primary));
-    if l.config.env.is_empty() {
-        ui.label(Type::Body.rich(s::NO_VARS).color(p.text_secondary));
-    }
+
+    // The variables set.
     let mut remove = None;
     let count = l.config.env.len();
-    let focus_id = egui::Id::unique("launch.env.focus");
-    let focus = ui.ctx().data_mut(|d| d.remove_temp::<usize>(focus_id));
+    let (nw, vw) = env_widths(w, control::BUTTON, equals);
     for i in 0..count {
         let name_salt = format!("env.name.{i}");
         let value_salt = format!("env.value.{i}");
@@ -488,23 +461,22 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
         let value_label = s::var_value(i + 1);
         let taken: Vec<String> = l.config.env.iter().map(|v| v.name.clone()).collect();
         let taken: Vec<&str> = taken.iter().map(String::as_str).collect();
+        ui.add_space(space::S2);
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space::S2;
             let v = &mut l.config.env[i];
             let name = TextField::new(&mut v.name, &name_salt)
                 .accessible_name(&name_label)
-                .hint(s::FIND_PROTON_OPTION)
+                .hint(s::FIND_PROTON_OPTION())
                 .mono()
-                .width(200.0)
+                .width(nw)
                 .show(ui)
                 .response;
-            if focus == Some(i) {
-                name.request_focus();
-            }
-            ui.label(Type::Mono.rich("=").color(p.text_muted));
+            ui.label(Type::Mono.rich("=").color(p.t3));
             let value = TextField::new(&mut v.value, &value_salt)
                 .accessible_name(&value_label)
                 .mono()
-                .width(260.0)
+                .width(vw)
                 .show(ui)
                 .response;
             if suggestions(ui, &name, v, &taken) {
@@ -518,40 +490,112 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary
             }
         });
         let v = &l.config.env[i];
-        let layer = d.runtime_resolved.as_deref().unwrap_or(&g.runtime_label);
         if let Some(pr) = env_problem(v, developer) {
-            issue_line(ui, &pr, true);
+            super::fine(ui, &pr, p.coral);
         } else if let Some(f) = flags::find(&v.name) {
             // What a known option does, said once, under its row.
-            let line = if layer_reads(f, layer) {
-                f.summary.to_owned()
+            if layer_reads(f, layer) {
+                super::fine(ui, f.summary, p.t3);
             } else {
-                s::not_read_by(f.summary, layer)
-            };
-            let tone = if layer_reads(f, layer) {
-                p.text_secondary
-            } else {
-                p.warning
-            };
-            ui.label(Type::Caption.rich(line).color(tone));
+                super::fine(ui, &s::not_read_by(f.summary, layer), p.amber);
+            }
         }
     }
     if let Some(i) = remove {
         l.config.env.remove(i);
     }
-    if ui
-        .add(Button::new(s::ADD_VAR).icon(icons::PLUS).size(Size::Sm))
-        .clicked()
-    {
-        l.config.env.push(EnvVar {
-            name: String::new(),
-            value: String::new(),
-        });
-        // Straight into the new name, where the options are offered.
-        let at = l.config.env.len() - 1;
-        ui.ctx().data_mut(|d| d.insert_temp(focus_id, at));
-        ui.ctx().request_repaint();
+    let _ = g;
+}
+
+/// Show the Launch options tab.
+pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
+    column(ui, |ui| body(ui, state, env, g));
+}
+
+fn body(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let id = g.id;
+    let Some(d) = state.details.record().cloned() else {
+        if state.details.detail.show_skeleton(env.mono) {
+            super::skeleton_lines(ui, 6);
+        }
+        return;
+    };
+    programs(ui, state, env, g);
+    let Some(l) = state.details.launch.as_mut() else {
+        return;
+    };
+
+    // Arguments.
+    rows::heading(ui, s::ARGUMENTS(), false);
+    let split = easyplay_core::model::split_args(&l.args_text);
+    TextField::new(&mut l.args_text, "launch.args")
+        .accessible_name(s::ARGUMENTS())
+        .hint(s::ARGS_NONE())
+        .mono()
+        .show(ui);
+    ui.add_space(gm::FINE_TOP);
+    let note = match &split {
+        Ok(a) => super::fine(ui, &s::args_note(a.len()), p.t3),
+        Err(_) => super::fine(ui, s::ARGS_UNBALANCED(), p.coral),
+    };
+    let said = match &split {
+        Ok(a) => s::args_note(a.len()),
+        Err(_) => s::ARGS_UNBALANCED().to_owned(),
+    };
+    crate::a11y::labelled(ui.ctx(), note.id, egui::Role::Status, &said);
+
+    // Starting and stopping.
+    rows::heading(ui, s::STARTING_AND_STOPPING(), false);
+    let mut wd = match l.config.working_dir {
+        WorkingDir::ExeDir => 0,
+        WorkingDir::GameRoot => 1,
+        WorkingDir::Custom(_) => 2,
+    };
+    let custom = match &l.config.working_dir {
+        WorkingDir::Custom(path) => path.display().to_string(),
+        _ => String::new(),
+    };
+    let opts: Vec<Segment<'_>> = [s::WD_PROGRAM, s::WD_GAME, s::WD_OTHER]
+        .iter()
+        .map(|x| Segment {
+            icon: None,
+            label: x(),
+        })
+        .collect();
+    let moved = SettingRow::new(s::START_IN()).help(&custom).show(ui, |ui| {
+        segmented(ui, s::START_IN(), &mut wd, &opts, false).changed()
+    });
+    if moved {
+        match wd {
+            0 => l.config.working_dir = WorkingDir::ExeDir,
+            1 => l.config.working_dir = WorkingDir::GameRoot,
+            _ => state.picks.push(PickPurpose::WorkingDir(id)),
+        }
     }
+    let Some(l) = state.details.launch.as_mut() else {
+        return;
+    };
+    SettingRow::new(s::WHEN_STOPPING())
+        .help(s::STOP_WAIT_HELP())
+        .show(ui, |ui| {
+            let mut gi = GRACE
+                .iter()
+                .position(|x| *x == l.config.stop_grace_secs)
+                .unwrap_or(1);
+            let labels: Vec<String> = GRACE.iter().map(|x| s::seconds(*x)).collect();
+            let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+            if select(ui, s::WHEN_STOPPING(), None, None, &mut gi, &refs, false).changed() {
+                l.config.stop_grace_secs = GRACE[gi.min(GRACE.len() - 1)];
+            }
+        });
+
+    // Environment variables.
+    let layer = d
+        .runtime_resolved
+        .clone()
+        .unwrap_or_else(|| g.runtime_label.to_string());
+    variables(ui, state, env, g, &layer);
 }
 
 #[cfg(test)]
@@ -568,5 +612,12 @@ mod tests {
         assert!(layer_reads(fsr4, "proton-cachyos-11.0-slr"));
         assert!(layer_reads(fsr4, "Default"));
         assert!(layer_reads(cap, "UMU-Proton 10.0-4"));
+    }
+
+    #[test]
+    fn an_environment_row_gives_the_value_more_room() {
+        let (n, v) = env_widths(620.0, 50.0, 8.0);
+        assert!((v / n - gm::ENV_VALUE_SHARE).abs() < 0.01);
+        assert!((n + v + 50.0 + 8.0 + space::S2 * 3.0 - 620.0).abs() < 0.01);
     }
 }

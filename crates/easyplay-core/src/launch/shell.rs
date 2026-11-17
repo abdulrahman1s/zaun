@@ -12,6 +12,10 @@
 //! ([`seccomp::program`] for the profile the options imply) as a binary payload. A build
 //! that cannot produce the program writes a script that refuses to run instead of one that
 //! would quietly start the game with less protection than EasyPlay gives it.
+//!
+//! The same goes for the restricted Wayland socket (ADR-0029): only a Wayland client can
+//! register it with the compositor, so a plan that has one gives a script that refuses to
+//! run rather than one that binds the compositor's own socket in its place.
 
 use std::ffi::OsStr;
 use std::fmt::Write as _;
@@ -108,6 +112,18 @@ pub fn render_shell(plan: &LaunchPlan, generated_at: &str) -> String {
                 );
                 let _ = writeln!(out, "while [ ! -S {} ]; do sleep 0.05; done", q(&socket));
                 let _ = writeln!(out, "# stop it afterwards: kill $!");
+            }
+            HostAction::CreateWaylandContext { socket, .. } => {
+                let _ = writeln!(
+                    out,
+                    "# the restricted Wayland socket {} (ADR-0029) is registered with the compositor by EasyPlay; a shell cannot",
+                    q(socket)
+                );
+                let _ = writeln!(
+                    out,
+                    "echo 'This script cannot create the restricted Wayland socket; not starting with the socket of the compositor instead.' >&2"
+                );
+                let _ = writeln!(out, "exit 1");
             }
         }
     }

@@ -26,7 +26,9 @@ use std::time::{Duration, Instant};
 
 use easyplay_core::clock::{SystemClock, Timestamp};
 use easyplay_core::fsx::{MountTable, RealFs};
-use easyplay_core::host::{HostFacts, ProbeDeps, RealAccess, RealRunner, UmuFacts, probe_all};
+use easyplay_core::host::{
+    HostFacts, NoCompositor, ProbeDeps, RealAccess, RealRunner, UmuFacts, probe_all,
+};
 use easyplay_core::ids::{GameId, RuntimeName, SessionId};
 use easyplay_core::launch::{PlanFd, PlanSandbox};
 use easyplay_core::model::{
@@ -160,6 +162,8 @@ impl World {
             umu_override: None,
             user_name: Some(user.clone()),
             jobs: None,
+            // The restricted Wayland socket has its own test below.
+            compositor: Arc::new(NoCompositor),
         });
         assert!(host.bwrap.is_some(), "bwrap not found: {:?}", host.problems);
 
@@ -365,10 +369,15 @@ fn pipe() -> (OwnedFd, OwnedFd) {
 }
 
 fn start(w: &World, sandbox: &PlanSandbox) -> Run {
+    let (sync_r, sync_w) = pipe();
+    start_with_sync(w, sandbox, sync_r, sync_w)
+}
+
+/// [`start`] with the `--sync-fd` pipe made by the caller.
+fn start_with_sync(w: &World, sandbox: &PlanSandbox, sync_r: OwnedFd, sync_w: OwnedFd) -> Run {
     let (log_r, log_w) = pipe();
     let (st_r, st_w) = pipe();
     let (init_r, init_w) = pipe();
-    let (sync_r, sync_w) = pipe();
     let child = RealSpawner
         .spawn(
             &w.bwrap(),
@@ -781,5 +790,113 @@ fn e2e_filter_loads_in_bwrap() {
         assert!(r.get("P-00").unwrap().detail.contains("seccomp=2"), "{log}");
         expect(&r, "P-20", "DENIED", &log);
         expect(&r, "P-22", "ALLOWED", &log);
+    }
+}
+
+/// ADR-0029 on the real compositor and the real `bwrap`: a restricted socket offers the
+/// compositor's globals minus those it withholds from sandboxed clients, and the compositor
+/// serves it exactly as long as the sandbox holds the `--sync-fd` pipe it was tied to.
+/// Skipped without a compositor that offers security contexts.
+#[test]
+fn e2e_wayland_context_lives_as_long_as_the_sandbox() {
+    use easyplay_core::host::wayland::{
+        ContextRequest, SECURITY_CONTEXT_MANAGER, create_security_context, globals,
+    };
+    use easyplay_core::host::{CompositorProbe, LiveCompositor};
+    use std::os::fd::AsFd;
+
+    if !enabled() {
+        return;
+    }
+    let w = World::new();
+    let Some(display) = w.host.display.wayland.as_ref().map(|s| s.path.clone()) else {
+        eprintln!("skipped: no Wayland compositor");
+        return;
+    };
+    if !LiveCompositor.offers_security_context(&display) {
+        eprintln!("skipped: the compositor offers no security contexts");
+        return;
+    }
+    // A short directory: socket addresses hold 107 bytes.
+    let dir = tempfile::Builder::new()
+        .prefix("ep-wl")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let socket = dir.path().join("wayland");
+    let (sync_r, sync_w) = pipe();
+    create_security_context(
+        &ContextRequest {
+            display: &display,
+            socket: &socket,
+            app_id: "e2e",
+            instance_id: "1",
+        },
+        sync_r.as_fd(),
+    )
+    .unwrap();
+
+    let raw = globals(&display).unwrap();
+    let restricted = globals(&socket).unwrap();
+    let withheld: Vec<&String> = raw.iter().filter(|g| !restricted.contains(g)).collect();
+    eprintln!("withheld from the restricted socket: {withheld:?}");
+    assert!(
+        restricted.iter().all(|g| raw.contains(g)),
+        "the restricted socket offers more: {restricted:?}"
+    );
+    assert!(
+        !restricted.iter().any(|g| g == SECURITY_CONTEXT_MANAGER),
+        "a sandboxed client could nest contexts"
+    );
+
+    // The sandbox holds the only write end: served while it runs ...
+    let sleep = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .map(|d| d.join("sleep"))
+        .find(|p| p.is_file())
+        .expect("sleep on PATH");
+    let sb = PlanSandbox {
+        args: [
+            "--unshare-user",
+            "--unshare-pid",
+            "--die-with-parent",
+            "--new-session",
+            "--ro-bind",
+            "/",
+            "/",
+            "--dev",
+            "/dev",
+            "--proc",
+            "/proc",
+            "--json-status-fd",
+            "4",
+            "--sync-fd",
+            "5",
+        ]
+        .iter()
+        .map(OsString::from)
+        .collect(),
+        fds: Vec::new(),
+        command: vec![sleep.into(), "2".into()],
+    };
+    let mut r = start_with_sync(&w, &sb, sync_r, sync_w);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(r.child.try_wait().unwrap().is_none(), "sandbox ended early");
+    assert!(
+        globals(&socket).is_ok(),
+        "not served while the sandbox runs"
+    );
+
+    // ... and no longer once it is gone.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while r.child.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "sandbox did not end");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let gone = Instant::now() + Duration::from_secs(3);
+    while globals(&socket).is_ok() {
+        assert!(
+            Instant::now() < gone,
+            "still served after the sandbox ended"
+        );
+        std::thread::sleep(Duration::from_millis(50));
     }
 }

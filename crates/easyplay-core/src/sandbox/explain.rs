@@ -387,6 +387,10 @@ pub fn explain(plan: &SandboxPlan, policy: &SandboxPolicy) -> Vec<AccessStatemen
 
     // Display.
     if let Some(m) = groups.remove(&PolicyField::Wayland) {
+        // ADR-0029: a restricted socket, or the compositor's own when it offers no contexts.
+        let restricted = super::wayland_ctx::context_sockets(&plan.host_actions)
+            .next()
+            .is_some();
         out.push(
             AccessStatement::new(
                 C::Display,
@@ -394,7 +398,12 @@ pub fn explain(plan: &SandboxPlan, policy: &SandboxPolicy) -> Vec<AccessStatemen
                 "Shows its windows on your desktop",
                 S::Info,
             )
-            .mounts(m),
+            .mounts(m)
+            .flag(if restricted {
+                "security context (the compositor restricts privileged protocols)"
+            } else {
+                "the compositor's own socket (no security context)"
+            }),
         );
     }
     if let Some(m) = groups.remove(&PolicyField::X11) {

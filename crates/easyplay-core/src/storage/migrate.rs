@@ -42,12 +42,20 @@ impl std::fmt::Debug for Migration {
 }
 
 /// The embedded migrations, in order.
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "0001_initial",
-    sql: include_str!("migrations/0001_initial.sql"),
-    rust: None,
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "0001_initial",
+        sql: include_str!("migrations/0001_initial.sql"),
+        rust: None,
+    },
+    Migration {
+        version: 2,
+        name: "0002_steam",
+        sql: include_str!("migrations/0002_steam.sql"),
+        rust: None,
+    },
+];
 
 /// The connection as seen by a Rust step (inside the migration's transaction).
 pub struct MigrationTx<'a> {
@@ -336,7 +344,7 @@ mod tests {
             db.migrate(&opts).unwrap(),
             MigrationOutcome::Migrated {
                 from: 0,
-                to: 1,
+                to: 2,
                 backup: None
             }
         ));
@@ -348,7 +356,7 @@ mod tests {
             db.migrate(&opts).unwrap(),
             MigrationOutcome::RefusedNewer {
                 found: 7,
-                supported: 1
+                supported: DB_SCHEMA_VERSION
             }
         );
         assert_eq!(db.schema_version().unwrap(), 7);
@@ -385,19 +393,20 @@ mod tests {
         db.migrate(&opts).unwrap();
         db.kv_set("probe", "v1", opts.now).unwrap();
 
-        let v2 = Migration {
-            version: 2,
-            name: "0002_test",
+        // Synthetic steps after the real ones.
+        let v3 = Migration {
+            version: 3,
+            name: "0003_test",
             sql: "CREATE TABLE extra (x INTEGER) STRICT;",
             rust: Some(add_column),
         };
-        let v3_bad = Migration {
-            version: 3,
-            name: "0003_bad",
+        let v4_bad = Migration {
+            version: 4,
+            name: "0004_bad",
             sql: "CREATE TABLE more (y INTEGER) STRICT;",
             rust: Some(failing),
         };
-        let list = [MIGRATIONS[0], v2, v3_bad];
+        let list = [MIGRATIONS[0], MIGRATIONS[1], v3, v4_bad];
         let out = migrate_with(&mut db, &list, &opts).unwrap();
         match out {
             MigrationOutcome::Failed {
@@ -406,25 +415,30 @@ mod tests {
                 restored,
                 ..
             } => {
-                assert_eq!(step, 3);
-                assert!(restored, "v2 committed, so the backup is restored");
-                assert_eq!(left_at, 1);
+                assert_eq!(step, 4);
+                assert!(restored, "v3 committed, so the backup is restored");
+                assert_eq!(left_at, 2);
             }
             other => panic!("unexpected {other:?}"),
         }
-        assert_eq!(db.schema_version().unwrap(), 1);
+        assert_eq!(db.schema_version().unwrap(), 2);
         assert_eq!(db.kv_get("probe").unwrap().as_deref(), Some("v1"));
         let names = backup::list(&backups).unwrap();
         assert_eq!(names.len(), 1);
-        assert!(names[0].file_name.starts_with("pre-migration-v1-"));
+        assert!(names[0].file_name.starts_with("pre-migration-v2-"));
 
         // A single failing step only rolls back.
-        let out = migrate_with(&mut db, &[MIGRATIONS[0], v3_bad.with_version(2)], &opts).unwrap();
+        let out = migrate_with(
+            &mut db,
+            &[MIGRATIONS[0], MIGRATIONS[1], v4_bad.with_version(3)],
+            &opts,
+        )
+        .unwrap();
         assert!(matches!(
             out,
             MigrationOutcome::Failed {
-                step: 2,
-                left_at: 1,
+                step: 3,
+                left_at: 2,
                 restored: false,
                 ..
             }
@@ -432,12 +446,12 @@ mod tests {
         assert_eq!(db.kv_get("probe").unwrap().as_deref(), Some("v1"));
 
         // And a good chain applies.
-        let out = migrate_with(&mut db, &[MIGRATIONS[0], v2], &opts).unwrap();
+        let out = migrate_with(&mut db, &[MIGRATIONS[0], MIGRATIONS[1], v3], &opts).unwrap();
         assert!(matches!(
             out,
             MigrationOutcome::Migrated {
-                from: 1,
-                to: 2,
+                from: 2,
+                to: 3,
                 backup: Some(_)
             }
         ));

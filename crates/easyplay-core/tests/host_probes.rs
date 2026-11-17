@@ -17,7 +17,8 @@ use easyplay_core::host::probe::{CacheKey, load_cache, revalidate, save_cache};
 use easyplay_core::host::umu_probe::{LocateError, LocateInput, locate, probe_umu};
 use easyplay_core::host::{
     BwrapFlag, HostEntry, HostFacts, HostHint, HostProbe, InputClass, KernelFacts, LayoutKind,
-    LiveHostProbe, ModeAccess, OsRelease, ProbeDeps, ResolverStrategy, ToolVersion, probe_all,
+    LiveHostProbe, ModeAccess, NoCompositor, OsRelease, ProbeDeps, ResolverStrategy, ToolVersion,
+    probe_all,
 };
 use easyplay_core::paths::{AppPaths, PathEnv};
 use easyplay_testkit::fixtures::host_trees::{self, INPUT_GID, USER_UID};
@@ -518,6 +519,7 @@ fn deps(fs: Arc<MemFs>, runner: Arc<ScriptedRunner>) -> ProbeDeps {
         umu_override: None,
         user_name: Some("sam".into()),
         jobs: None,
+        compositor: Arc::new(NoCompositor),
     }
 }
 
@@ -606,4 +608,82 @@ fn revalidation_detects_changed_binaries() {
         umu: None,
     };
     assert!(!revalidate(&*fs, &facts, &key).is_valid());
+}
+
+// ---- the compositor's security contexts (ADR-0029) ----------------------------------------
+
+/// Answers for the compositor and records which socket it was asked about.
+struct Compositor {
+    offers: bool,
+    asked: parking_lot::Mutex<Vec<PathBuf>>,
+}
+
+impl easyplay_core::host::CompositorProbe for Compositor {
+    fn offers_security_context(&self, display: &Path) -> bool {
+        self.asked.lock().push(display.to_owned());
+        self.offers
+    }
+}
+
+fn wayland_deps(offers: bool) -> (Arc<MemFs>, ProbeDeps, Arc<Compositor>) {
+    let (fs, r) = full_host();
+    fs.socket("/run/user/1000/wayland-1");
+    let compositor = Arc::new(Compositor {
+        offers,
+        asked: parking_lot::Mutex::new(Vec::new()),
+    });
+    let mut d = deps(fs.clone(), r);
+    d.env = d.env.with("WAYLAND_DISPLAY", "wayland-1");
+    d.compositor = compositor.clone();
+    (fs, d, compositor)
+}
+
+#[test]
+fn the_probe_asks_the_compositor_about_security_contexts() {
+    for offers in [true, false] {
+        let (_, d, compositor) = wayland_deps(offers);
+        let facts = probe_all(&d);
+        let w = facts.display.wayland.as_ref().expect("Wayland socket");
+        assert_eq!(w.security_context, offers);
+        assert_ne!(w.inode, 0);
+        assert_eq!(
+            *compositor.asked.lock(),
+            vec![PathBuf::from("/run/user/1000/wayland-1")]
+        );
+        assert_eq!(
+            facts
+                .notes
+                .iter()
+                .any(|n| n.contains("does not offer security contexts")),
+            !offers
+        );
+    }
+}
+
+#[test]
+fn without_a_wayland_socket_the_compositor_is_not_asked() {
+    let (fs, r) = full_host();
+    let compositor = Arc::new(Compositor {
+        offers: true,
+        asked: parking_lot::Mutex::new(Vec::new()),
+    });
+    let mut d = deps(fs, r);
+    d.compositor = compositor.clone();
+    assert!(probe_all(&d).display.wayland.is_none());
+    assert!(compositor.asked.lock().is_empty());
+}
+
+#[test]
+fn revalidation_notices_a_restarted_compositor() {
+    let (fs, d, _) = wayland_deps(true);
+    let probe = LiveHostProbe::new(d);
+    probe.refresh();
+    assert!(probe.revalidate().is_valid());
+    // A restarted (or different) compositor makes a new socket at the same path.
+    fs.socket("/run/user/1000/wayland-1");
+    let rv = probe.revalidate();
+    assert!(
+        rv.changed.iter().any(|c| c.contains("was replaced")),
+        "{rv:?}"
+    );
 }

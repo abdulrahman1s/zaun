@@ -6,7 +6,8 @@
 //! high-density screen. Horizontal clipping is the failure that matters: content never
 //! scrolls sideways (USER_EXPERIENCE §3), so text cut at a container's left or right edge is
 //! text that should have wrapped or been ellipsized. Vertical cuts at a scroll viewport's
-//! edge are normal scrolling and are not reported.
+//! edge are normal scrolling and are not reported. The one exception is a tab bar, whose
+//! words scroll sideways when they do not fit, as the design's do.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -76,9 +77,18 @@ fn clipped_text(shapes: &[ClippedShape], screen: Rect) -> Vec<String> {
 }
 
 fn check(s: &Rig, what: &str) -> Vec<String> {
+    use egui_kittest::kittest::{NodeT, Queryable};
     let screen = s.h.ctx.content_rect();
+    // The one strip that scrolls sideways by design: a tab bar whose words do not fit
+    // (CSS `overflow-x: auto`). Its words stay reachable: arrow keys move along them and
+    // the one reached scrolls into view.
+    let tabs: Vec<String> =
+        s.h.query_all_by(|n| n.role() == egui::accesskit::Role::Tab)
+            .filter_map(|n| n.accesskit_node().label().map(|l| format!("{l:?} ")))
+            .collect();
     clipped_text(&s.h.output().shapes, screen)
         .into_iter()
+        .filter(|c| !tabs.iter().any(|t| c.starts_with(t.as_str())))
         .map(|c| format!("{what}: {c}"))
         .collect()
 }

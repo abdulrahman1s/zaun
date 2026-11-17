@@ -24,7 +24,8 @@ fn pump(r: &mut Rig, events: &[PadInput]) {
     let mut raw = std::mem::take(r.h.input_mut());
     r.h.state_mut().pump_gamepad(&ctx, &mut raw);
     *r.h.input_mut() = raw;
-    r.h.run();
+    // Enough steps for a page to turn and a cover to fly (about a second).
+    r.h.run_steps(8);
 }
 
 fn press(r: &mut Rig, b: PadButton) {
@@ -148,7 +149,7 @@ fn bumpers_cycle_collections_and_select_focuses_search() {
     );
     press(&mut r, PadButton::Select);
     assert!(
-        r.h.get_by_role_and_label(Role::TextInput, easyplay_ui::strings::library::SEARCH)
+        r.h.get_by_role_and_label(Role::TextInput, easyplay_ui::strings::library::SEARCH())
             .accesskit_node()
             .is_focused()
     );

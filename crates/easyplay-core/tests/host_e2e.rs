@@ -7,7 +7,9 @@ use std::sync::Arc;
 
 use easyplay_core::clock::SystemClock;
 use easyplay_core::fsx::{Fs as _, RealFs};
-use easyplay_core::host::{LayoutKind, ProbeDeps, RealAccess, RealRunner, probe_all};
+use easyplay_core::host::{
+    LayoutKind, LiveCompositor, ProbeDeps, RealAccess, RealRunner, probe_all,
+};
 use easyplay_core::paths::{AppPaths, PathEnv};
 use easyplay_core::runtime::discovery::DiscoveryInput;
 use easyplay_core::runtime::{RuntimeStore, discover};
@@ -33,6 +35,7 @@ fn real_host_probe() {
         env,
         umu_override: None,
         jobs: None,
+        compositor: Arc::new(LiveCompositor),
     };
     let facts = probe_all(&deps);
     let b = facts.bwrap.as_ref().expect("bwrap present");

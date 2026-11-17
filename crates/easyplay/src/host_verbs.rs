@@ -11,7 +11,8 @@ use easyplay_core::diagnostics::doctor_report;
 use easyplay_core::error::ErrorCode;
 use easyplay_core::fsx::{Fs, RealFs};
 use easyplay_core::host::{
-    CheckStatus, DoctorContext, HostProbe, LiveHostProbe, ProbeDeps, RealAccess, RealRunner,
+    CheckStatus, DoctorContext, HostProbe, LiveCompositor, LiveHostProbe, ProbeDeps, RealAccess,
+    RealRunner,
 };
 use easyplay_core::jobs::CancelToken;
 use easyplay_core::jobs::{JobPool, JobPoolConfig};
@@ -91,6 +92,7 @@ pub fn doctor(as_json: bool) -> Result<(), Error> {
         umu_override: None,
         user_name,
         jobs: Some(Arc::clone(&c.jobs)),
+        compositor: Arc::new(LiveCompositor),
     });
     let facts = probe.refresh();
     let mut init_candidates = vec![PathBuf::from(LIBEXEC_DIR).join(INIT_BIN_NAME)];

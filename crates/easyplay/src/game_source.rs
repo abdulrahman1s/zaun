@@ -22,7 +22,9 @@ use easyplay_core::config::EnvOverrides;
 use easyplay_core::consts::{INIT_BIN_NAME, LIBEXEC_DIR};
 use easyplay_core::error::{Error, ErrorCode};
 use easyplay_core::fsx::{Fs, MountTable, RealFs};
-use easyplay_core::host::{HostFacts, HostProbe, LiveHostProbe, ProbeDeps, RealAccess, RealRunner};
+use easyplay_core::host::{
+    HostFacts, HostProbe, LiveCompositor, LiveHostProbe, ProbeDeps, RealAccess, RealRunner,
+};
 use easyplay_core::ids::{ExecutableId, GameId, RuntimeName};
 use easyplay_core::jobs::{JobPool, JobPoolConfig};
 use easyplay_core::launch::HostEnv;
@@ -378,6 +380,7 @@ impl HostContext {
             umu_override: over.umu_run.clone(),
             user_name: Some(user_name.clone()),
             jobs: Some(Arc::clone(&jobs)),
+            compositor: Arc::new(LiveCompositor),
         });
         let mut host = (*probe.refresh()).clone();
         if let (Some(b), Some(p)) = (host.bwrap.as_mut(), over.bwrap.as_ref()) {

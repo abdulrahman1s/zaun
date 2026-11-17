@@ -130,6 +130,7 @@ expression: run_cell(c)
 
 # notes
 note.ipc.shared: Shared memory is shared with the display server so X11 rendering works
+note.display.no_wayland_context: The compositor cannot restrict this Wayland connection: the game gets the compositor's own socket
 note.audio.no_playback_only: This computer cannot give sound without the microphone; the game has no sound
 
 # issues

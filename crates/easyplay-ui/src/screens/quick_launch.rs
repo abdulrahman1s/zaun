@@ -3,12 +3,20 @@
 //! 600 ms after the game runs; closing the window never cancels the launch, *Cancel* does.
 //! *Open EasyPlay* grows the same window into the full layout. An unknown program opens the
 //! setup sheet, and the window grows to fit it.
+//!
+//! The design does not draw it; it is set with the design's parts: the game's poster (or its
+//! artwork) at the left, its name in the dialog title's face, what is happening in secondary
+//! text (coral for a failure) over the progress bar, and the actions at the bottom right as a
+//! dialog's are. No box.
 
 use std::path::Path;
 use std::time::Duration;
 
 use easyplay_core::library::LibrarySnapshot;
-use egui::{Align, CornerRadius, Key, Layout, Modifiers, Sense, Ui, ViewportCommand, vec2};
+use easyplay_core::model::GameSummary;
+use egui::{
+    Align, Context, Key, Layout, Modifiers, Rect, Sense, Ui, UiBuilder, ViewportCommand, pos2, vec2,
+};
 
 use super::Env;
 use crate::app::UiState;
@@ -16,12 +24,13 @@ use crate::bridge::UiCommand;
 use crate::route::{Overlay, Route};
 use crate::strings;
 use crate::strings::setup as s;
-use crate::theme::tokens::{layout, radius, space};
+use crate::textures::{TexKey, TexState, ThumbSize};
+use crate::theme::tokens::{control, debug as dbg, layout, overlay};
 use crate::theme::{self, Type};
 use crate::vm::dialogs::Dialog;
 use crate::vm::launch::present;
-use crate::widgets::button::{Button, Size};
-use crate::widgets::cover::{CoverSource, paint_cover};
+use crate::widgets::button::Button;
+use crate::widgets::cover::{self, CoverLook, CoverSource};
 use crate::widgets::progress;
 
 /// The compact window size.
@@ -135,78 +144,103 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
             env.ctx.send_viewport_cmd(ViewportCommand::Close);
         }
     }
-    egui::Frame::NONE.inner_margin(space::S4).show(ui, |ui| {
-        ui.horizontal_top(|ui| {
-            let (rect, _) = ui.allocate_exact_size(vec2(48.0, 72.0), Sense::hover());
-            paint_cover(
-                ui.painter(),
-                rect,
-                CornerRadius::same(radius::SM),
-                CoverSource::Placeholder,
-                &name,
-                &theme,
-            );
-            ui.add_space(space::S3);
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = space::S1;
-                ui.add(
-                    egui::Label::new(Type::Heading.rich(&name).color(p.text_primary)).truncate(),
-                );
-                let phase = match (&failure, &launch) {
-                    _ if already => strings::launch::already_running(&name),
-                    (Some(e), _) => e.title.clone(),
-                    (None, Some(l)) => {
-                        present(
-                            &l.state,
-                            env.mono.saturating_duration_since(l.since).as_secs_f32(),
-                        )
-                        .phase
-                    }
-                    (None, None) => strings::launch::STARTING.to_owned(),
-                };
-                let ph = ui.add(
-                    egui::Label::new(Type::Body.rich(&phase).color(if failure.is_some() {
-                        p.danger
-                    } else {
-                        p.text_secondary
-                    }))
-                    .wrap(),
-                );
-                crate::a11y::labelled(ui.ctx(), ph.id, egui::Role::Status, &phase);
-                if failure.is_none() && q.running_at.is_none() && !already && !over {
-                    progress::linear(ui, None, strings::launch::PROGRESS);
-                }
-            });
-        });
-        ui.add_space(space::S2);
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if let Some(e) = &failure {
-                if ui
-                    .add(Button::primary(strings::launch::TRY_AGAIN).size(Size::Sm))
-                    .clicked()
-                    && let Some(g) = q.game
-                {
-                    state.launches.dismiss(g);
-                    env.bridge.send(UiCommand::Launch { id: g, exe: None });
-                }
-                if ui.add(Button::new(s::DETAILS).size(Size::Sm)).clicked() {
-                    state.show_dialog(Dialog::Error(e.clone()));
-                }
-            } else if cancellable
-                && !already
-                && ui
-                    .add(Button::new(strings::launch::CANCEL).size(Size::Sm))
-                    .clicked()
-                && let Some(g) = q.game
-            {
-                env.bridge.send(UiCommand::CancelLaunch { id: g });
-            }
-            if ui
-                .add(Button::ghost(s::OPEN_EASYPLAY).size(Size::Sm))
-                .clicked()
-            {
-                expand(state, env);
-            }
-        });
+    let phase = match (&failure, &launch) {
+        _ if already => strings::launch::already_running(&name),
+        (Some(e), _) => e.title.clone(),
+        (None, Some(l)) => {
+            present(
+                &l.state,
+                env.mono.saturating_duration_since(l.since).as_secs_f32(),
+            )
+            .phase
+        }
+        (None, None) => strings::launch::STARTING().to_owned(),
+    };
+    let busy = failure.is_none() && q.running_at.is_none() && !already && !over;
+    let page = ui.max_rect().shrink(dbg::QUICK_PAD);
+    // The poster (or the game's artwork) at the left, 2:3.
+    let cover = Rect::from_min_size(page.min, vec2(dbg::QUICK_COVER_W, dbg::QUICK_COVER_W * 1.5));
+    let source = game.as_ref().map_or(CoverSource::Placeholder, |g| {
+        cover_source(ui.ctx(), env, g, cover)
     });
+    cover::paint(
+        ui.painter(),
+        cover,
+        source,
+        &name,
+        CoverLook::default(),
+        &theme,
+    );
+    // Beside it: the name in the dialog's title face, what is happening, and the bar.
+    let text_x = cover.right() + dbg::QUICK_COVER_GAP;
+    let text_w = (page.right() - text_x).max(1.0);
+    let mut col = ui.new_child(
+        UiBuilder::new()
+            .id_salt("quick.text")
+            .max_rect(Rect::from_min_size(
+                pos2(text_x, page.top()),
+                vec2(text_w, cover.height()),
+            ))
+            .layout(Layout::top_down(Align::Min)),
+    );
+    col.spacing_mut().item_spacing.y = dbg::QUICK_LINE_GAP;
+    let title = Type::Title.galley(&col, &name, p.t1, text_w, 1);
+    let (r, title_resp) = col.allocate_exact_size(title.size(), Sense::hover());
+    col.painter().galley(r.min, title, p.t1);
+    crate::a11y::labelled(col.ctx(), title_resp.id, egui::Role::Heading, &name);
+    let ph = Type::Body.paragraph(
+        &mut col,
+        &phase,
+        if failure.is_some() { p.coral } else { p.t2 },
+    );
+    crate::a11y::labelled(col.ctx(), ph.id, egui::Role::Status, &phase);
+    if busy {
+        progress::linear(&mut col, None, strings::launch::PROGRESS());
+    }
+    // The actions at the bottom right: the main one last, as in a dialog.
+    let actions = Rect::from_min_max(pos2(page.left(), page.bottom() - control::BUTTON), page.max);
+    let mut row = ui.new_child(
+        UiBuilder::new()
+            .id_salt("quick.actions")
+            .max_rect(actions)
+            .layout(Layout::right_to_left(Align::Center)),
+    );
+    row.spacing_mut().item_spacing.x = overlay::DIALOG_ACTION_GAP;
+    if let Some(e) = &failure {
+        if row
+            .add(Button::primary(strings::launch::TRY_AGAIN()))
+            .clicked()
+            && let Some(g) = q.game
+        {
+            state.launches.dismiss(g);
+            env.bridge.send(UiCommand::Launch { id: g, exe: None });
+        }
+        if row.add(Button::new(s::DETAILS())).clicked() {
+            state.show_dialog(Dialog::Error(e.clone()));
+        }
+    } else if cancellable
+        && !already
+        && row.add(Button::new(strings::launch::CANCEL())).clicked()
+        && let Some(g) = q.game
+    {
+        env.bridge.send(UiCommand::CancelLaunch { id: g });
+    }
+    if row.add(Button::ghost(s::OPEN_EASYPLAY())).clicked() {
+        expand(state, env);
+    }
+}
+
+/// The game's artwork for the window's cover, when it has some and it is loaded.
+fn cover_source(ctx: &Context, env: &mut Env<'_>, game: &GameSummary, rect: Rect) -> CoverSource {
+    let Some(art) = game.cover else {
+        return CoverSource::Placeholder;
+    };
+    let key = TexKey {
+        art,
+        size: ThumbSize::cover_for(rect.width() * ctx.pixels_per_point()),
+    };
+    match env.textures.get(key, true, env.art) {
+        TexState::Ready(t) => CoverSource::Texture(t, 1.0),
+        TexState::Pending(c) => c.map_or(CoverSource::Placeholder, CoverSource::Pending),
+    }
 }

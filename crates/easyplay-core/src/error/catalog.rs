@@ -491,6 +491,43 @@ pub const fn entry(code: ErrorCode) -> Entry {
             &[A::Dismiss],
         ),
 
+        // ---- Steam games ----
+        C::StmNotFound => e(
+            "Steam was not found",
+            "EasyPlay looked in the places Steam installs to and found no Steam library on this computer.",
+            &[A::Dismiss],
+        ),
+        C::StmGameGone => e(
+            "Steam no longer lists this game",
+            "It may have been uninstalled in Steam, or the drive it is on is not connected. What you set for it here is kept.",
+            &[A::Dismiss],
+        ),
+        C::StmClientUnavailable => e(
+            "Steam could not be asked",
+            "EasyPlay could not start Steam to pass the request on. Open Steam and try again.",
+            &[A::CopyDetails],
+        ),
+        C::StmGameRunning => e(
+            "The game is running",
+            "Programs can run in the game's Windows storage only while the game is closed. Close the game in Steam first.",
+            &[A::Dismiss],
+        ),
+        C::StmNoPrefix => e(
+            "This game has no Windows storage yet",
+            "Steam creates it the first time the game is played through Proton. Play it once in Steam, then try again.",
+            &[A::Dismiss],
+        ),
+        C::StmLayerUnavailable => e(
+            "The compatibility layer Steam uses cannot be used",
+            "The Proton build that last ran this game is missing or cannot run here. Play the game once in Steam, then try again.",
+            &[A::Dismiss],
+        ),
+        C::StmNotForSteam => e(
+            "Steam handles this",
+            "This game is run by Steam, so this is changed in Steam. Open the game in Steam to change it.",
+            &[A::Dismiss],
+        ),
+
         // ---- Integration and internal ----
         C::DskDefaultHandlerFailed => e(
             "Could not change the default application",
