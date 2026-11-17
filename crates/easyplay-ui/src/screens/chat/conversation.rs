@@ -1214,12 +1214,18 @@ fn transcript(
         .filter(|d| d.chat == chat)
         .map(|d| d.item)
         .collect();
-    let messages: Vec<ChatMessage> = conv
-        .messages
-        .iter()
-        .filter(|m| !deleting.contains(&m.id))
-        .cloned()
-        .collect();
+    // The shared list as it is; a filtered copy only while a delete waits on its Undo.
+    let messages: std::sync::Arc<Vec<ChatMessage>> = if deleting.is_empty() {
+        std::sync::Arc::clone(&conv.messages)
+    } else {
+        std::sync::Arc::new(
+            conv.messages
+                .iter()
+                .filter(|m| !deleting.contains(&m.id))
+                .cloned()
+                .collect(),
+        )
+    };
     let loading_older = conv.pending.is_some_and(|(_, older)| older);
     let loading_first = !conv.loaded && conv.failed.is_none();
     let failed = conv.failed.is_some();
@@ -1364,7 +1370,7 @@ fn transcript(
                 }
                 let mut prev: Option<&ChatMessage> = None;
                 let mut after_line = true;
-                for msg in &messages {
+                for msg in messages.iter() {
                     let day = local_day(msg.at, env.utc_offset_s);
                     let new_day = prev.is_none_or(|q| local_day(q.at, env.utc_offset_s) != day);
                     if new_day {

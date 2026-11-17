@@ -58,8 +58,9 @@ pub enum ChatDialog {
 pub struct Conversation {
     /// Which.
     pub chat: ChatRef,
-    /// Loaded messages, oldest first, one per id.
-    pub messages: Vec<ChatMessage>,
+    /// Loaded messages, oldest first, one per id. Shared, so a frame takes the list
+    /// without copying it (changes copy it only while a frame still holds the old one).
+    pub messages: std::sync::Arc<Vec<ChatMessage>>,
     /// The page asked for and not answered yet, and whether it is an older page.
     pub pending: Option<(QueryId, bool)>,
     /// The latest page has arrived.
@@ -78,7 +79,7 @@ impl Conversation {
     fn new(chat: ChatRef) -> Self {
         Self {
             chat,
-            messages: Vec::new(),
+            messages: std::sync::Arc::default(),
             pending: None,
             loaded: false,
             complete: false,
@@ -95,9 +96,10 @@ impl Conversation {
 
     /// Put `m` in its place by id; an existing message with that id is replaced.
     fn put(&mut self, m: &ChatMessage) {
-        match self.messages.binary_search_by_key(&m.id, |x| x.id) {
-            Ok(i) => self.messages[i] = m.clone(),
-            Err(i) => self.messages.insert(i, m.clone()),
+        let list = std::sync::Arc::make_mut(&mut self.messages);
+        match list.binary_search_by_key(&m.id, |x| x.id) {
+            Ok(i) => list[i] = m.clone(),
+            Err(i) => list.insert(i, m.clone()),
         }
     }
 }
