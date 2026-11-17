@@ -1040,6 +1040,7 @@ fn a_sent_picture_goes_as_an_image_with_its_file_and_shows_the_local_copy() {
         kind: FileKind::Gif,
         preview: None,
         duration: None,
+        text: String::new(),
     });
     let (corr, cmd) = cmds(&out)[0].clone();
     let json: Value = serde_json::from_str(cmd.strip_prefix("/_send @3 json ").unwrap()).unwrap();
@@ -1099,6 +1100,7 @@ fn a_large_picture_or_files_turned_off_fetch_nothing() {
         kind: FileKind::Gif,
         preview: None,
         duration: None,
+        text: String::new(),
     });
     assert!(out.lines.is_empty());
     assert!(matches!(
@@ -1531,6 +1533,7 @@ fn sending_says_what_the_file_is_and_reports_progress() {
         kind: FileKind::Video,
         preview: Some(jpeg.clone()),
         duration: None,
+        text: String::new(),
     }))[0]
         .1
         .clone();
@@ -1548,6 +1551,7 @@ fn sending_says_what_the_file_is_and_reports_progress() {
         kind: FileKind::File,
         preview: None,
         duration: None,
+        text: String::new(),
     }))[0]
         .1
         .clone();
@@ -1564,6 +1568,7 @@ fn sending_says_what_the_file_is_and_reports_progress() {
         kind: FileKind::Image,
         preview: None,
         duration: None,
+        text: String::new(),
     }))[0]
         .0;
     let m = one(&c.on_line(&resp(corr, &fixture("send_image_big_resp"))));
@@ -1829,4 +1834,73 @@ fn removing_a_friend_uses_the_engines_delete_mode_word() {
     assert_eq!(cmd, "/_delete @3 full");
     let out = c.on_line(&resp(corr, &fixture("delete_contact_resp")));
     assert!(cmds(&out)[0].1.starts_with("/_get chats"));
+}
+
+// ---- captions and the local copy (round 4) ------------------------------------------------
+
+#[test]
+fn a_caption_travels_in_the_message_text_and_comes_back_with_the_media() {
+    let mut c = settled();
+    let corr_cmd = cmds(&c.request(Request::SendFile {
+        chat: ChatRef::Direct(3),
+        path: PathBuf::from(format!("{DIR}/files/IMG_20261117_photo.jpg")),
+        kind: FileKind::Image,
+        preview: None,
+        duration: None,
+        text: "look".into(),
+    }))[0]
+        .clone();
+    let json: Value =
+        serde_json::from_str(corr_cmd.1.strip_prefix("/_send @3 json ").unwrap()).unwrap();
+    assert_eq!(json[0]["msgContent"]["text"], "look");
+    // The user's own copy is known from the moment the message exists.
+    let m = one(&c.on_line(&resp(corr_cmd.0, &fixture("send_image_big_resp"))));
+    let x = media(&m);
+    assert_eq!(x.caption, "look");
+    assert_eq!(x.state, FileState::Sending { percent: 0 });
+    assert_eq!(
+        x.local,
+        Some(PathBuf::from(format!("{DIR}/files/IMG_20261117_photo.jpg")))
+    );
+    let m = one(&c.on_line(&event(&fixture("snd_sndFileCompleteXFTP"))));
+    assert!(media(&m).local.is_some(), "still there once sent");
+
+    // The friend's side: the caption arrives, the file is here only once fetched.
+    let m = one(&c.on_line(&event(&fixture("new_items_image_big"))));
+    assert_eq!(
+        (media(&m).caption.as_str(), &media(&m).local),
+        ("look", &None)
+    );
+    let m = one(&c.on_line(&event(&fixture("rcv_rcvFileComplete"))));
+    let FileState::Received(at) = &media(&m).state else {
+        panic!("{:?}", media(&m).state)
+    };
+    assert_eq!(media(&m).local.as_ref(), Some(at));
+}
+
+#[test]
+fn locating_a_file_for_a_copy_answers_at_once_even_when_it_is_not_here() {
+    let mut c = settled();
+    let m = one(&c.on_line(&event(&fixture("new_items_image_big"))));
+    // Offered, not fetched: not here.
+    let out = c.request(Request::LocateFile {
+        chat: m.chat,
+        item: m.id,
+        tag: 5,
+    });
+    assert_eq!(out.events, vec![ChatEvent::Located { tag: 5, path: None }]);
+    assert!(out.lines.is_empty());
+    c.on_line(&event(&fixture("rcv_rcvFileComplete")));
+    let out = c.request(Request::LocateFile {
+        chat: m.chat,
+        item: m.id,
+        tag: 6,
+    });
+    assert_eq!(
+        out.events,
+        vec![ChatEvent::Located {
+            tag: 6,
+            path: Some(PathBuf::from(format!("{DIR}/files/IMG_20261117_photo.jpg")))
+        }]
+    );
 }

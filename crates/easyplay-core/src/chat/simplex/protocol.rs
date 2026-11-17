@@ -521,6 +521,7 @@ impl Codec {
                 kind,
                 preview,
                 duration,
+                text,
             } => {
                 if !self.files_on() {
                     out.events.push(failed(
@@ -541,13 +542,13 @@ impl Codec {
                 // draws the fetched file.
                 let mc = match kind {
                     FileKind::Image | FileKind::Gif => {
-                        serde_json::json!({ "type": "image", "text": "", "image": image })
+                        serde_json::json!({ "type": "image", "text": text, "image": image })
                     }
                     FileKind::Video => serde_json::json!({
-                        "type": "video", "text": "", "image": image,
+                        "type": "video", "text": text, "image": image,
                         "duration": duration.unwrap_or(0),
                     }),
-                    FileKind::File => serde_json::json!({ "type": "file", "text": "" }),
+                    FileKind::File => serde_json::json!({ "type": "file", "text": text }),
                 };
                 let m = serde_json::json!([{
                     "fileSource": { "filePath": path },
@@ -588,6 +589,15 @@ impl Codec {
                         "that file is not on this computer".to_owned(),
                     )),
                 }
+                return;
+            }
+            Request::LocateFile { chat, item, tag } => {
+                let path = self
+                    .files
+                    .borrow()
+                    .get(&(chat, item))
+                    .and_then(|f| f.local.clone());
+                out.events.push(ChatEvent::Located { tag, path });
                 return;
             }
             Request::CreateGroupLink(group) => {
@@ -1070,7 +1080,10 @@ impl Codec {
                     .and_then(|items| items.iter().rev().find_map(|ci| parse_item(chat, ci, &ctx)));
                 self.previews.insert(chat, (last, shown.clone()));
                 if let Some(m) = shown {
-                    out.events.push(ChatEvent::Preview { chat, last: m });
+                    out.events.push(ChatEvent::Preview {
+                        chat,
+                        last: Box::new(m),
+                    });
                 }
             }
             Pending::Quiet => {
@@ -2201,6 +2214,12 @@ fn file_body(chat: ChatRef, item: i64, ci: &Value, mc: &Value, ctx: &Ctx<'_>) ->
             .get("duration")
             .and_then(Value::as_u64)
             .and_then(|d| u32::try_from(d).ok()),
+        caption: mc
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned(),
+        local,
         state,
     };
     match kind {

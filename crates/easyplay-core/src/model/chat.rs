@@ -327,6 +327,11 @@ pub struct Media {
     pub preview: Option<Vec<u8>>,
     /// A video's length in seconds, when the sender said.
     pub duration: Option<u32>,
+    /// The words sent with it (empty = none; round 4).
+    pub caption: String,
+    /// The file on this computer, inside the Chat folder: the user's own copy from the
+    /// moment it is sent, a friend's once fetched (round 4). Draw from this, not the preview.
+    pub local: Option<std::path::PathBuf>,
     /// Where the file is.
     pub state: FileState,
 }

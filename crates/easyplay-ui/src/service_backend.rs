@@ -332,6 +332,7 @@ fn notice_text(n: &Notice, lib: &LibrarySnapshot) -> String {
         // Mapped to `UiEvent::ChatUnsafeLink` before toasts are made.
         Notice::ChatUnsafeLink { .. } => String::new(),
         Notice::ChatGifNotSent => crate::strings::chat::services::NOT_SENT().to_owned(),
+        Notice::ChatFileSaved { folder } => crate::strings::chat::conversation::saved_to(folder),
         Notice::AlreadyInLibrary { game } => text::already(&name(game)),
         Notice::FoundMoved { game } => text::found_moved(&name(game)),
         Notice::OnlyFirstPaths { processed } => text::only_first(*processed),

@@ -151,6 +151,12 @@ texts! {
     OPEN = "chat.conversation.open";
     /// Close the picture viewer.
     CLOSE = "chat.conversation.close";
+    /// Save a copy of a message's file where the user chooses.
+    SAVE_AS = "chat.conversation.save_as";
+    /// The viewer's previous picture.
+    PREVIOUS = "chat.conversation.previous";
+    /// The viewer's next picture.
+    NEXT = "chat.conversation.next";
     /// Under the user's own media that could not be sent.
     MEDIA_NOT_SENT = "chat.conversation.media_not_sent";
     /// Under someone's media that could not be fetched.
@@ -376,6 +382,11 @@ pub fn voice_spoken(len: &str) -> String {
 /// "GIF: let's go".
 pub fn gif_spoken(word: &str) -> String {
     t("chat.conversation.gif_spoken", &[("word", word)])
+}
+
+/// The toast after a file from a chat was saved: "Saved to Downloads" (core agent).
+pub fn saved_to(folder: &str) -> String {
+    t("chat.conversation.saved_to", &[("folder", folder)])
 }
 
 /// "Call ended, 38 min".

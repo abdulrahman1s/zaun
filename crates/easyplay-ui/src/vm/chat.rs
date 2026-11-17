@@ -159,8 +159,8 @@ pub struct ChatVm {
     pub revealed: HashSet<(i64, u32)>,
     /// A link waiting for the user's answer in `ChatDialog::UnsafeLink` (services).
     pub link_to_open: Option<String>,
-    /// A picture or files pasted into the composer, waiting for Send or × (composer).
-    pub pasted: Option<Pasted>,
+    /// Pictures and files waiting in the composer, sent with the next message (composer).
+    pub attachments: Vec<Attachment>,
     /// Where Ctrl+V reads the clipboard from (composer; tests set their own).
     pub clipboard: Clipboard,
     /// The open conversation takes files dropped on the window in this pass (the composer
@@ -355,9 +355,9 @@ impl GifVm {
     }
 }
 
-/// Something pasted into the composer, not sent yet (composer).
+/// A picture or file waiting in the composer (pasted, dropped or chosen; composer).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Pasted {
+pub enum Attachment {
     /// A picture from the clipboard: its size and RGBA pixels.
     Image {
         /// Width and height in pixels.
@@ -365,12 +365,12 @@ pub enum Pasted {
         /// RGBA, not premultiplied, row by row.
         rgba: std::sync::Arc<Vec<u8>>,
     },
-    /// Files copied in a file manager (at most [`PASTE_FILES`]).
-    Files(Vec<std::path::PathBuf>),
+    /// A file on this computer (a picture, a video or anything else).
+    File(std::path::PathBuf),
 }
 
-/// Files sent from one paste at most (composer).
-pub const PASTE_FILES: usize = 10;
+/// Attachments waiting at most (composer).
+pub const MAX_ATTACHMENTS: usize = 10;
 
 /// What the clipboard holds, as far as pasting into Chat goes (composer).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -467,6 +467,15 @@ pub struct VoicePlay {
 }
 
 impl ChatVm {
+    /// Add attachments to the composer (at most [`MAX_ATTACHMENTS`] wait, each once).
+    pub fn attach(&mut self, more: Vec<Attachment>) {
+        for a in more {
+            if self.attachments.len() < MAX_ATTACHMENTS && !self.attachments.contains(&a) {
+                self.attachments.push(a);
+            }
+        }
+    }
+
     /// Open `chat` (or keep it open). Returns `true` when it was not open, or its loading
     /// failed, so the caller asks for its latest page.
     pub fn open_chat(&mut self, chat: ChatRef) -> bool {
@@ -576,8 +585,14 @@ impl ChatVm {
         if self.viewer.take().is_some() {
             return true;
         }
-        // A paste waiting to be sent goes first (composer).
-        if self.pasted.take().is_some() {
+        // Attachments waiting go first, while the field is empty (composer).
+        if !self.attachments.is_empty()
+            && self
+                .open
+                .as_ref()
+                .is_none_or(|o| self.drafts.get(&o.chat).is_none_or(String::is_empty))
+        {
+            self.attachments.clear();
             return true;
         }
         if self.suggest.take().is_some() {

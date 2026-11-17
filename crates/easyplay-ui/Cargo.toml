@@ -31,13 +31,21 @@ uuid.workspace = true
 rust-i18n.workspace = true
 unicode-bidi.workspace = true
 qrcode.workspace = true
-twemoji-assets.workspace = true
+flate2.workspace = true
+resvg.workspace = true
 emojis.workspace = true
 unicode-segmentation.workspace = true
 # Scaling Twemoji pictures into glyphs (already in the tree through egui_extras).
 image.workspace = true
 arboard.workspace = true
 winit.workspace = true
+
+# Packing Twemoji's SVGs into one deflated blob at build time (build.rs); the app does not
+# link twemoji-assets.
+[build-dependencies]
+twemoji-assets.workspace = true
+emojis.workspace = true
+flate2.workspace = true
 
 [dev-dependencies]
 easyplay-testkit.workspace = true

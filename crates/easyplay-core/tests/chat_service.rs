@@ -740,6 +740,7 @@ fn a_picture_is_copied_into_the_chat_folder_before_it_is_sent() {
     w.cmd(ChatCommand::SendFile {
         chat: ChatRef::Direct(3),
         path: src.clone(),
+        text: String::new(),
     });
     let Request::SendFile {
         chat, path, kind, ..
@@ -762,23 +763,65 @@ fn a_picture_is_copied_into_the_chat_folder_before_it_is_sent() {
     w.cmd(ChatCommand::SendFile {
         chat: ChatRef::Direct(3),
         path: photo,
+        text: String::new(),
     });
     let Request::SendFile { kind, preview, .. } = w.next_request() else {
         panic!("no file request")
     };
     assert_eq!(kind, FileKind::Image);
     let preview = preview.expect("a preview");
+    assert!(preview.starts_with(&[0xFF, 0xD8]));
+    // As large as fits the engine's message: within the budget, at least 160 px across.
+    use easyplay_core::service::flows::chat::{PREVIEW_BUDGET, data_uri_len, preview_jpeg};
     assert!(
-        preview.starts_with(&[0xFF, 0xD8]) && preview.len() < 4096,
+        data_uri_len(preview.len()) <= PREVIEW_BUDGET,
         "{}",
         preview.len()
     );
+    let shown = image::load_from_memory(&preview).unwrap();
+    assert!(
+        shown.width().max(shown.height()) >= 160,
+        "{}x{}",
+        shown.width(),
+        shown.height()
+    );
+    assert_eq!(shown.width() * 3, shown.height() * 4, "the aspect is kept");
+
+    // A noisy 12 MP photo still fits, smaller; a caption leaves it less room.
+    let mut seed = 0x9e37_79b9_u32;
+    let noisy = image::RgbImage::from_fn(4000, 3000, |_, _| {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        let [r, g, b, _] = seed.to_le_bytes();
+        image::Rgb([r, g, b])
+    });
+    let mut png = Vec::new();
+    noisy
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let full = preview_jpeg(&png, PREVIEW_BUDGET).expect("fits");
+    assert!(data_uri_len(full.len()) <= PREVIEW_BUDGET);
+    let captioned = preview_jpeg(&png, PREVIEW_BUDGET - 6000).expect("fits");
+    assert!(data_uri_len(captioned.len()) <= PREVIEW_BUDGET - 6000);
+
+    // The caption goes with the file.
+    w.cmd(ChatCommand::SendFile {
+        chat: ChatRef::Direct(3),
+        path: src.clone(),
+        text: "gg".into(),
+    });
+    let Request::SendFile { text, .. } = w.next_request() else {
+        panic!("no file request")
+    };
+    assert_eq!(text, "gg");
 
     // A picture pasted from the clipboard is written into the Chat folder first.
     w.cmd(ChatCommand::SendClipboard {
         chat: ChatRef::Direct(3),
         bytes: b"GIF89a-pasted".to_vec(),
         kind: ClipKind::Gif,
+        text: String::new(),
     });
     let Request::SendFile { path, kind, .. } = w.next_request() else {
         panic!("no file request")
@@ -796,6 +839,7 @@ fn a_picture_is_copied_into_the_chat_folder_before_it_is_sent() {
     w.cmd(ChatCommand::SendFile {
         chat: ChatRef::Direct(3),
         path: big,
+        text: String::new(),
     });
     assert!(w.engine.take_requests().is_empty());
     assert!(w.drain().iter().any(|e| matches!(e, Event::Failure(_))));
@@ -856,6 +900,7 @@ fn files_off_refuses_a_picture_and_offline_reaches_the_snapshot() {
     w.cmd(ChatCommand::SendFile {
         chat: ChatRef::Direct(3),
         path: src,
+        text: String::new(),
     });
     assert!(w.engine.take_requests().is_empty());
     w.engine_says(ChatEvent::Offline(true));
@@ -988,7 +1033,7 @@ fn a_chats_latest_shown_message_fills_an_empty_preview() {
     m.body = MessageBody::Notice(easyplay_core::model::ChatNotice::Connected);
     w.engine_says(ChatEvent::Preview {
         chat: kai,
-        last: m.clone(),
+        last: Box::new(m.clone()),
     });
     assert_eq!(w.svc.hub().chat.load().chats[0].last, Some(m.clone()));
     // An older one never replaces a newer preview.
@@ -996,10 +1041,154 @@ fn a_chats_latest_shown_message_fills_an_empty_preview() {
     older.id = 2;
     w.engine_says(ChatEvent::Preview {
         chat: kai,
-        last: older,
+        last: Box::new(older),
     });
     assert_eq!(
         w.svc.hub().chat.load().chats[0].last.as_ref().unwrap().id,
         4
     );
+}
+
+// ---- saving a file from a chat --------------------------------------------------------------
+
+/// Ask to save item 7 of Kai's chat at `to`, answer the engine's lookup with `found`, and
+/// collect the service's events until the copy reports (or nothing more comes).
+fn save(w: &mut World, to: PathBuf, found: Option<PathBuf>) -> Vec<Event> {
+    w.drain();
+    w.cmd(ChatCommand::SaveFile {
+        chat: ChatRef::Direct(3),
+        item: 7,
+        to,
+    });
+    let Request::LocateFile { tag, .. } = w.next_request() else {
+        panic!("no lookup")
+    };
+    w.engine_says(ChatEvent::Located { tag, path: found });
+    let mut seen = Vec::new();
+    for _ in 0..100 {
+        w.settle();
+        seen.extend(w.drain());
+        if seen.iter().any(|e| {
+            matches!(
+                e,
+                Event::Failure(_) | Event::Notice(Notice::ChatFileSaved { .. })
+            )
+        }) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    seen
+}
+
+fn failed_with(events: &[Event], code: ErrorCode) -> bool {
+    events
+        .iter()
+        .any(|e| matches!(e, Event::Failure(u) if u.code == code))
+}
+
+#[test]
+fn a_saved_file_is_copied_where_the_user_chose_and_says_so() {
+    let mut w = World::new(true);
+    ready_with_kai(&mut w);
+    let files = w.env.paths().chat_dir.join("files");
+    std::fs::create_dir_all(&files).unwrap();
+    let src = files.join("clip.mp4");
+    std::fs::write(&src, b"moving pictures").unwrap();
+    let downloads = w.env.home().join("Downloads");
+    std::fs::create_dir_all(&downloads).unwrap();
+    let to = downloads.join("clip.mp4");
+    // An older file there is replaced (the save dialog asked).
+    std::fs::write(&to, b"old").unwrap();
+
+    let events = save(&mut w, to.clone(), Some(src.clone()));
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::Notice(Notice::ChatFileSaved { folder }) if folder == "Downloads"
+        )),
+        "{events:?}"
+    );
+    assert_eq!(std::fs::read(&to).unwrap(), b"moving pictures");
+    // No temporary file is left behind.
+    let left: Vec<_> = std::fs::read_dir(&downloads)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(left, vec![std::ffi::OsString::from("clip.mp4")]);
+
+    // Two saves to one place at once: each uses its own temporary file; the copy is whole.
+    std::fs::write(&src, vec![7u8; 256 * 1024]).unwrap();
+    for _ in 0..2 {
+        w.cmd(ChatCommand::SaveFile {
+            chat: ChatRef::Direct(3),
+            item: 7,
+            to: to.clone(),
+        });
+    }
+    let tags: Vec<u64> = w
+        .engine
+        .take_requests()
+        .into_iter()
+        .map(|r| match r {
+            Request::LocateFile { tag, .. } => tag,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(tags.len(), 2);
+    assert_ne!(tags[0], tags[1]);
+    for tag in tags {
+        w.engine.emit(ChatEvent::Located {
+            tag,
+            path: Some(src.clone()),
+        });
+    }
+    let mut saved = 0;
+    for _ in 0..200 {
+        w.settle();
+        saved += w
+            .drain()
+            .iter()
+            .filter(|e| matches!(e, Event::Notice(Notice::ChatFileSaved { .. })))
+            .count();
+        if saved == 2 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(saved, 2);
+    assert_eq!(std::fs::read(&to).unwrap(), vec![7u8; 256 * 1024]);
+}
+
+#[test]
+fn a_save_that_cannot_be_written_says_so_with_its_code() {
+    let mut w = World::new(true);
+    ready_with_kai(&mut w);
+    let files = w.env.paths().chat_dir.join("files");
+    std::fs::create_dir_all(&files).unwrap();
+    let src = files.join("a.png");
+    std::fs::write(&src, b"png").unwrap();
+    // A folder that does not exist (as good as one the user cannot write to).
+    let events = save(
+        &mut w,
+        PathBuf::from("/proc/easyplay-no-such-folder/a.png"),
+        Some(src),
+    );
+    assert!(failed_with(&events, ErrorCode::ChtSaveFailed), "{events:?}");
+    // A message whose file is not here.
+    let b = w.env.home().join("b.png");
+    let events = save(&mut w, b, None);
+    assert!(failed_with(&events, ErrorCode::ChtSaveFailed), "{events:?}");
+}
+
+#[test]
+fn a_file_outside_the_chat_folder_is_never_copied() {
+    let mut w = World::new(true);
+    ready_with_kai(&mut w);
+    let secret = w.env.home().join("secret.txt");
+    std::fs::write(&secret, b"not for chat").unwrap();
+    let to = w.env.home().join("copy.txt");
+    let events = save(&mut w, to.clone(), Some(secret));
+    assert!(failed_with(&events, ErrorCode::ChtSaveFailed), "{events:?}");
+    assert!(!to.exists());
 }

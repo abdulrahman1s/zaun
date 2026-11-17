@@ -2313,6 +2313,9 @@ chat:
       invited_you: "دعاك %{name} إلى %{group}"
       you_invited: "دعوت %{name} إلى %{group}"
       code_changed: "تغيّر رمز الأمان. تحقّق منه مجددًا."
+    save_as: "حفظ باسم…"
+    previous: "الصورة السابقة"
+    next: "الصورة التالية"
     start_group: "هذه بداية المجموعة."
     encrypted_dm: "الرسائل والمكالمات والألعاب المشتركة مشفّرة من طرف إلى طرف: أنتما وحدكما تستطيعان قراءتها وسماعها ورؤيتها."
     encrypted_group: "الرسائل والمكالمات والألعاب المشتركة مشفّرة من طرف إلى طرف: أعضاؤها وحدهم يستطيعون قراءتها وسماعها ورؤيتها."
@@ -2390,6 +2393,7 @@ chat:
     transcript: "الرسائل مع %{name}"
     loading_older: "جارٍ تحميل الرسائل الأقدم…"
     load_failed: "تعذّر تحميل هذه الرسائل. افتح المحادثة مجددًا لإعادة المحاولة."
+    saved_to: "حُفظ في %{folder}"
 # ── end chat.conversation ──
 # ── chat.composer: keys go below as `  composer:` then four-space keys ──
   composer:
@@ -2453,10 +2457,12 @@ chat:
     photo: "صورة"
     video: "فيديو"
     pasted_picture: "صورة من الحافظة"
-    pasted_hint: "لم تُرسل بعد. يرسلها Enter ويتجاهلها Esc."
     media_filter: "الصور ومقاطع الفيديو"
     drop_to: "أفلت الملفات لإرسالها إلى %{name}"
     folders_refused: "لا يمكن إرسال المجلدات"
+    add_caption: "أضف تعليقًا"
+    remove_named: "أزل %{name}"
+    attachments: "المرفقات: %{count}"
 # ── end chat.composer ──
 # ── chat.details: keys go below as `  details:` then four-space keys ──
   details:

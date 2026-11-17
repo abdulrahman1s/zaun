@@ -62,6 +62,15 @@ pub enum PickPurpose {
     ChatPicture(easyplay_core::model::ChatRef),
     /// The Chat composer's *File…* for this conversation.
     ChatFile(easyplay_core::model::ChatRef),
+    /// *Save as…* for a Chat message's file: where the copy goes (`name` is offered).
+    ChatSave {
+        /// The conversation.
+        chat: easyplay_core::model::ChatRef,
+        /// The message.
+        item: i64,
+        /// The file's name, offered in the dialog.
+        name: String,
+    },
 }
 
 impl PickPurpose {
@@ -80,7 +89,7 @@ impl PickPurpose {
             | PickPurpose::AddGameFolder
             | PickPurpose::WorkingDir(_)
             | PickPurpose::LayerFolder => PickKind::Folder,
-            PickPurpose::SaveReport => PickKind::Save,
+            PickPurpose::SaveReport | PickPurpose::ChatSave { .. } => PickKind::Save,
             PickPurpose::ChatPicture(_) => PickKind::Media,
             PickPurpose::ChatFile(_) => PickKind::File,
         }
@@ -160,7 +169,10 @@ impl Picker for RfdPicker {
                         .collect(),
                     PickKind::File => dialog.pick_file().into_iter().collect(),
                     PickKind::Save => dialog
-                        .set_file_name(strings::debug::REPORT_FILE_NAME)
+                        .set_file_name(match &purpose {
+                            PickPurpose::ChatSave { name, .. } => name.as_str(),
+                            _ => strings::debug::REPORT_FILE_NAME,
+                        })
                         .save_file()
                         .into_iter()
                         .collect(),

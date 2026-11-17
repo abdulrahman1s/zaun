@@ -217,7 +217,11 @@ impl AppService {
                     .zip(fs.canonicalize(&chat_dir).ok())
                     .is_some_and(|(p, d)| p.starts_with(d));
                 if inside && fs.metadata_follow(&path).is_ok_and(|m| m.is_file()) {
-                    self.chat_command(ChatCommand::SendFile { chat, path });
+                    self.chat_command(ChatCommand::SendFile {
+                        chat,
+                        path,
+                        text: String::new(),
+                    });
                 } else {
                     tracing::info!("saved gif not sent: not a file in the chat folder");
                     self.notice(Notice::ChatGifNotSent);
@@ -321,6 +325,7 @@ impl AppService {
                 self.chat_command(ChatCommand::SendFile {
                     chat,
                     path: path.clone(),
+                    text: String::new(),
                 });
                 if let Err(e) = self.deps.fs.remove_file(&path) {
                     tracing::info!(error = %e, "downloaded gif not removed");

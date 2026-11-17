@@ -275,33 +275,87 @@ pub fn show(
 
 /// The picture viewer over the whole window, while one of this chat's pictures is open.
 fn viewer(ui: &Ui, state: &mut UiState, env: &mut Env<'_>, chat: ChatRef) {
+    use super::media::{Shown, ViewerAct};
     let Some(v) = state.chat.viewer.clone() else {
         return;
     };
-    let media = state.chat.open.as_ref().and_then(|o| {
-        o.messages
-            .iter()
-            .find(|m| m.id == v.item)
-            .and_then(|m| match &m.body {
-                MessageBody::Image(md) => Some(md.clone()),
-                MessageBody::Gif(n) => still_picture(n),
-                _ => None,
-            })
-    });
-    let Some(media) = media.filter(|_| v.chat == chat) else {
+    let Some(conv) = state.chat.open.as_ref().filter(|_| v.chat == chat) else {
         state.chat.viewer = None;
         return;
     };
+    // The conversation's pictures and GIFs, in order.
+    let viewable: Vec<&ChatMessage> = conv
+        .messages
+        .iter()
+        .filter(|m| matches!(m.body, MessageBody::Image(_) | MessageBody::Gif(_)))
+        .collect();
+    let Some(at) = viewable.iter().position(|m| m.id == v.item) else {
+        state.chat.viewer = None;
+        return;
+    };
+    let msg = viewable[at].clone();
+    let nav = (at > 0, at + 1 < viewable.len());
+    let prev = at.checked_sub(1).map(|i| viewable[i].id);
+    let next = viewable.get(at + 1).map(|m| m.id);
+    let mine = msg.author == MessageAuthor::Me;
+    let still = match &msg.body {
+        MessageBody::Gif(n) => still_picture(n),
+        _ => None,
+    };
+    let shown = match (&msg.body, &still) {
+        (_, Some(m)) => Shown::Picture(m, mine),
+        (MessageBody::Image(m), _) => Shown::Picture(m, mine),
+        (MessageBody::Gif(n), _) => Shown::Gif(n),
+        _ => return,
+    };
     let key = format!("{chat:?}:{}", v.item);
-    match super::media::viewer(ui.ctx(), &key, &media) {
-        Some(super::media::ViewerAct::Close) => state.chat.viewer = None,
-        Some(super::media::ViewerAct::Open) => {
-            env.bridge.send(UiCommand::Chat(ChatCommand::OpenFile {
-                chat,
-                item: v.item,
-            }));
+    let autoplay = env.bridge.prefs().chat.gif_autoplay;
+    let act = super::media::viewer(ui.ctx(), &key, &shown, autoplay, nav);
+    let name = match (&msg.body, &still) {
+        (_, Some(m)) | (MessageBody::Image(m), _) => m.name.clone(),
+        (MessageBody::Gif(n), _) => gif_file_name(n),
+        _ => String::new(),
+    };
+    let item = v.item;
+    match act {
+        Some(ViewerAct::Close) => state.chat.viewer = None,
+        Some(ViewerAct::Open) => {
+            env.bridge
+                .send(UiCommand::Chat(ChatCommand::OpenFile { chat, item }));
+        }
+        Some(ViewerAct::Download) => {
+            env.bridge
+                .send(UiCommand::Chat(ChatCommand::ReceiveFile { chat, item }));
+        }
+        Some(ViewerAct::SaveAs) => {
+            state
+                .picks
+                .push(crate::input::picker::PickPurpose::ChatSave { chat, item, name });
+        }
+        Some(ViewerAct::Prev) => {
+            if let Some(i) = prev {
+                state.chat.viewer = Some(crate::vm::chat::Viewer { chat, item: i });
+            }
+        }
+        Some(ViewerAct::Next) => {
+            if let Some(i) = next {
+                state.chat.viewer = Some(crate::vm::chat::Viewer { chat, item: i });
+            }
         }
         None => {}
+    }
+}
+
+/// The file name a GIF is saved under.
+fn gif_file_name(name: &str) -> String {
+    let file = std::path::Path::new(name)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| name.to_owned());
+    if std::path::Path::new(&file).extension().is_some() {
+        file
+    } else {
+        format!("{file}.gif")
     }
 }
 
@@ -1270,7 +1324,14 @@ fn transcript(
         .filter(|(_, r)| pointer.is_some_and(|p| r.contains(p)))
         .map(|(item, _)| item);
     let mut owner: Option<(i64, Rect)> = None;
+    let mut new_y: Option<f32> = None;
+    let mut rows: Vec<(i64, f32, f32)> = Vec::new();
     let out = area.show(ui, |ui| {
+        // The pass that places a conversation just opened is not shown (it is redone at
+        // its place); should it be shown anyway, it shows nothing.
+        if settle {
+            ui.multiply_opacity(0.0);
+        }
         ui.multiply_opacity(alpha);
         egui::Frame::NONE
             .inner_margin(Margin {
@@ -1314,6 +1375,7 @@ fn transcript(
                     }
                     let is_new = new_from == Some(msg.id);
                     if is_new {
+                        new_y = Some(col.cursor().top());
                         day_line(&mut col, s::NEW(), true);
                         after_line = true;
                     }
@@ -1334,23 +1396,17 @@ fn transcript(
                         quiet,
                         lock,
                     };
+                    let top = col.cursor().top();
                     message(
                         &mut col, state, env, snap, msg, &messages, &ctx, &mut acts, &mut owner,
                     );
+                    rows.push((msg.id, top, col.cursor().top()));
                     after_line = false;
                     prev = Some(msg);
                 }
                 let h = col.min_rect().height();
                 ui.allocate_space(vec2(ui.available_width(), h));
             });
-        if settle {
-            let end = ui.min_rect().bottom();
-            let left = ui.min_rect().left();
-            ui.scroll_to_rect(
-                Rect::from_min_size(pos2(left, end - 1.0), vec2(1.0, 1.0)),
-                Some(Align::BOTTOM),
-            );
-        }
     });
     active.reveal = false;
     // Scrolled by anything (wheel, bar, keys, a smooth scroll still moving): quiet.
@@ -1370,6 +1426,19 @@ fn transcript(
     }
     ui.ctx().data_mut(|d| d.insert_temp(active_key, active));
     message_menu(ui, state, env, snap, chat, &messages);
+    place(
+        ui,
+        key,
+        &out,
+        settle,
+        new_y,
+        &rows,
+        state
+            .chat
+            .open
+            .as_ref()
+            .is_some_and(|c| c.settled && !c.prepended),
+    );
     let Some(conv) = state.chat.open.as_mut() else {
         return;
     };
@@ -1406,6 +1475,79 @@ fn transcript(
             reply_to: q,
         }));
     }
+}
+
+/// Where the reader is, from one pass to the next: the first message on screen and how far
+/// below the transcript's top it stood, whether the transcript stood at its end, its height.
+#[derive(Clone, Copy)]
+struct Anchor {
+    item: i64,
+    top: f32,
+    at_end: bool,
+    height: f32,
+}
+
+/// Put the transcript in place without visible movement. A conversation just opened goes to
+/// its end, or with unread messages puts "New" a third of the way down; afterwards, when
+/// something above changes height (a picture decoded), what is on screen stays where it is.
+/// The offset is set directly, and the pass that would show the wrong place is discarded.
+fn place(
+    ui: &Ui,
+    key: Id,
+    out: &egui::scroll_area::ScrollAreaOutput<()>,
+    settle: bool,
+    new_y: Option<f32>,
+    rows: &[(i64, f32, f32)],
+    settled: bool,
+) {
+    let inner = out.inner_rect;
+    let offset = out.state.clamped_offset().y;
+    let height = out.content_size.y;
+    let view = inner.height();
+    let max = (height - view).max(0.0);
+    let anchor_key = key.with("anchor");
+    let prev: Option<Anchor> = ui.ctx().data(|d| d.get_temp(anchor_key));
+    let mut target = None;
+    if settle {
+        target = Some(match new_y {
+            Some(y) => (y - inner.top() + offset - view / 3.0).clamp(0.0, max),
+            None => max,
+        });
+    } else if settled
+        && let Some(a) = prev
+        && !a.at_end
+        && (height - a.height).abs() > 0.5
+        && let Some(&(_, top, _)) = rows.iter().find(|(id, ..)| *id == a.item)
+    {
+        let delta = (top - inner.top()) - a.top;
+        if delta.abs() > 0.5 {
+            target = Some((offset + delta).clamp(0.0, max).round());
+        }
+    }
+    if let Some(y) = target {
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(key.with("shift"), y.round()));
+        ui.ctx().request_discard("chat-transcript-placed");
+        ui.ctx().request_repaint();
+    }
+    // The reader's place for the next pass (as it will be once placed).
+    let shown = target.unwrap_or(offset);
+    let first = rows
+        .iter()
+        .find(|(_, top, bottom)| *bottom - (offset - shown) > inner.top() && *top < inner.bottom());
+    let next = first.map(|&(item, top, _)| Anchor {
+        item,
+        top: top + (offset - shown) - inner.top(),
+        at_end: shown >= max - 1.0,
+        height,
+    });
+    ui.ctx().data_mut(|d| {
+        if let Some(a) = next {
+            d.insert_temp(anchor_key, a);
+        } else {
+            d.remove::<Anchor>(anchor_key);
+        }
+    });
 }
 
 fn conv_loaded(state: &UiState) -> bool {
@@ -2028,7 +2170,8 @@ fn message_body(
             if let Some(m) = still_picture(name) {
                 media_body(
                     ui,
-                    rc.chat,
+                    state,
+                    rc,
                     msg.id,
                     &MessageBody::Image(m),
                     author.mine,
@@ -2039,7 +2182,7 @@ fn message_body(
         MessageBody::Gif(name) => gif(ui, state, rc.gif_autoplay, rc.chat, msg.id, name, acts),
         MessageBody::Stream(st) => stream_card(ui, snap, rc.chat, st, author, acts),
         MessageBody::Image(_) | MessageBody::Video(_) | MessageBody::File(_) => {
-            media_body(ui, rc.chat, msg.id, &msg.body, author.mine, acts);
+            media_body(ui, state, rc, msg.id, &msg.body, author.mine, acts);
         }
         MessageBody::Deleted => {
             let g = Type::Prose.galley(ui, s::DELETED(), p.t3, ui.available_width(), usize::MAX);
@@ -2064,6 +2207,8 @@ fn still_picture(name: &str) -> Option<easyplay_core::model::Media> {
             size: 0,
             preview: None,
             duration: None,
+            caption: String::new(),
+            local: Some(path.to_path_buf()),
             state: easyplay_core::model::FileState::Received(path.to_path_buf()),
         },
     )
@@ -2072,32 +2217,62 @@ fn still_picture(name: &str) -> Option<easyplay_core::model::Media> {
 /// A picture, a video or a file, and a coral line when it failed.
 fn media_body(
     ui: &mut Ui,
-    chat: ChatRef,
+    state: &UiState,
+    rc: &RowCtx,
     item: i64,
     body: &MessageBody,
     mine: bool,
     acts: &mut Vec<Act>,
 ) {
     use easyplay_core::model::FileState;
+    let chat = rc.chat;
     let key = format!("{chat:?}:{item}");
-    let (act, failed) = match body {
+    let (act, failed, caption) = match body {
         MessageBody::Image(m) => (
             super::media::image(ui, &key, m, mine),
             m.state == FileState::Failed,
+            m.caption.as_str(),
         ),
         MessageBody::Video(m) => (
             super::media::video(ui, &key, m, mine),
             m.state == FileState::Failed,
+            m.caption.as_str(),
         ),
         // A file's row says it failed itself.
-        MessageBody::File(m) => (super::media::file(ui, m, mine), false),
-        _ => (None, false),
+        MessageBody::File(m) => (super::media::file(ui, m, mine), false, m.caption.as_str()),
+        _ => (None, false, ""),
     };
     if failed {
         super::media::failed_line(ui, mine);
     }
     if let Some(a) = act {
         acts.push(Act::Media(item, a));
+    }
+    // The text sent with it, as message text.
+    if !caption.trim().is_empty() {
+        let p = theme::theme(ui.ctx()).palette.clone();
+        let lines = markdown::parse(caption, &[]);
+        let look = markdown::Look {
+            color: p.t1,
+            id: item,
+            revealed: &state.chat.revealed,
+            jumbo: false,
+            rtl: super::paint::reads_rtl(caption),
+            focusable: rc.active,
+        };
+        let clicked = markdown::show(ui, Id::unique(("chat.caption", chat, item)), &lines, &look);
+        if let Some(url) = clicked.link {
+            acts.push(Act::Link(url));
+        }
+        if let Some(n) = clicked.secret {
+            acts.push(Act::Spoiler(item, n));
+        }
+        if let Some(at) = clicked.menu {
+            acts.push(Act::Menu(MenuAt {
+                item,
+                anchor: Rect::from_min_size(at, vec2(1.0, 1.0)),
+            }));
+        }
     }
 }
 
@@ -2742,12 +2917,19 @@ fn gif(
     name: &str,
     acts: &mut Vec<Act>,
 ) {
-    let size = super::gif::message_size(ui.ctx(), name, ui.available_width().min(m::GIF_W));
+    // A fixed 16:10 box: the decoded GIF fills it rather than resizing the row.
+    let w = ui.available_width().min(m::GIF_W).round();
+    let size = vec2(w, (w / 1.6).round());
     ui.add_space(m::GIF_MARGIN);
     let (r, _) = ui.allocate_exact_size(size, Sense::hover());
     let flip = Flip::new(r);
     let word = crate::demo_chat::gif_word(name);
     let resp = super::gif::paint_message(ui, name, r, autoplay);
+    // A click opens it bigger in the viewer (it plays there when GIFs do not by themselves).
+    let open = ui.interact(r, Id::unique(("chat.gif.open", chat, item)), Sense::click());
+    if open.clicked() {
+        acts.push(Act::Media(item, super::media::Act::View));
+    }
     // "GIF" bottom left.
     let tg = Type::MicroStrong.galley(ui, s::GIF(), Color32::WHITE, f32::INFINITY, 1);
     let tag = flip.r(Rect::from_min_size(
@@ -3126,6 +3308,7 @@ fn message_menu(
     let mut open = true;
     let mut chosen: Option<Act> = None;
     let mut copy: Option<String> = None;
+    let mut save_as: Option<String> = None;
     let mut block: Option<bool> = None;
     let popup = Popup::new(
         Id::unique(("chat.msg.menu", chat)),
@@ -3167,6 +3350,19 @@ fn message_menu(
         };
         if received && context_menu::icon_item(ui, icons::OPEN, s::OPEN(), None).clicked() {
             chosen = Some(Act::Media(msg.id, super::media::Act::Open));
+        }
+        // Save as… for any media whose file is here (received, or sent by the user), and GIFs.
+        let saveable = match &msg.body {
+            MessageBody::Image(m) | MessageBody::Video(m) | MessageBody::File(m) => {
+                super::media::has_file(m, mine).then(|| m.name.clone())
+            }
+            MessageBody::Gif(n) => Some(gif_file_name(n)),
+            _ => None,
+        };
+        if let Some(name) = saveable
+            && context_menu::icon_item(ui, icons::DOWNLOAD, s::SAVE_AS(), None).clicked()
+        {
+            save_as = Some(name);
         }
         if let MessageBody::Gif(n) = &msg.body {
             let saved = state.chat.saved_gifs.iter().any(|g| g == n);
@@ -3216,9 +3412,18 @@ fn message_menu(
             }
         }
     });
-    let done = chosen.is_some() || copy.is_some() || block.is_some();
+    let done = chosen.is_some() || copy.is_some() || block.is_some() || save_as.is_some();
     if !open || done {
         ui.ctx().data_mut(|d| d.remove::<MenuAt>(menu_key()));
+    }
+    if let Some(name) = save_as {
+        state
+            .picks
+            .push(crate::input::picker::PickPurpose::ChatSave {
+                chat,
+                item: msg.id,
+                name,
+            });
     }
     if let Some(t) = copy {
         ui.ctx().copy_text(t);

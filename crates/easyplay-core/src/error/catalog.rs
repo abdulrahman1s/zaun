@@ -564,6 +564,11 @@ pub const fn entry(code: ErrorCode) -> Entry {
             "Paste the whole link your friend shared, exactly as they sent it.",
             &[A::Dismiss],
         ),
+        C::ChtSaveFailed => e(
+            "Couldn't save the file",
+            "The folder may be read-only or full. Try another place.",
+            &[A::Dismiss],
+        ),
         C::ChtRequestFailed => e(
             "That did not work",
             "The chat engine refused the request. The details say why.",

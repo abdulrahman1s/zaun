@@ -222,6 +222,8 @@ pub enum ChatCommand {
         chat: crate::model::ChatRef,
         /// The file on this computer.
         path: PathBuf,
+        /// A caption (empty = none).
+        text: String,
     },
     /// Fetch a file a friend offered (core agent, round 3).
     ReceiveFile {
@@ -244,6 +246,16 @@ pub enum ChatCommand {
         /// The message carrying it.
         item: i64,
     },
+    /// Save a copy of a received or sent file at `to` (the user chose it in a save dialog).
+    /// Only a file inside the Chat folder is copied; the copy happens off the service thread.
+    SaveFile {
+        /// Where.
+        chat: crate::model::ChatRef,
+        /// The message carrying it.
+        item: i64,
+        /// The copy's path.
+        to: PathBuf,
+    },
     /// Send a picture from the clipboard: the service writes it into the Chat folder and
     /// sends it like `SendFile`.
     SendClipboard {
@@ -253,6 +265,8 @@ pub enum ChatCommand {
         bytes: Vec<u8>,
         /// What they are.
         kind: ClipKind,
+        /// A caption (empty = none).
+        text: String,
     },
     /// Make a group's invite link (`ChatGroup::link`).
     CreateGroupLink(i64),

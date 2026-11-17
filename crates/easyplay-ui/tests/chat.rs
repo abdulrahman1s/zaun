@@ -1196,6 +1196,63 @@ mod conversation_tests {
         assert_eq!(tools(&r), 1, "one row's tools after the pointer moved");
     }
 
+    fn bounds(r: &Rig, text: &str) -> Option<egui::Rect> {
+        let text = text.to_owned();
+        r.h.query_by(move |n| {
+            n.role() == Role::ListItem && n.label().is_some_and(|l| l.contains(&text))
+        })
+        .and_then(|n| n.accesskit_node().raw_bounds())
+        .map(|b| {
+            egui::Rect::from_min_max(
+                egui::pos2(b.x0 as f32, b.y0 as f32),
+                egui::pos2(b.x1 as f32, b.y1 as f32),
+            )
+        })
+    }
+
+    /// Opening a chat shows its end at once: from the first frame its page is in, the last
+    /// message stands in place and does not move while pictures decode.
+    #[test]
+    fn opening_a_chat_places_it_without_moving() {
+        let _l = lock();
+        let (mut r, _) = rig(sample(), W1440, ThemeChoice::Dark, "en");
+        list_row(&r, "Lucía Fernández", ", ").click();
+        // Run until the page is in.
+        let mut first = None;
+        for _ in 0..20 {
+            r.h.step();
+            common::serve(&mut r);
+            if r.h.state().state.chat.open.as_ref().is_some_and(|c| c.loaded) {
+                r.h.step();
+                first = bounds(&r, "save_slot2.dat");
+                break;
+            }
+        }
+        let first = first.expect("the last message on the first frame");
+        assert!(first.bottom() <= 900.0 - 60.0 && first.top() > 108.0, "{first:?}");
+        for _ in 0..30 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            r.h.step();
+            assert_eq!(bounds(&r, "save_slot2.dat"), Some(first));
+        }
+    }
+
+    /// With unread messages the chat opens at "New", a third of the way down.
+    #[test]
+    fn opening_with_unread_shows_new() {
+        let _l = lock();
+        let r = opened("Friday Crew", W1440, ThemeChoice::Dark, "en");
+        let new = r
+            .h
+            .query_all_by(|n: &egui_kittest::kittest::AccessKitNode<'_>| {
+                n.role() == Role::Label && n.value().as_deref() == Some("New")
+            })
+            .next()
+            .and_then(|n| n.accesskit_node().raw_bounds())
+            .expect("New in view");
+        assert!(new.y0 > 108.0 && new.y1 < 840.0, "{new:?}");
+    }
+
     /// Without a feature its controls are not drawn.
     #[test]
     fn features_off_hide_controls() {
@@ -2689,42 +2746,6 @@ mod composer_tests {
         assert!(field_focused(&r), "{:?}", focused(&r));
     }
 
-    #[test]
-    fn attach_sends_a_picture_or_a_file() {
-        use easyplay_ui::input::picker::PickPurpose;
-        let _l = lock();
-        let mut r = mira(ThemeChoice::Dark, "en");
-        let picture = std::path::PathBuf::from("/tmp/easyplay-composer/small.png");
-        let file = std::path::PathBuf::from("/tmp/easyplay-composer/notes.txt");
-        r.picker.answer(vec![picture.clone()]);
-        r.h.get_by_label("Attach").click();
-        r.h.run_steps(3);
-        r.h.get_by_label("Picture or video…").click();
-        r.h.run_steps(4);
-        r.picker.answer(vec![file.clone()]);
-        r.h.get_by_label("Attach").click();
-        r.h.run_steps(3);
-        r.h.get_by_label("File…").click();
-        r.h.run_steps(4);
-        assert_eq!(
-            r.picker.asked(),
-            vec![PickPurpose::ChatPicture(MIRA), PickPurpose::ChatFile(MIRA)]
-        );
-        assert_eq!(
-            chat_sent(&r),
-            vec![
-                ChatCommand::SendFile {
-                    chat: MIRA,
-                    path: picture,
-                },
-                ChatCommand::SendFile {
-                    chat: MIRA,
-                    path: file,
-                },
-            ]
-        );
-    }
-
     /// A clipboard holding `clip`.
     struct FakeClipboard(easyplay_ui::vm::chat::Clip);
 
@@ -2753,83 +2774,13 @@ mod composer_tests {
     }
 
     #[test]
-    fn a_pasted_picture_waits_for_enter_and_goes_as_png() {
-        use easyplay_ui::vm::chat::Pasted;
-        let _l = lock();
-        let mut r = mira(ThemeChoice::Dark, "en");
-        clipboard(&mut r, picture());
-        paste(&mut r, "");
-        assert!(matches!(
-            r.h.state().state.chat.pasted,
-            Some(Pasted::Image { size: [64, 40], .. })
-        ));
-        assert!(draft(&r, MIRA).is_empty());
-        assert!(chat_sent(&r).is_empty());
-        assert!(
-            r.h.query_by_label_contains("Picture from the clipboard")
-                .is_some()
-        );
-        key(&mut r, Key::Enter);
-        let mut sent = Vec::new();
-        for _ in 0..100 {
-            sent = chat_sent(&r);
-            if !sent.is_empty() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            r.h.run_steps(1);
-        }
-        match sent.as_slice() {
-            [ChatCommand::SendClipboard { chat, bytes, kind }] => {
-                assert_eq!(*chat, MIRA);
-                assert_eq!(*kind, easyplay_core::service::ClipKind::Png);
-                assert!(bytes.starts_with(b"\x89PNG"));
-            }
-            other => panic!("{other:?}"),
-        }
-        assert!(r.h.state().state.chat.pasted.is_none());
-        assert!(field_focused(&r), "{:?}", focused(&r));
-    }
-
-    #[test]
-    fn pasted_files_go_one_by_one_and_esc_discards() {
-        use easyplay_ui::vm::chat::{Clip, Pasted};
-        let _l = lock();
-        let mut r = mira(ThemeChoice::Dark, "en");
-        let files: Vec<std::path::PathBuf> = (0..12)
-            .map(|k| format!("/home/sam/Videos/clip-{k}.mp4").into())
-            .collect();
-        clipboard(&mut r, Clip::Files(files.clone()));
-        paste(&mut r, "/home/sam/Videos/clip-0.mp4");
-        assert_eq!(
-            r.h.state().state.chat.pasted,
-            Some(Pasted::Files(files[..10].to_vec()))
-        );
-        assert!(draft(&r, MIRA).is_empty(), "{}", draft(&r, MIRA));
-        key(&mut r, Key::Escape);
-        assert!(r.h.state().state.chat.pasted.is_none());
-        assert!(chat_sent(&r).is_empty());
-        paste(&mut r, "");
-        r.h.get_by_label("Send").click();
-        r.h.run_steps(3);
-        let want: Vec<ChatCommand> = files[..10]
-            .iter()
-            .map(|path| ChatCommand::SendFile {
-                chat: MIRA,
-                path: path.clone(),
-            })
-            .collect();
-        assert_eq!(chat_sent(&r), want);
-    }
-
-    #[test]
     fn text_on_the_clipboard_pastes_as_text() {
         let _l = lock();
         let mut r = mira(ThemeChoice::Dark, "en");
         clipboard(&mut r, easyplay_ui::vm::chat::Clip::Other);
         paste(&mut r, "gg wp");
         assert_eq!(draft(&r, MIRA), "gg wp");
-        assert!(r.h.state().state.chat.pasted.is_none());
+        assert!(r.h.state().state.chat.attachments.is_empty());
     }
 
     #[derive(Debug)]
@@ -2866,9 +2817,163 @@ mod composer_tests {
         }
     }
 
+    fn attachments(r: &Rig) -> Vec<easyplay_ui::vm::chat::Attachment> {
+        r.h.state().state.chat.attachments.clone()
+    }
+
+    /// Commands sent, waiting for a worker thread (pictures are encoded off the UI thread).
+    fn sent_soon(r: &mut Rig) -> Vec<ChatCommand> {
+        for _ in 0..100 {
+            let sent = chat_sent(r);
+            if !sent.is_empty() {
+                return sent;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            r.h.run_steps(1);
+        }
+        Vec::new()
+    }
+
     #[test]
-    fn dropped_files_wait_in_the_bar_and_go_on_enter() {
-        use easyplay_ui::vm::chat::Pasted;
+    fn chosen_files_wait_with_the_others_and_take_the_caption() {
+        use easyplay_ui::input::picker::PickPurpose;
+        use easyplay_ui::vm::chat::Attachment;
+        let _l = lock();
+        let mut r = mira(ThemeChoice::Dark, "en");
+        let picture = std::path::PathBuf::from("/tmp/easyplay-composer/small.png");
+        let file = std::path::PathBuf::from("/tmp/easyplay-composer/notes.txt");
+        r.picker.answer(vec![picture.clone()]);
+        r.h.get_by_label("Attach").click();
+        r.h.run_steps(3);
+        r.h.get_by_label("Picture or video…").click();
+        r.h.run_steps(4);
+        r.picker.answer(vec![file.clone()]);
+        r.h.get_by_label("Attach").click();
+        r.h.run_steps(3);
+        r.h.get_by_label("File…").click();
+        r.h.run_steps(4);
+        assert_eq!(
+            r.picker.asked(),
+            vec![PickPurpose::ChatPicture(MIRA), PickPurpose::ChatFile(MIRA)]
+        );
+        assert_eq!(
+            attachments(&r),
+            vec![
+                Attachment::File(picture.clone()),
+                Attachment::File(file.clone())
+            ]
+        );
+        assert!(chat_sent(&r).is_empty());
+        r.h.get_by_label("Remove notes.txt");
+        r.h.state_mut().state.chat.focus_composer = true;
+        r.h.run_steps(3);
+        type_text(&mut r, "the route");
+        key(&mut r, Key::Enter);
+        assert_eq!(
+            chat_sent(&r),
+            vec![
+                ChatCommand::SendFile {
+                    chat: MIRA,
+                    path: picture,
+                    text: "the route".into(),
+                },
+                ChatCommand::SendFile {
+                    chat: MIRA,
+                    path: file,
+                    text: String::new(),
+                },
+            ]
+        );
+        assert!(attachments(&r).is_empty());
+        assert!(draft(&r, MIRA).is_empty());
+    }
+
+    #[test]
+    fn a_pasted_picture_goes_as_png_with_its_caption() {
+        use easyplay_ui::vm::chat::Attachment;
+        let _l = lock();
+        let mut r = mira(ThemeChoice::Dark, "en");
+        clipboard(&mut r, picture());
+        paste(&mut r, "");
+        assert!(matches!(
+            attachments(&r).as_slice(),
+            [Attachment::Image { size: [64, 40], .. }]
+        ));
+        assert!(draft(&r, MIRA).is_empty());
+        assert!(chat_sent(&r).is_empty());
+        assert!(
+            r.h.query_by_label("Remove Picture from the clipboard")
+                .is_some()
+        );
+        type_text(&mut r, "look");
+        key(&mut r, Key::Enter);
+        match sent_soon(&mut r).as_slice() {
+            [
+                ChatCommand::SendClipboard {
+                    chat,
+                    bytes,
+                    kind,
+                    text,
+                },
+            ] => {
+                assert_eq!(*chat, MIRA);
+                assert_eq!(*kind, easyplay_core::service::ClipKind::Png);
+                assert!(bytes.starts_with(b"\x89PNG"));
+                assert_eq!(text, "look");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(attachments(&r).is_empty());
+        assert!(field_focused(&r), "{:?}", focused(&r));
+    }
+
+    #[test]
+    fn pasted_files_backspace_esc_and_send() {
+        use easyplay_ui::vm::chat::{Attachment, Clip};
+        let _l = lock();
+        let mut r = mira(ThemeChoice::Dark, "en");
+        let files: Vec<std::path::PathBuf> = (0..12)
+            .map(|k| format!("/home/sam/Videos/clip-{k}.mp4").into())
+            .collect();
+        clipboard(&mut r, Clip::Files(files.clone()));
+        paste(&mut r, "/home/sam/Videos/clip-0.mp4");
+        let want: Vec<Attachment> = files[..10].iter().cloned().map(Attachment::File).collect();
+        assert_eq!(attachments(&r), want);
+        assert!(draft(&r, MIRA).is_empty(), "{}", draft(&r, MIRA));
+        // Backspace in the empty field takes the last one away.
+        key(&mut r, Key::Backspace);
+        assert_eq!(attachments(&r), want[..9].to_vec());
+        // Esc with text keeps them; in the empty field it takes them all away.
+        type_text(&mut r, "x");
+        key(&mut r, Key::Escape);
+        assert_eq!(attachments(&r).len(), 9);
+        r.h.state_mut()
+            .state
+            .chat
+            .drafts
+            .insert(MIRA, String::new());
+        r.h.run_steps(2);
+        key(&mut r, Key::Escape);
+        assert!(attachments(&r).is_empty());
+        assert!(chat_sent(&r).is_empty());
+        // Back again, sent with the round Send.
+        paste(&mut r, "");
+        r.h.get_by_label("Send").click();
+        r.h.run_steps(3);
+        let sent: Vec<ChatCommand> = files[..10]
+            .iter()
+            .map(|path| ChatCommand::SendFile {
+                chat: MIRA,
+                path: path.clone(),
+                text: String::new(),
+            })
+            .collect();
+        assert_eq!(chat_sent(&r), sent);
+    }
+
+    #[test]
+    fn dropped_files_join_the_attachments_and_go_on_enter() {
+        use easyplay_ui::vm::chat::Attachment;
         let _l = lock();
         let mut r = mira(ThemeChoice::Dark, "en");
         drop_files(
@@ -2880,11 +2985,11 @@ mod composer_tests {
             ],
         );
         assert_eq!(
-            r.h.state().state.chat.pasted,
-            Some(Pasted::Files(vec![
-                "/home/sam/Videos/boss.mp4".into(),
-                "/home/sam/notes.txt".into()
-            ]))
+            attachments(&r),
+            vec![
+                Attachment::File("/home/sam/Videos/boss.mp4".into()),
+                Attachment::File("/home/sam/notes.txt".into())
+            ]
         );
         // The game-adding drop zone never saw them.
         assert!(
@@ -2894,19 +2999,19 @@ mod composer_tests {
                 .any(|c| matches!(c, UiCommand::OpenPaths { .. }))
         );
         assert!(field_focused(&r), "{:?}", focused(&r));
+        r.h.get_by_label("Remove notes.txt").click();
+        r.h.run_steps(3);
+        assert_eq!(attachments(&r).len(), 1);
+        r.h.state_mut().state.chat.focus_composer = true;
+        r.h.run_steps(3);
         key(&mut r, Key::Enter);
         assert_eq!(
             chat_sent(&r),
-            vec![
-                ChatCommand::SendFile {
-                    chat: MIRA,
-                    path: "/home/sam/Videos/boss.mp4".into(),
-                },
-                ChatCommand::SendFile {
-                    chat: MIRA,
-                    path: "/home/sam/notes.txt".into(),
-                },
-            ]
+            vec![ChatCommand::SendFile {
+                chat: MIRA,
+                path: "/home/sam/Videos/boss.mp4".into(),
+                text: String::new(),
+            }]
         );
     }
 
@@ -2915,7 +3020,7 @@ mod composer_tests {
         let _l = lock();
         let mut r = mira(ThemeChoice::Dark, "en");
         drop_files(&mut r, &["/home/sam/Games", "/home/sam/Music"]);
-        assert!(r.h.state().state.chat.pasted.is_none());
+        assert!(r.h.state().state.chat.attachments.is_empty());
         assert!(
             r.h.state()
                 .state
@@ -2944,7 +3049,7 @@ mod composer_tests {
             c,
             UiCommand::OpenPaths { paths, .. } if paths == &vec![std::path::PathBuf::from("/home/sam/Downloads/Game.exe")]
         )));
-        assert!(r.h.state().state.chat.pasted.is_none());
+        assert!(r.h.state().state.chat.attachments.is_empty());
     }
 
     // ---- Snapshots
@@ -2967,6 +3072,42 @@ mod composer_tests {
         clipboard(&mut r, picture());
         paste(&mut r, "");
         snapshot(&mut r, "chat_composer_paste_dark_1280x800");
+    }
+
+    #[test]
+    fn snapshot_composer_attachments() {
+        use easyplay_ui::vm::chat::Clip;
+        let _l = lock();
+        let mut r = mira(ThemeChoice::Dark, "en");
+        clipboard(&mut r, picture());
+        paste(&mut r, "");
+        clipboard(
+            &mut r,
+            Clip::Image {
+                size: [40, 64],
+                rgba: [70u8, 130, 200, 255].repeat(40 * 64),
+            },
+        );
+        paste(&mut r, "");
+        drop_files(
+            &mut r,
+            &["/tmp/easyplay-composer/patch notes for the boss fight.txt"],
+        );
+        r.h.state_mut().state.chat.focus_composer = true;
+        r.h.run_steps(3);
+        type_text(&mut r, "before and after");
+        snapshot(&mut r, "chat_composer_attachments_dark_1280x800");
+    }
+
+    #[test]
+    fn snapshot_composer_live_format() {
+        let _l = lock();
+        let mut r = mira(ThemeChoice::Dark, "en");
+        type_text(
+            &mut r,
+            "*bold* _italic_ ~gone~ `code` #secret# !3 blue! and plain https://example.org",
+        );
+        snapshot(&mut r, "chat_composer_live_format_dark_1280x800");
     }
 
     /// The pointer leaves the window, so no hover shows in a snapshot.
@@ -3087,6 +3228,7 @@ mod composer_tests {
 
 mod media_tests {
     use super::*;
+    use easyplay_core::model::MessageBody;
     use easyplay_ui::demo_chat::LUCIA;
 
     const W1440: Vec2 = Vec2::new(1440.0, 900.0);
@@ -3238,5 +3380,196 @@ mod media_tests {
         r.h.event(egui::Event::PointerGone);
         r.h.run_steps(10);
         r.h.snapshot("chat_media_viewer_dark_1440x900");
+    }
+
+    /// Scroll the transcript to its top (the GIF stands above the media).
+    fn to_top(r: &mut Rig) {
+        r.h.event(egui::Event::PointerMoved(egui::pos2(700.0, 500.0)));
+        r.h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, 100_000.0),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
+            modifiers: Modifiers::NONE,
+        });
+        r.h.run_steps(30);
+    }
+
+    fn viewer_item(r: &Rig) -> Option<i64> {
+        r.h.state().state.chat.viewer.as_ref().map(|v| v.item)
+    }
+
+    /// The id of the conversation's message whose body matches.
+    fn item_of(r: &Rig, f: impl Fn(&MessageBody) -> bool) -> i64 {
+        r.h.state()
+            .state
+            .chat
+            .open
+            .as_ref()
+            .and_then(|c| c.messages.iter().find(|m| f(&m.body)))
+            .map(|m| m.id)
+            .expect("a message")
+    }
+
+    /// A click on a GIF opens it in the viewer; ← → step through the chat's pictures.
+    #[test]
+    fn the_viewer_opens_on_a_gif_and_steps() {
+        let _l = lock();
+        let mut r = lucia();
+        let gif = item_of(&r, |b| matches!(b, MessageBody::Gif(_)));
+        let pic = item_of(&r, |b| matches!(b, MessageBody::Image(_)));
+        to_top(&mut r);
+        by_label(&r, "GIF: gg").click();
+        r.h.run_steps(4);
+        assert_eq!(viewer_item(&r), Some(gif));
+        key(&mut r, Key::ArrowRight);
+        assert_eq!(viewer_item(&r), Some(pic));
+        key(&mut r, Key::ArrowLeft);
+        assert_eq!(viewer_item(&r), Some(gif));
+        key(&mut r, Key::Escape);
+        assert_eq!(viewer_item(&r), None);
+    }
+
+    /// A picture not fetched yet opens with its preview and Download; once here, Save as…
+    /// sends SaveFile with the chosen path.
+    #[test]
+    fn the_viewer_downloads_and_saves() {
+        let _l = lock();
+        let mut r = lucia();
+        let pic = item_of(&r, |b| matches!(b, MessageBody::Image(_)));
+        // The picture itself (not its round button) opens the viewer.
+        let b = by_label(&r, "Photo, 2.4 MB").accesskit_node().raw_bounds().unwrap();
+        let at = egui::pos2(b.x0 as f32 + 30.0, b.y0 as f32 + 30.0);
+        r.h.event(egui::Event::PointerMoved(at));
+        r.h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        });
+        r.h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        });
+        r.h.run_steps(4);
+        assert_eq!(viewer_item(&r), Some(pic));
+        assert!(r.h.query_by_label("Save as…").is_none());
+        row_button_any(&r, "Download").click();
+        r.h.run_steps(3);
+        let sent = chat_sent(&r);
+        assert_eq!(sent, vec![ChatCommand::ReceiveFile { chat: LUCIA, item: pic }]);
+        play(&mut r, &sent);
+        r.fake.clear_sent();
+        let to = std::path::PathBuf::from("/tmp/easyplay-test/sunset.jpg");
+        r.picker.answer(vec![to.clone()]);
+        r.h.get_by_label("Save as…").click();
+        r.h.run_steps(6);
+        assert_eq!(
+            chat_sent(&r),
+            vec![ChatCommand::SaveFile {
+                chat: LUCIA,
+                item: pic,
+                to
+            }]
+        );
+    }
+
+    /// The viewer's primary "Download" (the picture's round button shares the words).
+    fn row_button_any<'a>(r: &'a Rig, label: &str) -> egui_kittest::Node<'a> {
+        let label = label.to_owned();
+        r.h.query_all_by(move |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == Role::Button && n.label().as_deref() == Some(label.as_str())
+        })
+        .last()
+        .expect("a button")
+    }
+
+    /// Our own sent picture shows from its file on this computer, not from the preview.
+    #[test]
+    fn a_sent_picture_shows_from_its_file() {
+        use easyplay_core::model::{ChatMessage, Delivery, FileState, Media, MessageAuthor};
+        let _l = lock();
+        let mut r = lucia();
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data/chat/sent.png");
+        r.fake.push_event(easyplay_ui::bridge::UiEvent::ChatMessages {
+            messages: vec![ChatMessage {
+                id: 10_000,
+                chat: LUCIA,
+                author: MessageAuthor::Me,
+                body: MessageBody::Image(Media {
+                    name: "sent.png".into(),
+                    size: 51_444,
+                    preview: None,
+                    duration: None,
+                    caption: "the *new* route".into(),
+                    local: Some(fixture),
+                    state: FileState::Sent,
+                }),
+                at: now(),
+                delivery: Delivery::Delivered,
+                unread: false,
+                reply: None,
+                reactions: Vec::new(),
+                edited: false,
+                mentions: Vec::new(),
+            }],
+            updated: false,
+        });
+        // The file decodes on a worker: wait for the picture's own shape (240 × 180 → 360 ×
+        // 270; without it, a 320 × 180 plate).
+        let mut h = 0.0;
+        for _ in 0..100 {
+            r.h.run_steps(2);
+            h = by_label(&r, "Photo, 51 KB")
+                .accesskit_node()
+                .raw_bounds()
+                .map_or(0.0, |b| b.height());
+            if (h - 270.0).abs() < 1.0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!((h - 270.0).abs() < 1.0, "height {h}");
+        r.h.event(egui::Event::PointerGone);
+        r.h.run_steps(30);
+        r.h.snapshot("chat_media_sent_dark_1440x900");
+    }
+
+    #[test]
+    fn snapshot_media_viewer_gif() {
+        let _l = lock();
+        let mut r = lucia();
+        to_top(&mut r);
+        by_label(&r, "GIF: gg").click();
+        r.h.event(egui::Event::PointerGone);
+        r.h.run_steps(20);
+        r.h.snapshot("chat_media_viewer_gif_dark_1440x900");
+    }
+
+    #[test]
+    fn snapshot_media_viewer_offered() {
+        let _l = lock();
+        let mut r = lucia();
+        let b = by_label(&r, "Photo, 2.4 MB").accesskit_node().raw_bounds().unwrap();
+        let at = egui::pos2(b.x0 as f32 + 30.0, b.y0 as f32 + 30.0);
+        r.h.event(egui::Event::PointerMoved(at));
+        r.h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        });
+        r.h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        });
+        r.h.event(egui::Event::PointerGone);
+        r.h.run_steps(20);
+        r.h.snapshot("chat_media_viewer_offered_dark_1440x900");
     }
 }

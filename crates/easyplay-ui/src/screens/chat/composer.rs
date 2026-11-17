@@ -46,7 +46,7 @@ use crate::strings::chat::list as ls;
 use crate::theme::palette::Palette;
 use crate::theme::tokens::{icon as icon_size, stroke};
 use crate::theme::{self, Icon, Type, icons, motion};
-use crate::vm::chat::{Clip, ClipboardSource, PASTE_FILES, Pasted, Picker, Suggest, SuggestKind};
+use crate::vm::chat::{Attachment, Clip, ClipboardSource, Picker, Suggest, SuggestKind};
 use crate::widgets::button::Button;
 use crate::widgets::{context_menu, tooltip};
 
@@ -68,12 +68,29 @@ mod m {
     pub const BAR_GAP: f32 = 8.0;
     pub const BAR_ICON: f32 = 12.0;
     pub const BAR_CLOSE: f32 = 26.0;
-    /// The paste bar: a picture's (64, thumbnail 48, radius 6) or files' (48), its padding.
-    pub const PASTE_H_IMAGE: f32 = 64.0;
-    pub const PASTE_H: f32 = 48.0;
-    pub const PASTE_THUMB: f32 = 48.0;
-    pub const PASTE_RADIUS: u8 = 6;
-    pub const PASTE_PAD: f32 = 10.0;
+    /// The attachment strip: padding (above and at the sides), space under the tiles (the
+    /// text line's own padding follows), tiles 80 square, 8 apart, radius 10, popping in
+    /// from 90 %; a file's chip 200 × 56 with a 36 icon tile (radius 8) and 10 padding,
+    /// leaving room for the corner ×: a 20 disc hanging 6 over, its glyph 12. A video's play
+    /// disc.
+    pub const STRIP_PAD: f32 = 12.0;
+    /// Formatting as it is typed: `code` in mono 13, `!- small!` at 12.
+    pub const LIVE_CODE: f32 = 13.0;
+    pub const LIVE_SMALL: f32 = 12.0;
+    pub const STRIP_BELOW: f32 = 4.0;
+    pub const TILE: f32 = 80.0;
+    pub const TILE_GAP: f32 = 8.0;
+    pub const TILE_RADIUS: u8 = 10;
+    pub const TILE_FROM: f32 = 0.9;
+    pub const CHIP: [f32; 2] = [200.0, 56.0];
+    pub const CHIP_ICON: f32 = 36.0;
+    pub const CHIP_ICON_RADIUS: u8 = 8;
+    pub const CHIP_PAD: f32 = 10.0;
+    pub const CORNER: f32 = 20.0;
+    pub const CORNER_HANG: f32 = 6.0;
+    pub const CORNER_GLYPH: f32 = 12.0;
+    pub const CORNER_ROOM: f32 = 8.0;
+    pub const PLAY_DISC: f32 = 32.0;
     /// The drop overlay: the wall's opacity, the dashed outline's inset, dash and gap, the
     /// glyph, and the gap under it.
     pub const DROP_WALL: f32 = 0.85;
@@ -164,13 +181,9 @@ pub fn show(
     let f = snap.features;
     let p = theme::theme(&ctx).palette.clone();
     let rtl = i18n::dir() == Dir::Rtl;
-    // Pasted pictures encoded off the UI thread go out now.
-    for (to, bytes) in encoded(&ctx).take() {
-        env.bridge.send(UiCommand::Chat(ChatCommand::SendClipboard {
-            chat: to,
-            bytes,
-            kind: ClipKind::Png,
-        }));
+    // Messages with pictures, built off the UI thread, go out now (in order).
+    for cmd in encoded(&ctx).take() {
+        env.bridge.send(UiCommand::Chat(cmd));
     }
     if !f.voice {
         state.chat.recording = None;
@@ -188,10 +201,11 @@ pub fn show(
         state.chat.suggest = None;
         state.chat.recording = None;
         state.chat.picker = None;
+        state.chat.attachments.clear();
     }
-    // A paste the page's Esc discarded: focus comes back to the field.
+    // Attachments the page's Esc removed: focus comes back to the field.
     let held = ctx.data(|d| d.get_temp::<bool>(Id::unique("chat.composer.held")));
-    let held_now = state.chat.pasted.is_some();
+    let held_now = !state.chat.attachments.is_empty();
     ctx.data_mut(|d| d.insert_temp(Id::unique("chat.composer.held"), held_now));
     if held == Some(true) && !held_now {
         state.chat.focus_composer = true;
@@ -1331,7 +1345,7 @@ fn reply_bar(
     tooltip::tooltip(resp, s::CANCEL(), Some("Esc")).clicked()
 }
 
-// ---- Pasting ------------------------------------------------------------------------------
+// ---- Attachments --------------------------------------------------------------------------
 
 /// The desktop's clipboard (Wayland and X11) through `arboard`.
 struct SystemClipboard;
@@ -1357,7 +1371,7 @@ impl ClipboardSource for SystemClipboard {
 }
 
 /// A paste this pass (`Event::Paste`, or `Event::PasteImage` when the clipboard has no
-/// text): copied files or a picture are held for the bar instead of going into the text.
+/// text): copied files or a picture join the attachments instead of going into the text.
 fn take_paste(ctx: &Context, state: &mut UiState) {
     let event_image = ctx.input(|i| {
         let mut pasted = false;
@@ -1378,27 +1392,31 @@ fn take_paste(ctx: &Context, state: &mut UiState) {
         return;
     };
     let source = state.chat.clipboard.source();
-    let held = match source.map_or_else(|| SystemClipboard.read(), |c| c.read()) {
-        Clip::Files(mut files) if !files.is_empty() => {
-            files.truncate(PASTE_FILES);
-            Some(Pasted::Files(files))
+    let held: Vec<Attachment> = match source.map_or_else(|| SystemClipboard.read(), |c| c.read()) {
+        Clip::Files(files) if !files.is_empty() => {
+            files.into_iter().map(Attachment::File).collect()
         }
-        Clip::Image { size, rgba } if rgba.len() == size[0] * size[1] * 4 => Some(Pasted::Image {
-            size,
-            rgba: std::sync::Arc::new(rgba),
-        }),
-        _ => event_image.map(|img| Pasted::Image {
-            size: img.size,
-            rgba: std::sync::Arc::new(
-                img.pixels
-                    .iter()
-                    .flat_map(|px| px.to_srgba_unmultiplied())
-                    .collect(),
-            ),
-        }),
+        Clip::Image { size, rgba } if rgba.len() == size[0] * size[1] * 4 => {
+            vec![Attachment::Image {
+                size,
+                rgba: std::sync::Arc::new(rgba),
+            }]
+        }
+        _ => event_image
+            .map(|img| Attachment::Image {
+                size: img.size,
+                rgba: std::sync::Arc::new(
+                    img.pixels
+                        .iter()
+                        .flat_map(|px| px.to_srgba_unmultiplied())
+                        .collect(),
+                ),
+            })
+            .into_iter()
+            .collect(),
     };
-    if let Some(held) = held {
-        state.chat.pasted = Some(held);
+    if !held.is_empty() {
+        state.chat.attach(held);
         ctx.input_mut(|i| {
             i.events
                 .retain(|e| !matches!(e, Event::Paste(_) | Event::PasteImage(_)));
@@ -1406,15 +1424,12 @@ fn take_paste(ctx: &Context, state: &mut UiState) {
     }
 }
 
-/// A picture encoded off the UI thread: its chat and PNG bytes.
-type Png = (ChatRef, Vec<u8>);
-
-/// Pictures encoded off the UI thread, waiting to go out.
+/// Messages built off the UI thread (pictures encoded to PNG), waiting to go out in order.
 #[derive(Clone, Default)]
-struct Encoded(std::sync::Arc<std::sync::Mutex<Vec<Png>>>);
+struct Encoded(std::sync::Arc<std::sync::Mutex<Vec<ChatCommand>>>);
 
 impl Encoded {
-    fn take(&self) -> Vec<Png> {
+    fn take(&self) -> Vec<ChatCommand> {
         std::mem::take(
             &mut *self
                 .0
@@ -1451,46 +1466,71 @@ fn encode_png(size: [usize; 2], rgba: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Send what was pasted: each file as itself; a picture encoded to PNG on a worker
-/// thread, sent when ready (`show` picks it up).
-fn send_pasted(ctx: &Context, state: &mut UiState, env: &mut Env<'_>, chat: ChatRef) {
-    match state.chat.pasted.take() {
-        Some(Pasted::Files(paths)) => {
-            for path in paths {
-                env.bridge
-                    .send(UiCommand::Chat(ChatCommand::SendFile { chat, path }));
+/// The commands that send `items` with `caption` on the first (pictures encoded to PNG).
+fn attachment_commands(chat: ChatRef, items: Vec<Attachment>, caption: &str) -> Vec<ChatCommand> {
+    items
+        .into_iter()
+        .enumerate()
+        .filter_map(|(k, a)| {
+            let text = if k == 0 {
+                caption.to_owned()
+            } else {
+                String::new()
+            };
+            match a {
+                Attachment::File(path) => Some(ChatCommand::SendFile { chat, path, text }),
+                Attachment::Image { size, rgba } => {
+                    encode_png(size, &rgba).map(|bytes| ChatCommand::SendClipboard {
+                        chat,
+                        bytes,
+                        kind: ClipKind::Png,
+                        text,
+                    })
+                }
             }
-        }
-        Some(Pasted::Image { size, rgba }) => {
-            let out = encoded(ctx);
-            let waker = ctx.clone();
-            let spawned = std::thread::Builder::new()
-                .name("easyplay-paste".into())
-                .spawn(move || {
-                    if let Some(png) = encode_png(size, &rgba) {
-                        out.0
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .push((chat, png));
-                        waker.request_repaint();
-                    }
-                });
-            if let Err(e) = spawned {
-                tracing::warn!(error = %e, "chat_paste_encoder_not_started");
-            }
-        }
-        None => {}
-    }
-    state.chat.focus_composer = true;
+        })
+        .collect()
 }
 
-// ---- Dropping files ------------------------------------------------------------------------
+/// Send the attachments, the draft as the first one's caption. Files go at once; with a
+/// picture among them, the whole batch is built on a worker thread (encoding) and goes out
+/// in order when ready (`show` picks it up).
+fn send_attachments(
+    ctx: &Context,
+    state: &mut UiState,
+    env: &mut Env<'_>,
+    chat: ChatRef,
+    caption: String,
+) {
+    let items = std::mem::take(&mut state.chat.attachments);
+    if items.iter().all(|a| matches!(a, Attachment::File(_))) {
+        for cmd in attachment_commands(chat, items, &caption) {
+            env.bridge.send(UiCommand::Chat(cmd));
+        }
+        return;
+    }
+    let out = encoded(ctx);
+    let waker = ctx.clone();
+    let spawned = std::thread::Builder::new()
+        .name("easyplay-attach".into())
+        .spawn(move || {
+            let cmds = attachment_commands(chat, items, &caption);
+            out.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .extend(cmds);
+            waker.request_repaint();
+        });
+    if let Err(e) = spawned {
+        tracing::warn!(error = %e, "chat_attachment_encoder_not_started");
+    }
+}
 
-/// Files dropped on the window this pass, while this conversation can take them: they wait
-/// in the paste bar (at most [`PASTE_FILES`]); folders are skipped, and only folders say so
-/// in a toast. The UI does no I/O, so a path without an extension counts as a folder (as
-/// the app's own drop routing does). Marks `state.chat.takes_drops` so the shell's drop
-/// zone (adding games), which runs after the page, stands aside.
+/// Files dropped on the window this pass, while this conversation can take them: they join
+/// the attachments; folders are skipped, and only folders say so in a toast. The UI does
+/// no I/O, so a path without an extension counts as a folder (as the app's own drop routing
+/// does). Marks `state.chat.takes_drops` so the shell's drop zone (adding games), which runs
+/// after the page, stands aside.
 fn take_drop(ctx: &Context, state: &mut UiState, env: &mut Env<'_>) {
     state.chat.takes_drops = true;
     let dropped: Vec<std::path::PathBuf> = ctx.input(|i| {
@@ -1504,9 +1544,10 @@ fn take_drop(ctx: &Context, state: &mut UiState, env: &mut Env<'_>) {
         return;
     }
     ctx.input_mut(|i| i.raw.dropped_files.clear());
-    let mut files: Vec<std::path::PathBuf> = dropped
+    let files: Vec<Attachment> = dropped
         .into_iter()
         .filter(|p| p.extension().is_some())
+        .map(Attachment::File)
         .collect();
     if files.is_empty() {
         state.toast(
@@ -1517,8 +1558,7 @@ fn take_drop(ctx: &Context, state: &mut UiState, env: &mut Env<'_>) {
         );
         return;
     }
-    files.truncate(PASTE_FILES);
-    state.chat.pasted = Some(Pasted::Files(files));
+    state.chat.attach(files);
     state.chat.focus_composer = true;
 }
 
@@ -1599,219 +1639,356 @@ fn rounded_outline(rect: Rect, radius: f32) -> Vec<egui::Pos2> {
     pts
 }
 
-/// The thumbnail of one dropped picture file: decoded on a worker thread the first time
-/// (the UI does no I/O), the file glyph until then or when it is no picture.
-fn file_thumbnail(ctx: &Context, path: &std::path::Path) -> Option<(egui::TextureId, Vec2)> {
-    type Decoded = std::sync::Arc<
-        std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, Option<egui::ColorImage>>>,
-    >;
-    let picture = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-        matches!(
-            e.to_ascii_lowercase().as_str(),
-            "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"
-        )
-    });
-    if !picture {
-        return None;
+/// What a file is, by its extension.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FileKind {
+    Picture,
+    Video,
+    Other,
+}
+
+fn file_kind(path: &std::path::Path) -> FileKind {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    match ext.as_str() {
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" => FileKind::Picture,
+        "mp4" | "webm" | "mkv" | "mov" | "m4v" | "avi" => FileKind::Video,
+        _ => FileKind::Other,
     }
-    let tex_key = Id::unique(("chat.composer.file_thumb", path));
-    if let Some(t) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(tex_key)) {
-        return Some((t.id(), t.size_vec2()));
-    }
-    let decoded: Decoded = ctx.data_mut(|d| {
-        d.get_temp_mut_or_default::<Decoded>(Id::unique("chat.composer.file_thumbs"))
+}
+
+/// What a worker thread found out about a file: its size, and a picture's thumbnail.
+#[derive(Clone, Default)]
+struct FileMeta {
+    size: Option<u64>,
+    image: Option<egui::ColorImage>,
+}
+
+type Metas = std::sync::Arc<
+    std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, Option<FileMeta>>>,
+>;
+
+/// A file's size and (for a picture) thumbnail texture, found on a worker thread the first
+/// time (the UI does no I/O); nothing until then.
+fn file_meta(
+    ctx: &Context,
+    path: &std::path::Path,
+) -> (Option<u64>, Option<(egui::TextureId, Vec2)>) {
+    let metas: Metas = ctx.data_mut(|d| {
+        d.get_temp_mut_or_default::<Metas>(Id::unique("chat.composer.file_metas"))
             .clone()
     });
-    let mut map = decoded
+    let mut map = metas
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     match map.get(path) {
-        Some(Some(image)) => {
-            let t = ctx.load_texture("chat-drop", image.clone(), egui::TextureOptions::LINEAR);
-            let out = (t.id(), t.size_vec2());
-            ctx.data_mut(|d| d.insert_temp(tex_key, t));
-            Some(out)
+        Some(Some(meta)) => {
+            let tex_key = Id::unique(("chat.composer.file_thumb", path));
+            let tex = meta.image.as_ref().map(|image| {
+                let t = ctx
+                    .data(|d| d.get_temp::<egui::TextureHandle>(tex_key))
+                    .unwrap_or_else(|| {
+                        let t = ctx.load_texture(
+                            "chat-attachment",
+                            image.clone(),
+                            egui::TextureOptions::LINEAR,
+                        );
+                        ctx.data_mut(|d| d.insert_temp(tex_key, t.clone()));
+                        t
+                    });
+                (t.id(), t.size_vec2())
+            });
+            (meta.size, tex)
         }
-        Some(None) => None,
+        Some(None) => (None, None),
         None => {
             map.insert(path.to_path_buf(), None);
-            let (owned, store, waker) = (path.to_path_buf(), decoded.clone(), ctx.clone());
-            let side = (m::PASTE_THUMB * 2.0) as u32;
+            let (owned, store, waker) = (path.to_path_buf(), metas.clone(), ctx.clone());
+            let picture = file_kind(path) == FileKind::Picture;
+            let side = (m::TILE * 2.0) as u32;
             let _ = std::thread::Builder::new()
-                .name("easyplay-drop-thumb".into())
+                .name("easyplay-attach-meta".into())
                 .spawn(move || {
-                    let Ok(img) = image::open(&owned) else {
-                        return;
+                    let size = std::fs::metadata(&owned).ok().map(|md| md.len());
+                    let image = if picture {
+                        image::open(&owned).ok().map(|img| {
+                            let small = img.thumbnail(side, side).to_rgba8();
+                            egui::ColorImage::from_rgba_unmultiplied(
+                                [small.width() as usize, small.height() as usize],
+                                small.as_raw(),
+                            )
+                        })
+                    } else {
+                        None
                     };
-                    let small = img.thumbnail(side, side).to_rgba8();
-                    let size = [small.width() as usize, small.height() as usize];
-                    let image = egui::ColorImage::from_rgba_unmultiplied(size, small.as_raw());
                     store
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .insert(owned, Some(image));
+                        .insert(owned, Some(FileMeta { size, image }));
                     waker.request_repaint();
                 });
-            None
+            (None, None)
         }
     }
 }
 
-/// The thumbnail of a pasted picture (uploaded once per paste).
-fn thumbnail(ctx: &Context, size: [usize; 2], rgba: &std::sync::Arc<Vec<u8>>) -> egui::TextureId {
-    let key = Id::unique("chat.composer.paste_thumb");
-    let ptr = std::sync::Arc::as_ptr(rgba) as usize;
-    if let Some((at, tex)) = ctx.data(|d| d.get_temp::<(usize, egui::TextureHandle)>(key))
-        && at == ptr
-    {
-        return tex.id();
+/// The texture of a pasted picture (uploaded once per paste).
+fn pasted_texture(
+    ctx: &Context,
+    size: [usize; 2],
+    rgba: &std::sync::Arc<Vec<u8>>,
+) -> (egui::TextureId, Vec2) {
+    let key = Id::unique((
+        "chat.composer.paste_tex",
+        std::sync::Arc::as_ptr(rgba) as usize,
+    ));
+    if let Some(t) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(key)) {
+        return (t.id(), t.size_vec2());
     }
     let image = egui::ColorImage::from_rgba_unmultiplied(size, rgba);
-    let tex = ctx.load_texture("chat-paste", image, egui::TextureOptions::LINEAR);
-    let id = tex.id();
-    ctx.data_mut(|d| d.insert_temp(key, (ptr, tex)));
-    id
+    let t = ctx.load_texture("chat-paste", image, egui::TextureOptions::LINEAR);
+    ctx.data_mut(|d| d.insert_temp(key, t.clone()));
+    (t.id(), t.size_vec2())
 }
 
-/// The bar above the field while a paste waits: the picture's thumbnail (or the files'
-/// names), a line saying it is not sent yet, Send and ×. `Some(true)`: Send; `Some(false)`:
-/// ×.
-fn pasted_bar(ui: &mut Ui, pasted: &Pasted, p: &Palette, rtl: bool) -> Option<bool> {
-    let w = ui.available_width();
-    let image = match pasted {
-        Pasted::Image { .. } => true,
-        Pasted::Files(paths) => paths.len() == 1 && file_thumbnail(ui.ctx(), &paths[0]).is_some(),
-    };
-    let h = if image { m::PASTE_H_IMAGE } else { m::PASTE_H };
-    let (rect, bar) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
-    let painter = ui.painter().clone();
-    painter.hline(
-        rect.x_range(),
-        rect.bottom() - stroke::BORDER / 2.0,
-        Stroke::new(stroke::BORDER, p.line),
-    );
-    let cy = rect.center().y;
-    let mut x = m::PASTE_PAD;
-    let title = match pasted {
-        Pasted::Image { size, rgba } => {
-            let side = m::PASTE_THUMB;
-            let fit = Vec2::new(size[0] as f32, size[1] as f32);
-            let scale = (side / fit.x.max(fit.y).max(1.0)).min(1.0);
-            let shown = fit * scale;
-            let box_r = Rect::from_min_size(
-                pos2(at(rect, x, side, rtl), cy - side / 2.0),
-                Vec2::splat(side),
-            );
-            painter.rect_filled(box_r, CornerRadius::same(m::PASTE_RADIUS), p.o1);
-            let r = Rect::from_center_size(box_r.center(), shown);
-            let tex = thumbnail(ui.ctx(), *size, rgba);
-            painter.image(
-                tex,
-                r,
-                Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-                Color32::WHITE,
-            );
-            x += side + m::BAR_GAP;
-            s::PASTED_PICTURE().to_owned()
-        }
-        Pasted::Files(paths)
-            if paths.len() == 1 && file_thumbnail(ui.ctx(), &paths[0]).is_some() =>
-        {
-            let side = m::PASTE_THUMB;
-            if let Some((tex, size)) = file_thumbnail(ui.ctx(), &paths[0]) {
-                let scale = (side / size.x.max(size.y).max(1.0)).min(1.0);
-                let box_r = Rect::from_min_size(
-                    pos2(at(rect, x, side, rtl), cy - side / 2.0),
-                    Vec2::splat(side),
-                );
-                painter.rect_filled(box_r, CornerRadius::same(m::PASTE_RADIUS), p.o1);
-                painter.image(
-                    tex,
-                    Rect::from_center_size(box_r.center(), size * scale),
-                    Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-                    Color32::WHITE,
-                );
-            }
-            x += side + m::BAR_GAP;
-            paths[0].file_name().map_or_else(
-                || paths[0].display().to_string(),
-                |n| n.to_string_lossy().into_owned(),
-            )
-        }
-        Pasted::Files(paths) => {
-            let glyph = icon_size::INLINE;
-            painter.text(
-                pos2(at(rect, x, glyph, rtl) + glyph / 2.0, cy),
-                Align2::CENTER_CENTER,
-                icons::FILE.text(false),
-                icons::font(glyph),
-                p.t2,
-            );
-            x += glyph + m::BAR_GAP;
-            paths
-                .iter()
-                .map(|path| {
-                    path.file_name().map_or_else(
-                        || path.display().to_string(),
-                        |n| n.to_string_lossy().into_owned(),
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(", ")
-        }
-    };
-    // From the end: ×, then Send.
-    let close_x = w - m::BAR_PAD[1] - m::BAR_CLOSE;
-    let send = Button::primary(s::SEND()).size(crate::widgets::button::Size::Sm);
-    let sw = send.width(ui);
-    let send_x = close_x - m::BAR_GAP - sw;
-    let bh = theme::tokens::control::BUTTON_SM;
-    let send_r = Rect::from_min_size(pos2(at(rect, send_x, sw, rtl), cy - bh / 2.0), vec2(sw, bh));
-    let room = (send_x - m::BAR_GAP - x).max(1.0);
-    let t = Type::BodyStrong.galley(ui, &title, p.t1, room, 1);
-    let hint = Type::Caption.galley(ui, s::PASTED_HINT(), p.t3, room, 1);
-    let total = t.size().y + hint.size().y;
-    let ty = cy - total / 2.0;
-    painter.galley(pos2(at(rect, x, t.size().x, rtl), ty), t.clone(), p.t1);
-    painter.galley(
-        pos2(at(rect, x, hint.size().x, rtl), ty + t.size().y),
-        hint,
-        p.t3,
-    );
-    crate::a11y::item(
-        &bar,
-        egui::Role::Label,
-        &format!("{title}. {}", s::PASTED_HINT()),
-    );
-    let sent = ui.put(send_r, send).clicked();
-    let cr = Rect::from_center_size(
-        pos2(
-            at(rect, close_x, m::BAR_CLOSE, rtl) + m::BAR_CLOSE / 2.0,
-            cy,
+/// An attachment's name (its file name, or "Picture from the clipboard").
+fn attachment_name(a: &Attachment) -> String {
+    match a {
+        Attachment::Image { .. } => s::PASTED_PICTURE().to_owned(),
+        Attachment::File(path) => path.file_name().map_or_else(
+            || path.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
         ),
-        Vec2::splat(m::BAR_CLOSE),
-    );
-    let resp = ui.interact(cr, Id::unique("chat.composer.paste_close"), Sense::click());
-    let hot = resp.hovered() || resp.has_focus();
-    if hot {
-        painter.circle_filled(cr.center(), m::BAR_CLOSE / 2.0, p.o2);
     }
-    painter.text(
-        cr.center(),
-        Align2::CENTER_CENTER,
-        icons::CLOSE.text(false),
-        icons::font(icon_size::SMALL),
-        if hot { p.t1 } else { p.t3 },
-    );
-    crate::a11y::button(&resp, s::DISCARD());
-    let closed = tooltip::tooltip(resp, s::DISCARD(), Some("Esc")).clicked();
-    if sent {
-        Some(true)
-    } else if closed {
-        Some(false)
+}
+
+/// A stable id for an attachment's tile (its motion and its ×).
+fn attachment_id(a: &Attachment) -> Id {
+    match a {
+        Attachment::Image { rgba, .. } => {
+            Id::unique(("chat.composer.tile", std::sync::Arc::as_ptr(rgba) as usize))
+        }
+        Attachment::File(path) => Id::unique(("chat.composer.tile", path)),
+    }
+}
+
+/// The UV rect that crops a picture of `size` to a centred square (cover).
+fn cover_uv(size: Vec2) -> Rect {
+    let (w, h) = (size.x.max(1.0), size.y.max(1.0));
+    if w > h {
+        let d = (1.0 - h / w) / 2.0;
+        Rect::from_min_max(pos2(d, 0.0), pos2(1.0 - d, 1.0))
     } else {
-        None
+        let d = (1.0 - w / h) / 2.0;
+        Rect::from_min_max(pos2(0.0, d), pos2(1.0, 1.0 - d))
     }
+}
+
+/// The attachment strip inside the composer, above the text line: an 80 pt tile for a
+/// picture or video (cover-cropped, radius 10; a video has a play glyph), a 200 × 56 chip
+/// for any other file (an icon tile, the name and size), each with a 20 pt round × at its
+/// top-right corner, hanging 6 over. 12 padding, 8 apart; scrolls sideways when wide.
+/// Tiles pop in (scale .9 → 1) and slide to their places when one goes. Returns the index
+/// of the attachment whose × was clicked.
+fn attachment_strip(ui: &mut Ui, items: &[Attachment], p: &Palette, rtl: bool) -> Option<usize> {
+    let ctx = ui.ctx().clone();
+    let th = theme::theme(&ctx);
+    let reduced = th.motion.reduced;
+    let mut removed = None;
+    let widths: Vec<f32> = items
+        .iter()
+        .map(|a| match a {
+            Attachment::File(path) if file_kind(path) == FileKind::Other => m::CHIP[0],
+            _ => m::TILE,
+        })
+        .collect();
+    let content_w = m::STRIP_PAD * 2.0
+        + widths.iter().sum::<f32>()
+        + m::TILE_GAP * (widths.len().saturating_sub(1)) as f32;
+    let h = m::STRIP_PAD + m::TILE + m::STRIP_BELOW;
+    let w = ui.available_width();
+    let (strip, strip_resp) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
+    crate::a11y::labelled(
+        &ctx,
+        strip_resp.id,
+        egui::Role::List,
+        &s::attachments(items.len()),
+    );
+    let mut child = ui.new_child(
+        UiBuilder::new()
+            .max_rect(strip)
+            .layout(egui::Layout::left_to_right(Align::Min)),
+    );
+    egui::ScrollArea::horizontal()
+        .id_salt("chat.composer.strip")
+        .auto_shrink([false, true])
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+        .show(&mut child, |ui| {
+            let (area, _) = ui.allocate_exact_size(vec2(content_w.max(w), h), Sense::hover());
+            let painter = ui.painter().clone();
+            let mut x = m::STRIP_PAD;
+            for (k, (a, tw)) in items.iter().zip(&widths).enumerate() {
+                let id = attachment_id(a);
+                // Slide to the place (after a removal), whole points.
+                let target = x;
+                let gx = if reduced {
+                    target
+                } else {
+                    motion::glide(&ctx, id.with("x"), target, theme::Dur::Fast.secs())
+                };
+                x += tw + m::TILE_GAP;
+                let th_h = if *tw == m::TILE { m::TILE } else { m::CHIP[1] };
+                let left = if rtl {
+                    area.right() - gx - tw
+                } else {
+                    area.left() + gx
+                };
+                let tile = Rect::from_min_size(
+                    pos2(left.round(), (area.top() + m::STRIP_PAD).round()),
+                    vec2(*tw, th_h),
+                );
+                let t = if reduced {
+                    1.0
+                } else {
+                    motion::ease_out(motion::appear(&ctx, id.with("in"), theme::Dur::Fast.secs()))
+                };
+                let scale = m::TILE_FROM + (1.0 - m::TILE_FROM) * t;
+                let drawn = Rect::from_center_size(tile.center(), tile.size() * scale);
+                let mut pt = painter.clone();
+                pt.multiply_opacity(t);
+                let radius = CornerRadius::same(m::TILE_RADIUS);
+                match a {
+                    Attachment::Image { size, rgba } => {
+                        let (tex, tsize) = pasted_texture(&ctx, *size, rgba);
+                        pt.add(
+                            egui::epaint::RectShape::filled(drawn, radius, Color32::WHITE)
+                                .with_texture(tex, cover_uv(tsize)),
+                        );
+                    }
+                    Attachment::File(path) => match file_kind(path) {
+                        FileKind::Other => {
+                            pt.rect_filled(drawn, radius, p.o1);
+                            let icon_r = Rect::from_min_size(
+                                pos2(
+                                    if rtl {
+                                        drawn.right() - m::CHIP_PAD - m::CHIP_ICON
+                                    } else {
+                                        drawn.left() + m::CHIP_PAD
+                                    },
+                                    drawn.center().y - m::CHIP_ICON / 2.0,
+                                ),
+                                Vec2::splat(m::CHIP_ICON),
+                            );
+                            pt.rect_filled(icon_r, CornerRadius::same(m::CHIP_ICON_RADIUS), p.o2);
+                            pt.text(
+                                icon_r.center(),
+                                Align2::CENTER_CENTER,
+                                icons::FILE.text(false),
+                                icons::font(icon_size::INLINE),
+                                p.t2,
+                            );
+                            let text_w =
+                                drawn.width() - m::CHIP_PAD * 3.0 - m::CHIP_ICON - m::CORNER_ROOM;
+                            let name =
+                                Type::BodyStrong.galley(ui, &attachment_name(a), p.t1, text_w, 1);
+                            let (bytes, _) = file_meta(&ctx, path);
+                            let size_line = bytes.map(|b| {
+                                Type::Caption.galley(
+                                    ui,
+                                    &crate::strings::fmt::bytes(b),
+                                    p.t3,
+                                    text_w,
+                                    1,
+                                )
+                            });
+                            let total =
+                                name.size().y + size_line.as_ref().map_or(0.0, |g| g.size().y);
+                            let tx = if rtl {
+                                icon_r.left() - m::CHIP_PAD
+                            } else {
+                                icon_r.right() + m::CHIP_PAD
+                            };
+                            let mut ty = drawn.center().y - total / 2.0;
+                            let nx = if rtl { tx - name.size().x } else { tx };
+                            pt.galley(pos2(nx, ty), name.clone(), p.t1);
+                            ty += name.size().y;
+                            if let Some(g) = size_line {
+                                let sx = if rtl { tx - g.size().x } else { tx };
+                                pt.galley(pos2(sx, ty), g, p.t3);
+                            }
+                        }
+                        kind => {
+                            pt.rect_filled(drawn, radius, p.o2);
+                            if let (_, Some((tex, tsize))) = file_meta(&ctx, path) {
+                                pt.add(
+                                    egui::epaint::RectShape::filled(drawn, radius, Color32::WHITE)
+                                        .with_texture(tex, cover_uv(tsize)),
+                                );
+                            }
+                            if kind == FileKind::Video {
+                                pt.circle_filled(
+                                    drawn.center(),
+                                    m::PLAY_DISC / 2.0,
+                                    Color32::from_black_alpha(150),
+                                );
+                                pt.text(
+                                    drawn.center(),
+                                    Align2::CENTER_CENTER,
+                                    icons::PLAY.text(true),
+                                    icons::font(icon_size::INLINE),
+                                    Color32::WHITE,
+                                );
+                            } else if file_meta(&ctx, path).1.is_none() {
+                                pt.text(
+                                    drawn.center(),
+                                    Align2::CENTER_CENTER,
+                                    icons::IMAGE.text(false),
+                                    icons::font(icon_size::INLINE),
+                                    p.t3,
+                                );
+                            }
+                        }
+                    },
+                }
+                // The ×: a 20 pt disc of the wall's colour hanging 6 over the top-right corner.
+                let cx = if rtl {
+                    tile.left() - m::CORNER_HANG + m::CORNER / 2.0
+                } else {
+                    tile.right() + m::CORNER_HANG - m::CORNER / 2.0
+                };
+                let cr = Rect::from_center_size(
+                    pos2(cx, tile.top() - m::CORNER_HANG + m::CORNER / 2.0),
+                    Vec2::splat(m::CORNER),
+                );
+                let resp = ui.interact(cr, id.with("remove"), Sense::click());
+                let hot = resp.hovered() || resp.has_focus();
+                pt.circle_filled(
+                    cr.center(),
+                    m::CORNER / 2.0,
+                    if hot {
+                        theme::palette::over(p.o3, p.bg)
+                    } else {
+                        p.bg
+                    },
+                );
+                pt.text(
+                    cr.center(),
+                    Align2::CENTER_CENTER,
+                    icons::CLOSE.text(false),
+                    icons::font(m::CORNER_GLYPH),
+                    p.t1,
+                );
+                let label = s::remove_named(&attachment_name(a));
+                crate::a11y::button(&resp, &label);
+                if tooltip::tooltip(resp, &label, None).clicked() {
+                    removed = Some(k);
+                }
+            }
+        });
+    removed
 }
 
 // ---- The field --------------------------------------------------------------------------
@@ -1819,7 +1996,7 @@ fn pasted_bar(ui: &mut Ui, pasted: &Pasted, p: &Palette, rtl: bool) -> Option<bo
 /// What the keys asked for in this pass.
 enum Act {
     Send,
-    SendPasted,
+    Unattach,
     Format(Mark),
     EditLast,
     Move(isize),
@@ -1840,13 +2017,22 @@ fn last_own(state: &UiState, chat: ChatRef) -> Option<(i64, String)> {
 }
 
 /// Send the draft (or the edit).
-fn send(state: &mut UiState, env: &mut Env<'_>, snap: &ChatSnapshot, chat: ChatRef) {
+fn send(ctx: &Context, state: &mut UiState, env: &mut Env<'_>, snap: &ChatSnapshot, chat: ChatRef) {
     let text = state
         .chat
         .drafts
         .get(&chat)
         .map(|d| d.trim().to_owned())
         .unwrap_or_default();
+    // Attachments go with the text as the first one's caption.
+    if !state.chat.attachments.is_empty() && state.chat.edit.is_none() {
+        send_attachments(ctx, state, env, chat, text);
+        state.chat.drafts.entry(chat).or_default().clear();
+        state.chat.reply = None;
+        state.chat.suggest = None;
+        state.chat.focus_composer = true;
+        return;
+    }
     if text.is_empty() {
         return;
     }
@@ -1890,6 +2076,146 @@ fn last_text(state: &UiState, chat: ChatRef, item: i64) -> Option<String> {
             MessageBody::Text(t) => Some(t.clone()),
             _ => None,
         })
+}
+
+// ---- Formatting as it is typed --------------------------------------------------------
+
+/// How a byte range of the draft shows in the field.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Live {
+    /// Typed text in no format.
+    Plain,
+    /// A format's marks (`*`, `_`, `!1 `, quotes of a mention): quiet.
+    Mark,
+    /// Text in a format.
+    Kind(super::markdown::Kind),
+}
+
+/// The draft's byte ranges and how each shows: the conversation's parser (`markdown::parse`,
+/// the engine's own rules) gives the spans as shown; each is found in the line in order, and
+/// what lies between them is a format's marks. A span that cannot be found leaves the rest
+/// of the line plain.
+fn live_ranges(text: &str, mentions: &[String]) -> Vec<(std::ops::Range<usize>, Live)> {
+    use super::markdown::{Kind, parse};
+    let names: Vec<&str> = mentions.iter().map(String::as_str).collect();
+    let lines = parse(text, &names);
+    let mut out = Vec::new();
+    let mut base = 0;
+    for (k, line_text) in text.split('\n').enumerate() {
+        let mut at = 0;
+        if let Some(spans) = lines.get(k) {
+            for sp in spans {
+                let rest = &line_text[at..];
+                let quoted = sp
+                    .text
+                    .strip_prefix('@')
+                    .map(|n| format!("@'{n}'"))
+                    .filter(|_| sp.kind == Kind::Mention);
+                let found = match &quoted {
+                    Some(q) if rest.find(q.as_str()).is_some() => {
+                        rest.find(q.as_str()).map(|i| (i, q.len()))
+                    }
+                    _ => rest.find(sp.text.as_str()).map(|i| (i, sp.text.len())),
+                };
+                let Some((i, len)) = found else {
+                    break;
+                };
+                if i > 0 {
+                    out.push((base + at..base + at + i, Live::Mark));
+                }
+                let range = base + at + i..base + at + i + len;
+                let look = match sp.kind {
+                    Kind::Text | Kind::Edited => Live::Plain,
+                    ref k => Live::Kind(k.clone()),
+                };
+                out.push((range, look));
+                at += i + len;
+            }
+        }
+        if at < line_text.len() {
+            // What is left (closing marks, or text the parser did not take).
+            let rest = &line_text[at..];
+            let look = if rest.chars().all(|c| "*_~`#!".contains(c)) {
+                Live::Mark
+            } else {
+                Live::Plain
+            };
+            out.push((base + at..base + line_text.len(), look));
+        }
+        base += line_text.len();
+        if base < text.len() {
+            out.push((base..base + 1, Live::Plain));
+            base += 1;
+        }
+    }
+    out
+}
+
+/// The field's text as a layout job, formatted as SimpleX will show it. The parse is kept
+/// while the text stays the same (the field lays out every pass).
+fn live_job(ctx: &Context, text: &str, mentions: &[String], p: &Palette) -> LayoutJob {
+    use super::markdown::{Hue, Kind};
+    type Cached = (String, Vec<String>, Vec<(std::ops::Range<usize>, Live)>);
+    let key = Id::unique("chat.composer.live");
+    let ranges = match ctx.data(|d| d.get_temp::<std::sync::Arc<Cached>>(key)) {
+        Some(c) if c.0 == text && c.1 == mentions => c.2.clone(),
+        _ => {
+            let r = live_ranges(text, mentions);
+            ctx.data_mut(|d| {
+                d.insert_temp(
+                    key,
+                    std::sync::Arc::new((text.to_owned(), mentions.to_vec(), r.clone())),
+                );
+            });
+            r
+        }
+    };
+    let base = Type::Prose.format(p.t1, false);
+    let size = Type::Prose.size();
+    let mut job = LayoutJob::default();
+    for (range, look) in ranges {
+        let mut f = base.clone();
+        match &look {
+            Live::Plain => {}
+            Live::Mark => f.color = p.t3,
+            Live::Kind(kind) => match kind {
+                Kind::Bold => f.font_id = FontId::new(size, Type::BodyBold.font_id().family),
+                Kind::Italic => f.italics = true,
+                Kind::Strike => f.strikethrough = Stroke::new(stroke::BORDER, p.t1),
+                Kind::Code => {
+                    f.font_id = FontId::monospace(m::LIVE_CODE);
+                    f.background = p.o2;
+                }
+                Kind::Secret(_) => f.background = p.o3,
+                Kind::Small => {
+                    f.font_id = FontId::proportional(m::LIVE_SMALL);
+                    f.color = p.t2;
+                }
+                Kind::Color(h) => {
+                    let n = match h {
+                        Hue::Red => 1,
+                        Hue::Green => 2,
+                        Hue::Blue => 3,
+                        Hue::Yellow => 4,
+                        Hue::Cyan => 5,
+                        Hue::Magenta => 6,
+                    };
+                    f.color = mark_color(p.kind, n);
+                }
+                Kind::Mention => {
+                    f.color = p.accent_text;
+                    f.background = p.tint;
+                }
+                Kind::Link(_) => f.color = p.accent_text,
+                Kind::Text | Kind::Edited => {}
+            },
+        }
+        job.append(&text[range], 0.0, f);
+    }
+    if text.is_empty() {
+        job.append("", 0.0, base);
+    }
+    job
 }
 
 /// The field, its bars and buttons, and the suggestions.
@@ -1954,12 +2280,12 @@ fn field(
         ctx.data_mut(|d| d.insert_temp(Id::unique("chat.composer.dismissed"), q));
     }
 
-    // Ctrl+V of a picture or of copied files: held in a bar above the field until Send.
+    // Ctrl+V of a picture or of copied files: they join the attachments.
     let focused = ctx.memory(|mem| mem.has_focus(id));
     if focused && f.files {
         take_paste(&ctx, state);
     }
-    let pending = state.chat.pasted.is_some();
+    let pending = !state.chat.attachments.is_empty();
 
     // Keys, before the field sees them.
     let list = hits(state, snap, chat, system);
@@ -1981,8 +2307,9 @@ fn field(
                 };
                 let cmd = modifiers.command || modifiers.ctrl;
                 let plain = !cmd && !modifiers.shift && !modifiers.alt;
-                if pending && *key == Key::Enter && !modifiers.shift && !modifiers.alt {
-                    acts.push(Act::SendPasted);
+                // Backspace in an empty field takes the last attachment away.
+                if pending && *key == Key::Backspace && plain && empty {
+                    acts.push(Act::Unattach);
                     return false;
                 }
                 if open_list {
@@ -2024,8 +2351,10 @@ fn field(
     }
     for act in acts {
         match act {
-            Act::Send => send(state, env, snap, chat),
-            Act::SendPasted => send_pasted(&ctx, state, env, chat),
+            Act::Send => send(&ctx, state, env, snap, chat),
+            Act::Unattach => {
+                state.chat.attachments.pop();
+            }
             Act::Format(mark) => format(&ctx, state, chat, mark),
             Act::EditLast => {
                 if let Some((item, text)) = last_own(state, chat) {
@@ -2064,16 +2393,6 @@ fn field(
     let mut frame_rect = Rect::from_min_size(pos2(plate_left, top), vec2(w, 0.0));
     let bg_idx = ui.painter().add(egui::Shape::Noop);
 
-    if let Some(pasted) = state.chat.pasted.clone() {
-        match pasted_bar(ui, &pasted, p, rtl) {
-            Some(true) => send_pasted(&ctx, state, env, chat),
-            Some(false) => {
-                state.chat.pasted = None;
-                state.chat.focus_composer = true;
-            }
-            None => {}
-        }
-    }
     let mut close_bar = false;
     if reply_or_edit {
         close_bar = reply_bar(ui, state, snap, chat, p, rtl);
@@ -2081,6 +2400,13 @@ fn field(
     let mut mark = None;
     if state.chat.format_bar {
         mark = format_row(ui, p, rtl);
+    }
+    // Pictures and files waiting, above the text line.
+    if !state.chat.attachments.is_empty()
+        && let Some(k) = attachment_strip(ui, &state.chat.attachments.clone(), p, rtl)
+    {
+        state.chat.attachments.remove(k);
+        state.chat.focus_composer = true;
     }
 
     // The row: + · text · Aa · GIF · emoji · mic or Send.
@@ -2105,11 +2431,28 @@ fn field(
         vertical_arrows: true,
         escape: open_list || reply_or_edit || pending,
     };
-    let placeholder = s::placeholder(if group { name } else { first(name) });
+    let placeholder = if state.chat.attachments.is_empty() {
+        s::placeholder(if group { name } else { first(name) })
+    } else {
+        s::ADD_CAPTION().to_owned()
+    };
     let label = s::label(name);
+    // SimpleX formatting shows as it is typed (the marks stay, quiet).
+    let mentionable: Vec<String> = match chat {
+        ChatRef::Group(g) if f.mentions => snap
+            .group(g)
+            .map(|g| {
+                g.member_list
+                    .iter()
+                    .filter(|x| !x.me)
+                    .map(|x| x.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
     let mut layouter = |ui: &Ui, buf: &dyn TextBuffer, wrap: f32| {
-        let mut job =
-            LayoutJob::single_section(buf.as_str().to_owned(), Type::Prose.format(p.t1, false));
+        let mut job = live_job(ui.ctx(), buf.as_str(), &mentionable, p);
         job.wrap.max_width = wrap;
         job.halign = if rtl { Align::Max } else { Align::Min };
         ui.fonts_mut(|fonts| fonts.layout_job(job))
@@ -2201,7 +2544,7 @@ fn field(
                 id,
                 EventFilter {
                     tab: open,
-                    escape: open || reply_or_edit || state.chat.pasted.is_some(),
+                    escape: open || reply_or_edit || !state.chat.attachments.is_empty(),
                     ..filter
                 },
             );
@@ -2307,7 +2650,8 @@ fn field(
         emoji::set_anchor(&ctx, er);
     }
     let go = tail(0);
-    if f.voice && draft_empty && state.chat.edit.is_none() {
+    let nothing = draft_empty && state.chat.attachments.is_empty();
+    if f.voice && nothing && state.chat.edit.is_none() {
         let mic = round(
             ui,
             go,
@@ -2328,11 +2672,7 @@ fn field(
         } else {
             s::KEY_SEND()
         };
-        let look = if draft_empty {
-            Look::SendOff
-        } else {
-            Look::Send
-        };
+        let look = if nothing { Look::SendOff } else { Look::Send };
         if round(
             ui,
             go,
@@ -2345,7 +2685,7 @@ fn field(
         )
         .clicked()
         {
-            send(state, env, snap, chat);
+            send(&ctx, state, env, snap, chat);
         }
     }
 
@@ -2533,6 +2873,43 @@ mod tests {
             ("é !3 x!".into(), 7)
         );
         assert_eq!(apply_format("", 0, 0, Mark::Color(1)), ("!1 !".into(), 3));
+    }
+
+    #[test]
+    fn live_formatting_keeps_every_byte_and_quiets_the_marks() {
+        use super::super::markdown::Kind;
+        let text = "hi *bold* _it_\n`c` #s# !1 red! @'Jonas Weber' x*";
+        let r = live_ranges(text, &["Jonas Weber".to_owned()]);
+        // The ranges cover the text, in order, once.
+        let mut at = 0;
+        for (range, _) in &r {
+            assert_eq!(range.start, at, "{r:?}");
+            at = range.end;
+        }
+        assert_eq!(at, text.len());
+        let look = |piece: &str| {
+            r.iter()
+                .find(|(range, _)| &text[range.clone()] == piece)
+                .map(|(_, l)| l.clone())
+        };
+        assert_eq!(look("bold"), Some(Live::Kind(Kind::Bold)));
+        assert_eq!(look("it"), Some(Live::Kind(Kind::Italic)));
+        assert_eq!(look("c"), Some(Live::Kind(Kind::Code)));
+        assert_eq!(look("s"), Some(Live::Kind(Kind::Secret(0))));
+        assert_eq!(
+            look("red"),
+            Some(Live::Kind(Kind::Color(super::super::markdown::Hue::Red)))
+        );
+        assert_eq!(look("@'Jonas Weber'"), Some(Live::Kind(Kind::Mention)));
+        assert_eq!(look("!1 "), Some(Live::Mark));
+        assert!(r.iter().filter(|(_, l)| *l == Live::Mark).count() >= 10);
+        // Plain text stays plain.
+        assert!(
+            live_ranges("just words", &[])
+                .iter()
+                .all(|(_, l)| *l == Live::Plain)
+        );
+        assert!(live_ranges("", &[]).is_empty());
     }
 
     #[test]

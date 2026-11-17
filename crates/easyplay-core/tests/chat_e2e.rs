@@ -375,6 +375,7 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
             kind: FileKind::Gif,
             preview: None,
             duration: None,
+            text: String::new(),
         });
         let got = b.updated(
             "the GIF, fetched",
@@ -402,7 +403,10 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
         img.save(&photo).unwrap();
         let photo_bytes = std::fs::read(&photo).unwrap();
         assert!(photo_bytes.len() > 3_000_000, "{}", photo_bytes.len());
-        let preview = easyplay_core::service::flows::chat::preview_jpeg(&photo_bytes);
+        let preview = easyplay_core::service::flows::chat::preview_jpeg(
+            &photo_bytes,
+            easyplay_core::service::flows::chat::PREVIEW_BUDGET,
+        );
         assert!(preview.is_some());
         a.engine.request(Request::SendFile {
             chat: ChatRef::Direct(a_bob),
@@ -410,6 +414,7 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
             kind: FileKind::Image,
             preview: preview.clone(),
             duration: None,
+            text: String::new(),
         });
         let offered = b.updated(
             "the photo, offered",

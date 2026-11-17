@@ -71,10 +71,12 @@ rust-i18n = "4.2"
 unicode-bidi = "0.3"
 # The Chat page's invite QR codes (ADR-0033); MIT OR Apache-2.0, no image encoders.
 qrcode = { version = "0.14", default-features = false }
-# Chat emoji (ADR-0033): Twemoji's 72 px PNGs shipped inside the app (never fetched; the
+# Chat emoji (ADR-0033): Twemoji's SVGs shipped inside the app (never fetched; the
 # graphics are CC-BY 4.0, credited in About › Licences), and the emoji names, shortcodes and
 # groups for `:name:`, suggestions and the picker.
-twemoji-assets = { version = "1.5", default-features = false, features = ["png"] }
+twemoji-assets = { version = "1.5", default-features = false, features = ["svg"] }
+# Rasterizing those SVGs at the size they are drawn (already in the tree through egui_extras).
+resvg = { version = "0.45", default-features = false }
 emojis = "0.9"
 unicode-segmentation = "1.13"
 # Pasting pictures and copied files into Chat (already in the tree through egui-winit; the

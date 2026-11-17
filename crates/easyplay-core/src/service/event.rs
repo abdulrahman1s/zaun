@@ -151,6 +151,11 @@ pub enum Notice {
     /// `ChatCommand::SendGif` failed: the GIF could not be downloaded, is too large to send,
     /// or the saved file is gone.
     ChatGifNotSent,
+    /// `ChatCommand::SaveFile` finished: the copy is in `folder` (the folder's name).
+    ChatFileSaved {
+        /// The folder's name.
+        folder: String,
+    },
     /// A Steam game's launch options were written to Steam's settings (ADR-0031 §6a).
     SteamLaunchOptionsSaved {
         /// The game.

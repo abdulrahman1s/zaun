@@ -52,6 +52,8 @@ pub enum Request {
         preview: Option<Vec<u8>>,
         /// A video's length in seconds.
         duration: Option<u32>,
+        /// A caption (empty = none).
+        text: String,
     },
     /// Fetch a file a friend offered.
     ReceiveFile {
@@ -73,6 +75,15 @@ pub enum Request {
         chat: ChatRef,
         /// The message carrying it.
         item: i64,
+    },
+    /// Where a message's file is, for a copy ([`ChatEvent::Located`]); never fails.
+    LocateFile {
+        /// Where.
+        chat: ChatRef,
+        /// The message carrying it.
+        item: i64,
+        /// Returned with the answer.
+        tag: u64,
     },
     /// Make a group's invite link ([`ChatEvent::GroupLink`]).
     CreateGroupLink(i64),
@@ -304,7 +315,7 @@ pub enum ChatEvent {
         /// The chat.
         chat: ChatRef,
         /// That message.
-        last: ChatMessage,
+        last: Box<ChatMessage>,
     },
     /// The answer to [`Request::OpenFile`]: the file, inside the engine's data folder.
     OpenFile {
@@ -312,6 +323,13 @@ pub enum ChatEvent {
         path: PathBuf,
         /// What it is.
         kind: FileKind,
+    },
+    /// The answer to [`Request::LocateFile`].
+    Located {
+        /// The request's tag.
+        tag: u64,
+        /// The file, inside the engine's data folder (`None` = not on this computer).
+        path: Option<PathBuf>,
     },
     /// A group's invite link (`None` = none, or deleted).
     GroupLink {

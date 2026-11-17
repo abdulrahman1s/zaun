@@ -1109,12 +1109,37 @@ impl EasyPlayApp {
                 });
                 self.bridge.set_prefs_preview(next);
             }
-            // The Chat composer's + menu (composer agent). The service checks the size (1 MB
-            // at most, said in the menu) and says why it refuses one; the UI does no I/O.
-            PickPurpose::ChatPicture(chat) | PickPurpose::ChatFile(chat) => {
+            // The Chat composer's + menu (composer agent): the chosen files join the
+            // conversation's attachments (sent with the next message, the text as the first
+            // one's caption); for a conversation no longer open they go at once.
+            // *Save as…* of a Chat message's file (conversation agent): the service copies it.
+            PickPurpose::ChatSave { chat, item, .. } => {
                 self.bridge.send(UiCommand::Chat(
-                    easyplay_core::service::ChatCommand::SendFile { chat, path: first },
+                    easyplay_core::service::ChatCommand::SaveFile {
+                        chat,
+                        item,
+                        to: first,
+                    },
                 ));
+            }
+            PickPurpose::ChatPicture(chat) | PickPurpose::ChatFile(chat) => {
+                if s.chat.open.as_ref().is_some_and(|o| o.chat == chat) {
+                    let files = r
+                        .paths
+                        .into_iter()
+                        .map(crate::vm::chat::Attachment::File)
+                        .collect();
+                    s.chat.attach(files);
+                    s.chat.focus_composer = true;
+                } else {
+                    self.bridge.send(UiCommand::Chat(
+                        easyplay_core::service::ChatCommand::SendFile {
+                            chat,
+                            path: first,
+                            text: String::new(),
+                        },
+                    ));
+                }
             }
         }
     }

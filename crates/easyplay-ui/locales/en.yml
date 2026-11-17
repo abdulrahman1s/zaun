@@ -2149,6 +2149,9 @@ chat:
       invited_you: "%{name} invited you to %{group}"
       you_invited: "You invited %{name} to %{group}"
       code_changed: "The security code changed. Check it again."
+    save_as: "Save as…"
+    previous: "Previous picture"
+    next: "Next picture"
     start_group: "This is the start of the group."
     encrypted_dm: "Messages, calls and shared games are end-to-end encrypted: only the two of you can read, hear or see them."
     encrypted_group: "Messages, calls and shared games are end-to-end encrypted: only its members can read, hear or see them."
@@ -2214,6 +2217,7 @@ chat:
     transcript: "Messages with %{name}"
     loading_older: "Loading older messages…"
     load_failed: "These messages couldn't be loaded. Open the chat again to retry."
+    saved_to: "Saved to %{folder}"
 # ── end chat.conversation ──
 # ── chat.composer: keys go below as `  composer:` then four-space keys ──
   composer:
@@ -2277,10 +2281,12 @@ chat:
     photo: "Photo"
     video: "Video"
     pasted_picture: "Picture from the clipboard"
-    pasted_hint: "Not sent yet. Enter sends it, Esc discards it."
     media_filter: "Pictures and videos"
     drop_to: "Drop to send to %{name}"
     folders_refused: "Folders can't be sent"
+    add_caption: "Add a caption"
+    remove_named: "Remove %{name}"
+    attachments: "Attachments: %{count}"
 # ── end chat.composer ──
 # ── chat.details: keys go below as `  details:` then four-space keys ──
   details:

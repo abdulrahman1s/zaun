@@ -256,6 +256,8 @@ error_codes! {
     ChtBadLink = "EP-CHT-005", Warning;
     /// The chat engine refused a request.
     ChtRequestFailed = "EP-CHT-006", Warning;
+    /// A file from a chat could not be saved where the user chose.
+    ChtSaveFailed = "EP-CHT-007", Warning;
 
     // ---- Integration and internal — EP-DSK, EP-INT ---------------------------------------
     /// Could not change the default application.

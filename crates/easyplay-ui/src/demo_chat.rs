@@ -467,6 +467,39 @@ pub fn preview_png(w: u32, h: u32, top: [u8; 3], bottom: [u8; 3]) -> Vec<u8> {
     out
 }
 
+/// How long a file the user sends takes in the preview.
+const FILE_SEND_MS: i64 = 1_500;
+
+/// The user's own picture, video or file as it starts out (on its way), by its name; a GIF
+/// that is on this computer is drawn as a GIF, as the real engine reports it.
+fn sent_media(
+    name: &str,
+    size: u64,
+    caption: String,
+    local: Option<std::path::PathBuf>,
+) -> MessageBody {
+    let ext = std::path::Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    if ext == "gif"
+        && let Some(p) = &local
+    {
+        return MessageBody::Gif(p.to_string_lossy().into_owned());
+    }
+    let m = Media {
+        caption,
+        local,
+        ..media(name, size, None, None, FileState::Sending { percent: 0 })
+    };
+    match ext.as_str() {
+        "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif" => MessageBody::Image(m),
+        "mp4" | "m4v" | "mov" | "webm" | "mkv" | "avi" => MessageBody::Video(m),
+        _ => MessageBody::File(m),
+    }
+}
+
 /// A picture, video or file offered (or sent) with `name` and `size`.
 fn media(
     name: &str,
@@ -480,6 +513,8 @@ fn media(
         size,
         preview,
         duration,
+        caption: String::new(),
+        local: None,
         state,
     }
 }
@@ -634,24 +669,30 @@ fn conversations(now: Timestamp, names: &HashMap<i64, String>) -> Vec<(ChatRef, 
         c.mk(
             lucia,
             Day(1, 23, 14),
-            MessageBody::Image(media(
-                "IMG_20261117_231402.jpg",
-                2_400_000,
-                Some(preview_png(96, 72, [214, 120, 92], [96, 52, 110])),
-                None,
-                FileState::Offered,
-            )),
+            MessageBody::Image(Media {
+                caption: "sunset from the bell tower".into(),
+                ..media(
+                    "IMG_20261117_231402.jpg",
+                    2_400_000,
+                    Some(preview_png(96, 72, [214, 120, 92], [96, 52, 110])),
+                    None,
+                    FileState::Offered,
+                )
+            }),
         );
         c.mk(
             lucia,
             Day(1, 23, 15),
-            MessageBody::Video(media(
-                "clutch.mp4",
-                18_200_000,
-                Some(preview_png(128, 72, [40, 70, 120], [16, 22, 40])),
-                Some(42),
-                FileState::Offered,
-            )),
+            MessageBody::Video(Media {
+                caption: "that 1v3 at the end 😳".into(),
+                ..media(
+                    "clutch.mp4",
+                    18_200_000,
+                    Some(preview_png(128, 72, [40, 70, 120], [16, 22, 40])),
+                    Some(42),
+                    FileState::Offered,
+                )
+            }),
         );
         c.mk(
             lucia,
@@ -875,6 +916,8 @@ enum Timer {
     Viewer(i64),
     /// Nobody answered the incoming call.
     Missed,
+    /// A file the user sent reached the file servers (core agent, round 4).
+    FileSent(ChatRef, i64),
 }
 
 /// The preview's Chat: the starting snapshot and the conversations' histories, changed by
@@ -1001,6 +1044,31 @@ impl DemoChat {
     }
 
     /// Change message `item` of `chat`; returns it changed (to announce).
+    /// Post the user's media message and mark it sent after [`FILE_SEND_MS`].
+    fn send_media(
+        &mut self,
+        chat: ChatRef,
+        body: MessageBody,
+        now: Timestamp,
+        out: &mut Vec<UiEvent>,
+    ) {
+        let sending = matches!(
+            &body,
+            MessageBody::Image(_) | MessageBody::Video(_) | MessageBody::File(_)
+        );
+        let m = self.post(chat, MessageAuthor::Me, body, now);
+        if sending {
+            self.schedule(
+                Timestamp::from_millis(now.as_millis() + FILE_SEND_MS),
+                Timer::FileSent(chat, m.id),
+            );
+        }
+        out.push(UiEvent::ChatMessages {
+            messages: vec![m],
+            updated: false,
+        });
+    }
+
     fn change(
         &mut self,
         chat: ChatRef,
@@ -1104,6 +1172,21 @@ impl DemoChat {
                                 updated: true,
                             });
                         }
+                    }
+                }
+                Timer::FileSent(chat, item) => {
+                    if let Some(m) = self.change(chat, item, |m| {
+                        if let MessageBody::Image(x)
+                        | MessageBody::Video(x)
+                        | MessageBody::File(x) = &mut m.body
+                        {
+                            x.state = FileState::Sent;
+                        }
+                    }) {
+                        out.push(UiEvent::ChatMessages {
+                            messages: vec![m],
+                            updated: true,
+                        });
                     }
                 }
                 Timer::Missed => {
@@ -1705,6 +1788,44 @@ impl DemoChat {
                     updated: false,
                 });
             }
+            // Round 4 (core agent): a picture, video or file from the user, with its
+            // caption; it is on its way for a moment, then sent.
+            ChatCommand::SendFile { chat, path, text } => {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let body = sent_media(&name, 0, text, Some(path));
+                self.send_media(chat, body, now, &mut out);
+            }
+            ChatCommand::SendClipboard {
+                chat,
+                bytes,
+                kind,
+                text,
+            } => {
+                let ext = match kind {
+                    easyplay_core::service::ClipKind::Png => "png",
+                    easyplay_core::service::ClipKind::Jpeg => "jpg",
+                    easyplay_core::service::ClipKind::Gif => "gif",
+                };
+                let name = format!("pasted.{ext}");
+                let body = sent_media(&name, bytes.len() as u64, text, None);
+                self.send_media(chat, body, now, &mut out);
+            }
+            // Core agent: a save says where it went; the preview copies nothing.
+            ChatCommand::SaveFile { to, .. } => {
+                let folder = to
+                    .parent()
+                    .and_then(|d| d.file_name())
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                out.push(UiEvent::Toast(crate::bridge::ToastMsg {
+                    text: crate::strings::chat::conversation::saved_to(&folder),
+                    level: crate::bridge::ToastLevel::Success,
+                    undo: None,
+                }));
+            }
             // No browser in the preview; GifPreview never arrives here.
             ChatCommand::OpenLinkAnyway(_) => {}
             // Commands added later reach the preview as nothing.
@@ -2243,5 +2364,69 @@ mod tests {
         c.handle(ChatCommand::StartShare(CREW), now());
         c.game_stopped(now());
         assert!(c.snapshot().live.share.is_none());
+    }
+
+    #[test]
+    fn a_sent_file_carries_its_caption_and_the_users_copy_and_is_sent_after_a_moment() {
+        let mut c = DemoChat::new(now());
+        let path = std::path::PathBuf::from("/home/sam/Pictures/raid.png");
+        c.handle(
+            ChatCommand::SendFile {
+                chat: MIRA,
+                path: path.clone(),
+                text: "we did it".into(),
+            },
+            now(),
+        );
+        let last = c.messages(MIRA).last().unwrap().clone();
+        let MessageBody::Image(m) = &last.body else {
+            panic!("{:?}", last.body)
+        };
+        assert_eq!(m.caption, "we did it");
+        assert_eq!(m.local.as_deref(), Some(path.as_path()));
+        assert_eq!(m.state, FileState::Sending { percent: 0 });
+        c.tick(later(FILE_SEND_MS));
+        let MessageBody::Image(m) = &c.messages(MIRA).last().unwrap().body else {
+            panic!()
+        };
+        assert_eq!(m.state, FileState::Sent);
+
+        // A pasted picture has no copy of the user's to show yet.
+        c.handle(
+            ChatCommand::SendClipboard {
+                chat: MIRA,
+                bytes: vec![0; 10],
+                kind: easyplay_core::service::ClipKind::Png,
+                text: String::new(),
+            },
+            now(),
+        );
+        let MessageBody::Image(m) = &c.messages(MIRA).last().unwrap().body else {
+            panic!()
+        };
+        assert!(m.local.is_none() && m.caption.is_empty());
+        // Lucía's sunset says what it is.
+        assert!(c.messages(LUCIA).iter().any(|m| matches!(
+            &m.body,
+            MessageBody::Image(x) if x.caption == "sunset from the bell tower"
+        )));
+    }
+
+    #[test]
+    fn a_save_says_where_the_file_went() {
+        let mut c = DemoChat::new(now());
+        let ev = c.handle(
+            ChatCommand::SaveFile {
+                chat: LUCIA,
+                item: 1,
+                to: "/home/sam/Downloads/clutch.mp4".into(),
+            },
+            now(),
+        );
+        assert!(ev.iter().any(|e| matches!(
+            e,
+            UiEvent::Toast(t) if t.text.contains("Downloads")
+                && t.level == crate::bridge::ToastLevel::Success
+        )));
     }
 }

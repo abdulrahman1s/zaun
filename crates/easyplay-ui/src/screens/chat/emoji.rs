@@ -37,7 +37,6 @@ use egui::{
     Rect, Sense, Stroke, StrokeKind, TextureFilter, TextureHandle, TextureId, TextureOptions,
     UiBuilder, Vec2, has_emoji_presentation, pos2, vec2,
 };
-use twemoji_assets::png::PngTwemojiAsset;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::Env;
@@ -118,17 +117,86 @@ fn is_emoji(g: &str) -> bool {
     looks && (picture(g).is_some() || emojis::get(g).is_some())
 }
 
-/// The Twemoji picture of `e`: as written, fully qualified, or without U+FE0F (the crate
-/// keys `❤` bare and `❤️‍🔥` with it).
-fn picture(e: &str) -> Option<&'static PngTwemojiAsset> {
-    PngTwemojiAsset::from_emoji(e)
-        .or_else(|| emojis::get(e).and_then(|q| PngTwemojiAsset::from_emoji(q.as_str())))
+// ---- Twemoji's pictures -------------------------------------------------------------------
+
+/// The pictures, packed at build time (build.rs): each SVG deflated on its own.
+mod packed {
+    include!(concat!(env!("OUT_DIR"), "/twemoji_index.rs"));
+    /// The deflated SVGs, one after another.
+    pub static BLOB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.bin"));
+}
+
+/// One Twemoji picture: its key (the emoji it is drawn for), its run and where it is in it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Twemoji {
+    emoji: &'static str,
+    run: u32,
+    at: u32,
+    len: u32,
+}
+
+/// Inflated runs kept at most (each ~80 KB of SVG text).
+const MAX_RUNS: usize = 48;
+
+impl Twemoji {
+    /// The picture's SVG text (its run is inflated the first time and kept).
+    fn svg(self) -> Option<String> {
+        use std::io::Read as _;
+        static RUNS: std::sync::Mutex<Option<HashMap<u32, std::sync::Arc<Vec<u8>>>>> =
+            std::sync::Mutex::new(None);
+        let run = {
+            let mut runs = RUNS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let map = runs.get_or_insert_with(HashMap::new);
+            match map.get(&self.run) {
+                Some(r) => r.clone(),
+                None => {
+                    let &(start, len) = packed::CHUNKS.get(self.run as usize)?;
+                    let packed = packed::BLOB.get(start as usize..(start + len) as usize)?;
+                    let mut raw = Vec::new();
+                    flate2::read::DeflateDecoder::new(packed)
+                        .read_to_end(&mut raw)
+                        .ok()?;
+                    if map.len() >= MAX_RUNS {
+                        map.clear();
+                    }
+                    let raw = std::sync::Arc::new(raw);
+                    map.insert(self.run, raw.clone());
+                    raw
+                }
+            }
+        };
+        let bytes = run.get(self.at as usize..(self.at + self.len) as usize)?;
+        String::from_utf8(bytes.to_vec()).ok()
+    }
+}
+
+/// The picture keyed exactly `e`.
+fn find(e: &str) -> Option<Twemoji> {
+    let i = packed::INDEX
+        .binary_search_by(|(k, _, _, _)| (*k).cmp(e))
+        .ok()?;
+    let (emoji, run, at, len) = packed::INDEX[i];
+    Some(Twemoji {
+        emoji,
+        run,
+        at,
+        len,
+    })
+}
+
+/// The Twemoji picture of `e`: as written, fully qualified, or without U+FE0F (Twemoji keys
+/// `❤` bare and `❤️‍🔥` with it).
+fn picture(e: &str) -> Option<Twemoji> {
+    find(e)
+        .or_else(|| emojis::get(e).and_then(|q| find(q.as_str())))
         .or_else(|| {
             if !e.contains('\u{FE0F}') {
                 return None;
             }
             let bare: String = e.chars().filter(|&c| c != '\u{FE0F}').collect();
-            PngTwemojiAsset::from_emoji(&bare)
+            find(&bare)
         })
 }
 
@@ -427,7 +495,7 @@ pub fn quick(freq: &HashMap<String, u32>, allowed: Option<&[String]>, n: usize) 
 /// Uploaded pictures, by (asset, greyed), and how many were decoded in this pass.
 #[derive(Clone, Default)]
 struct Textures {
-    map: HashMap<(&'static str, bool), TextureHandle>,
+    map: HashMap<(&'static str, bool, u32), TextureHandle>,
     pass: u64,
     decoded: u32,
 }
@@ -443,9 +511,45 @@ fn textures_id() -> Id {
     Id::unique("chat.emoji.textures")
 }
 
-/// The texture of `asset`, decoding and uploading it the first time (within the budget).
-fn texture(ctx: &Context, asset: &'static PngTwemojiAsset, grey: bool) -> Option<TextureId> {
-    let key = (asset.emoji, grey);
+/// Texture sizes in pixels: a picture is rasterized at the first one at least as large as
+/// it is drawn (size × pixels per point), so it is sampled about 1:1 and the cache stays
+/// small.
+const BUCKETS: [u32; 12] = [16, 20, 24, 28, 32, 40, 48, 56, 64, 80, 96, 128];
+
+/// The bucket for a picture `px` pixels wide.
+fn bucket(px: f32) -> u32 {
+    let px = px.ceil().max(1.0) as u32;
+    BUCKETS
+        .iter()
+        .copied()
+        .find(|&b| b >= px)
+        .unwrap_or_else(|| px.div_ceil(32) * 32)
+}
+
+/// Twemoji's SVG of `asset` rasterized `side` pixels square (premultiplied).
+fn rasterize(asset: Twemoji, side: u32) -> Option<ColorImage> {
+    use resvg::{tiny_skia, usvg};
+    let svg = asset.svg()?;
+    let tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).ok()?;
+    let size = tree.size();
+    let mut pixmap = tiny_skia::Pixmap::new(side, side)?;
+    let scale = side as f32 / size.width().max(size.height()).max(1.0);
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    Some(ColorImage::from_rgba_premultiplied(
+        [side as usize, side as usize],
+        pixmap.data(),
+    ))
+}
+
+/// The texture of `asset` drawn `px` pixels wide, rasterized and uploaded the first time
+/// (within the budget).
+fn texture(ctx: &Context, asset: Twemoji, grey: bool, px: f32) -> Option<TextureId> {
+    let side = bucket(px);
+    let key = (asset.emoji, grey, side);
     let pass = ctx.cumulative_pass_nr();
     let (have, budget) = ctx.data_mut(|d| {
         let t = d.get_temp_mut_or_default::<Textures>(textures_id());
@@ -467,7 +571,7 @@ fn texture(ctx: &Context, asset: &'static PngTwemojiAsset, grey: bool) -> Option
         ctx.request_repaint();
         return None;
     }
-    let mut image: ColorImage = egui_extras::image::load_image_bytes(asset.data.0).ok()?;
+    let mut image = rasterize(asset, side)?;
     if grey {
         for px in &mut image.pixels {
             let [r, g, b, a] = px.to_array();
@@ -534,9 +638,17 @@ fn paint_with(painter: &Painter, rect: Rect, emoji: &str, grey: bool) -> bool {
     let Some(asset) = picture(emoji) else {
         return false;
     };
-    if let Some(id) = texture(painter.ctx(), asset, grey) {
+    let ppp = painter.ctx().pixels_per_point();
+    let px = rect.width().max(rect.height()) * ppp;
+    if let Some(id) = texture(painter.ctx(), asset, grey, px) {
+        // Drawn at the texture's own size on whole pixels, centred where it was asked for:
+        // sampled 1:1 (the bucket is at most a few pixels larger).
+        let side = bucket(px) as f32;
+        let c = rect.center().to_vec2() * ppp - Vec2::splat(side / 2.0);
+        let min = pos2(c.x.round(), c.y.round()) / ppp;
+        let at = Rect::from_min_size(min, Vec2::splat(side / ppp));
         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
-        painter.image(id, rect, uv, Color32::WHITE);
+        painter.image(id, at, uv, Color32::WHITE);
     }
     true
 }
@@ -580,15 +692,8 @@ fn raster(req: &GlyphRasterizerRequest<'_>, any: bool) -> Option<RasterizedGlyph
     let asset = picture(c)?;
     let font = req.font_size_px.max(1.0);
     let side = (font * 1.25).round().max(1.0) as u32;
-    let png = image::load_from_memory_with_format(asset.data.0, image::ImageFormat::Png)
-        .ok()?
-        .to_rgba8();
-    let scaled = if side < png.width() {
-        image::imageops::thumbnail(&png, side, side)
-    } else {
-        image::imageops::resize(&png, side, side, image::imageops::FilterType::CatmullRom)
-    };
-    let image = ColorImage::from_rgba_unmultiplied([side as usize, side as usize], scaled.as_raw());
+    // Rasterized at exactly the glyph's pixel size: crisp at every font size and scale.
+    let image = rasterize(asset, side)?;
     let drop = (font * 0.22).round();
     let bearing = (font * 0.05).round();
     Some(RasterizedGlyph {
@@ -1486,6 +1591,42 @@ pub fn insert_at_cursor(ctx: &Context, id: Id, buf: &mut String, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Renders 🎉 at 40 pt (a jumbo message) and in a 14 pt line at 1× and 2× to
+    /// `$EMOJI_RENDER_DIR` for a look (`cargo test -p easyplay-ui --lib -- --ignored
+    /// emoji_render`).
+    #[test]
+    #[ignore = "writes renders for a person to look at"]
+    fn emoji_render() {
+        let Some(dir) = std::env::var_os("EMOJI_RENDER_DIR") else {
+            return;
+        };
+        for scale in [1.0_f32, 2.0] {
+            let mut h = egui_kittest::Harness::builder()
+                .with_size(vec2(200.0, 80.0))
+                .with_pixels_per_point(scale)
+                .build_ui(|ui| {
+                    if ui.ctx().cumulative_pass_nr() == 0 {
+                        ui.ctx().set_fonts(theme::typography::font_definitions());
+                        return;
+                    }
+                    install(ui.ctx());
+                    let r = Rect::from_min_size(pos2(10.0, 10.0), Vec2::splat(40.0));
+                    draw(ui.painter(), r, "🎉", Color32::WHITE);
+                    ui.painter().text(
+                        pos2(60.0, 30.0),
+                        Align2::LEFT_CENTER,
+                        "gg 🎉 ❤️ 👍",
+                        egui::FontId::proportional(14.0),
+                        Color32::WHITE,
+                    );
+                });
+            h.run();
+            let img = h.render().expect("render");
+            img.save(std::path::Path::new(&dir).join(format!("emoji_{scale}x.png")))
+                .expect("save");
+        }
+    }
 
     #[test]
     fn runs_split_text_and_emoji() {

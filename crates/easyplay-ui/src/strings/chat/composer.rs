@@ -22,8 +22,8 @@ texts! {
     VIDEO = "chat.composer.video";
     /// A pasted picture waiting to be sent.
     PASTED_PICTURE = "chat.composer.pasted_picture";
-    /// Under a paste waiting to be sent.
-    PASTED_HINT = "chat.composer.pasted_hint";
+    /// The field's placeholder while attachments wait.
+    ADD_CAPTION = "chat.composer.add_caption";
     /// Only folders were dropped.
     FOLDERS_REFUSED = "chat.composer.folders_refused";
     /// The picture-or-video chooser's filter.
@@ -148,4 +148,14 @@ pub fn no_emoji(query: &str) -> String {
 /// The + menu's heading: "Up to 1 GB each" (the engine's send limit, in GiB).
 pub fn file_limit(gib: u64) -> String {
     rust_i18n::t!("chat.composer.file_limit", size = gib).into_owned()
+}
+
+/// An attachment's ×: "Remove boss.mp4".
+pub fn remove_named(name: &str) -> String {
+    rust_i18n::t!("chat.composer.remove_named", name = name).into_owned()
+}
+
+/// The attachment strip's name: "Attachments: 2".
+pub fn attachments(count: usize) -> String {
+    rust_i18n::t!("chat.composer.attachments", count = count).into_owned()
 }

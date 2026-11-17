@@ -16,6 +16,13 @@ use egui::{
 use crate::strings::chat::conversation as s;
 use crate::theme::{self, Icon, Type, icons};
 
+/// Linear filtering, with mipmaps so that photos shown much smaller than they are stay
+/// smooth.
+const SMOOTH: TextureOptions = TextureOptions {
+    mipmap_mode: Some(egui::TextureFilter::Linear),
+    ..TextureOptions::LINEAR
+};
+
 /// Pictures kept decoded at most.
 const KEEP: usize = 96;
 /// Decoded pixels kept at most over all pictures.
@@ -157,8 +164,7 @@ impl Decoder {
                 Ok((size, rgba)) => {
                     let bytes = rgba.len();
                     let img = ColorImage::from_rgba_unmultiplied(size, &rgba);
-                    let texture =
-                        ctx.load_texture(format!("chat-media-{key}"), img, TextureOptions::LINEAR);
+                    let texture = ctx.load_texture(format!("chat-media-{key}"), img, SMOOTH);
                     (Slot::Ready(Picture { texture, size }), bytes)
                 }
                 Err(e) => {
@@ -249,8 +255,7 @@ fn preview(ctx: &Context, key: &str, bytes: &[u8]) -> Option<Picture> {
     let (slot, size) = match decode(bytes) {
         Ok((size, rgba)) => {
             let img = ColorImage::from_rgba_unmultiplied(size, &rgba);
-            let texture =
-                ctx.load_texture(format!("chat-media-{key}"), img, TextureOptions::LINEAR);
+            let texture = ctx.load_texture(format!("chat-media-{key}"), img, SMOOTH);
             (Slot::Ready(Picture { texture, size }), rgba.len())
         }
         Err(_) => (Slot::Failed, 0),
@@ -451,25 +456,12 @@ pub fn image(ui: &mut Ui, key: &str, media: &Media, mine: bool) -> Option<Act> {
         .preview
         .as_deref()
         .and_then(|b| preview(&ctx, &format!("pv:{key}"), b));
-    let full = match &media.state {
-        FileState::Received(path) => {
-            let p = path.clone();
-            match picture(&ctx, &format!("f:{}", path.display()), || {
-                Some(Source::File(p))
-            }) {
-                Got::Ready(pic) => Some(pic),
-                Got::Loading | Got::Failed => None,
-            }
-        }
-        _ => None,
-    };
-    let shown = full.or(pv);
+    let full = full_picture(&ctx, media);
+    // The row's size is known up front and never changes: the preview's shape, or 4:3
+    // without one. The full picture, once decoded, is fitted into it.
     let max = [ui.available_width().min(m::MAX[0]), m::MAX[1]];
-    let size = shown
-        .as_ref()
-        .map_or(vec2(m::PLATE[0].min(max[0]), m::PLATE[1]), |p| {
-            fit(p.size, max)
-        });
+    let size = fit(pv.as_ref().map_or([4, 3], |p| p.size), max);
+    let shown = full.or(pv);
     ui.add_space(m::MARGIN);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let corner = CornerRadius::same(m::R);
@@ -510,13 +502,10 @@ pub fn image(ui: &mut Ui, key: &str, media: &Media, mine: bool) -> Option<Act> {
         egui::Role::Image,
         &s::photo_spoken(&s::size(media.size)),
     );
+    // Any picture opens bigger in the viewer (one not fetched yet shows its preview there,
+    // with Download).
     if act.is_none() && resp.clicked() {
-        act = match &media.state {
-            FileState::Received(_) => Some(Act::View),
-            FileState::Sent => Some(Act::View),
-            FileState::Offered | FileState::Cancelled if !mine => Some(Act::Receive),
-            _ => None,
-        };
+        act = Some(Act::View);
     }
     ui.add_space(m::MARGIN);
     act
@@ -699,19 +688,83 @@ pub fn failed_line(ui: &mut Ui, mine: bool) {
     crate::a11y::item(&resp, egui::Role::Status, text);
 }
 
+/// What the viewer shows.
+pub enum Shown<'a> {
+    /// A picture message (`mine`: the user sent it).
+    Picture(&'a Media, bool),
+    /// A GIF message (its file, or a stand-in's name).
+    Gif(&'a str),
+}
+
 /// What the viewer asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewerAct {
     /// Close it.
     Close,
     /// Open the file with the system's app.
     Open,
+    /// Fetch the offered picture.
+    Download,
+    /// Save a copy where the user chooses.
+    SaveAs,
+    /// The previous picture of the conversation.
+    Prev,
+    /// The next one.
+    Next,
 }
 
-/// The picture over the whole window: dimmed, the picture fitted 48 in from the edges, an
-/// Open button and × at the top right. A click outside the picture closes it.
-pub fn viewer(ctx: &Context, key: &str, media: &Media) -> Option<ViewerAct> {
+/// Zoom and pan of the picture in the viewer.
+#[derive(Clone, Copy, Debug)]
+struct Zoom {
+    z: f32,
+    pan: egui::Vec2,
+    key: u64,
+}
+
+/// The largest zoom.
+const ZOOM_MAX: f32 = 4.0;
+
+/// The picture over the whole window: dimmed, the picture fitted 48 in from the edges.
+/// The wheel or a pinch zooms (1×–4×) around the pointer, a drag pans while zoomed, a
+/// double-click toggles fit and 100%, ← → step through the conversation's pictures. A bar
+/// at the top right: Download (not fetched yet), Save as…, Open, ×. A click on the dim
+/// closes it.
+pub fn viewer(
+    ctx: &Context,
+    key: &str,
+    shown: &Shown<'_>,
+    autoplay: bool,
+    nav: (bool, bool),
+) -> Option<ViewerAct> {
+    let th = theme::theme(ctx);
+    let motion = th.motion;
     let screen = ctx.content_rect();
     let mut out = None;
+    let appear = theme::motion::appear(
+        ctx,
+        Id::unique("chat.media.viewer.appear"),
+        motion.fade(theme::Dur::Fast),
+    );
+    let grow = if motion.reduced {
+        1.0
+    } else {
+        0.97 + 0.03 * theme::motion::ease_out(appear)
+    };
+    let zkey = Id::unique("chat.media.viewer.zoom");
+    let item_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut h);
+        h.finish()
+    };
+    let mut zoom: Zoom = ctx
+        .data(|d| d.get_temp::<Zoom>(zkey))
+        .filter(|z| z.key == item_hash)
+        .unwrap_or(Zoom {
+            z: 1.0,
+            pan: egui::Vec2::ZERO,
+            key: item_hash,
+        });
     egui::Area::new(Id::unique("chat.media.viewer"))
         .order(egui::Order::Foreground)
         .fixed_pos(screen.min)
@@ -720,34 +773,141 @@ pub fn viewer(ctx: &Context, key: &str, media: &Media) -> Option<ViewerAct> {
             ui.painter().rect_filled(
                 rect,
                 CornerRadius::ZERO,
-                Color32::from_black_alpha(m::VIEW_SCRIM),
+                Color32::from_black_alpha((f32::from(m::VIEW_SCRIM) * appear) as u8),
             );
-            let full = match &media.state {
-                FileState::Received(path) => {
-                    let p = path.clone();
-                    match picture(ctx, &format!("f:{}", path.display()), || {
-                        Some(Source::File(p))
-                    }) {
-                        Got::Ready(pic) => Some(pic),
-                        _ => None,
-                    }
-                }
-                _ => None,
-            };
-            let pic = full.or_else(|| {
-                media
-                    .preview
-                    .as_deref()
-                    .and_then(|b| preview(ctx, &format!("pv:{key}"), b))
-            });
+            ui.multiply_opacity(appear);
             let area = rect.shrink(m::VIEW_IN);
-            if let Some(pic) = &pic {
-                let (w, h) = (pic.size[0].max(1) as f32, pic.size[1].max(1) as f32);
-                let k = (area.width() / w).min(area.height() / h);
-                let r = Rect::from_center_size(area.center(), vec2(w * k, h * k));
-                paint_picture(ui, r, pic, CornerRadius::same(4), Color32::WHITE);
+            // The picture and its natural size.
+            let (pic, native): (Option<Picture>, egui::Vec2) = match shown {
+                Shown::Picture(media, _) => {
+                    let pic = full_picture(ctx, media).or_else(|| {
+                        media
+                            .preview
+                            .as_deref()
+                            .and_then(|b| preview(ctx, &format!("pv:{key}"), b))
+                    });
+                    let n = pic
+                        .as_ref()
+                        .map_or(vec2(4.0, 3.0), |p| vec2(p.size[0] as f32, p.size[1] as f32));
+                    (pic, n)
+                }
+                Shown::Gif(name) => (None, super::gif::message_size(ctx, name, 280.0)),
+            };
+            let k = (area.width() / native.x.max(1.0)).min(area.height() / native.y.max(1.0));
+            let fit = Rect::from_center_size(area.center(), native * k);
+            // Input over the viewer: zoom around the pointer, pan, double-click.
+            let img_resp = ui.interact(
+                fit.expand(4.0).union(fit.translate(zoom.pan)),
+                Id::unique("chat.media.viewer.img"),
+                Sense::click_and_drag(),
+            );
+            let (scroll, pinch, pointer) = ui.input(|i| {
+                (
+                    i.smooth_scroll_delta.y,
+                    i.zoom_delta(),
+                    i.pointer.hover_pos(),
+                )
+            });
+            let factor = (scroll / 200.0).exp() * pinch;
+            if (factor - 1.0).abs() > 1e-4 && ui.rect_contains_pointer(rect) {
+                let nz = (zoom.z * factor).clamp(1.0, ZOOM_MAX);
+                let c = fit.center() + zoom.pan;
+                let p = pointer.unwrap_or(c);
+                let u = (p - c) / zoom.z;
+                let c2 = p - u * nz;
+                zoom.pan = c2 - fit.center();
+                zoom.z = nz;
             }
-            // Top right: Open (a received file) and ×.
+            if img_resp.dragged() && zoom.z > 1.0 {
+                zoom.pan += img_resp.drag_delta();
+            }
+            if img_resp.double_clicked() {
+                let full = (native.x / fit.width().max(1.0)).clamp(1.0, ZOOM_MAX);
+                let full = if full < 1.05 { 2.0 } else { full };
+                if zoom.z > 1.01 {
+                    zoom.z = 1.0;
+                } else {
+                    let c = fit.center();
+                    let p = img_resp.interact_pointer_pos().unwrap_or(c);
+                    zoom.pan = (c - p) * (full - 1.0);
+                    zoom.z = full;
+                }
+            }
+            // Keep the picture over the area while zoomed; centred at fit.
+            let max = ((fit.size() * zoom.z - area.size()) / 2.0).max(egui::Vec2::ZERO);
+            zoom.pan = vec2(
+                zoom.pan.x.clamp(-max.x, max.x),
+                zoom.pan.y.clamp(-max.y, max.y),
+            );
+            if zoom.z <= 1.0 {
+                zoom.pan = egui::Vec2::ZERO;
+            }
+            let size = fit.size() * zoom.z * grow;
+            let shown_rect = Rect::from_center_size(fit.center() + zoom.pan, size);
+            let shown_rect = Rect::from_min_max(shown_rect.min.round(), shown_rect.max.round());
+            let clip = ui.painter().with_clip_rect(rect);
+            match (shown, &pic) {
+                (Shown::Picture(..), Some(pic)) => {
+                    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                    child.set_clip_rect(rect);
+                    paint_picture(&child, shown_rect, pic, CornerRadius::same(4), Color32::WHITE);
+                }
+                (Shown::Picture(..), None) => {
+                    clip.rect_filled(shown_rect, CornerRadius::same(4), Color32::from_gray(40));
+                    paint_icon(&clip, shown_rect.center(), icons::IMAGE, 28.0, Color32::from_gray(160));
+                }
+                (Shown::Gif(name), _) => {
+                    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                    child.set_clip_rect(rect);
+                    let _ = super::gif::paint_message(&mut child, name, shown_rect, autoplay);
+                }
+            }
+            // ← → and the side arrows.
+            let rtl = crate::i18n::dir() == crate::i18n::Dir::Rtl;
+            let (left_act, right_act) = if rtl {
+                (ViewerAct::Next, ViewerAct::Prev)
+            } else {
+                (ViewerAct::Prev, ViewerAct::Next)
+            };
+            let has = |a: ViewerAct| match a {
+                ViewerAct::Prev => nav.0,
+                _ => nav.1,
+            };
+            let (l, r) = ui.input_mut(|i| {
+                (
+                    i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft),
+                    i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight),
+                )
+            });
+            if l && has(left_act) {
+                out = Some(left_act);
+            }
+            if r && has(right_act) {
+                out = Some(right_act);
+            }
+            for (act, x, icon) in [
+                (left_act, rect.left() + 16.0 + 22.0, icons::CARET_LEFT),
+                (right_act, rect.right() - 16.0 - 22.0, icons::CARET_RIGHT),
+            ] {
+                if !has(act) {
+                    continue;
+                }
+                let c = pos2(x, rect.center().y);
+                let br = Rect::from_center_size(c, vec2(44.0, 44.0));
+                let resp = ui.interact(br, Id::unique(("chat.media.viewer.nav", x as i64)), Sense::click());
+                let label = if act == ViewerAct::Prev { s::PREVIOUS() } else { s::NEXT() };
+                crate::a11y::button(&resp, label);
+                ui.painter().circle_filled(
+                    c,
+                    22.0,
+                    Color32::from_white_alpha(if resp.hovered() { 60 } else { 30 }),
+                );
+                paint_icon(ui.painter(), c, icon, 18.0, Color32::WHITE);
+                if resp.clicked() {
+                    out = Some(act);
+                }
+            }
+            // The bar at the top right: × · Open · Save as… · Download.
             let close = Rect::from_min_size(
                 pos2(rect.right() - 16.0 - 36.0, rect.top() + 16.0),
                 vec2(36.0, 36.0),
@@ -759,32 +919,92 @@ pub fn viewer(ctx: &Context, key: &str, media: &Media) -> Option<ViewerAct> {
                 18.0,
                 Color32::from_white_alpha(if cr.hovered() { 60 } else { 30 }),
             );
-            paint_icon(
-                ui.painter(),
-                close.center(),
-                icons::CLOSE,
-                16.0,
-                Color32::WHITE,
-            );
+            paint_icon(ui.painter(), close.center(), icons::CLOSE, 16.0, Color32::WHITE);
+            let cr = crate::widgets::tooltip::tooltip(cr, s::CLOSE(), Some("Esc"));
             if cr.clicked() {
                 out = Some(ViewerAct::Close);
             }
-            if matches!(media.state, FileState::Received(_)) {
-                let b = crate::widgets::button::Button::new(s::OPEN()).icon(icons::OPEN);
+            let (here, offered, receiving) = match shown {
+                Shown::Picture(media, mine) => (
+                    has_file(media, *mine),
+                    !*mine && matches!(media.state, FileState::Offered | FileState::Cancelled),
+                    match media.state {
+                        FileState::Receiving { percent } => Some(percent),
+                        _ => None,
+                    },
+                ),
+                Shown::Gif(_) => (true, false, None),
+            };
+            let mut x = close.left() - 8.0;
+            let mut button = |ui: &mut Ui, label: &str, icon: Icon, primary: bool| {
+                use crate::widgets::button::Button;
+                let b = if primary {
+                    Button::primary(label)
+                } else {
+                    Button::new(label)
+                }
+                .icon(icon);
                 let bw = b.width(ui);
                 let br = Rect::from_min_size(
-                    pos2(close.left() - 8.0 - bw, close.center().y - 15.0),
+                    pos2(x - bw, close.center().y - 15.0),
                     vec2(bw, 30.0),
                 );
-                if ui.put(br, b).clicked() {
-                    out = Some(ViewerAct::Open);
-                }
+                x -= bw + 8.0;
+                ui.put(br, b).clicked()
+            };
+            if here && matches!(shown, Shown::Picture(media, _) if matches!(media.state, FileState::Received(_)))
+                && button(ui, s::OPEN(), icons::OPEN, false)
+            {
+                out = Some(ViewerAct::Open);
             }
-            if out.is_none() && bg.clicked() {
+            if here && button(ui, s::SAVE_AS(), icons::DOWNLOAD, false) {
+                out = Some(ViewerAct::SaveAs);
+            }
+            if offered && button(ui, s::DOWNLOAD(), icons::DOWNLOAD, true) {
+                out = Some(ViewerAct::Download);
+            }
+            if let Some(pc) = receiving {
+                let g = Type::BodyStrong.galley(ui, &s::receiving(pc), Color32::WHITE, f32::INFINITY, 1);
+                let gs = g.size();
+                ui.painter()
+                    .galley(pos2(x - gs.x, close.center().y - gs.y / 2.0), g, Color32::WHITE);
+            }
+            if out.is_none() && bg.clicked() && !img_resp.hovered() {
                 out = Some(ViewerAct::Close);
             }
         });
+    ctx.data_mut(|d| d.insert_temp(zkey, zoom));
+    if appear < 1.0 {
+        ctx.request_repaint();
+    }
     out
+}
+
+/// The picture's own file, when it is on this computer (received).
+fn full_picture(ctx: &Context, media: &Media) -> Option<Picture> {
+    let path = local_file(media)?;
+    match picture(ctx, &format!("f:{}", path.display()), || {
+        Some(Source::File(path.clone()))
+    }) {
+        Got::Ready(pic) => Some(pic),
+        Got::Loading | Got::Failed => None,
+    }
+}
+
+/// Where the picture's file is on this computer, if it is: the user's own sent copy (from
+/// the moment the message exists) or a received file.
+fn local_file(media: &Media) -> Option<PathBuf> {
+    media.local.clone().or_else(|| match &media.state {
+        FileState::Received(p) => Some(p.clone()),
+        _ => None,
+    })
+}
+
+/// Whether a copy can be saved: the file is here (received, or the user's own sent one).
+pub fn has_file(media: &Media, mine: bool) -> bool {
+    media.local.is_some()
+        || matches!(media.state, FileState::Received(_))
+        || (mine && matches!(media.state, FileState::Sent))
 }
 
 #[cfg(test)]
