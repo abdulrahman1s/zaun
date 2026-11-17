@@ -768,6 +768,9 @@ impl EasyPlayApp {
                 self.reapply_appearance(ctx, false);
             }
             UiEvent::HostChanged | UiEvent::RuntimesChanged | UiEvent::DiagnosticsChanged => {}
+            // The Friends page reads the snapshot each frame; its conversation view-model
+            // takes the messages (ADR-0033).
+            UiEvent::FriendsChanged | UiEvent::FriendMessages { .. } => {}
             UiEvent::ShowGame(g) => {
                 if let Some(q) = &mut s.quick {
                     q.game = Some(g);

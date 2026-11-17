@@ -11,6 +11,7 @@
 mod artwork;
 mod doc;
 mod executable;
+mod friends;
 mod game;
 mod launch_config;
 mod policy;
@@ -26,6 +27,10 @@ pub use doc::{DocError, UpgradeStep, parse_launch_config, parse_policy};
 pub use executable::{
     EXE_LABEL_MAX_CHARS, ExeRole, Executable, Fingerprint, PeInfo, PeMachine, PeSubsystem, Sha256,
     from_hex32, to_hex,
+};
+pub use friends::{
+    ChatPreview, ChatRef, Delivery, Friend, FriendGroup, FriendMessage, FriendProfile,
+    FriendRequest, FriendsSnapshot, FriendsStatus, Membership, MessageAuthor, MessageBody,
 };
 pub use game::{
     Activity, ArtKey, Availability, EntryKind, Game, GameFlags, GameSummary, LaunchStateTag,

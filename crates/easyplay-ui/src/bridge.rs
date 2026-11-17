@@ -496,6 +496,8 @@ pub enum QueryPayload {
     Report(Vec<ReportFile>),
     /// A Steam game's page (`SteamAction::Details`).
     Steam(Box<SteamDetail>),
+    /// `FriendsCommand::LoadChat` (ADR-0033): a page of a conversation, oldest first.
+    Chat(easyplay_core::service::ChatPage),
     /// The query failed.
     Failed(UserError),
 }
@@ -889,6 +891,8 @@ pub enum UiCommand {
     ResolveDatabase(DatabaseChoice),
     /// A Steam action (ADR-0031).
     Steam(SteamAction),
+    /// A Friends action (ADR-0033), passed to the service as is.
+    Friends(easyplay_core::service::FriendsCommand),
     /// Quit EasyPlay (games keep running).
     Quit,
 }
@@ -906,6 +910,15 @@ pub enum UiEvent {
     RuntimesChanged,
     /// The diagnostics snapshot changed (Doctor, crash banner, recovery mode).
     DiagnosticsChanged,
+    /// A new Friends snapshot (ADR-0033).
+    FriendsChanged,
+    /// Messages arrived or were sent (`updated` = delivery or text of known ones changed).
+    FriendMessages {
+        /// Oldest first.
+        messages: Vec<easyplay_core::model::FriendMessage>,
+        /// Changes to messages already shown.
+        updated: bool,
+    },
     /// A launch moved to a new state.
     LaunchProgress {
         /// Game.
@@ -984,6 +997,10 @@ pub trait Backend: Send {
     fn diagnostics(&self) -> Arc<Diagnostics> {
         Arc::new(Diagnostics::default())
     }
+    /// Friends (ADR-0033).
+    fn friends(&self) -> Arc<easyplay_core::model::FriendsSnapshot> {
+        Arc::new(easyplay_core::model::FriendsSnapshot::default())
+    }
 }
 
 /// A backend shared by several windows in turn (the resident service opens one window after
@@ -1028,6 +1045,9 @@ impl<B: Backend + Sync + ?Sized> Backend for Arc<B> {
     fn diagnostics(&self) -> Arc<Diagnostics> {
         (**self).diagnostics()
     }
+    fn friends(&self) -> Arc<easyplay_core::model::FriendsSnapshot> {
+        (**self).friends()
+    }
 }
 
 /// Maximum events drained per frame (ARCHITECTURE §5.1).
@@ -1041,6 +1061,7 @@ pub struct UiBridge {
     host: Arc<HostView>,
     runtimes: Arc<RuntimesView>,
     diagnostics: Arc<Diagnostics>,
+    friends: Arc<easyplay_core::model::FriendsSnapshot>,
     next_query: std::cell::Cell<u128>,
 }
 
@@ -1053,6 +1074,7 @@ impl UiBridge {
             host: backend.host(),
             runtimes: backend.runtimes(),
             diagnostics: backend.diagnostics(),
+            friends: backend.friends(),
             backend,
             next_query: std::cell::Cell::new(1),
         }
@@ -1091,6 +1113,7 @@ impl UiBridge {
                     // The host view's checks are the Doctor report once there is one.
                     self.host = self.backend.host();
                 }
+                UiEvent::FriendsChanged => self.friends = self.backend.friends(),
                 _ => {}
             }
             out.push(ev);
@@ -1131,6 +1154,11 @@ impl UiBridge {
     /// Diagnostics of this frame.
     pub fn diagnostics(&self) -> &Arc<Diagnostics> {
         &self.diagnostics
+    }
+
+    /// Friends of this frame (ADR-0033).
+    pub fn friends(&self) -> &Arc<easyplay_core::model::FriendsSnapshot> {
+        &self.friends
     }
 
     /// See [`Backend::assess`].

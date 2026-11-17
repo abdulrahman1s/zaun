@@ -45,6 +45,7 @@ pub mod umu;
 pub mod artwork;
 pub mod desktop;
 pub mod diagnostics;
+pub mod friends;
 pub mod launch;
 pub mod library;
 pub mod runtime;

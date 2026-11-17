@@ -152,6 +152,9 @@ pub struct AppPaths {
     pub games_dir: PathBuf,
     /// `<data>/artwork`.
     pub artwork_dir: PathBuf,
+    /// `<data>/friends`: the chat engine's encrypted database and its key (ADR-0033).
+    /// Made (0700) only when Friends is turned on.
+    pub friends_dir: PathBuf,
     /// `<data>/runtimes` (the runtime store).
     pub runtimes_dir: PathBuf,
     /// `<data>/runtimes/umu`.
@@ -238,6 +241,7 @@ impl AppPaths {
             backups_dir: data_dir.join("backups"),
             games_dir: data_dir.join("games"),
             artwork_dir: data_dir.join("artwork"),
+            friends_dir: data_dir.join("friends"),
             umu_store_dir: runtimes_dir.join("umu"),
             compat_tools_dir: runtimes_dir.join("Steam").join("compatibilitytools.d"),
             session_var_root: runtimes_dir.join("session-var"),

@@ -1,0 +1,330 @@
+{
+ "result": {
+  "type": "receivedGroupInvitation",
+  "user": {
+   "userId": 1,
+   "agentUserId": "1",
+   "userContactId": 1,
+   "localDisplayName": "bob",
+   "profile": {
+    "profileId": 1,
+    "displayName": "bob",
+    "fullName": "",
+    "localAlias": ""
+   },
+   "fullPreferences": {
+    "timedMessages": {
+     "allow": "yes"
+    },
+    "fullDelete": {
+     "allow": "no"
+    },
+    "reactions": {
+     "allow": "yes"
+    },
+    "voice": {
+     "allow": "yes"
+    },
+    "files": {
+     "allow": "always"
+    },
+    "calls": {
+     "allow": "yes"
+    },
+    "sessions": {
+     "allow": "no"
+    },
+    "commands": []
+   },
+   "activeUser": true,
+   "activeOrder": 1,
+   "showNtfs": true,
+   "sendRcptsContacts": true,
+   "sendRcptsSmallGroups": true,
+   "autoAcceptMemberContacts": false,
+   "userChatRelay": false,
+   "clientService": false
+  },
+  "groupInfo": {
+   "groupId": 1,
+   "useRelays": false,
+   "localDisplayName": "squad",
+   "groupProfile": {
+    "displayName": "squad",
+    "fullName": ""
+   },
+   "localAlias": "",
+   "fullGroupPreferences": {
+    "timedMessages": {
+     "enable": "off",
+     "ttl": 86400
+    },
+    "directMessages": {
+     "enable": "off"
+    },
+    "fullDelete": {
+     "enable": "off"
+    },
+    "reactions": {
+     "enable": "on"
+    },
+    "voice": {
+     "enable": "on"
+    },
+    "files": {
+     "enable": "on"
+    },
+    "simplexLinks": {
+     "enable": "on"
+    },
+    "reports": {
+     "enable": "on"
+    },
+    "history": {
+     "enable": "off"
+    },
+    "support": {
+     "enable": "on"
+    },
+    "sessions": {
+     "enable": "off"
+    },
+    "comments": {
+     "enable": "off"
+    },
+    "signMessages": {
+     "enable": "off"
+    },
+    "commands": []
+   },
+   "membership": {
+    "groupMemberId": 2,
+    "groupId": 1,
+    "indexInGroup": 1,
+    "memberId": "R3BWa1FGbFRUamc5S1hULw==",
+    "memberRole": "member",
+    "memberCategory": "user",
+    "memberStatus": "invited",
+    "memberSettings": {
+     "showMessages": true
+    },
+    "blockedByAdmin": false,
+    "invitedBy": {
+     "type": "contact",
+     "byContactId": 3
+    },
+    "invitedByGroupMemberId": 1,
+    "localDisplayName": "bob",
+    "memberProfile": {
+     "profileId": 1,
+     "displayName": "bob",
+     "fullName": "",
+     "localAlias": ""
+    },
+    "memberContactId": 1,
+    "memberContactProfileId": 1,
+    "memberChatVRange": {
+     "minVersion": 1,
+     "maxVersion": 19
+    },
+    "createdAt": "2026-11-17T04:57:17.02510369Z",
+    "updatedAt": "2026-11-17T04:57:17.02510369Z"
+   },
+   "chatSettings": {
+    "enableNtfs": "all",
+    "favorite": false
+   },
+   "createdAt": "2026-11-17T04:57:17.02510369Z",
+   "updatedAt": "2026-11-17T04:57:17.02510369Z",
+   "chatTs": "2026-11-17T04:57:17.02510369Z",
+   "userMemberProfileSentAt": "2026-11-17T04:57:17.02510369Z",
+   "chatTags": [],
+   "groupSummary": {
+    "currentMembers": 2
+   },
+   "membersRequireAttention": 0
+  },
+  "contact": {
+   "contactId": 3,
+   "localDisplayName": "alice",
+   "profile": {
+    "profileId": 3,
+    "displayName": "alice",
+    "fullName": "",
+    "preferences": {
+     "timedMessages": {
+      "allow": "yes"
+     },
+     "fullDelete": {
+      "allow": "no"
+     },
+     "reactions": {
+      "allow": "yes"
+     },
+     "voice": {
+      "allow": "yes"
+     },
+     "files": {
+      "allow": "always"
+     },
+     "calls": {
+      "allow": "yes"
+     },
+     "sessions": {
+      "allow": "no"
+     },
+     "commands": []
+    },
+    "localAlias": ""
+   },
+   "activeConn": {
+    "connId": 1,
+    "agentConnId": "TEQ1bXJVZ1pOVmlzMlNXbQ==",
+    "connChatVersion": 19,
+    "peerChatVRange": {
+     "minVersion": 1,
+     "maxVersion": 19
+    },
+    "connLevel": 0,
+    "viaGroupLink": false,
+    "connType": "contact",
+    "connStatus": {
+     "type": "ready"
+    },
+    "contactConnInitiated": false,
+    "localAlias": "",
+    "entityId": 3,
+    "pqSupport": true,
+    "pqEncryption": true,
+    "pqSndEnabled": true,
+    "pqRcvEnabled": true,
+    "authErrCounter": 0,
+    "quotaErrCounter": 0,
+    "createdAt": "2026-11-17T04:57:16.537907821Z"
+   },
+   "contactUsed": true,
+   "contactStatus": "active",
+   "chatSettings": {
+    "enableNtfs": "all",
+    "favorite": false
+   },
+   "userPreferences": {},
+   "mergedPreferences": {
+    "timedMessages": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "yes"
+      }
+     },
+     "contactPreference": {
+      "allow": "yes"
+     }
+    },
+    "fullDelete": {
+     "enabled": {
+      "forUser": false,
+      "forContact": false
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "no"
+      }
+     },
+     "contactPreference": {
+      "allow": "no"
+     }
+    },
+    "reactions": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "yes"
+      }
+     },
+     "contactPreference": {
+      "allow": "yes"
+     }
+    },
+    "voice": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "yes"
+      }
+     },
+     "contactPreference": {
+      "allow": "yes"
+     }
+    },
+    "files": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "always"
+      }
+     },
+     "contactPreference": {
+      "allow": "always"
+     }
+    },
+    "calls": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "yes"
+      }
+     },
+     "contactPreference": {
+      "allow": "yes"
+     }
+    },
+    "sessions": {
+     "enabled": {
+      "forUser": false,
+      "forContact": false
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "no"
+      }
+     },
+     "contactPreference": {
+      "allow": "no"
+     }
+    },
+    "commands": []
+   },
+   "createdAt": "2026-11-17T04:57:16.822122198Z",
+   "updatedAt": "2026-11-17T04:57:16.822122198Z",
+   "chatTs": "2026-11-17T04:57:16.85818447Z",
+   "contactGrpInvSent": false,
+   "chatTags": [],
+   "chatDeleted": false
+  },
+  "fromMemberRole": "owner",
+  "memberRole": "member"
+ }
+}

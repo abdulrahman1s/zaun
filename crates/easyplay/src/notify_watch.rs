@@ -36,6 +36,7 @@ pub struct NotifyWatch {
     stop: Arc<AtomicBool>,
     hub: Arc<SnapshotHub>,
     thread: Option<JoinHandle<()>>,
+    friends: Option<JoinHandle<()>>,
 }
 
 impl NotifyWatch {
@@ -47,6 +48,12 @@ impl NotifyWatch {
         notifier: Arc<dyn Notifier>,
     ) -> Option<Self> {
         let stop = Arc::new(AtomicBool::new(false));
+        let friends = Self::spawn_friends(
+            Arc::clone(&hub),
+            Arc::clone(&stop),
+            Arc::clone(&focus),
+            Arc::clone(&notifier),
+        );
         let (s2, h2) = (Arc::clone(&stop), Arc::clone(&hub));
         let thread = std::thread::Builder::new()
             .name("notify-watch".into())
@@ -92,7 +99,40 @@ impl NotifyWatch {
             stop,
             hub,
             thread: Some(thread),
+            friends,
         })
+    }
+
+    /// New friend messages (ADR-0033), from the Friends snapshot: one notification per
+    /// conversation whose unread count rose, while no window has focus.
+    fn spawn_friends(
+        hub: Arc<SnapshotHub>,
+        stop: Arc<AtomicBool>,
+        focus: Arc<AtomicBool>,
+        notifier: Arc<dyn Notifier>,
+    ) -> Option<JoinHandle<()>> {
+        std::thread::Builder::new()
+            .name("notify-friends".into())
+            .spawn(move || {
+                let mut seen = hub.friends.load();
+                loop {
+                    let now = hub.friends.wait_until(|current| {
+                        stop.load(Ordering::Relaxed) || !Arc::ptr_eq(current, &seen)
+                    });
+                    if stop.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let prefs = hub.prefs.load();
+                    let focused = focus.load(Ordering::Relaxed);
+                    for ev in notify::friend_messages(&seen, &now, prefs.friends.notify_preview) {
+                        if notify::wanted(&ev, &prefs, focused) {
+                            notifier.notify(&notify::compose(&ev, None));
+                        }
+                    }
+                    seen = now;
+                }
+            })
+            .ok()
     }
 }
 
@@ -100,7 +140,11 @@ impl Drop for NotifyWatch {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         self.hub.sessions.wake();
+        self.hub.friends.wake();
         if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+        if let Some(t) = self.friends.take() {
             let _ = t.join();
         }
     }

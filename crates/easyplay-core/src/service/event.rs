@@ -133,6 +133,10 @@ pub enum Notice {
         /// Games listed.
         games: usize,
     },
+    /// New messages: received, or sent by the user (ADR-0033). Oldest first.
+    FriendMessages(Vec<crate::model::FriendMessage>),
+    /// Messages whose delivery or text changed.
+    FriendMessagesUpdated(Vec<crate::model::FriendMessage>),
     /// A Steam game's launch options were written to Steam's settings (ADR-0031 §6a).
     SteamLaunchOptionsSaved {
         /// The game.
@@ -214,6 +218,8 @@ pub enum QueryResult {
     Report(Vec<crate::diagnostics::report::ReportFile>),
     /// `SteamCommand::Details`.
     Steam(Box<SteamDetail>),
+    /// `FriendsCommand::LoadChat`.
+    Chat(ChatPage),
     /// The query failed.
     Failed(Box<UserError>),
 }
@@ -241,6 +247,15 @@ pub struct SteamDetail {
     pub steam_open: bool,
 }
 
+/// The answer to `FriendsCommand::LoadChat`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChatPage {
+    /// The conversation.
+    pub chat: crate::model::ChatRef,
+    /// Oldest first.
+    pub messages: Vec<crate::model::FriendMessage>,
+}
+
 /// An announcement from the AppService.
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -256,6 +271,8 @@ pub enum Event {
     HostFactsChanged,
     /// The diagnostics snapshot (Doctor report, crash record, recovery mode) changed.
     DiagnosticsChanged,
+    /// A new Friends snapshot is in the hub (ADR-0033).
+    FriendsChanged,
     /// A launch advanced.
     LaunchProgress {
         /// The game.

@@ -342,6 +342,44 @@ impl SandboxSpawner for RealSpawner {
     }
 }
 
+// ---- piped helpers --------------------------------------------------------------------------
+
+/// A long-lived helper that EasyPlay talks to over pipes (ADR-0033: the Friends engine).
+pub struct PipedHelper<'a> {
+    /// The program (usually `bwrap`).
+    pub program: &'a Path,
+    /// Its arguments.
+    pub args: &'a [OsString],
+    /// Its whole environment (nothing is inherited).
+    pub env: &'a [(OsString, OsString)],
+    /// Where its standard error goes (appended; created 0600, never through a link).
+    pub log: &'a Path,
+}
+
+/// Start `helper` with standard input and output piped to the caller and standard error to
+/// its log. Like every child here it gets the death signal of the **thread** that starts it,
+/// so call this from a thread that lives as long as the helper should (the service thread).
+#[allow(clippy::disallowed_methods)] // session::spawn is one of the two places that spawn.
+pub fn spawn_piped_helper(helper: &PipedHelper<'_>) -> std::io::Result<Child> {
+    crate::ui_thread::assert_not_ui_thread("spawn_piped_helper");
+    let log = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(helper.log)?;
+    let mut cmd = Command::new(helper.program);
+    cmd.args(helper.args)
+        .env_clear()
+        .envs(helper.env.iter().map(|(k, v)| (k, v)))
+        .current_dir("/")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(log));
+    sys::configure_sandbox_child(&mut cmd, Vec::new());
+    cmd.spawn()
+}
+
 // ---- host actions ---------------------------------------------------------------------------
 
 /// What the host actions need besides the filesystem.

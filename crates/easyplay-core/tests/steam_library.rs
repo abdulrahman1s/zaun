@@ -403,6 +403,7 @@ impl World {
             policy_check: Some(Arc::new(NoPolicyCheck)),
             umu_titles: Arc::new(NoUmuTitles),
             watch_sessions: false,
+            friends: None,
         };
         let (mut svc, events) = AppService::open_headless(deps).unwrap();
         let handoff = Arc::new(RecordingHandoff::default());

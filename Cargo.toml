@@ -6,6 +6,7 @@ members = [
     "crates/easyplay",
     "crates/easyplay-init",
     "crates/easyplay-testkit",
+    "crates/easyplay-friends",
 ]
 
 [workspace.package]
@@ -69,7 +70,7 @@ uuid = { version = "1.16", features = ["v7", "serde"] }
 rust-i18n = "4.2"
 unicode-bidi = "0.3"
 jiff = "0.2"
-rustix = { version = "1.0", features = ["fs", "process", "pipe", "event", "system", "thread", "net", "param"] }
+rustix = { version = "1.0", features = ["fs", "process", "pipe", "event", "system", "thread", "net", "param", "rand"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "ico", "bmp"] }
 pelite = "0.10"
 # Search normalisation (GAME_LIBRARY §4: NFKD, combining marks removed).

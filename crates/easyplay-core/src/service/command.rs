@@ -157,6 +157,67 @@ impl LogFile {
     }
 }
 
+/// Friends (ADR-0033). Answers arrive as `Event::FriendsChanged` (the snapshot),
+/// `Notice::FriendMessages` / `Notice::FriendMessagesUpdated`, and `QueryResult::Chat`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FriendsCommand {
+    /// Turn Friends on (with the name friends see, for a first start) or off
+    /// (`friends.enabled`, `friends.name`).
+    SetEnabled {
+        /// On or off.
+        on: bool,
+        /// The name for a first start (`None` = keep `friends.name`).
+        name: Option<String>,
+    },
+    /// Change the name friends see.
+    SetName(String),
+    /// Make a one-time invitation link (`FriendsSnapshot::invite`).
+    CreateInvite,
+    /// Use a friend's link.
+    Connect(String),
+    /// Accept a request made through the user's address.
+    Accept(i64),
+    /// Decline it.
+    Reject(i64),
+    /// Make the user's reusable address (`FriendsSnapshot::address`).
+    CreateAddress,
+    /// Delete it.
+    DeleteAddress,
+    /// Send text.
+    Send {
+        /// Where.
+        chat: crate::model::ChatRef,
+        /// What.
+        text: String,
+    },
+    /// Everything in the conversation was seen.
+    MarkRead(crate::model::ChatRef),
+    /// Messages of a conversation, answered with `QueryResult::Chat` to `reply_to`.
+    LoadChat {
+        /// Which.
+        chat: crate::model::ChatRef,
+        /// Only older than this message (`None` = the latest).
+        before: Option<i64>,
+        /// Where the answer goes.
+        reply_to: QueryId,
+    },
+    /// Make a group.
+    NewGroup(String),
+    /// Invite a friend into a group.
+    AddMember {
+        /// The group.
+        group: i64,
+        /// The friend.
+        friend: i64,
+    },
+    /// Join a group the user was invited to.
+    JoinGroup(i64),
+    /// Leave a group.
+    LeaveGroup(i64),
+    /// Remove a friend and the conversation.
+    RemoveFriend(i64),
+}
+
 /// Steam games (ADR-0031). Favourite, hidden, tags, notes (`UpdateGame` with
 /// `GameEdit::Notes`), Play (`Launch`) and folders (`OpenFolder`) use the general commands
 /// with the game's [`GameId::steam`] ID.
@@ -520,6 +581,9 @@ pub enum Command {
     // ---- Steam games (ADR-0031)
     /// A Steam action.
     Steam(SteamCommand),
+    // ---- Friends (ADR-0033)
+    /// A Friends action.
+    Friends(FriendsCommand),
     // ---- lifecycle
     /// Stop the service: parked flows are cancelled, running games are left alone.
     Shutdown,
@@ -578,6 +642,7 @@ impl Command {
             Command::DismissCrash => "dismiss_crash",
             Command::ResolveDatabase(_) => "resolve_database",
             Command::Steam(_) => "steam",
+            Command::Friends(_) => "friends",
             Command::Shutdown => "shutdown",
         }
     }

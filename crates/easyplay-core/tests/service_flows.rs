@@ -104,6 +104,7 @@ fn deps(env: &TestEnv, launcher: Arc<FakeLauncher>) -> ServiceDeps {
         policy_check: Some(Arc::new(NoPolicyCheck)),
         umu_titles: Arc::new(NoUmuTitles),
         watch_sessions: false,
+        friends: None,
     }
 }
 

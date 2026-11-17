@@ -6,7 +6,7 @@ allow-expect-in-tests = true
 disallowed-methods = [
     { path = "std::time::SystemTime::now", reason = "use crate::clock::Clock (MODULES §2 clock)" },
     { path = "std::time::Instant::now", reason = "use crate::clock::Clock (MODULES §2 clock)" },
-    { path = "std::process::Command::new", reason = "processes are started only by host::runner and session::spawn (ARCH-002)" },
+    { path = "std::process::Command::new", reason = "processes are started only by host::runner and session::spawn (ARCH-002; session::spawn also starts the Friends helper, ADR-0033)" },
     { path = "std::fs::read", reason = "use crate::fsx::Fs" },
     { path = "std::fs::read_to_string", reason = "use crate::fsx::Fs" },
     { path = "std::fs::write", reason = "use crate::fsx::Fs" },

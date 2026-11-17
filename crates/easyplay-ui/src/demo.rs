@@ -2129,6 +2129,8 @@ impl DemoBackend {
             | UiCommand::ResolveDatabase(_)
             | UiCommand::Quit => {}
             UiCommand::Steam(a) => Self::steam(s, a),
+            // Sample Friends data comes with the Friends page (ADR-0033).
+            UiCommand::Friends(_) => {}
             UiCommand::ListSessions { reply_to, .. } => {
                 s.events.push_back(UiEvent::QueryResult {
                     id: reply_to,

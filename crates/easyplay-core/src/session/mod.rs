@@ -39,7 +39,8 @@ pub use lock::{FlockLocks, LockError, PrefixLock};
 pub use recovery::{RecoveredSession, RecoveryOptions, recover};
 pub use registry::{ActiveSession, ProcessInfo, ProcessRole, Registry, process_list};
 pub use spawn::{
-    RealSpawner, SandboxChild, SandboxIo, SandboxSpawner, SoundServer, write_sound_config,
+    PipedHelper, RealSpawner, SandboxChild, SandboxIo, SandboxSpawner, SoundServer,
+    spawn_piped_helper, write_sound_config,
 };
 pub use status::{BwrapStatus, BwrapStatusParser, InitStatus, InitStatusParser};
 pub use stop::{StopMode, StopOutcome, request_stop};

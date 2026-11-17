@@ -1308,6 +1308,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "easyplay-friends"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "libloading",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "easyplay-init"
 version = "0.1.0"
 dependencies = [

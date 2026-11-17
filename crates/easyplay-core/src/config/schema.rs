@@ -251,6 +251,35 @@ pub struct SteamPrefs {
     pub show_games: bool,
 }
 
+/// `[friends]` (ADR-0033).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FriendsPrefs {
+    /// Friends runs: the chat engine starts with EasyPlay and reaches the relays. Off by
+    /// default; while off, nothing is sent anywhere.
+    pub enabled: bool,
+    /// The name friends see, used when the chat profile is made (the first start); later
+    /// changes go through the profile.
+    pub name: String,
+    /// SMP relay addresses (`smp://…`); empty = the relays SimpleX Chat presets.
+    pub relays: Vec<String>,
+    /// A desktop notification for a new message while no EasyPlay window has focus.
+    pub notify: bool,
+    /// The notification includes the message's text (otherwise only who wrote).
+    pub notify_preview: bool,
+}
+
+impl Default for FriendsPrefs {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            name: String::new(),
+            relays: Vec::new(),
+            notify: true,
+            notify_preview: false,
+        }
+    }
+}
+
 /// `[protection]`.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Protection {
@@ -411,6 +440,8 @@ pub struct Preferences {
     pub artwork: ArtworkPrefs,
     /// `[steam]`.
     pub steam: SteamPrefs,
+    /// `[friends]`.
+    pub friends: FriendsPrefs,
     /// `[protection]`.
     pub protection: Protection,
     /// `[runtime]`.
@@ -460,6 +491,7 @@ impl Default for Preferences {
                 name_search: true,
             },
             steam: SteamPrefs { show_games: false },
+            friends: FriendsPrefs::default(),
             protection: Protection {
                 default_preset: BasePreset::Offline,
                 always_isolate_runtime: false,

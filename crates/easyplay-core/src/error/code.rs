@@ -242,6 +242,21 @@ error_codes! {
     /// Steam's settings file for the account could not be found, read safely or written.
     StmSettingsUnwritable = "EP-STM-009", Error;
 
+    // ---- Friends — EP-FRN (ADR-0033) ------------------------------------------------------
+    /// This build of EasyPlay has no chat engine (the Friends helper or its library is
+    /// missing).
+    FrnUnavailable = "EP-FRN-001", Warning;
+    /// The chat engine stopped again and again, so Friends was stopped.
+    FrnEngineFailing = "EP-FRN-002", Error;
+    /// The encrypted chat database could not be opened.
+    FrnDatabase = "EP-FRN-003", Error;
+    /// No relay could be reached (no connection, or the relays are down).
+    FrnNoConnection = "EP-FRN-004", Warning;
+    /// The text is not a SimpleX invitation or address link.
+    FrnBadLink = "EP-FRN-005", Warning;
+    /// The chat engine refused a request.
+    FrnRequestFailed = "EP-FRN-006", Warning;
+
     // ---- Integration and internal — EP-DSK, EP-INT ---------------------------------------
     /// Could not change the default application.
     DskDefaultHandlerFailed = "EP-DSK-001", Error;

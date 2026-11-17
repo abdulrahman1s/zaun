@@ -182,6 +182,15 @@ impl ServiceBackend {
             Event::RuntimesChanged => UiEvent::RuntimesChanged,
             Event::PreferencesChanged => UiEvent::PreferencesChanged,
             Event::DiagnosticsChanged => UiEvent::DiagnosticsChanged,
+            Event::FriendsChanged => UiEvent::FriendsChanged,
+            Event::Notice(Notice::FriendMessages(messages)) => UiEvent::FriendMessages {
+                messages,
+                updated: false,
+            },
+            Event::Notice(Notice::FriendMessagesUpdated(messages)) => UiEvent::FriendMessages {
+                messages,
+                updated: true,
+            },
             Event::SessionsChanged => return None,
             Event::ShowGame(g) => UiEvent::ShowGame(g),
             Event::QuitRequested => UiEvent::QuitRequested,
@@ -241,6 +250,7 @@ impl ServiceBackend {
                     QueryResult::Processes(p) => QueryPayload::Processes(p),
                     QueryResult::Report(f) => QueryPayload::Report(f),
                     QueryResult::Steam(d) => QueryPayload::Steam(d),
+                    QueryResult::Chat(c) => QueryPayload::Chat(c),
                     QueryResult::Failed(e) => QueryPayload::Failed(*e),
                 },
             },
@@ -306,6 +316,8 @@ fn notice_text(n: &Notice, lib: &LibrarySnapshot) -> String {
     let name = |g: &GameId| lib.get(*g).map(|s| s.name.to_string()).unwrap_or_default();
     match n {
         Notice::GameAdded { name, .. } => crate::strings::feedback::added(name),
+        // Mapped to `UiEvent::FriendMessages` before toasts are made.
+        Notice::FriendMessages(_) | Notice::FriendMessagesUpdated(_) => String::new(),
         Notice::AlreadyInLibrary { game } => text::already(&name(game)),
         Notice::FoundMoved { game } => text::found_moved(&name(game)),
         Notice::OnlyFirstPaths { processed } => text::only_first(*processed),
@@ -701,6 +713,7 @@ impl Backend for ServiceBackend {
             UiCommand::DismissCrash => h.send(Command::DismissCrash),
             UiCommand::ResolveDatabase(c) => h.send(Command::ResolveDatabase(c)),
             UiCommand::Steam(a) => h.send(Command::Steam(steam_command(a))),
+            UiCommand::Friends(c) => h.send(Command::Friends(c)),
         }
     }
 
@@ -729,6 +742,9 @@ impl Backend for ServiceBackend {
 
     fn diagnostics(&self) -> Arc<Diagnostics> {
         self.handle.hub.diagnostics.load()
+    }
+    fn friends(&self) -> Arc<easyplay_core::model::FriendsSnapshot> {
+        self.handle.hub.friends.load()
     }
 
     fn host(&self) -> Arc<HostView> {
@@ -894,6 +910,8 @@ pub fn compact_unattended(queue: VecDeque<UiEvent>) -> (VecDeque<UiEvent>, Unatt
             | UiEvent::HostChanged
             | UiEvent::RuntimesChanged
             | UiEvent::DiagnosticsChanged
+            | UiEvent::FriendsChanged
+            | UiEvent::FriendMessages { .. }
             | UiEvent::QueryResult { .. }
             | UiEvent::ArtworkFailed { .. } => false,
             UiEvent::QuitRequested => {
