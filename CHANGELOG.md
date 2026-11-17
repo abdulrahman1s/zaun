@@ -11,8 +11,8 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 
 ### For users
 
-- When something was removed in the meantime (from another window, the command line or a
-  Steam rescan), the message now says so: "This game is no longer in the library", "This tag
+- When something was removed in the meantime (from another window or the command line), the
+  message now says so: "This game is no longer in the library", "This tag
   no longer exists" or "This session is no longer there" (`EP-LIB-040`, `EP-LIB-041`,
   `EP-SES-040`). Before, it was a generic internal error or "This value cannot be used". The
   command line prints the same.
