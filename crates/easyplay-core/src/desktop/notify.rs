@@ -28,6 +28,13 @@ pub enum NotifyEvent {
     },
     /// The shared runtime was found modified and removed.
     TamperRemoved,
+    /// A friend wrote (ADR-0033).
+    ChatMessage {
+        /// Who: the friend, or "member · group".
+        from: String,
+        /// The text, only with `chat.notify_preview` on.
+        text: Option<String>,
+    },
 }
 
 /// A composed notification.
@@ -62,6 +69,20 @@ fn clean_name(name: &str) -> String {
     }
 }
 
+/// A friend's message as a notification body: no control characters, at most 200
+/// characters, and markup escaped (notification servers may read the body as markup).
+fn clean_text(text: &str) -> String {
+    let flat: String = text
+        .chars()
+        .map(|c| if c == '\n' || c == '\t' { ' ' } else { c })
+        .filter(|c| !c.is_control())
+        .take(200)
+        .collect();
+    flat.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 /// The text of an event (§7 table).
 pub fn compose(event: &NotifyEvent, icon: Option<&str>) -> Notification {
     let icon = icon.unwrap_or(APP_ID).to_owned();
@@ -90,7 +111,54 @@ pub fn compose(event: &NotifyEvent, icon: Option<&str>) -> Notification {
             icon,
             open_action: false,
         },
+        NotifyEvent::ChatMessage { from, text } => Notification {
+            summary: clean_name(from),
+            body: text
+                .as_deref()
+                .map(clean_text)
+                .unwrap_or_else(|| "New message".to_owned()),
+            icon,
+            open_action: true,
+        },
     }
+}
+
+/// The messages to announce between two Chat snapshots: one per conversation whose
+/// unread count rose and whose latest message is not the user's own. A muted conversation
+/// is announced only when that message mentions the user.
+pub fn chat_messages(
+    before: &crate::model::ChatSnapshot,
+    now: &crate::model::ChatSnapshot,
+    preview: bool,
+) -> Vec<NotifyEvent> {
+    use crate::model::{MessageAuthor, MessageBody};
+    now.chats
+        .iter()
+        .filter(|c| {
+            let was = before
+                .chats
+                .iter()
+                .find(|b| b.chat == c.chat)
+                .map_or(0, |b| b.unread);
+            c.unread > was
+        })
+        .filter_map(|c| {
+            let last = c.last.as_ref()?;
+            if c.muted && !last.mentions.iter().any(|m| m.me) {
+                return None;
+            }
+            let from = match &last.author {
+                MessageAuthor::Me => return None,
+                MessageAuthor::Friend => c.name.clone(),
+                MessageAuthor::Member(m) => format!("{m} · {}", c.name),
+            };
+            let text = match (&last.body, preview) {
+                (MessageBody::Text(t), true) => Some(t.clone()),
+                _ => None,
+            };
+            Some(NotifyEvent::ChatMessage { from, text })
+        })
+        .collect()
 }
 
 /// Whether `event` is notified with these preferences while the window has (or lacks) focus.
@@ -100,6 +168,7 @@ pub fn wanted(event: &NotifyEvent, prefs: &Preferences, focused: bool) -> bool {
         NotifyEvent::LayerReady => !focused,
         NotifyEvent::Ended { .. } => !focused && prefs.launch.notify_on_exit,
         NotifyEvent::TamperRemoved => true,
+        NotifyEvent::ChatMessage { .. } => !focused && prefs.chat.enabled && prefs.chat.notify,
     }
 }
 
@@ -186,6 +255,158 @@ impl Notifier for RecordingNotifier {
 
 #[cfg(test)]
 mod tests {
+    use crate::model::{
+        ChatMessage, ChatPreview, ChatRef, ChatSnapshot, Delivery, MessageAuthor, MessageBody,
+    };
+
+    fn chat(
+        chat: ChatRef,
+        name: &str,
+        unread: u32,
+        author: MessageAuthor,
+        text: &str,
+    ) -> ChatPreview {
+        ChatPreview {
+            chat,
+            name: name.into(),
+            unread,
+            last: Some(ChatMessage {
+                id: 1,
+                chat,
+                author,
+                body: MessageBody::Text(text.into()),
+                at: crate::clock::Timestamp::EPOCH,
+                delivery: Delivery::Received,
+                unread: true,
+                reply: None,
+                reactions: Vec::new(),
+                edited: false,
+                mentions: Vec::new(),
+            }),
+            muted: false,
+        }
+    }
+
+    #[test]
+    fn a_friend_message_is_announced_by_name_and_its_text_only_when_asked() {
+        let before = ChatSnapshot {
+            chats: vec![chat(
+                ChatRef::Direct(1),
+                "Kai",
+                0,
+                MessageAuthor::Friend,
+                "old",
+            )],
+            ..ChatSnapshot::default()
+        };
+        let now = ChatSnapshot {
+            chats: vec![
+                chat(
+                    ChatRef::Direct(1),
+                    "Kai",
+                    1,
+                    MessageAuthor::Friend,
+                    "<b>gg</b> & go",
+                ),
+                chat(
+                    ChatRef::Group(2),
+                    "Squad",
+                    2,
+                    MessageAuthor::Member("Ana".into()),
+                    "hi",
+                ),
+                chat(
+                    ChatRef::Direct(3),
+                    "Rin",
+                    0,
+                    MessageAuthor::Friend,
+                    "read already",
+                ),
+            ],
+            ..ChatSnapshot::default()
+        };
+        let quiet = chat_messages(&before, &now, false);
+        assert_eq!(
+            quiet,
+            vec![
+                NotifyEvent::ChatMessage {
+                    from: "Kai".into(),
+                    text: None
+                },
+                NotifyEvent::ChatMessage {
+                    from: "Ana · Squad".into(),
+                    text: None
+                },
+            ]
+        );
+        let n = compose(&quiet[0], None);
+        assert_eq!(
+            (n.summary.as_str(), n.body.as_str()),
+            ("Kai", "New message")
+        );
+
+        let shown = chat_messages(&before, &now, true);
+        let n = compose(&shown[0], None);
+        assert_eq!(n.body, "&lt;b&gt;gg&lt;/b&gt; &amp; go");
+
+        // The user's own message, or nothing new: nothing.
+        let mine = ChatSnapshot {
+            chats: vec![chat(
+                ChatRef::Direct(1),
+                "Kai",
+                1,
+                MessageAuthor::Me,
+                "sent",
+            )],
+            ..ChatSnapshot::default()
+        };
+        assert!(chat_messages(&before, &mine, true).is_empty());
+        assert!(chat_messages(&now, &now, true).is_empty());
+    }
+
+    #[test]
+    fn a_muted_group_is_announced_only_for_a_mention_of_the_user() {
+        let group = ChatRef::Group(4);
+        let before = ChatSnapshot {
+            chats: vec![chat(group, "Crew", 0, MessageAuthor::Member("Ana".into()), "a")],
+            ..ChatSnapshot::default()
+        };
+        let mut now = ChatSnapshot {
+            chats: vec![chat(group, "Crew", 1, MessageAuthor::Member("Ana".into()), "b")],
+            ..ChatSnapshot::default()
+        };
+        now.chats[0].muted = true;
+        assert!(chat_messages(&before, &now, false).is_empty());
+        let mention = |me| crate::model::Mention {
+            name: "Sam".into(),
+            member: 2,
+            me,
+        };
+        if let Some(last) = now.chats[0].last.as_mut() {
+            last.mentions = vec![mention(false)];
+        }
+        assert!(chat_messages(&before, &now, false).is_empty(), "someone else");
+        if let Some(last) = now.chats[0].last.as_mut() {
+            last.mentions = vec![mention(true)];
+        }
+        assert_eq!(chat_messages(&before, &now, false).len(), 1);
+    }
+
+    #[test]
+    fn friend_messages_are_not_announced_while_focused_or_turned_off() {
+        let ev = NotifyEvent::ChatMessage {
+            from: "Kai".into(),
+            text: None,
+        };
+        let mut p = Preferences::default();
+        assert!(!wanted(&ev, &p, false), "Chat is off");
+        p.chat.enabled = true;
+        assert!(wanted(&ev, &p, false));
+        assert!(!wanted(&ev, &p, true));
+        p.chat.notify = false;
+        assert!(!wanted(&ev, &p, false));
+    }
+
     use super::*;
 
     #[test]

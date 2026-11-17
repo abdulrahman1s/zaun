@@ -157,6 +157,210 @@ impl LogFile {
     }
 }
 
+/// Chat (ADR-0033). Answers arrive as `Event::ChatChanged` (the snapshot),
+/// `Notice::ChatMessages` / `Notice::ChatMessagesUpdated`, and `QueryResult::Chat`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChatCommand {
+    /// Turn Chat on (with the name friends see, for a first start) or off
+    /// (`chat.enabled`, `chat.name`).
+    SetEnabled {
+        /// On or off.
+        on: bool,
+        /// The name for a first start (`None` = keep `chat.name`).
+        name: Option<String>,
+    },
+    /// Change the name friends see.
+    SetName(String),
+    /// Make a one-time invitation link (`ChatSnapshot::invite`).
+    CreateInvite,
+    /// Use a friend's link.
+    Connect(String),
+    /// Accept a request made through the user's address.
+    Accept(i64),
+    /// Decline it.
+    Reject(i64),
+    /// Make the user's reusable address (`ChatSnapshot::address`).
+    CreateAddress,
+    /// Delete it.
+    DeleteAddress,
+    /// Send text.
+    Send {
+        /// Where.
+        chat: crate::model::ChatRef,
+        /// What.
+        text: String,
+        /// The message it answers.
+        reply_to: Option<i64>,
+        /// Members named with @ (name as written, member number).
+        mentions: Vec<(String, i64)>,
+    },
+    /// Send a voice message recorded in the composer (the composer agent; the preview plays
+    /// it, the real service ignores it until recording is carried).
+    SendVoice {
+        /// Where.
+        chat: crate::model::ChatRef,
+        /// Its length in seconds (1 to 300).
+        secs: u32,
+    },
+    /// Send a picture or GIF file (core agent). The service copies it into the Chat folder
+    /// (the only folder the engine's sandbox sees) and sends the copy; `.gif` goes as a GIF,
+    /// anything else as a picture. Files over `chat::MAX_FILE` (1 MiB, what friends receive
+    /// without asking) are refused. Gated by `ChatFeatures::files` (and `gifs` for GIFs).
+    SendFile {
+        /// Where.
+        chat: crate::model::ChatRef,
+        /// The file on this computer.
+        path: PathBuf,
+    },
+    /// Change the text of one of the user's messages.
+    Edit {
+        /// Where.
+        chat: crate::model::ChatRef,
+        /// Which message.
+        item: i64,
+        /// The new text.
+        text: String,
+    },
+    /// Delete one of the user's messages for everyone.
+    Delete {
+        /// Where.
+        chat: crate::model::ChatRef,
+        /// Which message.
+        item: i64,
+    },
+    /// Add or take back a reaction.
+    React {
+        /// Where.
+        chat: crate::model::ChatRef,
+        /// Which message.
+        item: i64,
+        /// The emoji.
+        emoji: String,
+        /// Add (or remove).
+        on: bool,
+    },
+    /// Mute or unmute a conversation's notifications.
+    SetMuted {
+        /// Which.
+        chat: crate::model::ChatRef,
+        /// Muted.
+        on: bool,
+    },
+    /// Block or unblock a friend (they are not told).
+    SetBlocked {
+        /// The friend.
+        friend: i64,
+        /// Blocked.
+        on: bool,
+    },
+    /// Block or unblock a group member (their messages collapse).
+    SetMemberBlocked {
+        /// The group.
+        group: i64,
+        /// The member.
+        member: i64,
+        /// Blocked.
+        on: bool,
+    },
+    /// Fetch a friend's security code into `ChatSnapshot::code`.
+    ShowCode(i64),
+    /// The codes matched: mark the friend verified.
+    Verify {
+        /// The friend.
+        friend: i64,
+        /// The code that was compared.
+        code: String,
+    },
+    /// The user's profile (name, about, avatar pair).
+    SetProfile(crate::model::ChatProfile),
+    /// The user's status (online, away, do not disturb, invisible).
+    SetStatus(crate::model::MyStatus),
+    /// Call a friend, or start or join a group's voice.
+    Call(crate::model::ChatRef),
+    /// Answer the ringing call.
+    Answer,
+    /// Decline the ringing call.
+    Decline,
+    /// Leave the call.
+    EndCall,
+    /// Turn the microphone off or on in the call.
+    CallMute(bool),
+    /// Stop or start hearing the call.
+    CallDeafen(bool),
+    /// Share the running game with a conversation.
+    StartShare(crate::model::ChatRef),
+    /// Stop sharing.
+    StopShare,
+    /// Watch the stream in a conversation.
+    Watch(crate::model::ChatRef),
+    /// Stop watching.
+    StopWatch,
+    /// Turn the watched stream's sound off or on.
+    WatchMute(bool),
+    /// Open a link from a message in the browser; with `chat.check_links` on, after the
+    /// site is checked (a harmful one comes back as `Notice::ChatUnsafeLink` instead).
+    OpenLink(String),
+    /// Open a link without the check: the user chose "Open anyway" after
+    /// `Notice::ChatUnsafeLink` (only `http` and `https`).
+    OpenLinkAnyway(String),
+    /// Search Giphy for GIFs (only the words are sent; `crate::gifs`), answered with
+    /// `QueryResult::Gifs` to `reply_to`. Nothing is sent while `chat.gif_search` is off or
+    /// no key is known (the answer says why).
+    GifSearch {
+        /// The words typed.
+        query: String,
+        /// Where the answer goes.
+        reply_to: QueryId,
+    },
+    /// Giphy's trending GIFs, answered with `QueryResult::Gifs` (same rules as search).
+    GifTrending {
+        /// Where the answer goes.
+        reply_to: QueryId,
+    },
+    /// A picker picture from Giphy's media hosts, answered with `QueryResult::GifPreview`.
+    GifPreview {
+        /// `crate::gifs::Gif::preview_url`.
+        url: String,
+        /// Where the answer goes.
+        reply_to: QueryId,
+    },
+    /// Send a GIF: one from Giphy is downloaded first (at most `crate::gifs::MAX_SEND`) and
+    /// sent as a file (`SendFile`), so friends never contact Giphy. A failure comes back as
+    /// `Notice::ChatGifNotSent`.
+    SendGif {
+        /// Where.
+        chat: crate::model::ChatRef,
+        /// Which.
+        gif: crate::gifs::GifPick,
+    },
+    /// Everything in the conversation was seen.
+    MarkRead(crate::model::ChatRef),
+    /// Messages of a conversation, answered with `QueryResult::Chat` to `reply_to`.
+    LoadChat {
+        /// Which.
+        chat: crate::model::ChatRef,
+        /// Only older than this message (`None` = the latest).
+        before: Option<i64>,
+        /// Where the answer goes.
+        reply_to: QueryId,
+    },
+    /// Make a group.
+    NewGroup(String),
+    /// Invite a friend into a group.
+    AddMember {
+        /// The group.
+        group: i64,
+        /// The friend.
+        friend: i64,
+    },
+    /// Join a group the user was invited to.
+    JoinGroup(i64),
+    /// Leave a group.
+    LeaveGroup(i64),
+    /// Remove a friend and the conversation.
+    RemoveFriend(i64),
+}
+
 /// Steam games (ADR-0031). Favourite, hidden, tags, notes (`UpdateGame` with
 /// `GameEdit::Notes`), Play (`Launch`) and folders (`OpenFolder`) use the general commands
 /// with the game's [`GameId::steam`] ID.
@@ -520,6 +724,9 @@ pub enum Command {
     // ---- Steam games (ADR-0031)
     /// A Steam action.
     Steam(SteamCommand),
+    // ---- Chat (ADR-0033)
+    /// A Chat action.
+    Chat(ChatCommand),
     // ---- lifecycle
     /// Stop the service: parked flows are cancelled, running games are left alone.
     Shutdown,
@@ -578,6 +785,7 @@ impl Command {
             Command::DismissCrash => "dismiss_crash",
             Command::ResolveDatabase(_) => "resolve_database",
             Command::Steam(_) => "steam",
+            Command::Chat(_) => "chat",
             Command::Shutdown => "shutdown",
         }
     }

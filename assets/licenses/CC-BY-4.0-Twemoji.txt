@@ -1,0 +1,11 @@
+Twemoji graphics
+
+The emoji pictures on EasyPlay's Chat page are Twemoji graphics, shipped inside the
+application (they are never loaded from a server).
+
+Copyright 2019 Twitter, Inc and other contributors.
+Graphics licensed under CC-BY 4.0: https://creativecommons.org/licenses/by/4.0/
+Source: https://github.com/jdecked/twemoji
+
+They reach EasyPlay through the twemoji-assets crate (MIT), unchanged except that pictures
+may be shown smaller or in grey (the emoji picker's group tabs).

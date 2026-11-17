@@ -1,0 +1,12 @@
+{
+  "error": {
+    "type": "error",
+    "errorType": {
+      "type": "fileNotApproved",
+      "fileId": 1,
+      "unknownServers": [
+        "xftp://V0JQb-mlvPOaxz4ti7llDBOQsaHTzrl46iwrvPB696M=@127.0.0.1:5443"
+      ]
+    }
+  }
+}

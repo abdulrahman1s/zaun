@@ -76,6 +76,8 @@ pub enum Dialog {
     Prompt(PromptRequest),
     /// A failure not tied to a place on screen.
     Error(UserError),
+    /// A dialog of the Chat page (ADR-0033), drawn by `screens::chat`.
+    Chat(crate::vm::chat::ChatDialog),
 }
 
 impl Dialog {

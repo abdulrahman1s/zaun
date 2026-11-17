@@ -9,6 +9,7 @@
 //! `error::ErrorCode` (for [`EndReason::FailedToStart`]).
 
 mod artwork;
+mod chat;
 mod doc;
 mod executable;
 mod game;
@@ -22,6 +23,12 @@ mod steam;
 mod tag;
 
 pub use artwork::{ArtOrigin, ArtSlot, ArtworkRef};
+pub use chat::{
+    Call, CallKind, CallRecord, ChatFeatures, ChatGroup, ChatLive, ChatMessage, ChatPreview,
+    ChatProfile, ChatRef, ChatSnapshot, ChatStatus, Delivery, Friend, FriendRequest, GroupMember,
+    Membership, Mention, MessageAuthor, MessageBody, MyStatus, Playing, Presence, Quote, Reaction,
+    Ringing, Share, StreamRecord, Watching,
+};
 pub use doc::{DocError, UpgradeStep, parse_launch_config, parse_policy};
 pub use executable::{
     EXE_LABEL_MAX_CHARS, ExeRole, Executable, Fingerprint, PeInfo, PeMachine, PeSubsystem, Sha256,

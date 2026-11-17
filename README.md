@@ -1,27 +1,93 @@
-# EasyPlay
+<p align="center">
+  <img src="assets/icons/app/easyplay-128.png" width="96" height="96" alt="">
+</p>
 
-**Double-click a Windows game on Linux and play it, each game in its own sandbox.**
+<h1 align="center">EasyPlay</h1>
 
-EasyPlay is a Linux desktop application that runs Windows games (and other Windows `.exe`
-programs) through [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) and
-Proton. Open an `.exe` from your file manager, give the game a name, answer one question
-about what it may access, and play. Every game then runs inside its own
-[bubblewrap](https://github.com/containers/bubblewrap) sandbox with its own private Windows
-folder, and sees only its own files unless you allow more.
+<p align="center">
+  <b>Double-click a Windows game on Linux and play it, each game in its own sandbox.</b>
+</p>
 
-- **One question, plain words.** *Offline* (no internet), *Online* (internet, nothing else
-  of yours), or *Standard*. Everything else has a safe default and sits behind "More options".
-- **A library, not a launcher maze.** Search, sort, tags, artwork, and play time per game.
-- **Compatibility layers kept up to date** for you, with game fixes from the umu database.
-- **No telemetry, no accounts.** Your library stays on your computer; the only network use is
-  downloading Proton and runtimes, and Steam artwork if you turn it on.
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#first-run">First run</a> ·
+  <a href="#chat">Chat</a> ·
+  <a href="#privacy">Privacy</a> ·
+  <a href="#troubleshooting">Troubleshooting</a> ·
+  <a href="#building-from-source">Build</a> ·
+  <a href="docs/README.md">Docs</a>
+</p>
 
-Sandboxing Windows software reduces risk; it is not a guarantee. Only run games you would
-run anyway; EasyPlay makes it harder for one of them to reach the rest of your files.
+---
+
+EasyPlay is a Linux desktop application for Windows games and other Windows `.exe`
+programs. Open an `.exe` from your file manager, give the game a name, say whether it may go
+online, and press **Play**. EasyPlay runs it through
+[umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) and Proton inside its
+own [bubblewrap](https://github.com/containers/bubblewrap) sandbox, with a private Windows
+folder of its own. The game sees its own files and nothing else of yours unless you allow it.
+
+There is no account, no telemetry and no EasyPlay server. Your library, play time and
+settings stay on your computer.
 
 > **Status:** pre-1.0. Everything works end to end, but expect rough edges and changes
 > between `0.x` releases. Your library is migrated forward automatically; downgrading is not
 > supported.
+
+## What it does
+
+**Protection you can read.** Every game starts from the same short list: sound, game
+controllers, its own folder and its saves. Internet is off unless you choose *Online*. Its
+**Protection** tab is one list read from top to bottom. Each item (the internet, microphone,
+camera, controllers, your Pictures or Downloads folder, a folder you share) has an icon that
+lights up while it is allowed, one plain line saying what it is, and a switch. Folders show
+their full path. Under the game's title it simply says *Offline* or *Online*.
+
+**A library that looks like a shelf.** The library is a wall of covers. A game without
+artwork gets a poster of its own: its title set large on one of ten colour pairs, the same
+for as long as the game keeps its name. Search, filters, tags, favourites and sorting sit on
+one line of words under the top bar. A small library shows its few games larger, in the
+middle of the window.
+
+**A page for every game.** Each game's page shows its cover with thirty days of play under
+it. The **Overview** says what the game is: the engine it was made with (Unity, Unreal,
+Godot, Ren'Py and more), who made it, and whether it uses anti-cheat or Steam DRM, which
+often stop games under Proton. Then come **Protection**, **Compatibility**, **Launch
+options** (with suggestions for Proton's options as you type), **Activity** and **Logs**.
+
+**Compatibility layers kept up to date.** Proton and the Steam Linux Runtime are downloaded,
+checked and updated through umu, with game fixes from the umu database.
+
+**Installers work too.** A `setup.exe` runs inside the game's sandbox, then EasyPlay asks
+which of the programs it installed is the game.
+
+**Your Steam games, if you want them.** With *Show my Steam games* turned on, games installed
+with Steam appear in the library with their play time and update state. Play hands over to
+Steam. A Steam game's **Launch options** tab edits Steam's own setting (while Steam is
+closed, with a backup) and has a switch for the MangoHud performance overlay.
+
+**Statistics.** Play time by day, month and year, your most played games and recent
+sessions. Everything is computed on your computer.
+
+**Chat with friends.** Chat is optional and end-to-end encrypted, with no account. Turn it on
+and add friends, talk one to one or in groups, and see who is playing what. See
+[Chat](#chat).
+
+**Fast, and stays out of the way.** An optional background service keeps EasyPlay loaded
+without a window, so a game opened from the file manager starts in about 20 ms. Running
+games are not affected when EasyPlay closes.
+
+**Everything from a terminal as well.** `easyplay open`, `launch`, `stop`, `status`,
+`list`, `add`, `edit`, `remove`, `doctor` and more, with `--json` output, a man page and
+shell completions.
+
+**Made to be comfortable.** It has dark, light and high-contrast themes and four accent
+colours. The interface can be scaled from 80 to 150 %, and *Reduce motion* turns every
+movement into a short fade. It is fully keyboard-driven and works with screen readers. The
+interface is available in English and Arabic.
+
+Sandboxing Windows software reduces risk; it is not a guarantee. Only run games you would
+run anyway. EasyPlay makes it harder for one of them to reach the rest of your files.
 
 ## Requirements
 
@@ -33,9 +99,11 @@ run anyway; EasyPlay makes it harder for one of them to reach the rest of your f
 | umu-launcher | 1.4 or newer (`umu-run`) |
 | Desktop | Wayland (with Xwayland) or X11 |
 | Graphics | Vulkan-capable drivers, including the 32-bit ones, for most games |
+| Sound | PipeWire, for games to have sound without access to your microphone |
 
-EasyPlay's **Doctor** (Settings → Advanced → *Check my system*, or `easyplay doctor` in a
-terminal) checks all of this and says exactly what to do when something is missing.
+EasyPlay's **Doctor** checks all of this and says exactly what to do when something is
+missing. Open it from Settings → Advanced → *Check my system*, or run `easyplay doctor` in a
+terminal.
 
 ## Install
 
@@ -44,7 +112,7 @@ Every release has a `SHA256SUMS` file.
 
 ### Arch Linux and derivatives
 
-From the AUR, `easyplay` (builds from source) or `easyplay-bin` (the release binary):
+From the AUR, install `easyplay` (builds from source) or `easyplay-bin` (the release binary):
 
 ```sh
 paru -S easyplay-bin        # or: yay -S easyplay-bin
@@ -69,12 +137,11 @@ sudo apt install ./easyplay_*_amd64.deb
 ```
 
 `umu-launcher` is recommended rather than required, because not every release packages it.
-Without it, EasyPlay opens and the Doctor explains how to install it.
+Without it, EasyPlay still opens and the Doctor explains how to install it.
 
 On Ubuntu 23.10 and newer, the package installs an AppArmor profile
-(`/etc/apparmor.d/easyplay`) that allows EasyPlay's sandboxes to work under Ubuntu's
-restriction of user namespaces. See [Troubleshooting](#troubleshooting) if games still
-fail to start.
+(`/etc/apparmor.d/easyplay`). It lets EasyPlay's sandboxes work under Ubuntu's restriction of
+user namespaces. See [Troubleshooting](#troubleshooting) if games still fail to start.
 
 ### NixOS and Nix
 
@@ -110,12 +177,13 @@ package already brings `bubblewrap` and `umu-launcher`.
 | `programs.easyplay.enable32BitGraphics` | `true` | `hardware.graphics.enable` and `enable32Bit` (as `mkDefault`); most games need 32-bit drivers. |
 | `programs.easyplay.associateWindowsExecutables` | `true` | Adds EasyPlay to "Open With" for `.exe`/`.msi` (`xdg.mime.addedAssociations`). Never sets it as the default. |
 | `programs.easyplay.allowUnprivilegedUsernsClone` | `false` | Sets `kernel.unprivileged_userns_clone = 1`. Only for hardened kernels that disable unprivileged user namespaces. |
+| `programs.easyplay.backgroundService.enable` | `false` | Keeps EasyPlay loaded in the background, so games and windows open instantly. |
 
 Evaluation fails if `security.allowUserNamespaces = false` or `user.max_user_namespaces` is
-0: bubblewrap cannot work without user namespaces.
+0, because bubblewrap cannot work without user namespaces.
 
-home-manager (any distribution with Nix; on NixOS prefer the system module, which also
-enables 32-bit graphics):
+home-manager works on any distribution with Nix. On NixOS, prefer the system module, which
+also enables 32-bit graphics.
 
 ```nix
 {
@@ -151,48 +219,104 @@ Install `bubblewrap` and `umu-launcher` with your package manager. To remove Eas
 Uninstalling removes exactly the files the installer added and keeps your games, settings
 and downloaded runtimes.
 
+### The background service (optional)
+
+```sh
+systemctl --user enable --now easyplay.service
+```
+
+EasyPlay then stays loaded without a window. A game opened from the file manager starts in
+about 20 ms, and windows open without a cold start. Packages install the unit but never
+enable it for you.
+
 ## First run
 
 1. Start **EasyPlay** from your applications menu, or open any `.exe` with it ("Open
    With → EasyPlay" in your file manager).
 2. The first time, EasyPlay checks your system and downloads a compatibility layer (Proton)
    and the Steam Linux Runtime through umu. This is several hundred megabytes, once.
-3. Opening a game it has not seen before shows a short setup: the name (with artwork if
-   found), and the protection question. Choose and press **Play**.
+3. Opening a game it has not seen before shows a short setup. You give the name (with
+   artwork if found) and choose *Offline*, *Online* or *Standard*. Press **Play**.
 4. Next time, the game starts straight away, from the library or by opening its `.exe`
-   again. Each game's page has its settings; the **Protection** tab shows what the game can
-   access, in plain language, and lets you change it.
+   again. To change what a game can use, open its page → **Protection** and flip the
+   switches.
 
-Installers (`setup.exe`) work the same way: EasyPlay runs them in the game's sandbox and
-then asks which of the installed programs is the game.
+The top bar has four destinations: **Library**, **Chat**, **Statistics** and **Settings**.
+While a game runs, the top bar shows it with its play time and a stop button, on every page.
 
-From a terminal, `easyplay --help` lists everything: `easyplay open Game.exe`,
-`easyplay list`, `easyplay launch <game>`, `easyplay status`, `easyplay doctor`, and more
-(`man easyplay`).
+From a terminal, `easyplay --help` lists everything, for example `easyplay open Game.exe`,
+`easyplay list`, `easyplay launch <game>`, `easyplay status`, `easyplay doctor` and
+`easyplay steam scan`. See also `man easyplay`.
+
+## Chat
+
+Chat lets you talk with friends inside EasyPlay. It is **off until you turn it on**: open
+the Chat page, or Settings → Chat.
+
+- **No account, no username, no phone number.** You become friends by passing a one-time
+  link, shown as a QR code or copied with one button. Everything known about your friends
+  is stored on your computer.
+- **End-to-end encrypted.** Messages pass through relays: by default the public servers at
+  `simplex.im` and `simplexonflux.com`, or relays you list in Settings. The relays see your
+  IP address and when messages pass, never what they say. The page tells you this before
+  you turn Chat on.
+- **Conversations and groups**, with replies, emoji reactions, edits, `@mentions` in
+  groups, simple formatting (bold, italic, code, quotes, lists, spoilers) and emoji you can
+  pick from a list or autocomplete by typing `:`. Press ↑ in an empty message box to edit
+  your last message.
+- **GIFs** come from [GIPHY](https://giphy.com), reached through Signal's content proxy
+  (`contentproxy.signal.org`), so GIPHY never sees your address and the proxy sees only which
+  site you are reaching. Only the words you type in the GIF search are sent. You send the GIF
+  itself as a file, so your friends' apps never contact GIPHY or the proxy. The key and the
+  proxy are Signal's public ones by default; you can change both in Settings → Chat.
+- **Links stay links.** EasyPlay never fetches a link you receive. If you turn on *Check
+  links before opening*, it first asks Google Safe Browsing whether the site is known to be
+  harmful. Only the site's name is sent, never the full link.
+- **Notifications** show who wrote to you when EasyPlay is in the background. They show the
+  message text only if you choose to. You can mute a conversation, block someone (they are
+  not told), and compare security codes with a friend to make sure nobody is in between.
+- Chat's database is encrypted and kept in EasyPlay's data folder, which no game's sandbox
+  can reach. The chat engine runs in a sandbox of its own and talks to EasyPlay over a pipe,
+  not a network port that games could find.
+
+Voice calls, watching a friend's game and an in-game overlay are planned but not yet
+available.
 
 ## Privacy
 
-EasyPlay has no telemetry and no accounts. Network access happens only through umu, to
-download compatibility layers and runtimes from GitHub and Valve, and, only if you turn on
-online artwork, to Steam's image servers. Details:
-[docs/PRIVACY.md](docs/PRIVACY.md).
+EasyPlay has no telemetry and no accounts, and it makes no network requests you have not
+asked for:
+
+| When | Who it contacts | What it sends |
+|---|---|---|
+| Downloading and updating compatibility layers | GitHub and Valve, through umu | What any download sends |
+| Online artwork (off by default) | Steam's image servers | The game's Steam app number |
+| Chat (off by default) | The relays you use | Encrypted messages; relays see your IP address and timing |
+| GIF search in Chat | GIPHY, through Signal's content proxy | The words you type in the GIF search; the proxy sees only the host name |
+| *Check links before opening* (off by default) | Google Safe Browsing | The name of the site you are opening |
+
+Games are a different matter: a game set to *Online* talks to whatever it wants, as it
+would anywhere. All the details are in [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ## Troubleshooting
 
-Start with the **Doctor** (Settings → Advanced → *Check my system*, or `easyplay doctor`). It checks bubblewrap,
-umu, user namespaces, graphics drivers and the runtime, and suggests the fix for each
-problem.
+Start with the **Doctor** (Settings → Advanced → *Check my system*, or `easyplay doctor`).
+It checks bubblewrap, umu, user namespaces, graphics drivers and the runtime, and suggests
+the fix for each problem.
 
 | Symptom | What to do |
 |---|---|
-| "This system does not allow sandboxes" (`EP-HOST-004`) on Ubuntu | Ubuntu restricts user namespaces through AppArmor. The `.deb` installs a profile for this; if you installed the tarball, or the profile is not loaded, run `sudo apparmor_parser -r /etc/apparmor.d/easyplay` (with the profile from `packaging/apparmor/easyplay`) or, less strictly, `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, which relaxes the restriction for every program. |
-| "This system does not allow sandboxes" elsewhere | Your kernel disables unprivileged user namespaces (common on hardened kernels): enable `kernel.unprivileged_userns_clone=1`, or on NixOS `programs.easyplay.allowUnprivilegedUsernsClone = true`. |
+| "This system does not allow sandboxes" (`EP-HOST-004`) on Ubuntu | Ubuntu restricts user namespaces through AppArmor. The `.deb` installs a profile for this. If you installed the tarball, or the profile is not loaded, run `sudo apparmor_parser -r /etc/apparmor.d/easyplay` (with the profile from `packaging/apparmor/easyplay`). Less strictly, `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` relaxes the restriction for every program. |
+| "This system does not allow sandboxes" elsewhere | Your kernel disables unprivileged user namespaces (common on hardened kernels). Enable `kernel.unprivileged_userns_clone=1`, or on NixOS set `programs.easyplay.allowUnprivilegedUsernsClone = true`. |
 | `umu-run` not found | Install `umu-launcher` from your distribution, or follow the Doctor's link to its releases. |
 | The game starts but shows a black window or no 3D | Install your driver's 32-bit Vulkan libraries (`lib32-vulkan-radeon`/`lib32-nvidia-utils` on Arch, `mesa-vulkan-drivers:i386` on Debian/Ubuntu). |
-| A game needs a file outside its folder | The game's page → **Protection** → *Files and folders* → *Add folder…*. |
+| A game has no sound | Make sure PipeWire is running; games get sound through PipeWire only. |
+| A game needs a file outside its folder | The game's page → **Protection** → *Share another folder…*. |
+| A game needs the microphone | The game's page → **Protection** → turn on *Microphone*. It is off for every game until you allow it. |
+| The Chat page says "not included in this build" | Your package was built without the chat engine. Everything else works as usual. |
 | Something else | Settings → Advanced → *Create a report…*, or run `easyplay -v` from a terminal, and attach the result to an [issue](https://github.com/easyplay/easyplay/issues). |
 
-Security problems: please report them privately, see [SECURITY.md](SECURITY.md).
+Security problems: please report them privately, as described in [SECURITY.md](SECURITY.md).
 
 ## Building from source
 
@@ -207,12 +331,37 @@ sudo cp -a staging/usr/local/. /usr/local/
 
 `scripts/build-release.sh --help` lists its options (`--tarball` builds the release
 tarball). With Nix, `nix build` produces the same layout in `./result`, and `nix develop`
-gives a shell with every tool. Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). The design
-and specification: [docs/README.md](docs/README.md).
+gives a shell with every tool.
+
+Chat needs the SimpleX chat engine (`libsimplex.so`). The Nix package includes it. For other
+builds, see the packager notes in [CHANGELOG.md](CHANGELOG.md). Without it, EasyPlay builds
+and runs normally, and the Chat page says it is not included.
+
+To try the interface with sample games and friends, without touching your own library, run
+`easyplay --preview`.
+
+### Where to read more
+
+| | |
+|---|---|
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Setting up, tests, snapshots, conventions |
+| [docs/README.md](docs/README.md) | The full design and specification, in reading order |
+| [docs/adr/](docs/adr/README.md) | Every design decision and why it was made |
+| [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md), [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | What the sandbox protects against, and what it doesn't |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Every setting in `~/.config/easyplay/config.toml` |
 
 ## Licence
 
 EasyPlay is free software under the GNU General Public License, version 3 or later
-([LICENSE](LICENSE)). It bundles the Inter and JetBrains Mono fonts (SIL Open Font
-Licence 1.1) and Phosphor icons (MIT). bubblewrap, umu-launcher, Proton and the Steam Linux
-Runtime are separate programs that EasyPlay runs; they are not part of it.
+([LICENSE](LICENSE)). The chat helper `easyplay-chat`, the only part that links the SimpleX
+chat engine, is under the GNU Affero General Public License, version 3.
+
+EasyPlay bundles these:
+
+- the Inter, Instrument Sans, JetBrains Mono and Noto Sans Arabic fonts (SIL Open Font
+  Licence 1.1);
+- Phosphor icons (MIT);
+- Twemoji graphics (CC-BY 4.0).
+
+bubblewrap, umu-launcher, Proton and the Steam Linux Runtime are separate programs that
+EasyPlay runs; they are not part of it.

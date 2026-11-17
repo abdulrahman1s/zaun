@@ -1,0 +1,135 @@
+{
+  "result": {
+    "type": "reactionMembers",
+    "user": {
+      "userId": 1,
+      "agentUserId": "1",
+      "userContactId": 1,
+      "localDisplayName": "alice",
+      "profile": {
+        "profileId": 1,
+        "displayName": "alice",
+        "fullName": "",
+        "shortDescr": "Mostly co-op.",
+        "localAlias": ""
+      },
+      "fullPreferences": {
+        "timedMessages": {
+          "allow": "yes"
+        },
+        "fullDelete": {
+          "allow": "no"
+        },
+        "reactions": {
+          "allow": "yes"
+        },
+        "voice": {
+          "allow": "yes"
+        },
+        "files": {
+          "allow": "always"
+        },
+        "calls": {
+          "allow": "yes"
+        },
+        "sessions": {
+          "allow": "no"
+        },
+        "commands": []
+      },
+      "activeUser": true,
+      "activeOrder": 1,
+      "showNtfs": true,
+      "sendRcptsContacts": true,
+      "sendRcptsSmallGroups": true,
+      "autoAcceptMemberContacts": false,
+      "userMemberProfileUpdatedAt": "2026-11-17T07:53:12.485101678Z",
+      "userChatRelay": false,
+      "clientService": false
+    },
+    "memberReactions": [
+      {
+        "groupMember": {
+          "groupMemberId": 2,
+          "groupId": 1,
+          "indexInGroup": 1,
+          "memberId": "V2FGalhuVzlWR01MZ0ZKaA==",
+          "memberRole": "member",
+          "memberCategory": "invitee",
+          "memberStatus": "connected",
+          "memberSettings": {
+            "showMessages": true
+          },
+          "blockedByAdmin": false,
+          "invitedBy": {
+            "type": "user"
+          },
+          "invitedByGroupMemberId": 1,
+          "localDisplayName": "Bob Smith",
+          "memberProfile": {
+            "profileId": 3,
+            "displayName": "Bob Smith",
+            "fullName": "",
+            "preferences": {
+              "timedMessages": {
+                "allow": "yes"
+              },
+              "fullDelete": {
+                "allow": "no"
+              },
+              "reactions": {
+                "allow": "yes"
+              },
+              "voice": {
+                "allow": "yes"
+              },
+              "files": {
+                "allow": "always"
+              },
+              "calls": {
+                "allow": "yes"
+              },
+              "sessions": {
+                "allow": "no"
+              },
+              "commands": []
+            },
+            "localAlias": ""
+          },
+          "memberContactId": 3,
+          "memberContactProfileId": 3,
+          "activeConn": {
+            "connId": 2,
+            "agentConnId": "Snh0ZmwxRUY1emNQMjViMg==",
+            "connChatVersion": 19,
+            "peerChatVRange": {
+              "minVersion": 1,
+              "maxVersion": 19
+            },
+            "connLevel": 0,
+            "viaGroupLink": false,
+            "connType": "member",
+            "connStatus": {
+              "type": "ready"
+            },
+            "contactConnInitiated": false,
+            "localAlias": "",
+            "entityId": 2,
+            "pqSupport": false,
+            "pqEncryption": false,
+            "authErrCounter": 0,
+            "quotaErrCounter": 0,
+            "createdAt": "2026-11-17T07:53:13.301331415Z"
+          },
+          "memberChatVRange": {
+            "minVersion": 1,
+            "maxVersion": 19
+          },
+          "createdAt": "2026-11-17T07:53:13.301331415Z",
+          "updatedAt": "2026-11-17T07:53:13.541212802Z"
+        },
+        "reactionTs": "2026-11-17T07:53:15Z"
+      }
+    ]
+  }
+}

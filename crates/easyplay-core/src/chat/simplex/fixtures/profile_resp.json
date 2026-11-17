@@ -1,0 +1,65 @@
+{
+  "result": {
+    "type": "userProfileUpdated",
+    "user": {
+      "userId": 1,
+      "agentUserId": "1",
+      "userContactId": 1,
+      "localDisplayName": "alice",
+      "profile": {
+        "profileId": 1,
+        "displayName": "alice",
+        "fullName": "",
+        "shortDescr": "Speedrunner. Mostly Hades.",
+        "localAlias": ""
+      },
+      "fullPreferences": {
+        "timedMessages": {
+          "allow": "yes"
+        },
+        "fullDelete": {
+          "allow": "no"
+        },
+        "reactions": {
+          "allow": "yes"
+        },
+        "voice": {
+          "allow": "yes"
+        },
+        "files": {
+          "allow": "always"
+        },
+        "calls": {
+          "allow": "yes"
+        },
+        "sessions": {
+          "allow": "no"
+        },
+        "commands": []
+      },
+      "activeUser": true,
+      "activeOrder": 1,
+      "showNtfs": true,
+      "sendRcptsContacts": true,
+      "sendRcptsSmallGroups": true,
+      "autoAcceptMemberContacts": false,
+      "userMemberProfileUpdatedAt": "2026-11-17T07:39:41.496876472Z",
+      "userChatRelay": false,
+      "clientService": false
+    },
+    "fromProfile": {
+      "displayName": "alice",
+      "fullName": ""
+    },
+    "toProfile": {
+      "displayName": "alice",
+      "fullName": "",
+      "shortDescr": "Speedrunner. Mostly Hades."
+    },
+    "updateSummary": {
+      "updateSuccesses": 1,
+      "updateFailures": 0,
+      "changedContacts": []
+    }
+  }
+}

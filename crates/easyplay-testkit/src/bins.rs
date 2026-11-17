@@ -5,6 +5,8 @@
 //! Cargo provides `CARGO_BIN_EXE_*` only to a package's own tests, so the lifecycle tests in
 //! `easyplay-core` find the binaries in the target directory of the running test and run
 //! `cargo build -p <package> --bin <name>` once per process (a no-op when up to date).
+//! nextest runs every test in a process of its own and builds them all once beforehand
+//! (`.config/nextest.toml`), setting `EASYPLAY_TEST_BINS_BUILT=1` so no test runs cargo.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -36,7 +38,8 @@ pub fn target_profile_dir() -> PathBuf {
 pub fn workspace_bin(name: &'static str) -> PathBuf {
     let path = target_profile_dir().join(name);
     let mut built = BUILT.lock().unwrap();
-    if !built.contains(name) {
+    let prebuilt = std::env::var_os("EASYPLAY_TEST_BINS_BUILT").is_some_and(|v| v == "1");
+    if !prebuilt && !built.contains(name) {
         let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let status = std::process::Command::new(cargo)
             .args(["build", "--quiet", "-p", package_of(name), "--bin", name])

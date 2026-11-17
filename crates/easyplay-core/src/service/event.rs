@@ -133,6 +133,24 @@ pub enum Notice {
         /// Games listed.
         games: usize,
     },
+    /// New messages: received, or sent by the user (ADR-0033). Oldest first.
+    ChatMessages(Vec<crate::model::ChatMessage>),
+    /// Messages whose delivery or text changed.
+    ChatMessagesUpdated(Vec<crate::model::ChatMessage>),
+    /// `ChatCommand::OpenLink` with `chat.check_links` on: the link was not opened, the
+    /// user decides (`ChatCommand::OpenLinkAnyway`). `unchecked`: the check got no answer
+    /// (offline, or its format changed); otherwise Google Safe Browsing flagged the site.
+    ChatUnsafeLink {
+        /// The link as written.
+        url: String,
+        /// The host that was checked.
+        host: String,
+        /// No answer (rather than a warning).
+        unchecked: bool,
+    },
+    /// `ChatCommand::SendGif` failed: the GIF could not be downloaded, is too large to send,
+    /// or the saved file is gone.
+    ChatGifNotSent,
     /// A Steam game's launch options were written to Steam's settings (ADR-0031 §6a).
     SteamLaunchOptionsSaved {
         /// The game.
@@ -214,6 +232,12 @@ pub enum QueryResult {
     Report(Vec<crate::diagnostics::report::ReportFile>),
     /// `SteamCommand::Details`.
     Steam(Box<SteamDetail>),
+    /// `ChatCommand::LoadChat`.
+    Chat(ChatPage),
+    /// `ChatCommand::GifSearch` and `GifTrending`.
+    Gifs(crate::gifs::GifAnswer),
+    /// `ChatCommand::GifPreview`.
+    GifPreview(crate::gifs::GifPreview),
     /// The query failed.
     Failed(Box<UserError>),
 }
@@ -241,6 +265,15 @@ pub struct SteamDetail {
     pub steam_open: bool,
 }
 
+/// The answer to `ChatCommand::LoadChat`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChatPage {
+    /// The conversation.
+    pub chat: crate::model::ChatRef,
+    /// Oldest first.
+    pub messages: Vec<crate::model::ChatMessage>,
+}
+
 /// An announcement from the AppService.
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -256,6 +289,8 @@ pub enum Event {
     HostFactsChanged,
     /// The diagnostics snapshot (Doctor report, crash record, recovery mode) changed.
     DiagnosticsChanged,
+    /// A new Chat snapshot is in the hub (ADR-0033).
+    ChatChanged,
     /// A launch advanced.
     LaunchProgress {
         /// The game.

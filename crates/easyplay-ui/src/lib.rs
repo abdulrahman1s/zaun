@@ -12,6 +12,7 @@ pub mod a11y;
 pub mod app;
 pub mod bridge;
 pub mod demo;
+pub mod demo_chat;
 pub mod i18n;
 pub mod input;
 pub mod route;

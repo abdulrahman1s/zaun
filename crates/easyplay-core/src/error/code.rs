@@ -242,6 +242,21 @@ error_codes! {
     /// Steam's settings file for the account could not be found, read safely or written.
     StmSettingsUnwritable = "EP-STM-009", Error;
 
+    // ---- Chat — EP-CHT (ADR-0033) ------------------------------------------------------
+    /// This build of EasyPlay has no chat engine (the Chat helper or its library is
+    /// missing).
+    ChtUnavailable = "EP-CHT-001", Warning;
+    /// The chat engine stopped again and again, so Chat was stopped.
+    ChtEngineFailing = "EP-CHT-002", Error;
+    /// The encrypted chat database could not be opened.
+    ChtDatabase = "EP-CHT-003", Error;
+    /// No relay could be reached (no connection, or the relays are down).
+    ChtNoConnection = "EP-CHT-004", Warning;
+    /// The text is not a SimpleX invitation or address link.
+    ChtBadLink = "EP-CHT-005", Warning;
+    /// The chat engine refused a request.
+    ChtRequestFailed = "EP-CHT-006", Warning;
+
     // ---- Integration and internal — EP-DSK, EP-INT ---------------------------------------
     /// Could not change the default application.
     DskDefaultHandlerFailed = "EP-DSK-001", Error;

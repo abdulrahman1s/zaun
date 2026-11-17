@@ -107,7 +107,7 @@ fn tail(fs: &dyn Fs, path: &Path, n: usize, r: &Redactor) -> Option<String> {
     Some(out)
 }
 
-/// `config.toml` with every `launch.global_env` value replaced by `<set>`.
+/// `config.toml` with every `launch.global_env` value and `chat.gif_key` replaced by `<set>`.
 fn config_text(fs: &dyn Fs, path: &Path, r: &Redactor) -> Option<String> {
     let bytes = fs.read(path, 1024 * 1024).ok()?;
     let text = String::from_utf8_lossy(&bytes);
@@ -126,6 +126,12 @@ fn config_text(fs: &dyn Fs, path: &Path, r: &Redactor) -> Option<String> {
                 t.insert("value".into(), toml::Value::String(SET.into()));
             }
         }
+    }
+    // The GIF search key (ADR-0033) may be the user's own.
+    if let Some(chat) = table.get_mut("chat").and_then(|c| c.as_table_mut())
+        && chat.contains_key("gif_key")
+    {
+        chat.insert("gif_key".into(), toml::Value::String(SET.into()));
     }
     let out = toml::to_string_pretty(&table).ok()?;
     Some(r.redact_str(&out))
@@ -344,7 +350,7 @@ mod tests {
         // Included sources, with personal data that must be redacted.
         w(
             &paths.config_file,
-            "[launch]\nglobal_env = [{ name = \"API_TOKEN\", value = \"DECOY-GLOBAL-VALUE\" }]\n[paths]\numu_run = \"/home/sam/bin/umu-run\"\n",
+            "[launch]\nglobal_env = [{ name = \"API_TOKEN\", value = \"DECOY-GLOBAL-VALUE\" }]\n[paths]\numu_run = \"/home/sam/bin/umu-run\"\n[chat]\ngif_key = \"DECOY-GIF-KEY\"\n",
         );
         let home_s = home.display().to_string();
         let mut log = String::new();
@@ -423,6 +429,7 @@ mod tests {
             "DECOY-OTHER-SESSION",
             "DECOY-OTHER-GAME",
             "DECOY-KEY",
+            "DECOY-GIF-KEY",
             &home_s,
             "gamebox",
         ] {

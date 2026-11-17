@@ -3,6 +3,10 @@
 //! - A field is 30 high on the `well`, radius 8, 10 padding, with a 1 pt `line` inside its
 //!   edge; focused, a 1.5 pt accent line instead. The placeholder is quiet text.
 //! - A multi-line field is at least 76 high, 8 / 10 padding, 19 pt lines.
+//! - A wrapping field holds one line of text (a command line) but shows all of it: 30 high
+//!   while it fits, growing a line at a time as it wraps. `Enter` never breaks the line, and
+//!   pasted line breaks become spaces.
+//! - A one-line field never wraps: longer text scrolls inside it.
 //! - The search field is 30 high on `o1` with a quiet 16 pt magnifier; focused, the `well`
 //!   with the accent line. While it is empty and not focused, its shortcut stands at the
 //!   right as a keycap; while it has text, a small clear button stands there. `Esc` clears
@@ -41,6 +45,7 @@ pub struct TextField<'a> {
     mono: bool,
     width: Option<f32>,
     multiline: bool,
+    wrap: bool,
 }
 
 /// What happened this frame.
@@ -68,6 +73,7 @@ impl<'a> TextField<'a> {
             mono: false,
             width: None,
             multiline: false,
+            wrap: false,
         }
     }
 
@@ -131,6 +137,12 @@ impl<'a> TextField<'a> {
         self
     }
 
+    /// One line of text shown whole: wraps and grows instead of scrolling sideways.
+    pub fn wrapping(mut self) -> Self {
+        self.wrap = true;
+        self
+    }
+
     /// Show the field.
     pub fn show(self, ui: &mut Ui) -> TextFieldResponse {
         let theme = theme::theme(ui.ctx());
@@ -170,6 +182,7 @@ impl<'a> TextField<'a> {
                     } else {
                         font_type.line_height()
                     };
+                    let grows = self.multiline || self.wrap;
                     let mut layouter = move |ui: &Ui,
                                              buf: &dyn TextBuffer,
                                              wrap: f32|
@@ -179,17 +192,27 @@ impl<'a> TextField<'a> {
                         format.color = theme::theme(ui.ctx()).palette.t1;
                         let mut job =
                             egui::text::LayoutJob::single_section(buf.as_str().to_owned(), format);
-                        job.wrap.max_width = wrap;
+                        // A one-line field scrolls; only a growing one wraps.
+                        job.wrap.max_width = if grows { wrap } else { f32::INFINITY };
                         ui.fonts_mut(|f| f.layout_job(job))
                     };
                     let hint = self.hint.map(|h| font_type.rich(h).color(p.t3));
-                    let (rect, r) = if self.multiline {
-                        let pad_y = control::TEXTAREA_PAD[1];
+                    let (rect, r) = if grows {
+                        // A wrapping field's one line sits where a one-line field's does.
+                        let pad_y = if self.multiline {
+                            control::TEXTAREA_PAD[1]
+                        } else {
+                            ((control::BUTTON - line_h) / 2.0).max(0.0)
+                        };
                         let inner = Rect::from_min_size(
                             pos2(top.x + pad_l, top.y + pad_y),
                             vec2(width - pad_l - pad_r, f32::INFINITY),
                         );
-                        let min_h = layout::TEXTAREA_MIN_H - pad_y * 2.0;
+                        let min_h = if self.multiline {
+                            layout::TEXTAREA_MIN_H - pad_y * 2.0
+                        } else {
+                            line_h
+                        };
                         let mut edit = TextEdit::multiline(self.text)
                             .id(id)
                             .frame(Frame::NONE)
@@ -197,6 +220,9 @@ impl<'a> TextField<'a> {
                             .layouter(&mut layouter)
                             .desired_width(inner.width())
                             .min_size(vec2(inner.width(), min_h));
+                        if self.wrap {
+                            edit = edit.return_key(None).desired_rows(1);
+                        }
                         if let Some(h) = hint {
                             edit = edit.hint_text(h);
                         }
@@ -205,9 +231,18 @@ impl<'a> TextField<'a> {
                                 UiBuilder::new()
                                     .max_rect(inner)
                                     .layout(Layout::top_down(Align::Min)),
-                                |ui| edit.show(ui),
+                                |ui| {
+                                    // egui's floor for a text edit is a control's height; the
+                                    // padding here already makes up that height.
+                                    ui.spacing_mut().interact_size.y = min_h;
+                                    edit.show(ui)
+                                },
                             )
                             .inner;
+                        // Pasted line breaks join the one line.
+                        if self.wrap && self.text.contains(['\n', '\r']) {
+                            *self.text = self.text.replace("\r\n", " ").replace(['\n', '\r'], " ");
+                        }
                         let h = out.response.response.rect.height().max(min_h) + pad_y * 2.0;
                         let rect = Rect::from_min_size(top, vec2(width, h));
                         ui.allocate_rect(rect, Sense::hover());
@@ -245,6 +280,12 @@ impl<'a> TextField<'a> {
                         r = r.labelled_by(l.id);
                     } else if let Some(n) = self.accessible_name {
                         r = r.accessible_name(n);
+                    }
+                    // A wrapping field holds one line: a plain text input to a screen reader.
+                    if self.wrap {
+                        ui.ctx().accesskit_node_builder(r.id, |n| {
+                            n.set_role(egui::accesskit::Role::TextInput);
+                        });
                     }
                     if self.search
                         && r.has_focus()
@@ -390,5 +431,32 @@ mod tests {
         });
         assert!(a.height() <= control::BUTTON);
         assert!(b >= layout::TEXTAREA_MIN_H);
+    }
+
+    #[test]
+    fn a_wrapping_field_grows_to_show_long_text_and_a_one_line_field_stays_30_high() {
+        let long =
+            "DXVK_NVAPI_DRS_NGX_DLSS_SR_OVERRIDE=on PROTON_DLSS_UPGRADE=1 ".repeat(6) + "%command%";
+        let (short, wrapped, one) = crate::widgets::test_frame(&Default::default(), |ui| {
+            let mut a = String::from("%command%");
+            let mut b = long.clone();
+            let mut c = long.clone();
+            let h = |ui: &mut Ui, f: TextField<'_>| {
+                let top = ui.cursor().min.y;
+                let _ = f.width(400.0).show(ui);
+                ui.cursor().min.y - top
+            };
+            (
+                h(ui, TextField::new(&mut a, "a").mono().wrapping()),
+                h(ui, TextField::new(&mut b, "b").mono().wrapping()),
+                h(ui, TextField::new(&mut c, "c").mono()),
+            )
+        });
+        // A short value takes exactly a one-line field's room; a long one grows by lines.
+        assert!((short - one).abs() < 0.5, "{short} vs {one}");
+        assert!(
+            wrapped >= one + 2.0 * Type::Mono.line_height() - 0.5,
+            "{wrapped}"
+        );
     }
 }

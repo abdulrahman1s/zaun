@@ -538,6 +538,38 @@ pub const fn entry(code: ErrorCode) -> Entry {
             &[A::CopyDetails],
         ),
 
+        // ---- Chat ----
+        C::ChtUnavailable => e(
+            "Chat is not included in this build",
+            "This copy of EasyPlay was built without the chat engine. Everything else works as usual.",
+            &[A::Dismiss],
+        ),
+        C::ChtEngineFailing => e(
+            "Chat stopped",
+            "The chat engine stopped several times in a row; your friends and messages are kept. Turn Chat off and on again to retry.",
+            &[A::CopyDetails],
+        ),
+        C::ChtDatabase => e(
+            "Your messages could not be opened",
+            "The encrypted chat database could not be read; it may be damaged, or its key file was changed. Nothing was deleted.",
+            &[A::CopyDetails],
+        ),
+        C::ChtNoConnection => e(
+            "The relays cannot be reached",
+            "Messages wait on your computer and are sent when a relay can be reached again. Check the internet connection.",
+            &[A::Dismiss],
+        ),
+        C::ChtBadLink => e(
+            "This is not a friend's link",
+            "Paste the whole link your friend shared, exactly as they sent it.",
+            &[A::Dismiss],
+        ),
+        C::ChtRequestFailed => e(
+            "That did not work",
+            "The chat engine refused the request. The details say why.",
+            &[A::CopyDetails],
+        ),
+
         // ---- Integration and internal ----
         C::DskDefaultHandlerFailed => e(
             "Could not change the default application",

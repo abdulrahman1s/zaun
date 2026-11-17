@@ -163,6 +163,8 @@ pub struct ServiceDeps {
     pub umu_titles: Arc<dyn UmuTitleMatch>,
     /// Run the session watcher thread (tests drive polls by hand).
     pub watch_sessions: bool,
+    /// Starts the Chat engine (ADR-0033); `None` = this build has none.
+    pub chat: Option<Arc<dyn crate::chat::EngineFactory>>,
 }
 
 /// Messages into the loop: commands and job completions.
@@ -538,6 +540,7 @@ impl AppService {
         self.refresh_integration();
         self.load_crash();
         self.steam_start();
+        self.chat_start();
     }
 
     fn run(&mut self, rx: &Receiver<Msg>) {
@@ -569,6 +572,7 @@ impl AppService {
             tracing::info!(cancelled, "parked flows cancelled at shutdown");
         }
         self.watcher = None;
+        self.chat_shutdown();
         self.emit(Event::QuitRequested);
     }
 
@@ -655,6 +659,10 @@ impl AppService {
             Command::ResolveDatabase(choice) => self.resolve_database(&choice),
             // Handled by `steam_route`.
             Command::Steam(_) => {}
+            Command::Chat(c) if super::flows::chat_services::handles(&c) => {
+                self.chat_service_command(c);
+            }
+            Command::Chat(c) => self.chat_command(c),
             Command::Shutdown => self.stopping = true,
         }
     }
@@ -1047,6 +1055,7 @@ impl AppService {
         }
         self.emit(Event::PreferencesChanged);
         self.steam_preference_changed();
+        self.chat_preference_changed();
     }
 
     // ---- headless use ------------------------------------------------------------------

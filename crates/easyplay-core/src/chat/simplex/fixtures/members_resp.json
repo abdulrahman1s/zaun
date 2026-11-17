@@ -1,0 +1,232 @@
+{
+  "result": {
+    "type": "groupMembers",
+    "user": {
+      "userId": 1,
+      "agentUserId": "1",
+      "userContactId": 1,
+      "localDisplayName": "alice",
+      "profile": {
+        "profileId": 1,
+        "displayName": "alice",
+        "fullName": "",
+        "shortDescr": "Speedrunner. Mostly Hades.",
+        "localAlias": ""
+      },
+      "fullPreferences": {
+        "timedMessages": {
+          "allow": "yes"
+        },
+        "fullDelete": {
+          "allow": "no"
+        },
+        "reactions": {
+          "allow": "yes"
+        },
+        "voice": {
+          "allow": "yes"
+        },
+        "files": {
+          "allow": "always"
+        },
+        "calls": {
+          "allow": "yes"
+        },
+        "sessions": {
+          "allow": "no"
+        },
+        "commands": []
+      },
+      "activeUser": true,
+      "activeOrder": 1,
+      "showNtfs": true,
+      "sendRcptsContacts": true,
+      "sendRcptsSmallGroups": true,
+      "autoAcceptMemberContacts": false,
+      "userMemberProfileUpdatedAt": "2026-11-17T07:39:41.496876472Z",
+      "userChatRelay": false,
+      "clientService": false
+    },
+    "group": {
+      "groupInfo": {
+        "groupId": 1,
+        "useRelays": false,
+        "localDisplayName": "squad",
+        "groupProfile": {
+          "displayName": "squad",
+          "fullName": ""
+        },
+        "localAlias": "",
+        "fullGroupPreferences": {
+          "timedMessages": {
+            "enable": "off",
+            "ttl": 86400
+          },
+          "directMessages": {
+            "enable": "off"
+          },
+          "fullDelete": {
+            "enable": "off"
+          },
+          "reactions": {
+            "enable": "on"
+          },
+          "voice": {
+            "enable": "on"
+          },
+          "files": {
+            "enable": "on"
+          },
+          "simplexLinks": {
+            "enable": "on"
+          },
+          "reports": {
+            "enable": "on"
+          },
+          "history": {
+            "enable": "off"
+          },
+          "support": {
+            "enable": "on"
+          },
+          "sessions": {
+            "enable": "off"
+          },
+          "comments": {
+            "enable": "off"
+          },
+          "signMessages": {
+            "enable": "off"
+          },
+          "commands": []
+        },
+        "membership": {
+          "groupMemberId": 1,
+          "groupId": 1,
+          "indexInGroup": 0,
+          "memberId": "R2tPNjB0VGRkeW5pSURWNg==",
+          "memberRole": "owner",
+          "memberCategory": "user",
+          "memberStatus": "creator",
+          "memberSettings": {
+            "showMessages": true
+          },
+          "blockedByAdmin": false,
+          "invitedBy": {
+            "type": "user"
+          },
+          "localDisplayName": "alice",
+          "memberProfile": {
+            "profileId": 1,
+            "displayName": "alice",
+            "fullName": "",
+            "shortDescr": "Speedrunner. Mostly Hades.",
+            "localAlias": ""
+          },
+          "memberContactId": 1,
+          "memberContactProfileId": 1,
+          "memberChatVRange": {
+            "minVersion": 1,
+            "maxVersion": 19
+          },
+          "createdAt": "2026-11-17T07:39:41.581412821Z",
+          "updatedAt": "2026-11-17T07:39:41.581412821Z"
+        },
+        "chatSettings": {
+          "enableNtfs": "all",
+          "favorite": false
+        },
+        "createdAt": "2026-11-17T07:39:41.581412821Z",
+        "updatedAt": "2026-11-17T07:39:41.581412821Z",
+        "chatTs": "2026-11-17T07:39:41.602660088Z",
+        "userMemberProfileSentAt": "2026-11-17T07:39:41.581412821Z",
+        "chatTags": [],
+        "groupSummary": {
+          "currentMembers": 2
+        },
+        "membersRequireAttention": 0
+      },
+      "members": [
+        {
+          "groupMemberId": 2,
+          "groupId": 1,
+          "indexInGroup": 1,
+          "memberId": "dUpINHd2eFlJaS9WUHhCVw==",
+          "memberRole": "member",
+          "memberCategory": "invitee",
+          "memberStatus": "connected",
+          "memberSettings": {
+            "showMessages": true
+          },
+          "blockedByAdmin": false,
+          "invitedBy": {
+            "type": "user"
+          },
+          "invitedByGroupMemberId": 1,
+          "localDisplayName": "bob",
+          "memberProfile": {
+            "profileId": 3,
+            "displayName": "bob",
+            "fullName": "",
+            "preferences": {
+              "timedMessages": {
+                "allow": "yes"
+              },
+              "fullDelete": {
+                "allow": "no"
+              },
+              "reactions": {
+                "allow": "yes"
+              },
+              "voice": {
+                "allow": "yes"
+              },
+              "files": {
+                "allow": "always"
+              },
+              "calls": {
+                "allow": "yes"
+              },
+              "sessions": {
+                "allow": "no"
+              },
+              "commands": []
+            },
+            "localAlias": ""
+          },
+          "memberContactId": 3,
+          "memberContactProfileId": 3,
+          "activeConn": {
+            "connId": 2,
+            "agentConnId": "eHRGamM0OWJndno4bjkyYg==",
+            "connChatVersion": 19,
+            "peerChatVRange": {
+              "minVersion": 1,
+              "maxVersion": 19
+            },
+            "connLevel": 0,
+            "viaGroupLink": false,
+            "connType": "member",
+            "connStatus": {
+              "type": "ready"
+            },
+            "contactConnInitiated": false,
+            "localAlias": "",
+            "entityId": 2,
+            "pqSupport": false,
+            "pqEncryption": false,
+            "authErrCounter": 0,
+            "quotaErrCounter": 0,
+            "createdAt": "2026-11-17T07:39:41.608536289Z"
+          },
+          "memberChatVRange": {
+            "minVersion": 1,
+            "maxVersion": 19
+          },
+          "createdAt": "2026-11-17T07:39:41.608536289Z",
+          "updatedAt": "2026-11-17T07:39:41.77201243Z"
+        }
+      ]
+    }
+  }
+}

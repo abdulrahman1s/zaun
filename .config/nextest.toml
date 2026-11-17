@@ -1,0 +1,36 @@
+# cargo-nextest (optional, in the dev shell): `cargo nextest run --workspace`. It runs every
+# test in a process of its own and all test binaries at once, so it is the fastest local loop;
+# `cargo test --workspace` stays the reference runner (CONTRIBUTING.md).
+
+# Setup scripts (`[scripts.setup.*]`) are still experimental in nextest.
+experimental = ["setup-scripts"]
+
+[profile.default]
+# Name every test that takes longer than this, so slow ones are visible.
+slow-timeout = { period = "15s", terminate-after = 8 }
+fail-fast = false
+
+# Tests in other packages find `easyplay`, `easyplay-init` and the testkit fakes through
+# `easyplay_testkit::bins::workspace_bin`, which runs `cargo build` once per process. Every
+# test is a process here, so build them once before the run and tell the tests (when that
+# build fails, each test falls back to building them itself).
+[scripts.setup.workspace-bins]
+command = [
+    "sh",
+    "-c",
+    'cargo build --quiet -p easyplay -p easyplay-init -p easyplay-testkit --bins && echo EASYPLAY_TEST_BINS_BUILT=1 >> "$NEXTEST_ENV" || true',
+]
+
+[[profile.default.scripts]]
+filter = "all()"
+setup = "workspace-bins"
+
+# The lifecycle suite starts real supervisors and counts helper processes in the whole
+# process table; run in parallel its tests starve each other (100 s each instead of 2 s).
+# One at a time, as `cargo test` runs them inside the binary.
+[test-groups]
+session-lifecycle = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = "binary(session_lifecycle)"
+test-group = "session-lifecycle"

@@ -43,6 +43,10 @@ pkgs.testers.runNixOSTest {
         info = machine.succeed(f"file -L {shim}")
         assert "statically linked" in info or "static-pie linked" in info, info
 
+    with subtest("the Chat helper and its engine library are installed in libexec"):
+        machine.succeed("test -x ${easyplay}/libexec/easyplay/easyplay-chat")
+        machine.succeed("test -f ${easyplay}/libexec/easyplay/simplex/libsimplex.so")
+
     with subtest("bubblewrap creates user namespaces as a normal user, also nested"):
         user("${bwrap} --unshare-user --ro-bind / / true")
         # The outer sandbox needs its own /proc so the inner bwrap can write its uid_map

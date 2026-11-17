@@ -5,6 +5,8 @@
 pub mod accent;
 pub mod artwork;
 pub mod availability;
+pub mod chat;
+pub mod chat_services;
 pub mod debug;
 pub mod desktop;
 pub mod launch;
@@ -57,6 +59,10 @@ pub(crate) enum FlowDone {
     Maintenance(maintenance::MaintenanceReport),
     /// A Steam job finished (ADR-0031).
     Steam(steam::SteamDone),
+    /// The Chat engine reported, or a restart is due (ADR-0033).
+    Chat(chat::ChatDone),
+    /// A Chat web service (GIFs, link check) finished.
+    ChatServices(chat_services::ServicesDone),
 }
 
 /// State of the flows in this module that the AppService keeps between messages.
@@ -68,6 +74,10 @@ pub(crate) struct FlowState {
     pub stats_db: std::sync::Arc<std::sync::Mutex<Option<crate::storage::ReadDb>>>,
     /// Steam games (ADR-0031).
     pub steam: steam::SteamState,
+    /// Chat (ADR-0033).
+    pub chat: chat::ChatState,
+    /// Chat's web services (GIFs, link check).
+    pub services: chat_services::ServicesState,
 }
 
 impl AppService {
@@ -88,6 +98,8 @@ impl AppService {
                 self.publish_library();
             }
             FlowDone::Steam(d) => self.on_steam_done(d),
+            FlowDone::Chat(d) => self.on_chat_done(d),
+            FlowDone::ChatServices(d) => self.on_services_done(d),
         }
     }
 

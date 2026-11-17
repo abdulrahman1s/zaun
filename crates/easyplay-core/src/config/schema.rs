@@ -90,6 +90,18 @@ words!(
     /// `advanced.renderer`.
     RendererPref { Auto = "auto", Wgpu = "wgpu", Glow = "glow" } default Auto
 );
+words!(
+    /// `chat.emoji`: how emoji are drawn (Twemoji everywhere, or the system's emoji font).
+    ChatEmoji { Twemoji = "twemoji", System = "system" } default Twemoji
+);
+words!(
+    /// `chat.send_with`: the key that sends a message (the other one breaks the line).
+    ChatSendWith { Enter = "enter", CtrlEnter = "ctrl_enter" } default Enter
+);
+words!(
+    /// `chat.share_quality`: the picture of a shared game.
+    ShareQuality { P720 = "720", P1080 = "1080", Source = "source" } default P1080
+);
 
 /// `runtime.default`: `umu-proton`, `ge-proton`, `pinned:<name>`, `external:<path>`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -249,6 +261,90 @@ pub struct SteamPrefs {
     /// "Show my Steam games": list the games installed with Steam on this computer. Off by
     /// default; while off, nothing of Steam's is read.
     pub show_games: bool,
+}
+
+/// `[chat]` (ADR-0033).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ChatPrefs {
+    /// Chat runs: the chat engine starts with EasyPlay and reaches the relays. Off by
+    /// default; while off, nothing is sent anywhere.
+    pub enabled: bool,
+    /// The name friends see, used when the chat profile is made (the first start); later
+    /// changes go through the profile.
+    pub name: String,
+    /// Relay addresses (`smp://…`) and file server addresses (`xftp://…`); empty = the
+    /// preset public ones.
+    pub relays: Vec<String>,
+    /// A desktop notification for a new message while no EasyPlay window has focus.
+    pub notify: bool,
+    /// The notification includes the message's text (otherwise only who wrote).
+    pub notify_preview: bool,
+    /// Friends see the game's name while it runs (hidden games never).
+    pub show_playing: bool,
+    /// Twemoji or the system's emoji font.
+    pub emoji: ChatEmoji,
+    /// Enter or Ctrl+Enter sends.
+    pub send_with: ChatSendWith,
+    /// GIFs play by themselves (otherwise on click).
+    pub gif_autoplay: bool,
+    /// GIF search: the typed search words go to the GIF service (Giphy, through a relay).
+    pub gif_search: bool,
+    /// Links the user sends get a preview (the page is fetched by the sender).
+    pub link_previews: bool,
+    /// Before a link from a message opens, Google Safe Browsing is asked about its site
+    /// (which tells Google the site's name). Off by default.
+    pub check_links: bool,
+    /// The Giphy API key for GIF search (`crate::gifs::key`); by default Signal's public
+    /// key, empty = no GIF search. Never logged; `<set>` in reports.
+    pub gif_key: String,
+    /// The HTTP CONNECT proxy GIF search goes through (`http://host:port`); by default
+    /// Signal's content proxy, empty = directly to Giphy.
+    pub gif_proxy: String,
+    /// The microphone for calls (empty = the system default).
+    pub mic: String,
+    /// The speakers for calls (empty = the system default).
+    pub speakers: String,
+    /// Reduce background noise in calls.
+    pub noise_suppression: bool,
+    /// Calls and shared games pass through a relay, so friends never learn the address.
+    pub relay_calls: bool,
+    /// The picture of a shared game.
+    pub share_quality: ShareQuality,
+    /// A shared game includes its sound.
+    pub share_sound: bool,
+    /// Sharing pauses (a still picture) while the game is not in front.
+    pub share_pause: bool,
+    /// A desktop notification for an incoming call.
+    pub notify_calls: bool,
+}
+
+impl Default for ChatPrefs {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            name: String::new(),
+            relays: Vec::new(),
+            notify: true,
+            notify_preview: false,
+            show_playing: true,
+            emoji: ChatEmoji::Twemoji,
+            send_with: ChatSendWith::Enter,
+            gif_autoplay: true,
+            gif_search: true,
+            link_previews: false,
+            check_links: false,
+            gif_key: crate::consts::GIF_DEFAULT_KEY.to_owned(),
+            gif_proxy: crate::consts::GIF_DEFAULT_PROXY.to_owned(),
+            mic: String::new(),
+            speakers: String::new(),
+            noise_suppression: true,
+            relay_calls: true,
+            share_quality: ShareQuality::P1080,
+            share_sound: true,
+            share_pause: true,
+            notify_calls: true,
+        }
+    }
 }
 
 /// `[protection]`.
@@ -411,6 +507,8 @@ pub struct Preferences {
     pub artwork: ArtworkPrefs,
     /// `[steam]`.
     pub steam: SteamPrefs,
+    /// `[chat]`.
+    pub chat: ChatPrefs,
     /// `[protection]`.
     pub protection: Protection,
     /// `[runtime]`.
@@ -460,6 +558,7 @@ impl Default for Preferences {
                 name_search: true,
             },
             steam: SteamPrefs { show_games: false },
+            chat: ChatPrefs::default(),
             protection: Protection {
                 default_preset: BasePreset::Offline,
                 always_isolate_runtime: false,

@@ -2,7 +2,8 @@
 //!
 //! Only EasyPlay-known locations can be opened: a [`KnownPath`] is constructed inside
 //! `easyplay-core` from the library and [`crate::paths::AppPaths`] (never from text a game
-//! produced), and links are the compiled-in HTTPS URLs of [`Link`]. Everything runs
+//! produced), and links are the compiled-in HTTPS URLs of [`Link`] or a Chat message's
+//! checked web link ([`Opener::open_web`]). Everything runs
 //! `xdg-open` through the [`CommandRunner`] with a fixed argument vector and a 5 s timeout.
 
 use std::ffi::OsString;
@@ -163,6 +164,14 @@ impl Opener {
         debug_assert!(link.url().starts_with("https://"));
         self.run(link.url().as_ref())
     }
+
+    /// Open a web link from a Chat message in the browser (ADR-0033). Only an `http` or
+    /// `https` link without spaces or control characters reaches here
+    /// ([`crate::linkcheck::WebLink`]), so `xdg-open` never takes it for an option or a file.
+    pub fn open_web(&self, link: &crate::linkcheck::WebLink) -> Result<(), Error> {
+        debug_assert!(link.url().get(..4).is_some_and(|s| s.eq_ignore_ascii_case("http")));
+        self.run(link.url().as_ref())
+    }
 }
 
 #[cfg(test)]
@@ -192,6 +201,8 @@ mod tests {
         o.reveal(&KnownPath::file("/state/logs/s.log".into()))
             .unwrap();
         o.open_link(Link::Help).unwrap();
+        let web = crate::linkcheck::WebLink::parse("https://example.com/a?b=c").unwrap();
+        o.open_web(&web).unwrap();
         let calls = rec.0.lock().unwrap().clone();
         assert_eq!(
             calls,
@@ -199,6 +210,10 @@ mod tests {
                 vec![OsString::from("/usr/bin/xdg-open"), "/games/x".into()],
                 vec!["/usr/bin/xdg-open".into(), "/state/logs".into()],
                 vec!["/usr/bin/xdg-open".into(), Link::Help.url().into()],
+                vec![
+                    "/usr/bin/xdg-open".into(),
+                    "https://example.com/a?b=c".into()
+                ],
             ]
         );
         let none = Opener {

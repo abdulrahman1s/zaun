@@ -868,14 +868,16 @@ fn launch(
         .unwrap_or_else(|| saved.clone());
     let before = text.clone();
     let valid = easyplay_core::steam::launch_options::valid_value(&text);
+    // Long values wrap and the field grows; Save stays beside its first line.
     let save = ui
-        .horizontal(|ui| {
+        .with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.spacing_mut().item_spacing.x = space::S2;
             let save_w = Button::new(st::launch::SAVE()).width(ui);
             let field = TextField::new(&mut text, "steam.launch_options")
                 .accessible_name(st::launch::FIELD())
                 .hint(s::ARGS_NONE())
                 .mono()
+                .wrapping()
                 .width((ui.available_width() - save_w - space::S2).max(space::S16))
                 .show(ui)
                 .response;

@@ -73,6 +73,7 @@ pub fn show(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>, dialo
         Dialog::Confirm(c) => confirm(ctx, id, state, env, dialog, c),
         Dialog::Prompt(p) => prompt(ctx, id, state, env, &p),
         Dialog::Error(e) => error(ctx, id, state, env, &e),
+        Dialog::Chat(c) => super::chat::dialog(ctx, id, state, env, c),
     };
     if done {
         state.nav.close(Overlay::Dialog(dialog));

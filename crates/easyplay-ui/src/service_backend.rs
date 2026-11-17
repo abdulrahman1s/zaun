@@ -182,6 +182,24 @@ impl ServiceBackend {
             Event::RuntimesChanged => UiEvent::RuntimesChanged,
             Event::PreferencesChanged => UiEvent::PreferencesChanged,
             Event::DiagnosticsChanged => UiEvent::DiagnosticsChanged,
+            Event::ChatChanged => UiEvent::ChatChanged,
+            Event::Notice(Notice::ChatMessages(messages)) => UiEvent::ChatMessages {
+                messages,
+                updated: false,
+            },
+            Event::Notice(Notice::ChatMessagesUpdated(messages)) => UiEvent::ChatMessages {
+                messages,
+                updated: true,
+            },
+            Event::Notice(Notice::ChatUnsafeLink {
+                url,
+                host,
+                unchecked,
+            }) => UiEvent::ChatUnsafeLink {
+                url,
+                host,
+                unchecked,
+            },
             Event::SessionsChanged => return None,
             Event::ShowGame(g) => UiEvent::ShowGame(g),
             Event::QuitRequested => UiEvent::QuitRequested,
@@ -200,9 +218,9 @@ impl ServiceBackend {
             Event::Notice(n) => UiEvent::Toast(ToastMsg {
                 text: notice_text(&n, &self.handle.hub.library.load()),
                 level: match n {
-                    Notice::ArtworkKeptPlaceholder { .. } | Notice::OnlyFirstPaths { .. } => {
-                        ToastLevel::Warning
-                    }
+                    Notice::ArtworkKeptPlaceholder { .. }
+                    | Notice::OnlyFirstPaths { .. }
+                    | Notice::ChatGifNotSent => ToastLevel::Warning,
                     Notice::StopRequested { .. } | Notice::AlreadyInLibrary { .. } => {
                         ToastLevel::Info
                     }
@@ -241,6 +259,9 @@ impl ServiceBackend {
                     QueryResult::Processes(p) => QueryPayload::Processes(p),
                     QueryResult::Report(f) => QueryPayload::Report(f),
                     QueryResult::Steam(d) => QueryPayload::Steam(d),
+                    QueryResult::Chat(c) => QueryPayload::Chat(c),
+                    QueryResult::Gifs(g) => QueryPayload::Gifs(g),
+                    QueryResult::GifPreview(g) => QueryPayload::GifPreview(g),
                     QueryResult::Failed(e) => QueryPayload::Failed(*e),
                 },
             },
@@ -306,6 +327,11 @@ fn notice_text(n: &Notice, lib: &LibrarySnapshot) -> String {
     let name = |g: &GameId| lib.get(*g).map(|s| s.name.to_string()).unwrap_or_default();
     match n {
         Notice::GameAdded { name, .. } => crate::strings::feedback::added(name),
+        // Mapped to `UiEvent::ChatMessages` before toasts are made.
+        Notice::ChatMessages(_) | Notice::ChatMessagesUpdated(_) => String::new(),
+        // Mapped to `UiEvent::ChatUnsafeLink` before toasts are made.
+        Notice::ChatUnsafeLink { .. } => String::new(),
+        Notice::ChatGifNotSent => crate::strings::chat::services::NOT_SENT().to_owned(),
         Notice::AlreadyInLibrary { game } => text::already(&name(game)),
         Notice::FoundMoved { game } => text::found_moved(&name(game)),
         Notice::OnlyFirstPaths { processed } => text::only_first(*processed),
@@ -701,6 +727,7 @@ impl Backend for ServiceBackend {
             UiCommand::DismissCrash => h.send(Command::DismissCrash),
             UiCommand::ResolveDatabase(c) => h.send(Command::ResolveDatabase(c)),
             UiCommand::Steam(a) => h.send(Command::Steam(steam_command(a))),
+            UiCommand::Chat(c) => h.send(Command::Chat(c)),
         }
     }
 
@@ -729,6 +756,9 @@ impl Backend for ServiceBackend {
 
     fn diagnostics(&self) -> Arc<Diagnostics> {
         self.handle.hub.diagnostics.load()
+    }
+    fn chat(&self) -> Arc<easyplay_core::model::ChatSnapshot> {
+        self.handle.hub.chat.load()
     }
 
     fn host(&self) -> Arc<HostView> {
@@ -894,6 +924,9 @@ pub fn compact_unattended(queue: VecDeque<UiEvent>) -> (VecDeque<UiEvent>, Unatt
             | UiEvent::HostChanged
             | UiEvent::RuntimesChanged
             | UiEvent::DiagnosticsChanged
+            | UiEvent::ChatChanged
+            | UiEvent::ChatMessages { .. }
+            | UiEvent::ChatUnsafeLink { .. }
             | UiEvent::QueryResult { .. }
             | UiEvent::ArtworkFailed { .. } => false,
             UiEvent::QuitRequested => {

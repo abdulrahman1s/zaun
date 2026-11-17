@@ -155,6 +155,8 @@ pub struct SnapshotHub {
     pub integration: Swap<crate::desktop::IntegrationState>,
     /// Doctor report, crash banner, recovery mode.
     pub diagnostics: Swap<Diagnostics>,
+    /// Chat (ADR-0033).
+    pub chat: Swap<crate::model::ChatSnapshot>,
 }
 
 impl SnapshotHub {
@@ -168,6 +170,7 @@ impl SnapshotHub {
             host: Swap::new(None),
             integration: Swap::default(),
             diagnostics: Swap::default(),
+            chat: Swap::default(),
         }
     }
 }

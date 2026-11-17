@@ -126,6 +126,58 @@ pub const WIFI: Icon = Icon::new("wifi", '\u{E03B}', '\u{E13B}', false);
 pub const HARD_DRIVE: Icon = Icon::new("hard.drive", '\u{E03C}', '\u{E13C}', false);
 /// `steam` (Phosphor `steam-logo`, extra).
 pub const STEAM: Icon = Icon::new("steam", '\u{E03D}', '\u{E13D}', false);
+/// `phone` (Phosphor `phone`, extra).
+pub const PHONE: Icon = Icon::new("phone", '\u{E03E}', '\u{E13E}', false);
+/// `phone.end` (Phosphor `phone-disconnect`, extra).
+pub const PHONE_END: Icon = Icon::new("phone.end", '\u{E03F}', '\u{E13F}', false);
+/// `headphones` (Phosphor `headphones`, extra).
+pub const HEADPHONES: Icon = Icon::new("headphones", '\u{E040}', '\u{E140}', false);
+/// `share.game` (Phosphor `monitor-arrow-up`, extra).
+pub const SHARE_GAME: Icon = Icon::new("share.game", '\u{E041}', '\u{E141}', false);
+/// `smiley` (Phosphor `smiley`, extra).
+pub const SMILEY: Icon = Icon::new("smiley", '\u{E042}', '\u{E142}', false);
+/// `reply` (Phosphor `arrow-bend-up-left`, extra).
+pub const REPLY: Icon = Icon::new("reply", '\u{E043}', '\u{E143}', false);
+/// `bell.off` (Phosphor `bell-slash`, extra).
+pub const BELL_OFF: Icon = Icon::new("bell.off", '\u{E044}', '\u{E144}', false);
+/// `user.plus` (Phosphor `user-plus`, extra).
+pub const USER_PLUS: Icon = Icon::new("user.plus", '\u{E045}', '\u{E145}', false);
+/// `pause` (Phosphor `pause`, extra).
+pub const PAUSE: Icon = Icon::new("pause", '\u{E046}', '\u{E146}', false);
+/// `pencil` (Phosphor `pencil-simple`, extra).
+pub const PENCIL: Icon = Icon::new("pencil", '\u{E047}', '\u{E147}', false);
+/// `code` (Phosphor `code`, extra).
+pub const CODE: Icon = Icon::new("code", '\u{E048}', '\u{E148}', false);
+/// `quote` (Phosphor `quotes`, extra).
+pub const QUOTE: Icon = Icon::new("quote", '\u{E049}', '\u{E149}', false);
+/// `link` (Phosphor `link`, extra).
+pub const LINK: Icon = Icon::new("link", '\u{E04A}', '\u{E14A}', false);
+/// `eye` (Phosphor `eye`, extra).
+pub const EYE: Icon = Icon::new("eye", '\u{E04B}', '\u{E14B}', false);
+/// `prohibit` (Phosphor `prohibit`, extra).
+pub const PROHIBIT: Icon = Icon::new("prohibit", '\u{E04C}', '\u{E14C}', false);
+/// `expand` (Phosphor `arrows-out-simple`, extra).
+pub const EXPAND: Icon = Icon::new("expand", '\u{E04D}', '\u{E14D}', false);
+/// `shrink` (Phosphor `arrows-in-simple`, extra).
+pub const SHRINK: Icon = Icon::new("shrink", '\u{E04E}', '\u{E14E}', false);
+/// `speaker.off` (Phosphor `speaker-x`, extra).
+pub const SPEAKER_OFF: Icon = Icon::new("speaker.off", '\u{E04F}', '\u{E14F}', false);
+/// `users` (Phosphor `users`, extra).
+pub const USERS: Icon = Icon::new("users", '\u{E050}', '\u{E150}', false);
+/// `leave` (Phosphor `sign-out`, extra).
+pub const LEAVE: Icon = Icon::new("leave", '\u{E051}', '\u{E151}', false);
+/// `shield.check` (Phosphor `shield-check`, extra).
+pub const SHIELD_CHECK: Icon = Icon::new("shield.check", '\u{E052}', '\u{E152}', false);
+/// `user.minus` (Phosphor `user-minus`, extra).
+pub const USER_MINUS: Icon = Icon::new("user.minus", '\u{E053}', '\u{E153}', false);
+/// `chat` (Phosphor `chat-circle`, extra).
+pub const CHAT: Icon = Icon::new("chat", '\u{E054}', '\u{E154}', false);
+/// `user` (Phosphor `user`, extra).
+pub const USER: Icon = Icon::new("user", '\u{E055}', '\u{E155}', false);
+/// `image` (Phosphor `image`, extra).
+pub const IMAGE: Icon = Icon::new("image", '\u{E056}', '\u{E156}', false);
+/// `file` (Phosphor `file`, extra).
+pub const FILE: Icon = Icon::new("file", '\u{E057}', '\u{E157}', false);
 
 /// Every icon, in manifest order.
 pub const ALL: &[Icon] = &[
@@ -191,4 +243,30 @@ pub const ALL: &[Icon] = &[
     WIFI,
     HARD_DRIVE,
     STEAM,
+    PHONE,
+    PHONE_END,
+    HEADPHONES,
+    SHARE_GAME,
+    SMILEY,
+    REPLY,
+    BELL_OFF,
+    USER_PLUS,
+    PAUSE,
+    PENCIL,
+    CODE,
+    QUOTE,
+    LINK,
+    EYE,
+    PROHIBIT,
+    EXPAND,
+    SHRINK,
+    SPEAKER_OFF,
+    USERS,
+    LEAVE,
+    SHIELD_CHECK,
+    USER_MINUS,
+    CHAT,
+    USER,
+    IMAGE,
+    FILE,
 ];

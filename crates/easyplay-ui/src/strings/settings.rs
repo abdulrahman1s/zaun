@@ -11,6 +11,7 @@ pub fn tab(t: SettingsTab) -> &'static str {
         SettingsTab::General => crate::i18n::text("settings.tab.general"),
         SettingsTab::Appearance => crate::i18n::text("settings.tab.appearance"),
         SettingsTab::Protection => crate::i18n::text("settings.tab.protection"),
+        SettingsTab::Chat => crate::strings::chat::settings::TAB(),
         SettingsTab::CompatibilityLayers => crate::i18n::text("settings.tab.compatibility_layers"),
         SettingsTab::Integration => crate::i18n::text("settings.tab.integration"),
         SettingsTab::Advanced => crate::i18n::text("settings.tab.advanced"),
@@ -376,7 +377,7 @@ texts! {
 }
 /// The licences: what, and under which licence.
 #[allow(non_snake_case)]
-pub fn LICENCE_ROWS() -> [(&'static str, &'static str); 4] {
+pub fn LICENCE_ROWS() -> [(&'static str, &'static str); 5] {
     [
         ("EasyPlay", "GPL-3.0-or-later"),
         (
@@ -386,6 +387,11 @@ pub fn LICENCE_ROWS() -> [(&'static str, &'static str); 4] {
         (
             crate::i18n::text("settings.licence_rows.phosphor_icons"),
             "MIT",
+        ),
+        // The Chat page's emoji pictures (composer agent).
+        (
+            crate::i18n::text("settings.licence_rows.twemoji_graphics"),
+            crate::i18n::text("settings.licence_rows.twemoji_licence"),
         ),
         (
             crate::i18n::text("settings.licence_rows.third_party_crates"),

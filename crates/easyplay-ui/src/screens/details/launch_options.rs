@@ -533,6 +533,7 @@ fn body(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, g: &GameSummary) {
         .accessible_name(s::ARGUMENTS())
         .hint(s::ARGS_NONE())
         .mono()
+        .wrapping()
         .show(ui);
     ui.add_space(gm::FINE_TOP);
     let note = match &split {

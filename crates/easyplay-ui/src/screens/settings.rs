@@ -37,10 +37,11 @@ use crate::widgets::text_field::TextField;
 use crate::widgets::toggle::switch;
 
 /// Tabs in order.
-pub const TABS: [SettingsTab; 7] = [
+pub const TABS: [SettingsTab; 8] = [
     SettingsTab::General,
     SettingsTab::Appearance,
     SettingsTab::Protection,
+    SettingsTab::Chat,
     SettingsTab::CompatibilityLayers,
     SettingsTab::Integration,
     SettingsTab::Advanced,
@@ -486,6 +487,412 @@ fn general(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     ) {
         env.bridge
             .send(UiCommand::Steam(crate::bridge::SteamAction::Rescan));
+    }
+}
+
+/// Chat (ADR-0033): off by default. The switch goes through the service (turning it off and
+/// on again is also how a stopped engine is retried); the name and relays are saved when
+/// their field loses focus.
+fn chat(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
+    use easyplay_core::service::ChatCommand;
+    use strings::chat as c;
+    let prefs = env.bridge.prefs().clone();
+    rows::heading(ui, c::GROUP(), true);
+    note_key(ui, "chat.enabled");
+    let mut on = prefs.chat.enabled;
+    let changed = SettingRow::new(c::ENABLE())
+        .help(c::ENABLE_HELP())
+        .show(ui, |ui| {
+            band(ui, control::TOGGLE_H, |ui| {
+                switch(ui, &mut on, c::ENABLE()).changed()
+            })
+        });
+    if changed {
+        let mut next = (*prefs).clone();
+        next.chat.enabled = on;
+        env.bridge
+            .send(UiCommand::Chat(ChatCommand::SetEnabled { on, name: None }));
+        env.bridge.set_prefs_preview(next);
+        state
+            .settings
+            .saved
+            .insert("chat.enabled".to_owned(), env.mono);
+    }
+    for (key, label, help) in [
+        ("chat.name", c::NAME(), c::NAME_HELP()),
+        ("chat.relays", c::RELAYS(), c::RELAYS_HELP()),
+    ] {
+        note_key(ui, key);
+        let current = if key == "chat.name" {
+            prefs.chat.name.clone()
+        } else {
+            prefs.chat.relays.join(" ")
+        };
+        let buf = state
+            .settings
+            .paths
+            .entry(key.to_owned())
+            .or_insert_with(|| current.clone());
+        let mut field = TextField::new(buf, key)
+            .accessible_name(label)
+            .width(layout::PATH_FIELD_W);
+        if key == "chat.relays" {
+            field = field.hint(c::RELAYS_PRESET()).mono();
+        }
+        let r = SettingRow::new(label).help(help).show(ui, |ui| {
+            band(ui, control::BUTTON, |ui| field.show(ui).response)
+        });
+        let typed = buf.trim().to_owned();
+        if r.lost_focus() && typed != current {
+            let mut next = (*prefs).clone();
+            if key == "chat.name" {
+                if typed.is_empty() {
+                    continue;
+                }
+                next.chat.name = typed.clone();
+                env.bridge
+                    .send(UiCommand::Chat(ChatCommand::SetName(typed)));
+                env.bridge.set_prefs_preview(next);
+                state.settings.saved.insert(key.to_owned(), env.mono);
+            } else {
+                let list: Vec<String> = typed.split_whitespace().map(str::to_owned).collect();
+                next.chat.relays = list.clone();
+                commit(state, env, key, PreferencePatch::new().set(key, list), next);
+            }
+        } else if !r.has_focus() {
+            state.settings.paths.insert(key.to_owned(), current);
+        }
+    }
+    switch_row(
+        ui,
+        state,
+        env,
+        "chat.notify_preview",
+        c::NOTIFY_PREVIEW(),
+        c::NOTIFY_PREVIEW_HELP(),
+        prefs.chat.enabled && prefs.chat.notify,
+        |p| p.chat.notify_preview,
+        |p, v| p.chat.notify_preview = v,
+    );
+}
+
+/// Settings › Chat (chat.html SETTINGS `chat`, image 40): Chat itself, what friends see,
+/// messages, calls, sharing a game, notifications. The rows of what this build's chat
+/// engine cannot do are not drawn (`ChatSnapshot::features`, published whether Chat is on
+/// or off).
+fn chat_tab(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
+    use easyplay_core::config::schema::{ChatEmoji, ChatSendWith, ShareQuality};
+    use strings::chat::settings as cs;
+    chat(ui, state, env);
+    let prefs = env.bridge.prefs().clone();
+    let f = env.bridge.chat().features;
+
+    if f.presence {
+        rows::heading(ui, cs::FRIENDS_SEE(), false);
+        switch_row(
+            ui,
+            state,
+            env,
+            "chat.show_playing",
+            cs::SHOW_PLAYING(),
+            cs::SHOW_PLAYING_HELP(),
+            true,
+            |p| p.chat.show_playing,
+            |p, v| p.chat.show_playing = v,
+        );
+    }
+
+    rows::heading(ui, cs::MESSAGES(), false);
+    seg_row(
+        ui,
+        state,
+        env,
+        "chat.emoji",
+        cs::EMOJI(),
+        cs::EMOJI_HELP(),
+        true,
+        &[cs::EMOJI_TWEMOJI(), cs::EMOJI_SYSTEM()],
+        &["twemoji", "system"],
+        idx(ChatEmoji::ALL, prefs.chat.emoji),
+        |p, i| p.chat.emoji = ChatEmoji::ALL[i],
+    );
+    seg_row(
+        ui,
+        state,
+        env,
+        "chat.send_with",
+        cs::SEND_WITH(),
+        "",
+        true,
+        &[cs::SEND_ENTER(), cs::SEND_CTRL_ENTER()],
+        &["enter", "ctrl_enter"],
+        idx(ChatSendWith::ALL, prefs.chat.send_with),
+        |p, i| p.chat.send_with = ChatSendWith::ALL[i],
+    );
+    if f.gifs {
+        switch_row(
+            ui,
+            state,
+            env,
+            "chat.gif_autoplay",
+            cs::GIF_AUTOPLAY(),
+            "",
+            true,
+            |p| p.chat.gif_autoplay,
+            |p, v| p.chat.gif_autoplay = v,
+        );
+        switch_row(
+            ui,
+            state,
+            env,
+            "chat.gif_search",
+            cs::GIF_SEARCH(),
+            cs::GIF_SEARCH_HELP(),
+            true,
+            |p| p.chat.gif_search,
+            |p, v| p.chat.gif_search = v,
+        );
+        {
+            use strings::chat::settings as cs;
+            gif_text_row(
+                ui,
+                state,
+                env,
+                prefs.chat.gif_search,
+                "chat.gif_key",
+                (cs::GIF_KEY(), cs::GIF_KEY_HELP()),
+                |p| &mut p.chat.gif_key,
+            );
+            gif_text_row(
+                ui,
+                state,
+                env,
+                prefs.chat.gif_search,
+                "chat.gif_proxy",
+                (cs::GIF_PROXY(), cs::GIF_PROXY_HELP()),
+                |p| &mut p.chat.gif_proxy,
+            );
+        }
+    }
+    if f.link_previews {
+        switch_row(
+            ui,
+            state,
+            env,
+            "chat.link_previews",
+            cs::LINK_PREVIEWS(),
+            cs::LINK_PREVIEWS_HELP(),
+            true,
+            |p| p.chat.link_previews,
+            |p, v| p.chat.link_previews = v,
+        );
+    }
+    switch_row(
+        ui,
+        state,
+        env,
+        "chat.check_links",
+        cs::CHECK_LINKS(),
+        cs::CHECK_LINKS_HELP(),
+        true,
+        |p| p.chat.check_links,
+        |p, v| p.chat.check_links = v,
+    );
+
+    if f.calls {
+        rows::heading(ui, cs::CALLS(), false);
+        let (mics, outs) = if env.bridge.is_preview() {
+            cs::preview_devices()
+        } else {
+            (&[][..], &[][..])
+        };
+        device_row(ui, state, env, "chat.mic", cs::MIC(), mics, |p| {
+            &mut p.chat.mic
+        });
+        device_row(ui, state, env, "chat.speakers", cs::SPEAKERS(), outs, |p| {
+            &mut p.chat.speakers
+        });
+        switch_row(
+            ui,
+            state,
+            env,
+            "chat.noise_suppression",
+            cs::NOISE(),
+            "",
+            true,
+            |p| p.chat.noise_suppression,
+            |p, v| p.chat.noise_suppression = v,
+        );
+        switch_row(
+            ui,
+            state,
+            env,
+            "chat.relay_calls",
+            cs::RELAY_CALLS(),
+            cs::RELAY_CALLS_HELP(),
+            true,
+            |p| p.chat.relay_calls,
+            |p, v| p.chat.relay_calls = v,
+        );
+    }
+
+    if f.share {
+        rows::heading(ui, cs::SHARING(), false);
+        seg_row(
+            ui,
+            state,
+            env,
+            "chat.share_quality",
+            cs::PICTURE(),
+            "",
+            true,
+            &[cs::PICTURE_720(), cs::PICTURE_1080(), cs::PICTURE_SOURCE()],
+            &["720", "1080", "source"],
+            idx(ShareQuality::ALL, prefs.chat.share_quality),
+            |p, i| p.chat.share_quality = ShareQuality::ALL[i],
+        );
+        switch_row(
+            ui,
+            state,
+            env,
+            "chat.share_sound",
+            cs::SHARE_SOUND(),
+            "",
+            true,
+            |p| p.chat.share_sound,
+            |p, v| p.chat.share_sound = v,
+        );
+        switch_row(
+            ui,
+            state,
+            env,
+            "chat.share_pause",
+            cs::SHARE_PAUSE(),
+            cs::SHARE_PAUSE_HELP(),
+            true,
+            |p| p.chat.share_pause,
+            |p, v| p.chat.share_pause = v,
+        );
+    }
+
+    rows::heading(ui, cs::NOTIFICATIONS(), false);
+    switch_row(
+        ui,
+        state,
+        env,
+        "chat.notify",
+        cs::NOTIFY_MESSAGES(),
+        "",
+        true,
+        |p| p.chat.notify,
+        |p, v| p.chat.notify = v,
+    );
+    if f.calls {
+        switch_row(
+            ui,
+            state,
+            env,
+            "chat.notify_calls",
+            cs::NOTIFY_CALLS(),
+            "",
+            true,
+            |p| p.chat.notify_calls,
+            |p, v| p.chat.notify_calls = v,
+        );
+    }
+}
+
+/// "GIF search key" and "GIF search relay" (`chat.gif_key`, `chat.gif_proxy`): text saved
+/// when the field loses focus (like the relays); faint while GIF search is off.
+fn gif_text_row(
+    ui: &mut Ui,
+    state: &mut UiState,
+    env: &mut Env<'_>,
+    enabled: bool,
+    key: &'static str,
+    (label, help): (&str, &str),
+    field: fn(&mut Preferences) -> &mut String,
+) {
+    use strings::chat::settings as cs;
+    note_key(ui, key);
+    let current = field(&mut (**env.bridge.prefs()).clone()).clone();
+    let buf = state
+        .settings
+        .paths
+        .entry(key.to_owned())
+        .or_insert_with(|| current.clone());
+    let text = TextField::new(buf, key)
+        .accessible_name(label)
+        .hint(cs::GIF_NOT_SET())
+        .mono()
+        .width(layout::PATH_FIELD_W);
+    let r = SettingRow::new(label)
+        .help(help)
+        .enabled(enabled)
+        .show(ui, |ui| {
+            band(ui, control::BUTTON, |ui| text.show(ui).response)
+        });
+    let typed = buf.trim().to_owned();
+    if r.lost_focus() && typed != current {
+        let mut next = (**env.bridge.prefs()).clone();
+        field(&mut next).clone_from(&typed);
+        commit(
+            state,
+            env,
+            key,
+            PreferencePatch::new().set(key, typed),
+            next,
+        );
+    } else if !r.has_focus() {
+        state.settings.paths.insert(key.to_owned(), current);
+    }
+}
+
+/// A row with a select over sound devices: the system default (stored as ""), `known`
+/// devices, and the stored one when it is not among them.
+fn device_row(
+    ui: &mut Ui,
+    state: &mut UiState,
+    env: &mut Env<'_>,
+    key: &'static str,
+    label: &str,
+    known: &[&str],
+    field: fn(&mut Preferences) -> &mut String,
+) {
+    note_key(ui, key);
+    let current = field(&mut (**env.bridge.prefs()).clone()).clone();
+    let mut values: Vec<String> = std::iter::once(String::new())
+        .chain(known.iter().map(|d| (*d).to_owned()))
+        .collect();
+    if !values.contains(&current) {
+        values.push(current.clone());
+    }
+    let labels: Vec<&str> = values
+        .iter()
+        .map(|v| {
+            if v.is_empty() {
+                strings::chat::settings::SYSTEM_DEFAULT()
+            } else {
+                v.as_str()
+            }
+        })
+        .collect();
+    let mut i = values.iter().position(|v| *v == current).unwrap_or(0);
+    let changed = SettingRow::new(label).show(ui, |ui| {
+        band(ui, control::SM, |ui| {
+            select(ui, label, None, None, &mut i, &labels, false).changed()
+        })
+    });
+    if changed && values[i] != current {
+        let mut next = (**env.bridge.prefs()).clone();
+        *field(&mut next) = values[i].clone();
+        commit(
+            state,
+            env,
+            key,
+            PreferencePatch::new().set(key, values[i].clone()),
+            next,
+        );
     }
 }
 
@@ -1467,6 +1874,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, tab: SettingsTa
                                 SettingsTab::General => general(ui, state, env),
                                 SettingsTab::Appearance => appearance(ui, state, env),
                                 SettingsTab::Protection => protection(ui, state, env),
+                                SettingsTab::Chat => chat_tab(ui, state, env),
                                 SettingsTab::CompatibilityLayers => layers(ui, state, env),
                                 SettingsTab::Integration => integration(ui, state, env),
                                 SettingsTab::Advanced => advanced(ui, state, env),

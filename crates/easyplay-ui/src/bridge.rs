@@ -496,6 +496,12 @@ pub enum QueryPayload {
     Report(Vec<ReportFile>),
     /// A Steam game's page (`SteamAction::Details`).
     Steam(Box<SteamDetail>),
+    /// `ChatCommand::LoadChat` (ADR-0033): a page of a conversation, oldest first.
+    Chat(easyplay_core::service::ChatPage),
+    /// `ChatCommand::GifSearch` / `GifTrending`: GIFs from Klipy (or why there are none).
+    Gifs(easyplay_core::gifs::GifAnswer),
+    /// `ChatCommand::GifPreview`: a picker picture.
+    GifPreview(easyplay_core::gifs::GifPreview),
     /// The query failed.
     Failed(UserError),
 }
@@ -889,6 +895,8 @@ pub enum UiCommand {
     ResolveDatabase(DatabaseChoice),
     /// A Steam action (ADR-0031).
     Steam(SteamAction),
+    /// A Chat action (ADR-0033), passed to the service as is.
+    Chat(easyplay_core::service::ChatCommand),
     /// Quit EasyPlay (games keep running).
     Quit,
 }
@@ -906,6 +914,25 @@ pub enum UiEvent {
     RuntimesChanged,
     /// The diagnostics snapshot changed (Doctor, crash banner, recovery mode).
     DiagnosticsChanged,
+    /// A new Chat snapshot (ADR-0033).
+    ChatChanged,
+    /// A message's link was not opened: Google Safe Browsing flagged its site, or the check
+    /// got no answer (`unchecked`). The page asks (`ChatDialog::UnsafeLink`).
+    ChatUnsafeLink {
+        /// The link.
+        url: String,
+        /// Its host.
+        host: String,
+        /// The check got no answer.
+        unchecked: bool,
+    },
+    /// Messages arrived or were sent (`updated` = delivery or text of known ones changed).
+    ChatMessages {
+        /// Oldest first.
+        messages: Vec<easyplay_core::model::ChatMessage>,
+        /// Changes to messages already shown.
+        updated: bool,
+    },
     /// A launch moved to a new state.
     LaunchProgress {
         /// Game.
@@ -984,6 +1011,10 @@ pub trait Backend: Send {
     fn diagnostics(&self) -> Arc<Diagnostics> {
         Arc::new(Diagnostics::default())
     }
+    /// Chat (ADR-0033).
+    fn chat(&self) -> Arc<easyplay_core::model::ChatSnapshot> {
+        Arc::new(easyplay_core::model::ChatSnapshot::default())
+    }
 }
 
 /// A backend shared by several windows in turn (the resident service opens one window after
@@ -1028,6 +1059,9 @@ impl<B: Backend + Sync + ?Sized> Backend for Arc<B> {
     fn diagnostics(&self) -> Arc<Diagnostics> {
         (**self).diagnostics()
     }
+    fn chat(&self) -> Arc<easyplay_core::model::ChatSnapshot> {
+        (**self).chat()
+    }
 }
 
 /// Maximum events drained per frame (ARCHITECTURE §5.1).
@@ -1041,6 +1075,7 @@ pub struct UiBridge {
     host: Arc<HostView>,
     runtimes: Arc<RuntimesView>,
     diagnostics: Arc<Diagnostics>,
+    chat: Arc<easyplay_core::model::ChatSnapshot>,
     next_query: std::cell::Cell<u128>,
 }
 
@@ -1053,6 +1088,7 @@ impl UiBridge {
             host: backend.host(),
             runtimes: backend.runtimes(),
             diagnostics: backend.diagnostics(),
+            chat: backend.chat(),
             backend,
             next_query: std::cell::Cell::new(1),
         }
@@ -1091,6 +1127,7 @@ impl UiBridge {
                     // The host view's checks are the Doctor report once there is one.
                     self.host = self.backend.host();
                 }
+                UiEvent::ChatChanged => self.chat = self.backend.chat(),
                 _ => {}
             }
             out.push(ev);
@@ -1131,6 +1168,11 @@ impl UiBridge {
     /// Diagnostics of this frame.
     pub fn diagnostics(&self) -> &Arc<Diagnostics> {
         &self.diagnostics
+    }
+
+    /// Chat of this frame (ADR-0033).
+    pub fn chat(&self) -> &Arc<easyplay_core::model::ChatSnapshot> {
+        &self.chat
     }
 
     /// See [`Backend::assess`].

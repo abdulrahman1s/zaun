@@ -11,6 +11,24 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 
 ### For users
 
+- Chat, a new page between Library and Statistics, off by default (Settings → Chat, or the
+  switch on the page). Add a friend with a one-time link, shown as a QR code or copied with
+  one button. Talk one to one or in groups, with replies, emoji reactions, edits, deletes,
+  `@mentions` in groups, simple formatting, emoji pictures (Twemoji, built in) with `:`
+  autocomplete, pictures and GIFs; ↑ in an empty message box edits your last message. Mute
+  a conversation, block someone (they are not told), or compare security codes with a
+  friend. The top bar shows how many messages are unread. Messages are end-to-end
+  encrypted, with no account and no EasyPlay server: they travel through relays (by default
+  the public servers at simplex.im and simplexonflux.com, or ones you list), which see your
+  IP address and timing but never the content. The page says this before you turn it on.
+  GIF search goes to GIPHY through Signal's content proxy, so GIPHY never sees your address;
+  only your search words are sent, and friends receive the GIF as a file. Opening a link can
+  first ask Google Safe Browsing about the site (*Check links before opening*, off by
+  default; only the site's name is sent). Notifications show the sender's name only, unless
+  you choose to show the text. Everything lives in an encrypted database in EasyPlay's data
+  folder that games cannot reach. Voice calls, watching a friend play and an in-game overlay
+  are planned and appear only in the preview (`easyplay --preview`) for now. Chat shows "not
+  included in this build" when the package leaves it out.
 - The interface is available in Arabic (Settings → General → Language: *Same as system*, *English*, *العربية*). Text is set right to left; the layout of columns and bars is not mirrored yet. Texts that come from outside the interface (some error messages and system-check results) stay in English.
 - First public release. Open a Windows `.exe` from the file manager, choose *Offline*,
   *Online* or *Standard* protection, and play; every game runs through umu-launcher inside
@@ -75,6 +93,17 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 
 ### For packagers
 
+- Chat (ADR-0033) adds the crate `easyplay-chat`, licensed **AGPL-3.0-only** (the rest is
+  GPL-3.0-or-later; GPLv3 §13 permits the combination), the only code that links the SimpleX
+  chat engine. Install the binary to `libexec/easyplay/`, and `libsimplex.so` with the
+  libraries it needs to `libexec/easyplay/simplex/` (about 237 MiB; chat core 7.0.0.12 was
+  the one tested). Elsewhere: `EASYPLAY_SIMPLEX_LIB` names `libsimplex.so`;
+  `EASYPLAY_SIMPLEX_LIBRARY_PATH` becomes the helper's `LD_LIBRARY_PATH` (needed on NixOS).
+  Without the helper or the library the Chat page says "not included in this build" and
+  nothing else changes; the AGPL source of the helper must be offered with the package.
+- Chat ships Twemoji's PNG emoji (`twemoji-assets`, CC-BY 4.0; credited in Settings → About →
+  Licences, text in `assets/licenses/CC-BY-4.0-Twemoji.txt`). It adds about 5.6 MB to the
+  binary. The `image` crate gains its `gif` feature.
 - Build with `scripts/build-release.sh` (`--help` for options). It builds with `--locked`,
   refuses the `dev-inspection` feature, checks the size budgets (`easyplay` <= 35 MB,
   `easyplay-init` <= 1 MB) and that the shim is static, and stages DESKTOP_INTEGRATION §10.

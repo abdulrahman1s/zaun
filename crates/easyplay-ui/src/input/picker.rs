@@ -22,6 +22,10 @@ pub enum PickKind {
     Image,
     /// A file to save (the diagnostics report).
     Save,
+    /// A picture or GIF to send in Chat.
+    Media,
+    /// Any file to send in Chat.
+    File,
 }
 
 /// Why it is being picked: where the result goes.
@@ -54,6 +58,10 @@ pub enum PickPurpose {
     LayerFolder,
     /// Where to save the diagnostics report.
     SaveReport,
+    /// The Chat composer's *Picture or video…* for this conversation.
+    ChatPicture(easyplay_core::model::ChatRef),
+    /// The Chat composer's *File…* for this conversation.
+    ChatFile(easyplay_core::model::ChatRef),
 }
 
 impl PickPurpose {
@@ -73,6 +81,8 @@ impl PickPurpose {
             | PickPurpose::WorkingDir(_)
             | PickPurpose::LayerFolder => PickKind::Folder,
             PickPurpose::SaveReport => PickKind::Save,
+            PickPurpose::ChatPicture(_) => PickKind::Media,
+            PickPurpose::ChatFile(_) => PickKind::File,
         }
     }
 }
@@ -137,6 +147,18 @@ impl Picker for RfdPicker {
                         .into_iter()
                         .collect(),
                     PickKind::Folder => dialog.pick_folder().into_iter().collect(),
+                    PickKind::Media => dialog
+                        .add_filter(
+                            strings::picker::IMAGES(),
+                            &[
+                                "png", "jpg", "jpeg", "webp", "gif", "PNG", "JPG", "JPEG", "WEBP",
+                                "GIF",
+                            ],
+                        )
+                        .pick_file()
+                        .into_iter()
+                        .collect(),
+                    PickKind::File => dialog.pick_file().into_iter().collect(),
                     PickKind::Save => dialog
                         .set_file_name(strings::debug::REPORT_FILE_NAME)
                         .save_file()

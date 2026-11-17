@@ -26,8 +26,15 @@ Without entering the shell, prefix any command: `nix develop -c cargo test --wor
 Without Nix: rustup (the toolchain file selects the version and targets), a C compiler,
 `pkg-config`, the Wayland/X11/xkbcommon/udev development headers, `musl-tools` on Debian.
 
+Each crate's integration tests are one test binary, `tests/it/` (one module per former
+file), because linking a test binary is most of an incremental build. A file stays its own
+binary in `tests/` only when it needs a process to itself (the lifecycle and e2e suites, the
+interface language). `cargo nextest run --workspace` is the fastest local run
+(`.config/nextest.toml`); `cargo test` stays the reference.
+
 | Task | Command |
 |---|---|
+| One test file | `cargo test -p easyplay-core --test it library::` (the module name) |
 | End-to-end tests that need real `bwrap` and user namespaces | `EASYPLAY_E2E=1 cargo test --workspace` |
 | Static init shim, as released | `cargo build --profile init-release -p easyplay-init --target x86_64-unknown-linux-musl` |
 | Compiled-in shim location | set `EASYPLAY_LIBEXEC_DIR` at build time (default `/usr/libexec/easyplay`) |

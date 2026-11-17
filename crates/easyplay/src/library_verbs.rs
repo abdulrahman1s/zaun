@@ -46,6 +46,9 @@ fn headless() -> Result<(AppService, std::sync::mpsc::Receiver<Event>, LibraryLo
     let mut deps = w.take_deps()?;
     // Desktop integration is the GUI's (shortcuts follow the library when it next starts).
     deps.desktop = None;
+    // Chat runs only in the GUI or the background service (ADR-0033): a command-line
+    // verb must not open the chat database a running EasyPlay has open, or reach the relays.
+    deps.chat = None;
     let (svc, events) = AppService::open_headless(deps)?;
     Ok((svc, events, lock))
 }

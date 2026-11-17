@@ -244,6 +244,15 @@ pub fn serve(r: &mut Rig) {
                     None => continue,
                 }
             }
+            // Chat (ADR-0033): the canned history of the sample conversations.
+            UiCommand::Chat(easyplay_core::service::ChatCommand::LoadChat {
+                chat,
+                before,
+                reply_to,
+            }) => (
+                *reply_to,
+                QueryPayload::Chat(easyplay_ui::demo_chat::page(*chat, *before, now())),
+            ),
             // Steam is closed in these tests: the value is taken as it was sent.
             UiCommand::Steam(SteamAction::SetLaunchOptions {
                 id,
@@ -271,6 +280,7 @@ pub fn serve(r: &mut Rig) {
                 | UiCommand::ScanFolder { .. }
                 | UiCommand::FindSteamApp { .. }
                 | UiCommand::Steam(SteamAction::Details { .. })
+                | UiCommand::Chat(easyplay_core::service::ChatCommand::LoadChat { .. })
         ) {
             r.fake.record(c);
         }
@@ -284,4 +294,105 @@ pub fn settle(r: &mut Rig) {
         serve(r);
     }
     r.h.run();
+}
+
+/// A [`FakeBackend`] whose Chat snapshot the test sets (ADR-0033): every other call goes to
+/// the fake, so its recorded commands and pushed events work as usual.
+#[derive(Clone)]
+pub struct ChatBackend {
+    /// The fake underneath.
+    pub fake: FakeBackend,
+    chat: Arc<std::sync::Mutex<Arc<easyplay_core::model::ChatSnapshot>>>,
+}
+
+impl ChatBackend {
+    /// Over `fake`, with `chat` as the snapshot.
+    pub fn new(fake: FakeBackend, chat: easyplay_core::model::ChatSnapshot) -> Self {
+        Self {
+            fake,
+            chat: Arc::new(std::sync::Mutex::new(Arc::new(chat))),
+        }
+    }
+
+    /// Publish a new snapshot and announce it.
+    pub fn publish_chat(&self, chat: easyplay_core::model::ChatSnapshot) {
+        *self.chat.lock().unwrap() = Arc::new(chat);
+        self.fake
+            .push_event(easyplay_ui::bridge::UiEvent::ChatChanged);
+    }
+}
+
+impl easyplay_ui::Backend for ChatBackend {
+    fn send(&self, cmd: easyplay_ui::bridge::UiCommand) {
+        self.fake.send(cmd);
+    }
+    fn try_event(&self) -> Option<easyplay_ui::bridge::UiEvent> {
+        self.fake.try_event()
+    }
+    fn library(&self) -> Arc<easyplay_core::library::LibrarySnapshot> {
+        self.fake.library()
+    }
+    fn preferences(&self) -> Arc<easyplay_core::config::Preferences> {
+        self.fake.preferences()
+    }
+    fn host(&self) -> Arc<easyplay_ui::bridge::HostView> {
+        self.fake.host()
+    }
+    fn runtimes(&self) -> Arc<easyplay_ui::bridge::RuntimesView> {
+        self.fake.runtimes()
+    }
+    fn assess(
+        &self,
+        game: Option<GameId>,
+        name: &str,
+        root: Option<&std::path::Path>,
+        policy: &easyplay_core::model::SandboxPolicy,
+    ) -> easyplay_ui::bridge::PolicyAssessment {
+        self.fake.assess(game, name, root, policy)
+    }
+    fn preset_policy(
+        &self,
+        preset: easyplay_core::model::BasePreset,
+        policy: &easyplay_core::model::SandboxPolicy,
+    ) -> easyplay_core::model::SandboxPolicy {
+        self.fake.preset_policy(preset, policy)
+    }
+    fn set_waker(&self, waker: Arc<dyn Fn() + Send + Sync>) {
+        self.fake.set_waker(waker);
+    }
+    fn is_preview(&self) -> bool {
+        self.fake.is_preview()
+    }
+    fn diagnostics(&self) -> Arc<easyplay_ui::bridge::Diagnostics> {
+        self.fake.diagnostics()
+    }
+    fn chat(&self) -> Arc<easyplay_core::model::ChatSnapshot> {
+        self.chat.lock().unwrap().clone()
+    }
+}
+
+/// A rig over a [`ChatBackend`] (its fake is the rig's `fake`), at `start`, `size`, with
+/// the appearance `appearance`.
+pub fn rig_chat(chat: &ChatBackend, start: Route, size: Vec2, appearance: Appearance) -> Rig {
+    let picker = FakePicker::default();
+    let clock = Arc::new(FakeClock::new(now()));
+    let app = EasyPlayApp::new(
+        UiBridge::new(Box::new(chat.clone())),
+        clock.clone(),
+        appearance,
+        start,
+        0,
+    )
+    .with_art(Box::new(|_| Box::new(synthetic::Inline::new())))
+    .with_picker(Box::new(picker.clone()));
+    let h = Harness::builder()
+        .with_size(size)
+        .with_context_setup(move |ctx| theme::install(ctx, &appearance))
+        .build_eframe(move |_cc| app);
+    Rig {
+        h,
+        fake: chat.fake.clone(),
+        picker,
+        clock,
+    }
 }

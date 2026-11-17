@@ -1,0 +1,68 @@
+{
+ "result": {
+  "type": "invitation",
+  "user": {
+   "userId": 1,
+   "agentUserId": "1",
+   "userContactId": 1,
+   "localDisplayName": "alice",
+   "profile": {
+    "profileId": 1,
+    "displayName": "alice",
+    "fullName": "",
+    "localAlias": ""
+   },
+   "fullPreferences": {
+    "timedMessages": {
+     "allow": "yes"
+    },
+    "fullDelete": {
+     "allow": "no"
+    },
+    "reactions": {
+     "allow": "yes"
+    },
+    "voice": {
+     "allow": "yes"
+    },
+    "files": {
+     "allow": "always"
+    },
+    "calls": {
+     "allow": "yes"
+    },
+    "sessions": {
+     "allow": "no"
+    },
+    "commands": []
+   },
+   "activeUser": true,
+   "activeOrder": 1,
+   "showNtfs": true,
+   "sendRcptsContacts": true,
+   "sendRcptsSmallGroups": true,
+   "autoAcceptMemberContacts": false,
+   "userChatRelay": false,
+   "clientService": false
+  },
+  "connLinkInvitation": {
+   "connFullLink": "simplex:/invitation#/?v=2-7&smp=smp%3A%2F%2FjZxOZYTgS4Q3Mp5r4wJW5ruxuQAPb8y5pa4a1DI2l6Y%3D%40127.0.0.1%3A5223%2F0w1J9pTYbU3xa0ZRbtlmj7sOTfjXtDdC%23%2F%3Fv%3D1-4%26dh%3DMCowBQYDK2VuAyEAstGrmBLa-TEkI2hwpzbqHZ4PIxZTsXqKPT3_XOAeP3Y%253D%26q%3Dm%26k%3Ds&e2e=v%3D2-3%26x3dh%3DMEIwBQYDK2VvAzkARJO8g1J_HU4563UrdYXfvhLL8uYbiPoPOKiYrpSKqHUrApNOI7KVAJlFK0kodoBMuN7DxkvYveM%3D%2CMEIwBQYDK2VvAzkA778gjCpl0QnFCS5s5LwE3lTBmLBccQYWs-QnbXrIgZyqUohygmj7sPqj88S_NST0Ju2hYDJtopo%3D",
+   "connShortLink": "https://127.0.0.1/i#CyUzUTta0gpCAVQVmRujc8NbXZO0YcPx/Do2L5a4cMM9Q7MHUBL5ueaxRsEtstv5neb-q9rW2azY?p=5223&c=jZxOZYTgS4Q3Mp5r4wJW5ruxuQAPb8y5pa4a1DI2l6Y"
+  },
+  "connection": {
+   "pccConnId": 1,
+   "pccAgentConnId": "ZEtaR0V3TmRhdzhwaGtoTg==",
+   "pccConnStatus": {
+    "type": "new"
+   },
+   "viaContactUri": false,
+   "connLinkInv": {
+    "connFullLink": "simplex:/invitation#/?v=2-7&smp=smp%3A%2F%2FjZxOZYTgS4Q3Mp5r4wJW5ruxuQAPb8y5pa4a1DI2l6Y%3D%40127.0.0.1%3A5223%2F0w1J9pTYbU3xa0ZRbtlmj7sOTfjXtDdC%23%2F%3Fv%3D1-4%26dh%3DMCowBQYDK2VuAyEAstGrmBLa-TEkI2hwpzbqHZ4PIxZTsXqKPT3_XOAeP3Y%253D%26q%3Dm%26k%3Ds&e2e=v%3D2-3%26x3dh%3DMEIwBQYDK2VvAzkARJO8g1J_HU4563UrdYXfvhLL8uYbiPoPOKiYrpSKqHUrApNOI7KVAJlFK0kodoBMuN7DxkvYveM%3D%2CMEIwBQYDK2VvAzkA778gjCpl0QnFCS5s5LwE3lTBmLBccQYWs-QnbXrIgZyqUohygmj7sPqj88S_NST0Ju2hYDJtopo%3D",
+    "connShortLink": "https://127.0.0.1/i#CyUzUTta0gpCAVQVmRujc8NbXZO0YcPx/Do2L5a4cMM9Q7MHUBL5ueaxRsEtstv5neb-q9rW2azY?p=5223&c=jZxOZYTgS4Q3Mp5r4wJW5ruxuQAPb8y5pa4a1DI2l6Y"
+   },
+   "localAlias": "",
+   "createdAt": "2026-11-17T04:57:16.534935728Z",
+   "updatedAt": "2026-11-17T04:57:16.534935728Z"
+  }
+ }
+}

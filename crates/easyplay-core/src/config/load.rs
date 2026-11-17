@@ -45,6 +45,7 @@ const SECTIONS: &[&str] = &[
     "appearance",
     "artwork",
     "steam",
+    "chat",
     "protection",
     "runtime",
     "launch",
@@ -596,6 +597,78 @@ pub fn from_table(
     };
     r.finish(s);
 
+    let mut s = r.section(&mut root, "chat");
+    let mut relays = Vec::new();
+    for (i, v) in r.list(&mut s, "relays").into_iter().enumerate() {
+        match v {
+            Value::String(a)
+                if (a.starts_with("smp://") || a.starts_with("xftp://"))
+                    && !a.chars().any(char::is_whitespace) =>
+            {
+                relays.push(a);
+            }
+            _ => r.dropped(
+                &s,
+                "relays",
+                i,
+                "not an smp:// relay or xftp:// file server address",
+            ),
+        }
+    }
+    let chat = super::schema::ChatPrefs {
+        enabled: r.bool(&mut s, "enabled", d.chat.enabled),
+        name: r.string(&mut s, "name").unwrap_or_default(),
+        relays,
+        notify: r.bool(&mut s, "notify", d.chat.notify),
+        notify_preview: r.bool(&mut s, "notify_preview", d.chat.notify_preview),
+        show_playing: r.bool(&mut s, "show_playing", d.chat.show_playing),
+        emoji: r.word(
+            &mut s,
+            "emoji",
+            d.chat.emoji,
+            &names(
+                super::schema::ChatEmoji::ALL,
+                super::schema::ChatEmoji::as_str,
+            ),
+        ),
+        send_with: r.word(
+            &mut s,
+            "send_with",
+            d.chat.send_with,
+            &names(
+                super::schema::ChatSendWith::ALL,
+                super::schema::ChatSendWith::as_str,
+            ),
+        ),
+        gif_autoplay: r.bool(&mut s, "gif_autoplay", d.chat.gif_autoplay),
+        gif_search: r.bool(&mut s, "gif_search", d.chat.gif_search),
+        link_previews: r.bool(&mut s, "link_previews", d.chat.link_previews),
+        check_links: r.bool(&mut s, "check_links", d.chat.check_links),
+        gif_key: r
+            .string(&mut s, "gif_key")
+            .unwrap_or_else(|| d.chat.gif_key.clone()),
+        gif_proxy: r
+            .string(&mut s, "gif_proxy")
+            .unwrap_or_else(|| d.chat.gif_proxy.clone()),
+        mic: r.string(&mut s, "mic").unwrap_or_default(),
+        speakers: r.string(&mut s, "speakers").unwrap_or_default(),
+        noise_suppression: r.bool(&mut s, "noise_suppression", d.chat.noise_suppression),
+        relay_calls: r.bool(&mut s, "relay_calls", d.chat.relay_calls),
+        share_quality: r.word(
+            &mut s,
+            "share_quality",
+            d.chat.share_quality,
+            &names(
+                super::schema::ShareQuality::ALL,
+                super::schema::ShareQuality::as_str,
+            ),
+        ),
+        share_sound: r.bool(&mut s, "share_sound", d.chat.share_sound),
+        share_pause: r.bool(&mut s, "share_pause", d.chat.share_pause),
+        notify_calls: r.bool(&mut s, "notify_calls", d.chat.notify_calls),
+    };
+    r.finish(s);
+
     let mut s = r.section(&mut root, "protection");
     let protection = Protection {
         default_preset: match r.string(&mut s, "default_preset") {
@@ -851,6 +924,7 @@ pub fn from_table(
         appearance,
         artwork,
         steam,
+        chat,
         protection,
         runtime,
         launch,

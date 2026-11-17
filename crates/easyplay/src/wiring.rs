@@ -257,6 +257,7 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
         shared,
         policy_check: None,
         watch_sessions: true,
+        chat: chat_factory(&env, &*fs, &paths, over.bwrap.clone()),
     };
     Ok(Wiring {
         deps: Some(deps),
@@ -266,4 +267,48 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
         codec,
         art_index,
     })
+}
+
+/// The Chat engine (ADR-0033), when this build has one: `easyplay-chat` beside
+/// this program or in the libexec folder, and `libsimplex.so` from `EASYPLAY_SIMPLEX_LIB`
+/// (packages set it) or `<libexec>/simplex/libsimplex.so`. `EASYPLAY_SIMPLEX_LIBRARY_PATH`
+/// is passed to the helper as `LD_LIBRARY_PATH`. `None` when either is missing: the
+/// Chat page then says this build does not include it.
+fn chat_factory(
+    env: &PathEnv,
+    fs: &dyn Fs,
+    paths: &AppPaths,
+    bwrap: Option<PathBuf>,
+) -> Option<Arc<dyn easyplay_core::chat::EngineFactory>> {
+    use easyplay_core::consts::LIBEXEC_DIR;
+    const HELPER: &str = "easyplay-chat";
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(PathBuf::from));
+    let executable = |p: &PathBuf| {
+        fs.metadata_follow(p)
+            .is_ok_and(|m| m.is_file() && m.mode & 0o111 != 0)
+    };
+    let helper = exe_dir
+        .map(|d| d.join(HELPER))
+        .into_iter()
+        .chain([PathBuf::from(LIBEXEC_DIR).join(HELPER)])
+        .find(|p| executable(p))?;
+    let library = env
+        .get("EASYPLAY_SIMPLEX_LIB")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(LIBEXEC_DIR)
+                .join("simplex")
+                .join("libsimplex.so")
+        });
+    let bwrap =
+        bwrap.or_else(|| easyplay_core::host::bwrap_probe::locate_bwrap(fs, env.get("PATH")));
+    Some(Arc::new(easyplay_core::chat::SimplexFactory {
+        helper,
+        library,
+        bwrap,
+        library_path: env.get("EASYPLAY_SIMPLEX_LIBRARY_PATH").map(Into::into),
+        log: paths.logs_dir.join(easyplay_core::chat::simplex::LOG_NAME),
+    }))
 }

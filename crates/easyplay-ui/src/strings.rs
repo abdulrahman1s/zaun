@@ -23,6 +23,7 @@ macro_rules! texts {
 
 pub mod a11y;
 pub mod artwork;
+pub mod chat;
 pub mod debug;
 pub mod details;
 pub mod dialogs;
@@ -58,6 +59,8 @@ pub mod nav {
         LIBRARY = "nav.library";
         /// Route.
         STATISTICS = "nav.statistics";
+        /// Route (ADR-0033).
+        CHAT = "nav.chat";
         /// Route.
         SETTINGS = "nav.settings";
         /// Route.
@@ -1548,7 +1551,8 @@ mod tests {
         let files = [include_str!("../locales/en.yml")];
         for src in files {
             let body = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
-            let lower = body.to_lowercase();
+            // "Google Safe Browsing" is a service's name, not a claim (ADR-0033 link check).
+            let lower = body.to_lowercase().replace("safe browsing", "");
             let words: Vec<&str> = lower
                 .split(|c: char| !c.is_alphanumeric() && c != '%')
                 .collect();

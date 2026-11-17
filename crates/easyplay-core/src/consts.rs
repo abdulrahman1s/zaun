@@ -152,6 +152,14 @@ pub const JOB_WORKERS_MAX: usize = 6;
 /// Default bound of queued jobs per label (replace-oldest beyond it).
 pub const JOB_LABEL_QUEUE_DEFAULT: usize = 256;
 
+// ---- Chat GIF search (ADR-0033, PRIVACY §3) ---------------------------------------------
+
+/// `chat.gif_key`'s default: the public Giphy key Signal ships in its apps.
+pub const GIF_DEFAULT_KEY: &str = "ApVVlSyeBfNKK6UWtnBRq9CvAkWsxayB";
+/// `chat.gif_proxy`'s default: Signal's content proxy (HTTP CONNECT; it sees only host
+/// names).
+pub const GIF_DEFAULT_PROXY: &str = "http://contentproxy.signal.org:443";
+
 // ---- Online artwork host allow-list (ADR-0018 §4–5, PRIVACY §3) -------------------------
 
 /// Steam CDN host artwork is requested from.

@@ -294,6 +294,11 @@ pub fn open_sub(ui: &Ui) -> Option<String> {
 /// Clicking it replaces the menu's items by the submenu's (see [`open_sub`]).
 pub fn sub_item(ui: &mut Ui, key: &str, label: &str) -> Response {
     let r = item_impl(ui, label, None, Look::plain(), Trail::Caret, false);
+    enter_sub(ui, key, label, r)
+}
+
+/// The door's response: a click or the right arrow opens the submenu `key`.
+fn enter_sub(ui: &mut Ui, key: &str, label: &str, r: Response) -> Response {
     a11y::item(&r, egui::Role::MenuItem, label);
     // The right arrow enters a submenu as a click does.
     let right = r.has_focus() && ui.input(|i| i.key_pressed(Key::ArrowRight));
@@ -347,6 +352,8 @@ pub fn item(
         checked,
         danger: false,
         dot: None,
+        icon: None,
+        blank_lead: false,
     };
     let r = item_impl(ui, label, shortcut, look, Trail::None, true);
     a11y::option(&r, egui::Role::MenuItem, label, checked);
@@ -361,6 +368,8 @@ pub fn option_item(ui: &mut Ui, label: &str, checked: bool) -> Response {
         checked,
         danger: false,
         dot: None,
+        icon: None,
+        blank_lead: false,
     };
     let r = item_impl(ui, label, None, look, Trail::None, true);
     a11y::option(&r, egui::Role::MenuItemRadio, label, checked);
@@ -375,6 +384,8 @@ pub fn check_item_with(ui: &mut Ui, label: &str, checked: bool, count: Option<&s
         checked,
         danger: false,
         dot: None,
+        icon: None,
+        blank_lead: false,
     };
     let r = item_impl(ui, label, count, look, Trail::None, false);
     a11y::option(&r, egui::Role::MenuItemCheckBox, label, checked);
@@ -394,6 +405,8 @@ pub fn tag_item(ui: &mut Ui, label: &str, dot: Color32, checked: bool) -> Respon
         checked,
         danger: false,
         dot: Some(dot),
+        icon: None,
+        blank_lead: false,
     };
     let r = item_impl(ui, label, None, look, Trail::None, false);
     a11y::option(&r, egui::Role::MenuItemCheckBox, label, checked);
@@ -418,9 +431,106 @@ pub fn danger_item_with(
         checked: false,
         danger: true,
         dot: None,
+        icon: None,
+        blank_lead: false,
     };
     let r = item_impl(ui, label, shortcut, look, Trail::None, true);
     a11y::item(&r, egui::Role::MenuItem, label);
+    r
+}
+
+/// Chat's menus carry icons (the owner's call, 2026-11-17): an item 32 high with a 16 pt
+/// icon in `t2` (`t1` while pointed at, coral when destructive), 10 before the label.
+const ICON_ITEM_H: f32 = 32.0;
+/// Between an item's icon and its label.
+const ICON_GAP: f32 = 10.0;
+
+/// A menu item with an icon. Closes the menu when clicked.
+pub fn icon_item(ui: &mut Ui, icon: Icon, label: &str, shortcut: Option<&str>) -> Response {
+    let look = Look {
+        icon: Some(icon),
+        ..Look::plain()
+    };
+    let r = item_impl(ui, label, shortcut, look, Trail::None, true);
+    a11y::item(&r, egui::Role::MenuItem, label);
+    r
+}
+
+/// A menu item with an icon that is on or off (an accent tick at the right end while on).
+/// `close`: whether choosing it closes the menu.
+pub fn icon_check_item(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    checked: bool,
+    close: bool,
+) -> Response {
+    let look = Look {
+        icon: Some(icon),
+        checked,
+        ..Look::plain()
+    };
+    let r = item_impl(ui, label, None, look, Trail::None, close);
+    a11y::option(&r, egui::Role::MenuItemCheckBox, label, checked);
+    r
+}
+
+/// A destructive menu item with an icon (coral icon and text). Closes the menu.
+pub fn icon_danger_item(ui: &mut Ui, icon: Icon, label: &str, shortcut: Option<&str>) -> Response {
+    let look = Look {
+        icon: Some(icon),
+        danger: true,
+        ..Look::plain()
+    };
+    let r = item_impl(ui, label, shortcut, look, Trail::None, true);
+    a11y::item(&r, egui::Role::MenuItem, label);
+    r
+}
+
+/// A submenu's door with an icon (the caret at the right end).
+pub fn icon_sub_item(ui: &mut Ui, key: &str, icon: Icon, label: &str) -> Response {
+    let look = Look {
+        icon: Some(icon),
+        ..Look::plain()
+    };
+    let r = item_impl(ui, label, None, look, Trail::Caret, false);
+    enter_sub(ui, key, label, r)
+}
+
+/// A menu item that is on or off with a picture of the caller's in the icon column (Chat's
+/// status items show the status dot): `paint` gets the painter, the 16 pt square of the
+/// icon column and the colour behind it (for rings). An accent tick at the right end while
+/// on. `close`: whether choosing it closes the menu.
+pub fn dot_check_item(
+    ui: &mut Ui,
+    label: &str,
+    checked: bool,
+    close: bool,
+    paint: impl FnOnce(&egui::Painter, Rect, Color32),
+) -> Response {
+    let look = Look {
+        checked,
+        blank_lead: true,
+        ..Look::plain()
+    };
+    let r = item_impl(ui, label, None, look, Trail::None, close);
+    a11y::option(&r, egui::Role::MenuItemCheckBox, label, checked);
+    if ui.is_rect_visible(r.rect) {
+        let p = theme::theme(ui.ctx()).palette.clone();
+        let hot = ui.is_enabled() && (r.hovered() || r.has_focus());
+        let behind = if hot {
+            theme::palette::over(p.o2, p.raised)
+        } else {
+            p.raised
+        };
+        let [pad, _] = overlay::MENU_ITEM_PAD;
+        let side = icon_size::SMALL;
+        let at = Rect::from_center_size(
+            pos2(r.rect.left() + pad + side / 2.0, r.rect.center().y),
+            vec2(side, side),
+        );
+        paint(ui.painter(), at, behind);
+    }
     r
 }
 
@@ -450,6 +560,10 @@ struct Look {
     danger: bool,
     /// A tag's 7 pt dot before the label.
     dot: Option<Color32>,
+    /// An icon before the label (Chat's menus); a tick then goes at the right end.
+    icon: Option<Icon>,
+    /// The icon's column is kept empty for the caller to paint in (`dot_check_item`).
+    blank_lead: bool,
 }
 
 impl Look {
@@ -459,7 +573,14 @@ impl Look {
             checked: false,
             danger: false,
             dot: None,
+            icon: None,
+            blank_lead: false,
         }
+    }
+
+    /// An icon, or the caller's picture, stands before the label.
+    const fn has_lead(&self) -> bool {
+        self.icon.is_some() || self.blank_lead
     }
 }
 
@@ -504,7 +625,9 @@ fn item_impl(
     } else {
         p.t1
     };
-    let lead = if look.column || trail == Trail::Back {
+    let lead = if look.has_lead() {
+        icon_size::SMALL + ICON_GAP
+    } else if look.column || trail == Trail::Back {
         overlay::MENU_TICK.max(icon_size::SMALL) + gap
     } else {
         0.0
@@ -515,13 +638,22 @@ fn item_impl(
         (Some(g), _) => g.size().x + gap,
         (None, Trail::Caret) => icon_size::SMALL + gap,
         _ => 0.0,
+    } + if look.has_lead() && look.checked {
+        overlay::MENU_TICK + gap
+    } else {
+        0.0
+    };
+    let item_h = if look.has_lead() {
+        ICON_ITEM_H
+    } else {
+        control::MENU_ITEM
     };
     let full = Type::Body.line(ui, label, fg);
     let min_w = pad + lead + dot_w + full.size().x + tail + end;
     let w = ui
         .available_width()
         .max(min_w.min(layout::MENU_W[1] - layout::MENU_PAD * 2.0));
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, control::MENU_ITEM), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, item_h), Sense::click());
     if enabled {
         // Items shown outside [`frame`] (a dialog's) keep only this pass's list too.
         let pass = ui.ctx().cumulative_pass_nr();
@@ -558,7 +690,41 @@ fn item_impl(
         }
         let cy = rect.center().y;
         let x = rect.left() + pad;
-        if look.checked {
+        if let Some(icon) = look.icon {
+            let ic = if !enabled {
+                p.t4
+            } else if look.danger {
+                p.coral
+            } else if hot {
+                p.t1
+            } else {
+                p.t2
+            };
+            painter.text(
+                pos2(x + icon_size::SMALL / 2.0, cy),
+                Align2::CENTER_CENTER,
+                icon.text(false),
+                icons::font(icon_size::SMALL),
+                ic,
+            );
+            if look.checked {
+                painter.text(
+                    pos2(rect.right() - end - overlay::MENU_TICK / 2.0, cy),
+                    Align2::CENTER_CENTER,
+                    icons::CHECK.text(false),
+                    icons::font(overlay::MENU_TICK),
+                    p.accent_mark,
+                );
+            }
+        } else if look.blank_lead && look.checked {
+            painter.text(
+                pos2(rect.right() - end - overlay::MENU_TICK / 2.0, cy),
+                Align2::CENTER_CENTER,
+                icons::CHECK.text(false),
+                icons::font(overlay::MENU_TICK),
+                p.accent_mark,
+            );
+        } else if look.checked {
             painter.text(
                 pos2(x + overlay::MENU_TICK / 2.0, cy),
                 Align2::CENTER_CENTER,
@@ -592,8 +758,16 @@ fn item_impl(
         };
         painter.galley(pos2(lx, cy - g.size().y / 2.0), g, fg);
         if let Some(sg) = sg {
+            let tick = if look.has_lead() && look.checked {
+                overlay::MENU_TICK + gap
+            } else {
+                0.0
+            };
             painter.galley(
-                pos2(rect.right() - end - sg.size().x, cy - sg.size().y / 2.0),
+                pos2(
+                    rect.right() - end - tick - sg.size().x,
+                    cy - sg.size().y / 2.0,
+                ),
                 sg,
                 p.t3,
             );

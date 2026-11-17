@@ -8,7 +8,8 @@
 #   scripts/update-snapshots.sh --check    only run the snapshot tests (what CI does)
 #   scripts/update-snapshots.sh --clean    delete *.old.png / *.new.png / *.diff.png
 #
-# Extra arguments after `--` go to `cargo test` (for example `-- --test details`).
+# Extra arguments after `--` go to `cargo test` (for example `-- --test it details::`; most
+# UI tests are modules of the one `it` binary).
 #
 # Review: open target/snapshot-review/index.html (old | new | diff for every changed
 # image), then commit the changed PNGs with the code change that caused them. Snapshots are

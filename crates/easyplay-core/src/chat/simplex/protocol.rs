@@ -1,0 +1,1684 @@
+//! The SimpleX side of the engine seam: [`Request`]s become chat commands for the helper,
+//! the helper's lines become [`ChatEvent`]s. Pure: no I/O, no clock, so it is tested
+//! against the JSON recorded from the engine (ADR-0033; chat core 7.0, two helpers through a
+//! local SMP relay and a local XFTP file server).
+//!
+//! The engine's JSON is read tolerantly through `serde_json::Value`: a field that is missing
+//! or of another shape drops that item (logged), never the whole line, and unknown event
+//! types are ignored. Commands follow `bots/api/COMMANDS.md` of simplex-chat v7.0.3 and the
+//! parser in `Simplex.Chat.Library.Commands` for those that file leaves out (`/_get chat`,
+//! `/_read chat`, `/_settings`, `/_member settings`, `/_get code`, `/_verify code`,
+//! `/_reaction members`, `/set file paths`, `/xftp`).
+//!
+//! Links: a friend's link may be short (resolved through its relay) or full, so `Connect`
+//! asks `/_connect plan` first and connects with the link the plan returns; a link that is
+//! the user's own, or one already used, connects nothing. The engine makes every invitation
+//! and address with a short link as well (`https://<relay>/i#…` or `/a#…`, no option needed),
+//! in the same request to the relay that makes the queue; the user is given the short one
+//! (a QR code that scans at the page's size) and the full one only if a relay offers none.
+//!
+//! Start-up: `/user` (or `/_create user` when there is none), `/set file paths` (it must
+//! come before `/_start`), `/_start`, then `/smp` and `/xftp` when custom relays are set
+//! (refused before `/_start`), then the chat list and the address. Requests made before that
+//! wait. Events that change who the user talks to (a friend connected, a group joined, a
+//! request arrived) make the codec read the chat list again; at most one such read is in
+//! flight, and a change during it asks for one more.
+//!
+//! What the engine carries and how:
+//! - **Replies** quote by item number (`quotedItemId`); **mentions** are `{name: member}`
+//!   and the text names them `@name`, or `@'two words'` (the codec quotes, and unquotes
+//!   what it receives, so the page always sees `@Name`).
+//! - **Edits** (`/_update item`) and **deletion for everyone** (`/_delete item … broadcast`).
+//!   With the engine's default "full deletion: off", a friend's copy is marked deleted and
+//!   its text stays in their database; the page shows it as deleted.
+//! - **Reactions** (`/_reaction`): only [`crate::chat::REACTION_EMOJI`]; ❤️ travels as
+//!   U+2764 without the variation selector, as the engine wants it.
+//! - **Mute** is the conversation's `enableNtfs` (a group muted keeps "mentions").
+//! - **Block a friend**: the engine has no contact block, so EasyPlay keeps it in the
+//!   contact's local custom data (`/_set custom`, never sent). The conversation leaves the
+//!   list, and what they send while blocked is deleted on arrival (`/_delete item …
+//!   internal`, this computer only). They are not told: their messages still reach the
+//!   relay and the engine still acknowledges them as it does for everyone.
+//! - **Block a group member** (`/_member settings … showMessages`): local; the engine marks
+//!   their items "blocked" and the page collapses them.
+//! - **Security codes** (`/_get code`, `/_verify code`); a contact is verified while its
+//!   connection carries a code.
+//! - **Profile**: name and `shortDescr` (the line about the user). The avatar pair is
+//!   EasyPlay's own and stays on this computer.
+//! - **Files** go through XFTP file servers. With the preset relays the engine's preset
+//!   file servers are used; with custom relays only listed `xftp://` servers are, and
+//!   without one, files are off (fail closed, as for `/smp`). A picture or GIF from a friend
+//!   up to [`crate::chat::MAX_FILE`] is fetched by itself, but only from a file server the
+//!   user's own list knows (the engine refuses others: `fileNotApproved`), so a sender
+//!   cannot make this computer contact a server of their choosing.
+//! - **Offline**: every SMP relay host the engine reported is disconnected.
+
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+
+use serde_json::Value;
+
+use crate::chat::engine::{ChatEvent, FileKind, Request, RequestKind};
+use crate::chat::{MAX_FILE, REACTION_EMOJI};
+use crate::clock::Timestamp;
+use crate::error::ErrorCode;
+use crate::model::{
+    ChatFeatures, ChatGroup, ChatMessage, ChatPreview, ChatProfile, ChatRef, Delivery, Friend,
+    FriendRequest, GroupMember, Membership, Mention, MessageAuthor, MessageBody, Quote, Reaction,
+};
+
+/// How many conversations the list reads.
+pub const CHAT_LIST_COUNT: u32 = 200;
+
+/// GIFs are sent as files picked from the GIF search. On since 2026-11-17: a Giphy GIF
+/// downloaded through Signal's content proxy went through [`Request::SendFile`] between two
+/// real engines and arrived byte for byte (`tests/chat_e2e.rs` with `EASYPLAY_TEST_GIPHY`;
+/// the service part in `tests/chat_service.rs`).
+pub const GIFS_SEND_WORKS: bool = true;
+
+/// A 1×1 PNG: the preview the engine requires with a picture. EasyPlay shows the fetched
+/// file itself, so no thumbnail is made (core cannot decode GIFs).
+const PREVIEW: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+/// The key under the contact's custom data that EasyPlay owns.
+const CUSTOM_KEY: &str = "easyplay";
+
+/// What a command's answer belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Pending {
+    ShowUser,
+    CreateUser,
+    FilePaths,
+    Start,
+    Relays,
+    FileRelays,
+    ShowAddress,
+    Chats,
+    History {
+        tag: u64,
+        chat: ChatRef,
+    },
+    /// `/_connect plan`: what a link is, before connecting with it.
+    Plan,
+    Req(RequestKind),
+    /// `/_get code @friend`.
+    Code(i64),
+    /// `/_verify code @friend`.
+    Verify(i64),
+    /// `/_members #group`.
+    Members(i64),
+    /// `/_member settings #group`: read the members again after.
+    MemberBlocked(i64),
+    /// An answer nobody waits for (deleting a blocked friend's message, fetching a file).
+    Quiet,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Phase {
+    /// Waiting for the helper's `ready`.
+    Opening,
+    /// Running the start-up commands.
+    Starting,
+    /// Started.
+    Ready,
+}
+
+/// What the codec wants done: lines for the helper, events for the service.
+#[derive(Debug, Default, PartialEq)]
+pub struct Output {
+    /// Lines to write to the helper's input, in order.
+    pub lines: Vec<String>,
+    /// Events to report, in order.
+    pub events: Vec<ChatEvent>,
+}
+
+/// The SimpleX protocol state of one engine.
+#[derive(Debug)]
+pub struct Codec {
+    name: String,
+    smp: Vec<String>,
+    xftp: Vec<String>,
+    dir: PathBuf,
+    phase: Phase,
+    user: Option<i64>,
+    profile: ChatProfile,
+    /// The user's engine profile as last read, so a change keeps what EasyPlay does not set.
+    user_profile: Value,
+    next: u64,
+    pending: HashMap<u64, Pending>,
+    queued: Vec<Request>,
+    chats_in_flight: bool,
+    chats_again: bool,
+    /// From the last list: each conversation's settings, each contact's custom data, the
+    /// friends blocked, the user's member number in each group.
+    settings: HashMap<ChatRef, Value>,
+    custom: HashMap<i64, Value>,
+    blocked: HashSet<i64>,
+    me_in: HashMap<i64, i64>,
+    /// Groups whose members were read (read again when they change).
+    members_read: HashSet<i64>,
+    /// SMP relay hosts the engine reported, and whether each is connected.
+    hosts: HashMap<String, bool>,
+    offline: bool,
+}
+
+impl Codec {
+    /// A codec for a first start under `name` (used only when the database has no user yet)
+    /// with `relays` (empty = the engine's presets; `smp://` and `xftp://` addresses), for
+    /// the engine's data folder `dir` (files go to `dir/files`).
+    pub fn new(name: &str, relays: Vec<String>, dir: &Path) -> Self {
+        let (xftp, smp) = relays.into_iter().partition(|r| r.starts_with("xftp://"));
+        Self {
+            name: name.to_owned(),
+            smp,
+            xftp,
+            dir: dir.to_owned(),
+            phase: Phase::Opening,
+            user: None,
+            profile: ChatProfile::default(),
+            user_profile: Value::Null,
+            next: 1,
+            pending: HashMap::new(),
+            queued: Vec::new(),
+            chats_in_flight: false,
+            chats_again: false,
+            settings: HashMap::new(),
+            custom: HashMap::new(),
+            blocked: HashSet::new(),
+            me_in: HashMap::new(),
+            members_read: HashSet::new(),
+            hosts: HashMap::new(),
+            offline: false,
+        }
+    }
+
+    /// Whether start-up finished.
+    pub fn started(&self) -> bool {
+        self.phase == Phase::Ready
+    }
+
+    /// Where received files go.
+    pub fn files_dir(&self) -> PathBuf {
+        self.dir.join("files")
+    }
+
+    /// Files can be sent and received: the preset file servers go with the preset relays;
+    /// custom relays need a custom file server too.
+    fn files_on(&self) -> bool {
+        self.smp.is_empty() || !self.xftp.is_empty()
+    }
+
+    /// What this engine carries.
+    pub fn features(&self) -> ChatFeatures {
+        features_for(self.files_on())
+    }
+
+    /// A request from the service.
+    pub fn request(&mut self, request: Request) -> Output {
+        let mut out = Output::default();
+        if self.phase == Phase::Ready {
+            self.render(request, &mut out);
+        } else {
+            self.queued.push(request);
+        }
+        out
+    }
+
+    /// One line from the helper's output.
+    pub fn on_line(&mut self, line: &str) -> Output {
+        let mut out = Output::default();
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            tracing::warn!(len = line.len(), "chat: a line from the helper is not JSON");
+            return out;
+        };
+        match v.get("t").and_then(Value::as_str) {
+            Some("ready") => {
+                self.phase = Phase::Starting;
+                self.send(&mut out, Pending::ShowUser, "/user".to_owned());
+            }
+            Some("resp") => {
+                let corr = v.get("corr").and_then(Value::as_u64).unwrap_or(0);
+                let body = v.get("body").cloned().unwrap_or(Value::Null);
+                match self.pending.remove(&corr) {
+                    Some(p) => self.on_response(p, &body, &mut out),
+                    None => tracing::warn!(corr, "chat: an answer to no command"),
+                }
+            }
+            Some("event") => {
+                let body = v.get("body").cloned().unwrap_or(Value::Null);
+                if let Some(r) = body.get("result") {
+                    self.on_event(r, &mut out);
+                } else if let Some(e) = body.get("error") {
+                    tracing::info!(error = %short(e), "chat: the engine reported an error");
+                }
+            }
+            Some("init_error") => {
+                let detail = v.get("body").map(short).unwrap_or_default();
+                out.events
+                    .push(failed(RequestKind::Start, ErrorCode::ChtDatabase, detail));
+            }
+            Some("fatal") => {
+                let detail = v
+                    .get("msg")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                out.events.push(failed(
+                    RequestKind::Start,
+                    ErrorCode::ChtUnavailable,
+                    detail,
+                ));
+            }
+            Some(other) => tracing::warn!(kind = other, "chat: unexpected line from the helper"),
+            None => tracing::warn!("chat: a line from the helper without a kind"),
+        }
+        out
+    }
+
+    // ---- commands -------------------------------------------------------------------------
+
+    fn send(&mut self, out: &mut Output, pending: Pending, cmd: String) {
+        let corr = self.next;
+        self.next += 1;
+        self.pending.insert(corr, pending);
+        out.lines
+            .push(serde_json::json!({ "corr": corr, "cmd": cmd }).to_string());
+    }
+
+    fn uid(&self) -> i64 {
+        self.user.unwrap_or(1)
+    }
+
+    fn refresh(&mut self, out: &mut Output) {
+        if self.chats_in_flight {
+            self.chats_again = true;
+            return;
+        }
+        self.chats_in_flight = true;
+        let cmd = format!(
+            "/_get chats {} count={CHAT_LIST_COUNT} {}",
+            self.uid(),
+            serde_json::json!({ "type": "filters", "favorite": false, "unread": false })
+        );
+        self.send(out, Pending::Chats, cmd);
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn render(&mut self, request: Request, out: &mut Output) {
+        let uid = self.uid();
+        let (kind, cmd) = match request {
+            Request::Refresh => {
+                self.refresh(out);
+                return;
+            }
+            Request::History {
+                chat,
+                before,
+                count,
+                tag,
+            } => {
+                let page = match before {
+                    Some(id) => format!("before={id} count={count}"),
+                    None => format!("count={count}"),
+                };
+                let cmd = format!("/_get chat {} {page}", chat_ref(chat));
+                self.send(out, Pending::History { tag, chat }, cmd);
+                return;
+            }
+            Request::SetProfile(p) => (
+                RequestKind::SetProfile,
+                format!("/_profile {uid} {}", self.profile_json(&p)),
+            ),
+            Request::CreateInvite => (RequestKind::CreateInvite, format!("/_connect {uid}")),
+            Request::Connect(link) => {
+                let link = link.trim().to_owned();
+                if link.is_empty() || link.chars().any(char::is_whitespace) {
+                    out.events.push(failed(
+                        RequestKind::Connect,
+                        ErrorCode::ChtBadLink,
+                        "empty or contains spaces".to_owned(),
+                    ));
+                    return;
+                }
+                self.send(out, Pending::Plan, format!("/_connect plan {uid} {link}"));
+                return;
+            }
+            Request::Accept(id) => (RequestKind::Answer, format!("/_accept {id}")),
+            Request::Reject(id) => (RequestKind::Answer, format!("/_reject {id}")),
+            Request::CreateAddress => (RequestKind::Address, format!("/_address {uid}")),
+            Request::DeleteAddress => (RequestKind::Address, format!("/_delete_address {uid}")),
+            Request::Send {
+                chat,
+                text,
+                reply_to,
+                mentions,
+            } => {
+                let mentions = match chat {
+                    ChatRef::Group(_) => mentions,
+                    ChatRef::Direct(_) => Vec::new(),
+                };
+                let mut m = serde_json::json!({
+                    "msgContent": { "type": "text", "text": quote_mentions(&text, &mentions) },
+                    "mentions": mention_map(&mentions),
+                });
+                if let Some(q) = reply_to {
+                    m["quotedItemId"] = q.into();
+                }
+                (
+                    RequestKind::Send,
+                    format!("/_send {} json {}", chat_ref(chat), Value::Array(vec![m])),
+                )
+            }
+            Request::SendFile { chat, path, kind } => {
+                if !self.files_on() {
+                    out.events.push(failed(
+                        RequestKind::SendFile,
+                        ErrorCode::ChtRequestFailed,
+                        "files are off: custom relays without a file server".to_owned(),
+                    ));
+                    return;
+                }
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                // Both go as a picture: the engine's apps show a GIF file as one, and
+                // EasyPlay draws the fetched file.
+                let _: FileKind = kind;
+                let mc = serde_json::json!({ "type": "image", "text": "", "image": PREVIEW });
+                let m = serde_json::json!([{
+                    "fileSource": { "filePath": path },
+                    "msgContent": mc,
+                    "mentions": {},
+                }]);
+                tracing::debug!(name, "chat: sending a file");
+                (
+                    RequestKind::SendFile,
+                    format!("/_send {} json {m}", chat_ref(chat)),
+                )
+            }
+            Request::Edit { chat, item, text } => {
+                let m = serde_json::json!({
+                    "msgContent": { "type": "text", "text": text },
+                    "mentions": {},
+                });
+                (
+                    RequestKind::Edit,
+                    format!("/_update item {} {item} json {m}", chat_ref(chat)),
+                )
+            }
+            Request::Delete { chat, item } => (
+                RequestKind::Delete,
+                format!("/_delete item {} {item} broadcast", chat_ref(chat)),
+            ),
+            Request::React {
+                chat,
+                item,
+                emoji,
+                on,
+            } => {
+                let Some(e) = engine_emoji(&emoji) else {
+                    out.events.push(failed(
+                        RequestKind::React,
+                        ErrorCode::ChtRequestFailed,
+                        format!("not a reaction the engine carries: {emoji}"),
+                    ));
+                    return;
+                };
+                let r = serde_json::json!({ "type": "emoji", "emoji": e });
+                (
+                    RequestKind::React,
+                    format!(
+                        "/_reaction {} {item} {} {r}",
+                        chat_ref(chat),
+                        if on { "on" } else { "off" }
+                    ),
+                )
+            }
+            Request::SetMuted { chat, on } => {
+                let mut s = self
+                    .settings
+                    .get(&chat)
+                    .cloned()
+                    .filter(Value::is_object)
+                    .unwrap_or_else(|| serde_json::json!({ "favorite": false }));
+                let ntfs = match (on, chat) {
+                    (false, _) => "all",
+                    (true, ChatRef::Direct(_)) => "none",
+                    // A muted group still notifies the user's mentions.
+                    (true, ChatRef::Group(_)) => "mentions",
+                };
+                s["enableNtfs"] = ntfs.into();
+                self.settings.insert(chat, s.clone());
+                (
+                    RequestKind::Mute,
+                    format!("/_settings {} {s}", chat_ref(chat)),
+                )
+            }
+            Request::SetBlocked { friend, on } => {
+                let mut data = self
+                    .custom
+                    .get(&friend)
+                    .cloned()
+                    .filter(Value::is_object)
+                    .unwrap_or_else(|| serde_json::json!({}));
+                if let Some(map) = data.as_object_mut() {
+                    if on {
+                        map.insert(CUSTOM_KEY.into(), serde_json::json!({ "blocked": true }));
+                    } else {
+                        map.remove(CUSTOM_KEY);
+                    }
+                }
+                if on {
+                    self.blocked.insert(friend);
+                } else {
+                    self.blocked.remove(&friend);
+                }
+                let empty = data.as_object().is_none_or(serde_json::Map::is_empty);
+                self.custom.insert(friend, data.clone());
+                let cmd = if empty {
+                    format!("/_set custom @{friend}")
+                } else {
+                    format!("/_set custom @{friend} {data}")
+                };
+                (RequestKind::Block, cmd)
+            }
+            Request::SetMemberBlocked { group, member, on } => {
+                let s = serde_json::json!({ "showMessages": !on });
+                let cmd = format!("/_member settings #{group} {member} {s}");
+                self.send(out, Pending::MemberBlocked(group), cmd);
+                return;
+            }
+            Request::ShowCode(friend) => {
+                self.send(out, Pending::Code(friend), format!("/_get code @{friend}"));
+                return;
+            }
+            Request::Verify { friend, code } => {
+                let code: String = code
+                    .chars()
+                    .filter(|c| c.is_ascii_digit() || *c == ' ')
+                    .collect();
+                let cmd = format!("/_verify code @{friend} {}", code.trim());
+                self.send(out, Pending::Verify(friend), cmd);
+                return;
+            }
+            Request::Members(group) => {
+                self.members_read.insert(group);
+                self.send(out, Pending::Members(group), format!("/_members #{group}"));
+                return;
+            }
+            Request::MarkRead(chat) => (
+                RequestKind::MarkRead,
+                format!("/_read chat {}", chat_ref(chat)),
+            ),
+            Request::NewGroup(name) => (
+                RequestKind::Group,
+                format!("/_group {uid} {}", group_profile_json(&name)),
+            ),
+            Request::AddMember { group, friend } => (
+                RequestKind::Group,
+                format!("/_add #{group} {friend} member"),
+            ),
+            Request::JoinGroup(g) => (RequestKind::Group, format!("/_join #{g}")),
+            Request::LeaveGroup(g) => (RequestKind::Group, format!("/_leave #{g}")),
+            Request::RemoveFriend(c) => (
+                RequestKind::RemoveFriend,
+                format!(
+                    "/_delete @{c} {}",
+                    serde_json::json!({ "type": "full", "notify": true })
+                ),
+            ),
+        };
+        self.send(out, Pending::Req(kind), cmd);
+    }
+
+    /// The user's engine profile with `p`'s name and line about them; everything else the
+    /// engine had (preferences, picture) kept.
+    fn profile_json(&self, p: &ChatProfile) -> Value {
+        let mut v = serde_json::json!({});
+        for k in [
+            "displayName",
+            "fullName",
+            "shortDescr",
+            "description",
+            "image",
+            "contactLink",
+            "preferences",
+            "peerType",
+        ] {
+            if let Some(x) = self.user_profile.get(k).filter(|x| !x.is_null()) {
+                v[k] = x.clone();
+            }
+        }
+        v["displayName"] = p.name.trim().into();
+        if v.get("fullName").is_none() {
+            v["fullName"] = "".into();
+        }
+        let about = p.about.trim();
+        if about.is_empty() {
+            if let Some(m) = v.as_object_mut() {
+                m.remove("shortDescr");
+            }
+        } else {
+            v["shortDescr"] = about.into();
+        }
+        v
+    }
+
+    // ---- answers --------------------------------------------------------------------------
+
+    #[allow(clippy::too_many_lines)]
+    fn on_response(&mut self, pending: Pending, body: &Value, out: &mut Output) {
+        let result = body.get("result");
+        let error = body.get("error");
+        let ty = result.and_then(|r| r.get("type")).and_then(Value::as_str);
+        let start_failed = |out: &mut Output| {
+            out.events.push(failed(
+                RequestKind::Start,
+                ErrorCode::ChtRequestFailed,
+                error.map(short).unwrap_or_default(),
+            ));
+        };
+        match pending {
+            Pending::ShowUser => match (ty, result) {
+                (Some("activeUser"), Some(r)) => self.on_user(r, out),
+                _ => {
+                    let cmd = format!(
+                        "/_create user {}",
+                        serde_json::json!({
+                            "profile": { "displayName": self.name, "fullName": "" },
+                            "pastTimestamp": false,
+                        })
+                    );
+                    self.send(out, Pending::CreateUser, cmd);
+                }
+            },
+            Pending::CreateUser => match (ty, result) {
+                (Some("activeUser"), Some(r)) => self.on_user(r, out),
+                _ => start_failed(out),
+            },
+            Pending::FilePaths => {
+                if error.is_some() {
+                    start_failed(out);
+                } else {
+                    self.send(out, Pending::Start, "/_start".to_owned());
+                }
+            }
+            Pending::Start => match ty {
+                Some("chatStarted" | "chatRunning") => self.set_relays(out),
+                _ => start_failed(out),
+            },
+            Pending::Relays => {
+                if error.is_some() {
+                    // Fail closed: the user chose these relays, so never fall back to the
+                    // presets.
+                    start_failed(out);
+                } else if self.xftp.is_empty() {
+                    self.become_ready(out);
+                } else {
+                    let cmd = format!("/xftp {}", self.xftp.join(" "));
+                    self.send(out, Pending::FileRelays, cmd);
+                }
+            }
+            Pending::FileRelays => {
+                if error.is_some() {
+                    start_failed(out);
+                } else {
+                    self.become_ready(out);
+                }
+            }
+            Pending::ShowAddress => {
+                let link = result
+                    .filter(|_| ty == Some("userContactLink"))
+                    .and_then(|r| r.get("contactLink"))
+                    .and_then(|l| l.get("connLinkContact"))
+                    .and_then(link_text);
+                out.events.push(ChatEvent::Address(link));
+            }
+            Pending::Chats => {
+                self.chats_in_flight = false;
+                if let (Some("apiChats"), Some(r)) = (ty, result) {
+                    let list = self.parse_chats(r);
+                    out.events.push(list);
+                } else {
+                    out.events.push(failed(
+                        RequestKind::Refresh,
+                        ErrorCode::ChtRequestFailed,
+                        error.map(short).unwrap_or_default(),
+                    ));
+                }
+                if std::mem::take(&mut self.chats_again) {
+                    self.refresh(out);
+                }
+            }
+            Pending::History { tag, chat } => {
+                let c = result
+                    .filter(|_| ty == Some("apiChat"))
+                    .and_then(|r| r.get("chat"));
+                let items = c.and_then(|c| c.get("chatItems")).and_then(Value::as_array);
+                match items {
+                    Some(items) => {
+                        let ctx = self.ctx(c.and_then(|c| c.get("chatInfo")), chat);
+                        let messages = items
+                            .iter()
+                            .filter_map(|ci| parse_item(chat, ci, &ctx))
+                            .collect();
+                        out.events.push(ChatEvent::History {
+                            tag,
+                            chat,
+                            messages,
+                        });
+                    }
+                    None => out.events.push(failed(
+                        RequestKind::History,
+                        ErrorCode::ChtRequestFailed,
+                        error.map(short).unwrap_or_default(),
+                    )),
+                }
+            }
+            Pending::Plan => self.on_plan(result, ty, error, out),
+            Pending::Code(friend) => {
+                match result
+                    .filter(|_| ty == Some("contactCode"))
+                    .and_then(|r| r.get("connectionCode"))
+                    .and_then(Value::as_str)
+                {
+                    Some(code) => out.events.push(ChatEvent::Code {
+                        friend,
+                        code: code.to_owned(),
+                    }),
+                    None => out.events.push(failed(
+                        RequestKind::Code,
+                        ErrorCode::ChtRequestFailed,
+                        error.map(short).unwrap_or_default(),
+                    )),
+                }
+            }
+            Pending::Verify(friend) => {
+                match result
+                    .filter(|_| ty == Some("connectionVerified"))
+                    .and_then(|r| r.get("verified"))
+                    .and_then(Value::as_bool)
+                {
+                    Some(matched) => {
+                        out.events.push(ChatEvent::Verified { friend, matched });
+                        self.refresh(out);
+                    }
+                    None => out.events.push(failed(
+                        RequestKind::Code,
+                        ErrorCode::ChtRequestFailed,
+                        error.map(short).unwrap_or_default(),
+                    )),
+                }
+            }
+            Pending::Members(group) => {
+                match result
+                    .filter(|_| ty == Some("groupMembers"))
+                    .and_then(|r| r.get("group"))
+                {
+                    Some(g) => out.events.push(ChatEvent::Members {
+                        group,
+                        members: parse_members(g),
+                    }),
+                    None => out.events.push(failed(
+                        RequestKind::Members,
+                        ErrorCode::ChtRequestFailed,
+                        error.map(short).unwrap_or_default(),
+                    )),
+                }
+            }
+            Pending::MemberBlocked(group) => {
+                if let Some(e) = error {
+                    out.events.push(failed(
+                        RequestKind::Block,
+                        error_code(RequestKind::Block, e),
+                        short(e),
+                    ));
+                } else {
+                    self.members_read.insert(group);
+                    self.send(out, Pending::Members(group), format!("/_members #{group}"));
+                }
+            }
+            Pending::Quiet => {
+                if let Some(e) = error {
+                    tracing::info!(error = %short(e), "chat: a background command failed");
+                }
+            }
+            Pending::Req(kind) => {
+                if let Some(e) = error {
+                    out.events.push(failed(kind, error_code(kind, e), short(e)));
+                    return;
+                }
+                self.on_request_done(kind, ty, result, out);
+            }
+        }
+    }
+
+    fn on_plan(
+        &mut self,
+        result: Option<&Value>,
+        ty: Option<&str>,
+        error: Option<&Value>,
+        out: &mut Output,
+    ) {
+        let plan = result.filter(|_| ty == Some("connectionPlan"));
+        let Some(plan) = plan else {
+            let e = error.cloned().unwrap_or(Value::Null);
+            out.events.push(failed(
+                RequestKind::Connect,
+                error_code(RequestKind::Connect, &e),
+                short(&e),
+            ));
+            return;
+        };
+        let p = plan.get("connectionPlan").unwrap_or(&Value::Null);
+        let kind = p.get("type").and_then(Value::as_str).unwrap_or("");
+        let sub = ["invitationLinkPlan", "contactAddressPlan", "groupLinkPlan"]
+            .iter()
+            .find_map(|k| p.get(*k))
+            .and_then(|s| s.get("type"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let link = plan.get("connLink").and_then(|l| {
+            let full = l.get("connFullLink")?.as_str()?;
+            Some(match l.get("connShortLink").and_then(Value::as_str) {
+                Some(s) => format!("{full} {s}"),
+                None => full.to_owned(),
+            })
+        });
+        match (kind, sub, link) {
+            ("error", _, _) | (_, _, None) => out.events.push(failed(
+                RequestKind::Connect,
+                ErrorCode::ChtBadLink,
+                short(p),
+            )),
+            (_, "ownLink", _) => out.events.push(failed(
+                RequestKind::Connect,
+                ErrorCode::ChtBadLink,
+                "the user's own link".to_owned(),
+            )),
+            (_, "known" | "connecting" | "connectingProhibit", _) => self.refresh(out),
+            (_, _, Some(link)) => {
+                let uid = self.uid();
+                let cmd = format!("/_connect {uid} {link}");
+                self.send(out, Pending::Req(RequestKind::Connect), cmd);
+            }
+        }
+    }
+
+    fn on_user(&mut self, r: &Value, out: &mut Output) {
+        let user = r.get("user");
+        self.user = user.and_then(|u| u.get("userId")).and_then(Value::as_i64);
+        let profile = user
+            .and_then(|u| u.get("profile"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        self.profile = ChatProfile {
+            name: profile
+                .get("displayName")
+                .and_then(Value::as_str)
+                .unwrap_or(&self.name)
+                .to_owned(),
+            about: profile
+                .get("shortDescr")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned(),
+            ..ChatProfile::default()
+        };
+        self.user_profile = profile;
+        let paths = serde_json::json!({
+            "appFilesFolder": self.files_dir(),
+            "appTempFolder": self.dir.join("tmp"),
+            "appAssetsFolder": self.dir.join("assets"),
+        });
+        self.send(out, Pending::FilePaths, format!("/set file paths {paths}"));
+    }
+
+    fn set_relays(&mut self, out: &mut Output) {
+        if !self.smp.is_empty() {
+            let cmd = format!("/smp {}", self.smp.join(" "));
+            self.send(out, Pending::Relays, cmd);
+        } else if !self.xftp.is_empty() {
+            let cmd = format!("/xftp {}", self.xftp.join(" "));
+            self.send(out, Pending::FileRelays, cmd);
+        } else {
+            self.become_ready(out);
+        }
+    }
+
+    fn become_ready(&mut self, out: &mut Output) {
+        self.phase = Phase::Ready;
+        out.events.push(ChatEvent::Features {
+            features: self.features(),
+            reactions: Some(REACTION_EMOJI.iter().map(|e| (*e).to_owned()).collect()),
+        });
+        out.events.push(ChatEvent::Ready(self.profile.clone()));
+        self.refresh(out);
+        let uid = self.uid();
+        self.send(out, Pending::ShowAddress, format!("/_show_address {uid}"));
+        for r in std::mem::take(&mut self.queued) {
+            self.render(r, out);
+        }
+    }
+
+    fn on_request_done(
+        &mut self,
+        kind: RequestKind,
+        ty: Option<&str>,
+        result: Option<&Value>,
+        out: &mut Output,
+    ) {
+        let Some(r) = result else { return };
+        match (kind, ty) {
+            (RequestKind::CreateInvite, Some("invitation")) => {
+                if let Some(link) = r.get("connLinkInvitation").and_then(link_text) {
+                    out.events.push(ChatEvent::Invite(link));
+                }
+            }
+            (RequestKind::Address, Some("userContactLinkCreated")) => {
+                let link = r.get("connLinkContact").and_then(link_text);
+                out.events.push(ChatEvent::Address(link));
+            }
+            (RequestKind::Address, Some("userContactLinkDeleted")) => {
+                out.events.push(ChatEvent::Address(None));
+            }
+            (RequestKind::SetProfile, Some("userProfileUpdated")) => {
+                if let Some(p) = r.get("toProfile") {
+                    if let Some(name) = p.get("displayName").and_then(Value::as_str) {
+                        self.profile.name = name.to_owned();
+                    }
+                    self.profile.about = p
+                        .get("shortDescr")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned();
+                    self.user_profile = p.clone();
+                    out.events.push(ChatEvent::Profile(self.profile.clone()));
+                }
+            }
+            (RequestKind::Send | RequestKind::SendFile, Some("newChatItems")) => {
+                let m = self.parse_items(r);
+                if !m.is_empty() {
+                    out.events.push(ChatEvent::Messages(m));
+                }
+            }
+            (RequestKind::Edit, Some("chatItemUpdated")) => {
+                if let Some(m) = r.get("chatItem").and_then(|a| self.parse_a_item(a)) {
+                    out.events.push(ChatEvent::Updated(vec![m]));
+                }
+            }
+            (RequestKind::Delete, Some("chatItemsDeleted")) => {
+                let m = self.parse_deletions(r);
+                if !m.is_empty() {
+                    out.events.push(ChatEvent::Updated(m));
+                }
+            }
+            (RequestKind::React, Some("chatItemReaction")) => {
+                if let Some(m) = self.parse_reaction(r) {
+                    out.events.push(ChatEvent::Updated(vec![m]));
+                }
+            }
+            (RequestKind::MarkRead | RequestKind::SetProfile, _) => {}
+            (
+                RequestKind::Connect
+                | RequestKind::Answer
+                | RequestKind::Group
+                | RequestKind::RemoveFriend
+                | RequestKind::Mute
+                | RequestKind::Block,
+                _,
+            ) => self.refresh(out),
+            (k, t) => tracing::debug!(?k, ?t, "chat: answer not used"),
+        }
+    }
+
+    // ---- events ---------------------------------------------------------------------------
+
+    fn on_event(&mut self, r: &Value, out: &mut Output) {
+        let ty = r.get("type").and_then(Value::as_str).unwrap_or("");
+        match ty {
+            "newChatItems" => self.on_new_items(r, out),
+            "chatItemsStatusesUpdated" => {
+                let m = self.parse_items(r);
+                if !m.is_empty() {
+                    out.events.push(ChatEvent::Updated(m));
+                }
+            }
+            "chatItemUpdated" | "rcvFileComplete" | "sndFileCompleteXFTP" => {
+                if let Some(m) = r.get("chatItem").and_then(|a| self.parse_a_item(a)) {
+                    out.events.push(ChatEvent::Updated(vec![m]));
+                }
+            }
+            "chatItemsDeleted" => {
+                let m = self.parse_deletions(r);
+                if !m.is_empty() {
+                    out.events.push(ChatEvent::Updated(m));
+                }
+            }
+            "chatItemReaction" => {
+                if let Some(m) = self.parse_reaction(r) {
+                    out.events.push(ChatEvent::Updated(vec![m]));
+                }
+            }
+            "hostConnected" | "hostDisconnected" => {
+                if r.get("protocol").and_then(Value::as_str) == Some("smp")
+                    && let Some(host) = r.get("transportHost").and_then(Value::as_str)
+                {
+                    self.hosts.insert(host.to_owned(), ty == "hostConnected");
+                    let offline = !self.hosts.values().any(|up| *up);
+                    if offline != self.offline {
+                        self.offline = offline;
+                        out.events.push(ChatEvent::Offline(offline));
+                    }
+                }
+            }
+            "contactConnected"
+            | "contactUpdated"
+            | "contactDeletedByContact"
+            | "contactSndReady"
+            | "receivedContactRequest"
+            | "receivedGroupInvitation"
+            | "userJoinedGroup"
+            | "groupUpdated"
+            | "joinedGroupMember"
+            | "deletedMember"
+            | "leftMember"
+            | "deletedMemberUser"
+            | "groupDeleted"
+            | "connectedToGroupMember"
+            | "memberRole"
+            | "groupMemberUpdated"
+                if self.phase == Phase::Ready =>
+            {
+                self.refresh(out);
+                if let Some(g) = r
+                    .get("groupInfo")
+                    .and_then(|g| g.get("groupId"))
+                    .and_then(Value::as_i64)
+                    .filter(|g| self.members_read.contains(g))
+                {
+                    self.send(out, Pending::Members(g), format!("/_members #{g}"));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// New items: a blocked friend's are deleted on arrival and never reported; small
+    /// pictures are fetched.
+    fn on_new_items(&mut self, r: &Value, out: &mut Output) {
+        let mut drop: HashMap<i64, Vec<i64>> = HashMap::new();
+        let mut fetch = Vec::new();
+        let mut messages = Vec::new();
+        for a in r
+            .get("chatItems")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(m) = self.parse_a_item(a) else {
+                continue;
+            };
+            if let ChatRef::Direct(c) = m.chat
+                && self.blocked.contains(&c)
+                && m.author != MessageAuthor::Me
+            {
+                drop.entry(c).or_default().push(m.id);
+                continue;
+            }
+            if let Some(id) = self.fetchable(a) {
+                fetch.push(id);
+            }
+            messages.push(m);
+        }
+        for (c, ids) in drop {
+            let ids: Vec<String> = ids.iter().map(i64::to_string).collect();
+            let cmd = format!("/_delete item @{c} {} internal", ids.join(","));
+            self.send(out, Pending::Quiet, cmd);
+        }
+        for id in fetch {
+            self.send(out, Pending::Quiet, format!("/freceive {id} encrypt=off"));
+        }
+        if !messages.is_empty() {
+            out.events.push(ChatEvent::Messages(messages));
+        }
+    }
+
+    /// The file number of a received picture that is fetched by itself: files on, small
+    /// enough, not from a member the user blocked.
+    fn fetchable(&self, a: &Value) -> Option<i64> {
+        if !self.files_on() {
+            return None;
+        }
+        let ci = a.get("chatItem")?;
+        let file = ci.get("file")?;
+        let image = str_at(ci, &["content", "msgContent", "type"]) == Some("image");
+        let invited = str_at(file, &["fileStatus", "type"]) == Some("rcvInvitation");
+        let size = file.get("fileSize").and_then(Value::as_u64)?;
+        let blocked = ci
+            .get("meta")
+            .and_then(|m| m.get("itemDeleted"))
+            .is_some_and(|d| !d.is_null());
+        (image && invited && size <= MAX_FILE && !blocked)
+            .then(|| file.get("fileId").and_then(Value::as_i64))
+            .flatten()
+    }
+
+    // ---- reading the engine's JSON ------------------------------------------------------
+
+    /// What reading items of `chat` needs: the user's member number there, the files folder.
+    fn ctx(&self, info: Option<&Value>, chat: ChatRef) -> Ctx {
+        let me = info.and_then(me_of).or(match chat {
+            ChatRef::Group(g) => self.me_in.get(&g).copied(),
+            ChatRef::Direct(_) => None,
+        });
+        Ctx {
+            me,
+            files: self.files_dir(),
+        }
+    }
+
+    /// `chatItems` of a `newChatItems` or `chatItemsStatusesUpdated`.
+    fn parse_items(&self, r: &Value) -> Vec<ChatMessage> {
+        r.get("chatItems")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|a| self.parse_a_item(a)).collect())
+            .unwrap_or_default()
+    }
+
+    /// An `AChatItem` (`chatInfo` + `chatItem`).
+    fn parse_a_item(&self, a: &Value) -> Option<ChatMessage> {
+        let info = a.get("chatInfo")?;
+        let chat = chat_of(info)?;
+        parse_item(chat, a.get("chatItem")?, &self.ctx(Some(info), chat))
+    }
+
+    /// `chatItemDeletions` (sent or received): each item, shown as deleted.
+    fn parse_deletions(&self, r: &Value) -> Vec<ChatMessage> {
+        r.get("chatItemDeletions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|d| {
+                let a = d
+                    .get("toChatItem")
+                    .filter(|t| !t.is_null())
+                    .or_else(|| d.get("deletedChatItem"))?;
+                let mut m = self.parse_a_item(a)?;
+                m.body = MessageBody::Deleted;
+                m.reactions.clear();
+                m.unread = false;
+                Some(m)
+            })
+            .collect()
+    }
+
+    /// A `chatItemReaction`: the item with its reactions now.
+    fn parse_reaction(&self, r: &Value) -> Option<ChatMessage> {
+        let reaction = r.get("reaction")?;
+        let info = reaction.get("chatInfo")?;
+        let chat = chat_of(info)?;
+        let ci = reaction.get("chatReaction")?.get("chatItem")?;
+        parse_item(chat, ci, &self.ctx(Some(info), chat))
+    }
+
+    /// An `apiChats` answer: the whole list. Remembers what later commands need.
+    #[allow(clippy::too_many_lines)]
+    fn parse_chats(&mut self, r: &Value) -> ChatEvent {
+        let mut friends = Vec::new();
+        let mut groups = Vec::new();
+        let mut requests = Vec::new();
+        let mut chats = Vec::new();
+        self.settings.clear();
+        self.custom.clear();
+        self.blocked.clear();
+        self.me_in.clear();
+        for c in r
+            .get("chats")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(info) = c.get("chatInfo") else {
+                continue;
+            };
+            let unread = c
+                .get("chatStats")
+                .and_then(|s| s.get("unreadCount"))
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok())
+                .unwrap_or(0);
+            let (chat, name, muted) = match info.get("type").and_then(Value::as_str) {
+                Some("direct") => {
+                    let Some(ct) = info.get("contact") else {
+                        continue;
+                    };
+                    let Some(id) = ct.get("contactId").and_then(Value::as_i64) else {
+                        continue;
+                    };
+                    // A contact the engine prepared but never connected (its built-in
+                    // contacts), or one deleted: not a friend.
+                    if ct.get("activeConn").is_none_or(Value::is_null)
+                        || ct.get("chatDeleted").and_then(Value::as_bool) == Some(true)
+                    {
+                        continue;
+                    }
+                    let name = str_at(ct, &["profile", "displayName"])
+                        .or_else(|| ct.get("localDisplayName").and_then(Value::as_str))
+                        .unwrap_or("")
+                        .to_owned();
+                    let ready = str_at(ct, &["activeConn", "connStatus", "type"]) == Some("ready");
+                    let chat = ChatRef::Direct(id);
+                    let muted = self.remember_settings(chat, ct.get("chatSettings"));
+                    let custom = ct.get("customData").cloned().unwrap_or(Value::Null);
+                    let blocked = custom
+                        .get(CUSTOM_KEY)
+                        .and_then(|e| e.get("blocked"))
+                        .and_then(Value::as_bool)
+                        == Some(true);
+                    if !custom.is_null() {
+                        self.custom.insert(id, custom);
+                    }
+                    if blocked {
+                        self.blocked.insert(id);
+                    }
+                    let verified = ct
+                        .get("activeConn")
+                        .and_then(|c| c.get("connectionCode"))
+                        .is_some_and(|c| !c.is_null());
+                    friends.push(Friend {
+                        id,
+                        name: name.clone(),
+                        ready,
+                        about: str_at(ct, &["profile", "shortDescr"])
+                            .unwrap_or("")
+                            .to_owned(),
+                        since: timestamp(ct.get("createdAt").and_then(Value::as_str)),
+                        verified,
+                        blocked,
+                        muted,
+                        ..Friend::default()
+                    });
+                    if blocked {
+                        // Reachable from "Blocked", not in the list.
+                        continue;
+                    }
+                    (chat, name, muted)
+                }
+                Some("group") => {
+                    let Some(g) = info.get("groupInfo") else {
+                        continue;
+                    };
+                    let Some(id) = g.get("groupId").and_then(Value::as_i64) else {
+                        continue;
+                    };
+                    let name = str_at(g, &["groupProfile", "displayName"])
+                        .or_else(|| g.get("localDisplayName").and_then(Value::as_str))
+                        .unwrap_or("")
+                        .to_owned();
+                    let members = g
+                        .get("groupSummary")
+                        .and_then(|s| s.get("currentMembers"))
+                        .and_then(Value::as_u64)
+                        .and_then(|n| u32::try_from(n).ok());
+                    if let Some(me) = me_of(info) {
+                        self.me_in.insert(id, me);
+                    }
+                    let chat = ChatRef::Group(id);
+                    let muted = self.remember_settings(chat, g.get("chatSettings"));
+                    groups.push(ChatGroup {
+                        id,
+                        name: name.clone(),
+                        membership: membership(
+                            str_at(g, &["membership", "memberStatus"]).unwrap_or(""),
+                        ),
+                        members,
+                        muted,
+                        ..ChatGroup::default()
+                    });
+                    (chat, name, muted)
+                }
+                Some("contactRequest") => {
+                    let Some(req) = info.get("contactRequest") else {
+                        continue;
+                    };
+                    if let Some(id) = req.get("contactRequestId").and_then(Value::as_i64) {
+                        let name = str_at(req, &["profile", "displayName"])
+                            .or_else(|| req.get("localDisplayName").and_then(Value::as_str))
+                            .unwrap_or("")
+                            .to_owned();
+                        requests.push(FriendRequest { id, name });
+                    }
+                    continue;
+                }
+                _ => continue,
+            };
+            let ctx = self.ctx(Some(info), chat);
+            let last = c
+                .get("chatItems")
+                .and_then(Value::as_array)
+                .and_then(|items| items.iter().rev().find_map(|ci| parse_item(chat, ci, &ctx)));
+            chats.push(ChatPreview {
+                chat,
+                name,
+                last,
+                unread,
+                muted,
+            });
+        }
+        ChatEvent::Chats {
+            friends,
+            groups,
+            requests,
+            chats,
+        }
+    }
+
+    /// Keep a conversation's settings for `/_settings`; whether it is muted.
+    fn remember_settings(&mut self, chat: ChatRef, s: Option<&Value>) -> bool {
+        let Some(s) = s.filter(|s| s.is_object()) else {
+            return false;
+        };
+        self.settings.insert(chat, s.clone());
+        s.get("enableNtfs")
+            .and_then(Value::as_str)
+            .is_some_and(|n| n != "all")
+    }
+}
+
+/// What reading one conversation's items needs.
+struct Ctx {
+    /// The user's member number (groups).
+    me: Option<i64>,
+    /// Where received files are.
+    files: PathBuf,
+}
+
+fn failed(request: RequestKind, code: ErrorCode, detail: String) -> ChatEvent {
+    ChatEvent::Failed {
+        request,
+        code,
+        detail,
+    }
+}
+
+/// A compact form of an engine value for the log (bounded).
+fn short(v: &Value) -> String {
+    let mut s = v.to_string();
+    if s.len() > 400 {
+        let mut end = 400;
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        s.truncate(end);
+        s.push('…');
+    }
+    s
+}
+
+fn error_code(kind: RequestKind, e: &Value) -> ErrorCode {
+    let text = e.to_string();
+    if ["NETWORK", "TIMEOUT", "HOST", "noConnection"]
+        .iter()
+        .any(|w| text.contains(w))
+    {
+        ErrorCode::ChtNoConnection
+    } else if kind == RequestKind::Connect {
+        ErrorCode::ChtBadLink
+    } else {
+        ErrorCode::ChtRequestFailed
+    }
+}
+
+fn chat_ref(chat: ChatRef) -> String {
+    match chat {
+        ChatRef::Direct(id) => format!("@{id}"),
+        ChatRef::Group(id) => format!("#{id}"),
+    }
+}
+
+fn group_profile_json(name: &str) -> String {
+    serde_json::json!({ "displayName": name, "fullName": "" }).to_string()
+}
+
+/// The engine's form of a reaction emoji, if it carries it (❤️ without U+FE0F).
+fn engine_emoji(display: &str) -> Option<String> {
+    REACTION_EMOJI
+        .contains(&display)
+        .then(|| display.replace('\u{FE0F}', ""))
+}
+
+/// The display form of an emoji the engine reports.
+fn display_emoji(engine: &str) -> String {
+    REACTION_EMOJI
+        .iter()
+        .find(|e| e.replace('\u{FE0F}', "") == engine)
+        .map_or_else(|| engine.to_owned(), |e| (*e).to_owned())
+}
+
+/// A name as the engine's text names it: bare when it is one word, else `'quoted'`.
+fn mention_word(name: &str) -> String {
+    if !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
+        name.to_owned()
+    } else {
+        format!("'{name}'")
+    }
+}
+
+/// `@Two Words` in the text becomes `@'Two Words'` (the engine's form).
+fn quote_mentions(text: &str, mentions: &[(String, i64)]) -> String {
+    let mut text = text.to_owned();
+    for (name, _) in mentions {
+        let word = mention_word(name);
+        if word != *name {
+            text = text.replace(&format!("@{name}"), &format!("@{word}"));
+        }
+    }
+    text
+}
+
+/// `@'Two Words'` back to `@Two Words`, for the names this message mentions.
+fn unquote_mentions(text: &str, names: &[&str]) -> String {
+    let mut text = text.to_owned();
+    for name in names {
+        text = text.replace(&format!("@'{name}'"), &format!("@{name}"));
+    }
+    text
+}
+
+fn mention_map(mentions: &[(String, i64)]) -> Value {
+    Value::Object(
+        mentions
+            .iter()
+            .map(|(n, m)| (n.clone(), Value::from(*m)))
+            .collect(),
+    )
+}
+
+/// A created link: the short form when the relay supports it, else the full one.
+fn link_text(l: &Value) -> Option<String> {
+    l.get("connShortLink")
+        .and_then(Value::as_str)
+        .or_else(|| l.get("connFullLink").and_then(Value::as_str))
+        .map(str::to_owned)
+}
+
+fn str_at<'a>(v: &'a Value, path: &[&str]) -> Option<&'a str> {
+    path.iter().try_fold(v, |v, k| v.get(*k))?.as_str()
+}
+
+fn timestamp(s: Option<&str>) -> Option<Timestamp> {
+    let t: jiff::Timestamp = s?.parse().ok()?;
+    Some(Timestamp::from_millis(t.as_millisecond()))
+}
+
+/// The conversation of a `chatInfo`, if it is one the Chat page shows.
+fn chat_of(info: &Value) -> Option<ChatRef> {
+    match info.get("type").and_then(Value::as_str)? {
+        "direct" => Some(ChatRef::Direct(
+            info.get("contact")?.get("contactId")?.as_i64()?,
+        )),
+        "group" => Some(ChatRef::Group(
+            info.get("groupInfo")?.get("groupId")?.as_i64()?,
+        )),
+        _ => None,
+    }
+}
+
+/// The user's member number in a group's `chatInfo`.
+fn me_of(info: &Value) -> Option<i64> {
+    info.get("groupInfo")?
+        .get("membership")?
+        .get("groupMemberId")?
+        .as_i64()
+}
+
+/// Content types that are settings, not conversation: never shown.
+fn hidden(content_type: &str) -> bool {
+    content_type == "chatBanner"
+        || content_type.ends_with("ChatFeature")
+        || content_type.ends_with("ChatPreference")
+        || content_type.ends_with("GroupFeature")
+        || content_type.ends_with("ChatFeatureRejected")
+        || content_type.ends_with("GroupFeatureRejected")
+}
+
+/// Who a `chatDir` names.
+fn author_of(dir: &Value) -> Option<MessageAuthor> {
+    Some(match dir.get("type").and_then(Value::as_str)? {
+        "directSnd" | "groupSnd" | "localSnd" => MessageAuthor::Me,
+        "groupRcv" => MessageAuthor::Member(
+            str_at(dir, &["groupMember", "memberProfile", "displayName"])
+                .or_else(|| str_at(dir, &["groupMember", "localDisplayName"]))
+                .unwrap_or("")
+                .to_owned(),
+        ),
+        _ => MessageAuthor::Friend,
+    })
+}
+
+/// A picture or GIF: the fetched file's path once it is here, else its name.
+fn picture(ci: &Value, files: &Path) -> MessageBody {
+    let Some(file) = ci.get("file").filter(|f| !f.is_null()) else {
+        return MessageBody::Gif(String::new());
+    };
+    let name = file
+        .get("fileName")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    let status = str_at(file, &["fileStatus", "type"]).unwrap_or("");
+    let path = str_at(file, &["fileSource", "filePath"]).unwrap_or("");
+    if status == "rcvComplete" {
+        // The engine names received files relative to the files folder; anything that is
+        // not a bare name (a path the sender could have chosen) is not followed.
+        let p = Path::new(path);
+        let bare = p.components().count() == 1
+            && matches!(p.components().next(), Some(std::path::Component::Normal(_)));
+        if bare {
+            return MessageBody::Gif(files.join(p).to_string_lossy().into_owned());
+        }
+        tracing::warn!("chat: a received file with a path that is not a bare name");
+    } else if status.starts_with("snd") && Path::new(path).is_absolute() {
+        return MessageBody::Gif(path.to_owned());
+    }
+    MessageBody::Gif(name)
+}
+
+/// A `ChatItem` in `chat`.
+#[allow(clippy::too_many_lines)]
+fn parse_item(chat: ChatRef, ci: &Value, ctx: &Ctx) -> Option<ChatMessage> {
+    let meta = ci.get("meta")?;
+    let content = ci.get("content")?;
+    let ctype = content.get("type").and_then(Value::as_str)?;
+    if hidden(ctype) {
+        return None;
+    }
+    let item_text = meta.get("itemText").and_then(Value::as_str).unwrap_or("");
+    let mentions: Vec<Mention> = ci
+        .get("mentions")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter_map(|(name, m)| {
+            let member = m.get("memberRef")?.get("groupMemberId")?.as_i64()?;
+            Some(Mention {
+                name: name.clone(),
+                member,
+                me: ctx.me == Some(member),
+            })
+        })
+        .collect();
+    let names: Vec<&str> = mentions.iter().map(|m| m.name.as_str()).collect();
+    let mut body = match ctype {
+        "sndMsgContent" | "rcvMsgContent" => {
+            let mc = content.get("msgContent")?;
+            match mc.get("type").and_then(Value::as_str) {
+                Some("text") => {
+                    MessageBody::Text(unquote_mentions(mc.get("text")?.as_str()?, &names))
+                }
+                Some("image") => picture(ci, &ctx.files),
+                // Files, voice and links are shown by their text for now.
+                _ => MessageBody::Text(item_text.to_owned()),
+            }
+        }
+        _ => MessageBody::Event(item_text.to_owned()),
+    };
+    let deleted = meta
+        .get("itemDeleted")
+        .filter(|d| !d.is_null())
+        .and_then(|d| d.get("type"))
+        .and_then(Value::as_str);
+    if matches!(deleted, Some("deleted" | "moderated")) {
+        body = MessageBody::Deleted;
+    }
+    // "blocked" / "blockedByAdmin": a member the user (or an admin) blocked; the text stays
+    // and the page collapses it.
+    let hidden_member = matches!(deleted, Some("blocked" | "blockedByAdmin"));
+    let author = author_of(ci.get("chatDir")?)?;
+    let status = str_at(meta, &["itemStatus", "type"]).unwrap_or("");
+    let delivery = match status {
+        "sndNew" => Delivery::Sending,
+        "sndSent" => Delivery::Sent,
+        "sndRcvd" => Delivery::Delivered,
+        s if s.starts_with("sndError") || s.starts_with("sndWarning") => Delivery::Failed,
+        s if s.starts_with("snd") => Delivery::Sent,
+        _ => Delivery::Received,
+    };
+    let at = timestamp(meta.get("itemTs").and_then(Value::as_str))
+        .or_else(|| timestamp(meta.get("createdAt").and_then(Value::as_str)))
+        .unwrap_or(Timestamp::EPOCH);
+    let reply = ci.get("quotedItem").filter(|q| !q.is_null()).map(|q| {
+        let author = q.get("chatDir").and_then(author_of).unwrap_or(match chat {
+            ChatRef::Direct(_) => MessageAuthor::Friend,
+            ChatRef::Group(_) => MessageAuthor::Member(String::new()),
+        });
+        let text = str_at(q, &["content", "text"])
+            .unwrap_or("")
+            .lines()
+            .next()
+            .unwrap_or("")
+            .to_owned();
+        Quote {
+            id: q.get("itemId").and_then(Value::as_i64),
+            author,
+            text,
+        }
+    });
+    let reactions = if body == MessageBody::Deleted {
+        Vec::new()
+    } else {
+        ci.get("reactions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|r| {
+                let emoji = str_at(r, &["reaction", "emoji"])?;
+                let count = u32::try_from(r.get("totalReacted")?.as_u64()?).ok()?;
+                (count > 0).then(|| Reaction {
+                    emoji: display_emoji(emoji),
+                    count,
+                    mine: r.get("userReacted").and_then(Value::as_bool) == Some(true),
+                    who: Vec::new(),
+                })
+            })
+            .collect()
+    };
+    Some(ChatMessage {
+        id: meta.get("itemId")?.as_i64()?,
+        chat,
+        author,
+        body,
+        at,
+        delivery,
+        unread: status == "rcvNew" && !hidden_member,
+        reply,
+        reactions,
+        edited: meta.get("itemEdited").and_then(Value::as_bool) == Some(true),
+        mentions,
+    })
+}
+
+fn membership(status: &str) -> Membership {
+    match status {
+        "invited" => Membership::Invited,
+        "accepted" | "pendingApproval" | "pendingReview" => Membership::Joining,
+        "left" | "removed" | "deleted" | "groupDeleted" | "rejected" => Membership::Left,
+        _ => Membership::Member,
+    }
+}
+
+/// One `GroupMember`.
+fn member(m: &Value, me: bool) -> Option<GroupMember> {
+    Some(GroupMember {
+        id: m.get("groupMemberId")?.as_i64()?,
+        name: str_at(m, &["memberProfile", "displayName"])
+            .or_else(|| m.get("localDisplayName").and_then(Value::as_str))
+            .unwrap_or("")
+            .to_owned(),
+        friend: if me {
+            None
+        } else {
+            m.get("memberContactId").and_then(Value::as_i64)
+        },
+        me,
+        owner: m.get("memberRole").and_then(Value::as_str) == Some("owner"),
+        blocked: m
+            .get("memberSettings")
+            .and_then(|s| s.get("showMessages"))
+            .and_then(Value::as_bool)
+            == Some(false),
+        ..GroupMember::default()
+    })
+}
+
+/// A `groupMembers` answer's `group` (`groupInfo` + `members`, the user not among them):
+/// the user first, then everyone still in the group.
+fn parse_members(g: &Value) -> Vec<GroupMember> {
+    let me = g
+        .get("groupInfo")
+        .and_then(|i| i.get("membership"))
+        .and_then(|m| member(m, true));
+    let others = g
+        .get("members")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|m| {
+            membership(m.get("memberStatus").and_then(Value::as_str).unwrap_or(""))
+                != Membership::Left
+        })
+        .filter_map(|m| member(m, false));
+    me.into_iter().chain(others).collect()
+}
+
+#[cfg(test)]
+mod tests;
+
+/// What the engine carries with these relays (`smp://` and `xftp://` addresses; empty = the
+/// presets), known before it starts: Settings shows the same rows whether Chat is on or off.
+pub fn features_with(relays: &[String]) -> ChatFeatures {
+    let custom_relays = relays.iter().any(|r| r.starts_with("smp://"));
+    let custom_files = relays.iter().any(|r| r.starts_with("xftp://"));
+    features_for(!custom_relays || custom_files)
+}
+
+fn features_for(files: bool) -> ChatFeatures {
+    ChatFeatures {
+        files,
+        gifs: files && GIFS_SEND_WORKS,
+        reactions: true,
+        replies: true,
+        edit: true,
+        mute: true,
+        block: true,
+        verify: true,
+        mentions: true,
+        ..ChatFeatures::default()
+    }
+}

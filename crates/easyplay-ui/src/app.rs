@@ -117,6 +117,8 @@ pub struct UiState {
     pub artwork: Option<ArtworkVm>,
     /// Statistics.
     pub stats: StatsVm,
+    /// The Chat page (ADR-0033).
+    pub chat: crate::vm::chat::ChatVm,
     /// Settings.
     pub settings: SettingsVm,
     /// Onboarding.
@@ -182,6 +184,7 @@ impl UiState {
             add_game: None,
             artwork: None,
             stats: StatsVm::default(),
+            chat: Default::default(),
             settings: SettingsVm::default(),
             onboarding: OnboardingVm::default(),
             quick: None,
@@ -331,6 +334,7 @@ impl EasyPlayApp {
         };
         let mut state = UiState::new(start);
         if bridge.is_preview() {
+            crate::demo_chat::seed_vm(&mut state.chat);
             state.banners.set(Banner {
                 key: "preview",
                 severity: Severity::Info,
@@ -768,6 +772,18 @@ impl EasyPlayApp {
                 self.reapply_appearance(ctx, false);
             }
             UiEvent::HostChanged | UiEvent::RuntimesChanged | UiEvent::DiagnosticsChanged => {}
+            // The Chat page reads the snapshot each frame; its conversation view-model
+            // takes the messages (ADR-0033).
+            UiEvent::ChatChanged => {}
+            UiEvent::ChatMessages { messages, updated } => {
+                s.chat.on_messages(&messages, updated);
+            }
+            // The link check flagged a message's link or got no answer: ask (services).
+            UiEvent::ChatUnsafeLink { url, unchecked, .. } => {
+                s.chat.link_to_open = Some(url);
+                s.chat.link_unchecked = unchecked;
+                s.show_dialog(Dialog::Chat(crate::vm::chat::ChatDialog::UnsafeLink));
+            }
             UiEvent::ShowGame(g) => {
                 if let Some(q) = &mut s.quick {
                     q.game = Some(g);
@@ -784,6 +800,9 @@ impl EasyPlayApp {
             return;
         };
         let s = &mut self.state;
+        if s.chat.on_query(id, &payload) || s.chat.gif.on_query(id, &payload) {
+            return;
+        }
         if let Some(a) = &mut s.artwork
             && a.apps_q == Some(id)
         {
@@ -1080,6 +1099,13 @@ impl EasyPlayApp {
                 });
                 self.bridge.set_prefs_preview(next);
             }
+            // The Chat composer's + menu (composer agent). The service checks the size (1 MB
+            // at most, said in the menu) and says why it refuses one; the UI does no I/O.
+            PickPurpose::ChatPicture(chat) | PickPurpose::ChatFile(chat) => {
+                self.bridge.send(UiCommand::Chat(
+                    easyplay_core::service::ChatCommand::SendFile { chat, path: first },
+                ));
+            }
         }
     }
 
@@ -1097,6 +1123,8 @@ impl EasyPlayApp {
         self.install(&ctx);
         // A language chosen in Settings applies at once, before the preference round trip.
         self.apply_language(&ctx);
+        // Emoji are glyphs of their own: installed before any page lays out text.
+        crate::screens::chat::prepare(&ctx, self.bridge.prefs());
         let (Some(textures), Some(art)) = (self.textures.as_mut(), self.art.as_deref()) else {
             return;
         };

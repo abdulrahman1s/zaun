@@ -1427,6 +1427,13 @@ struct DemoState {
     steam_notes: HashMap<GameId, String>,
     /// The launch options of Steam games, as saved in the preview (ADR-0031 §6a).
     steam_launch: HashMap<GameId, String>,
+    /// Chat's sample friends, groups and conversations (ADR-0033).
+    chat: crate::demo_chat::DemoChat,
+    /// When the backend was made: Chat's clock is `now` plus the real time since, so calls
+    /// and shares last as long as they do on screen.
+    started: easyplay_core::clock::SystemClock,
+    /// A helper thread runs Chat's timers (ringing, speaking, a viewer joining).
+    chat_ticking: bool,
 }
 
 /// A preview backend over the sample library. Edits stay in memory; launches are simulated
@@ -1447,6 +1454,9 @@ impl DemoBackend {
             let mut s = b.lock();
             let mut p = (*s.prefs).clone();
             p.steam.show_games = true;
+            // The sample Chat runs as Sam (demo_chat).
+            p.chat.enabled = true;
+            p.chat.name = "Sam".into();
             s.prefs = Arc::new(p);
         }
         b
@@ -1471,6 +1481,9 @@ impl DemoBackend {
                 steam_off: Vec::new(),
                 steam_notes: HashMap::new(),
                 steam_launch: HashMap::new(),
+                chat: crate::demo_chat::DemoChat::new(now),
+                started: easyplay_core::clock::SystemClock::new(),
+                chat_ticking: false,
             })),
             step: Duration::from_millis(900),
         }
@@ -1630,6 +1643,61 @@ impl DemoBackend {
             // the preview, as for the folders of the other games.
             A::OpenStorageFolder(_) | A::WindowsSettings(_) | A::RunProgram { .. } => {}
         }
+    }
+
+    /// Chat's clock: the demo's `now` plus the real time since the backend was made.
+    fn chat_now(s: &DemoState) -> Timestamp {
+        use easyplay_core::clock::Clock;
+        s.now.saturating_add(s.started.mono().as_duration())
+    }
+
+    /// Run Chat's timers on a helper thread while any is waiting (one thread at most; none
+    /// at rest, so tests without calls stay deterministic).
+    fn tick_chat(&self, s: &mut DemoState) {
+        if s.chat_ticking || s.chat.next_due().is_none() {
+            return;
+        }
+        s.chat_ticking = true;
+        let state = Arc::downgrade(&self.state);
+        std::thread::spawn(move || {
+            loop {
+                let Some(state) = state.upgrade() else {
+                    return;
+                };
+                let wait = {
+                    let mut s = state.lock().unwrap_or_else(PoisonError::into_inner);
+                    let now = Self::chat_now(&s);
+                    let events = s.chat.tick(now);
+                    if !events.is_empty() {
+                        s.events.extend(events);
+                        Self::wake(&s);
+                    }
+                    match s.chat.next_due() {
+                        None => {
+                            s.chat_ticking = false;
+                            return;
+                        }
+                        Some(due) => due
+                            .as_millis()
+                            .saturating_sub(now.as_millis())
+                            .clamp(10, 1_000),
+                    }
+                };
+                drop(state);
+                std::thread::sleep(Duration::from_millis(wait as u64));
+            }
+        });
+    }
+
+    /// Someone calls the user from `chat` (a friend's conversation): the incoming card.
+    /// Unanswered for 20 s, it becomes a missed call.
+    pub fn ring_in(&self, chat: easyplay_core::model::ChatRef) {
+        let mut s = self.lock();
+        let now = Self::chat_now(&s);
+        let events = s.chat.ring_in(chat, now);
+        s.events.extend(events);
+        self.tick_chat(&mut s);
+        Self::wake(&s);
     }
 
     fn simulate_launch(&self, id: GameId) {
@@ -1876,6 +1944,10 @@ impl DemoBackend {
                     g.activity = Activity::Idle;
                     g.last_played_at = Some(now);
                 });
+                // Sharing ends with the game (chat.html `chatRunChanged`).
+                let t = Self::chat_now(s);
+                let events = s.chat.game_stopped(t);
+                s.events.extend(events);
                 let name = name_of(s, id);
                 Self::toast(s, strings::feedback::stopped(&name), None);
             }
@@ -2129,6 +2201,30 @@ impl DemoBackend {
             | UiCommand::ResolveDatabase(_)
             | UiCommand::Quit => {}
             UiCommand::Steam(a) => Self::steam(s, a),
+            // Chat (ADR-0033): the sample changes as the service would change it; turning
+            // it on or off is also a preference.
+            UiCommand::Chat(c) => {
+                if let easyplay_core::service::ChatCommand::SetEnabled { on, name } = &c {
+                    let mut p = (*s.prefs).clone();
+                    p.chat.enabled = *on;
+                    if let Some(n) = name {
+                        p.chat.name.clone_from(n);
+                    }
+                    s.prefs = Arc::new(p);
+                    s.events.push_back(UiEvent::PreferencesChanged);
+                }
+                let now = Self::chat_now(s);
+                let running = s
+                    .library
+                    .games
+                    .iter()
+                    .find(|g| matches!(g.activity, Activity::Running { .. }))
+                    .map(|g| g.name.to_string());
+                s.chat.set_running(running);
+                let events = s.chat.handle(c, now);
+                s.events.extend(events);
+                self.tick_chat(s);
+            }
             UiCommand::ListSessions { reply_to, .. } => {
                 s.events.push_back(UiEvent::QueryResult {
                     id: reply_to,
@@ -2200,6 +2296,10 @@ impl Backend for DemoBackend {
     fn is_preview(&self) -> bool {
         true
     }
+
+    fn chat(&self) -> Arc<easyplay_core::model::ChatSnapshot> {
+        self.lock().chat.snapshot()
+    }
 }
 
 /// Tag names as `TagName`s (drops invalid ones).
@@ -2213,6 +2313,43 @@ pub fn tag_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<TagName> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Chat in the preview: a share takes the running game and ends with it; a call
+    /// starts ringing (its timers run on the helper thread, not checked here).
+    #[test]
+    fn chat_shares_the_running_game_and_calls() {
+        use easyplay_core::service::ChatCommand;
+        // Without the Steam samples: EasyPlay stops only its own games.
+        let b = DemoBackend::with_library(library(baseline_now()), baseline_now());
+        let running = b
+            .library()
+            .games
+            .iter()
+            .find(|g| matches!(g.activity, Activity::Running { .. }))
+            .map(|g| (g.id, g.name.to_string()))
+            .unwrap();
+        b.send(UiCommand::Chat(ChatCommand::StartShare(
+            crate::demo_chat::MIRA,
+        )));
+        assert_eq!(
+            b.chat().live.share.as_ref().map(|s| s.title.clone()),
+            Some(running.1)
+        );
+        b.send(UiCommand::Stop {
+            id: running.0,
+            force: false,
+        });
+        assert!(b.chat().live.share.is_none());
+        b.send(UiCommand::Chat(ChatCommand::Call(crate::demo_chat::DEV)));
+        assert!(
+            b.chat()
+                .live
+                .call
+                .as_ref()
+                .is_some_and(|c| c.since.is_none())
+        );
+        assert!(DemoBackend::new(baseline_now()).preferences().chat.enabled);
+    }
 
     #[test]
     fn sample_library_is_sorted_and_indexed() {

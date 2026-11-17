@@ -25,6 +25,11 @@
   libxcursor,
   libxi,
   libxrandr,
+  appimageTools,
+  runCommand,
+  simplex-chat-desktop,
+  gmp,
+  zlib,
   rustToolchain,
   src,
   version,
@@ -63,6 +68,51 @@ let
     license = lib.licenses.gpl3Plus;
     platforms = lib.platforms.linux;
   };
+
+  # The Chat engine (ADR-0033): the SimpleX chat core, `libsimplex.so` (AGPL-3.0), with the
+  # GHC runtime and Haskell libraries it is linked against (`libHS*.so`) and the libffi and
+  # libcrypto it was built with. nixpkgs has no library package for it, so it is taken from
+  # the official desktop AppImage that nixpkgs already pins for simplex-chat-desktop (same
+  # pname/version/src, so the extraction is the one nixpkgs itself builds). The AppImage is
+  # published for x86_64-linux and aarch64-linux only; elsewhere this is null and the Chat
+  # page says this build does not include it.
+  #
+  # The prebuilt objects are copied as they are (runCommand has no fixup phase: nothing is
+  # stripped or patched). libsimplex lists every libHS*.so, libffi and libcrypto as DT_NEEDED
+  # with `$ORIGIN` in its RUNPATH, so they resolve beside it; the only libraries it needs from
+  # outside are libgmp.so.10 and libz.so.1, passed to the helper as `simplexLibraryPath`.
+  simplexLib =
+    let
+      inherit (stdenv.hostPlatform) system;
+      appimage = appimageTools.extract {
+        inherit (simplex-chat-desktop) pname version;
+        src = simplex-chat-desktop.passthru.sources.${system};
+      };
+    in
+    if simplex-chat-desktop.passthru.sources ? ${system} then
+      runCommand "easyplay-simplex-lib-${simplex-chat-desktop.version}"
+        {
+          meta = {
+            description = "SimpleX chat core library for EasyPlay's Chat helper";
+            homepage = "https://github.com/simplex-chat/simplex-chat";
+            license = lib.licenses.agpl3Only;
+            sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
+            platforms = simplex-chat-desktop.meta.platforms;
+          };
+        }
+        ''
+          # Not vlc/ (the desktop app's media player) and not libapp-lib.so (its JNI glue).
+          res=${appimage}/usr/lib/app/resources
+          mkdir -p $out/lib
+          cp $res/libsimplex.so $res/libHS*.so $res/libffi.so.8 $res/libcrypto.so.3 $out/lib/
+          chmod 0555 $out/lib/*
+        ''
+    else
+      null;
+  simplexLibraryPath = lib.makeLibraryPath [
+    gmp
+    zlib
+  ];
 
   rustPlatform = makeRustPlatform {
     cargo = rustToolchain;
@@ -144,6 +194,10 @@ rustPlatform.buildRustPackage {
   cargoBuildFlags = [
     "-p"
     "easyplay"
+  ]
+  ++ lib.optionals (simplexLib != null) [
+    "-p"
+    "easyplay-chat"
   ];
   # Tests that need real bwrap/umu cannot run in the Nix build sandbox.
   doCheck = false;
@@ -166,6 +220,18 @@ rustPlatform.buildRustPackage {
 
   postInstall = ''
     install -Dm755 ${easyplay-init}/bin/easyplay-init $out/libexec/easyplay/easyplay-init
+  ''
+  # The Chat helper is AGPL-3.0 (it loads libsimplex into its process); EasyPlay talks to it
+  # over pipes only. Its library folder holds links into simplexLib, so the helper's sandbox
+  # binds a real directory (SimplexFactory binds the library's parent folder).
+  + lib.optionalString (simplexLib != null) ''
+    install -Dm755 $out/bin/easyplay-chat $out/libexec/easyplay/easyplay-chat
+    rm $out/bin/easyplay-chat
+    remove-references-to -t ${rustToolchain} $out/libexec/easyplay/easyplay-chat
+    mkdir -p $out/libexec/easyplay/simplex
+    ln -s ${simplexLib}/lib/* $out/libexec/easyplay/simplex/
+  ''
+  + ''
 
     # Desktop entry, icons and AppStream metadata, when the source tree has them.
     if [ -d assets/share ]; then
@@ -219,7 +285,11 @@ rustPlatform.buildRustPackage {
     wrapProgram $out/bin/easyplay \
       --set DISABLE_MANGOHUD 1 \
       --prefix PATH : ${lib.makeBinPath hostTools} \
-      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath runtimeLibs}
+      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath runtimeLibs} \
+      ${lib.optionalString (simplexLib != null) ''
+        --set EASYPLAY_SIMPLEX_LIB $out/libexec/easyplay/simplex/libsimplex.so \
+        --set EASYPLAY_SIMPLEX_LIBRARY_PATH ${simplexLibraryPath}
+      ''}
   '';
 
   # The wrapper's LD_LIBRARY_PATH reaches only the process it starts: the session supervisor
@@ -233,10 +303,17 @@ rustPlatform.buildRustPackage {
   disallowedReferences = [ rustToolchain ];
 
   passthru = {
-    inherit easyplay-init runtimeLibs hostTools;
+    inherit
+      easyplay-init
+      runtimeLibs
+      hostTools
+      simplexLib
+      ;
   };
 
   meta = meta // {
+    # libexec/easyplay/easyplay-chat is AGPL-3.0-only (ADR-0033); everything else GPL-3.0+.
+    license = [ meta.license ] ++ lib.optional (simplexLib != null) lib.licenses.agpl3Only;
     mainProgram = "easyplay";
   };
 }

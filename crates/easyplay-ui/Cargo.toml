@@ -15,6 +15,8 @@ default = ["gamepad"]
 gamepad = ["dep:gilrs"]
 # eframe's inspection feature for agent-driven UI testing; refused by release builds.
 dev-inspection = ["eframe/inspection"]
+# Builds the `review` test binary (throwaway renders for design review, tests/review/).
+review = []
 
 [dependencies]
 easyplay-core.workspace = true
@@ -28,6 +30,12 @@ tracing.workspace = true
 uuid.workspace = true
 rust-i18n.workspace = true
 unicode-bidi.workspace = true
+qrcode.workspace = true
+twemoji-assets.workspace = true
+emojis.workspace = true
+unicode-segmentation.workspace = true
+# Scaling Twemoji pictures into glyphs (already in the tree through egui_extras).
+image.workspace = true
 winit.workspace = true
 
 [dev-dependencies]
@@ -38,6 +46,13 @@ egui_kittest = { workspace = true, features = ["eframe"] }
 [[bench]]
 name = "grid"
 harness = false
+
+# Review renders, opt-in so ordinary builds do not link them: `cargo test -p easyplay-ui
+# --features review --test review -- --ignored --test-threads=1`.
+[[test]]
+name = "review"
+path = "tests/review/main.rs"
+required-features = ["review"]
 
 [lints]
 workspace = true

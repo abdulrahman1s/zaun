@@ -239,12 +239,15 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
                 Route::Gallery => gallery::show(ui, state, env),
                 Route::Game(id) => details::show(ui, state, env, id),
                 Route::Statistics => statistics::show(ui, state, env),
+                Route::Chat => super::chat::show(ui, state, env),
                 Route::Settings(tab) => settings::show(ui, state, env, tab),
                 Route::Onboarding => onboarding::show(ui, state, env),
             }
         });
 
     paint_flight(&ctx, state, env, now, &theme);
+    // Someone calling, on every page; also where Chat's waiting work resolves.
+    super::chat::incoming_card(&ctx, state, env);
     show_overlays(&ctx, state, env);
     drop_zone(&ctx, state, env);
     announce_toasts(&ctx, state);
@@ -375,11 +378,15 @@ fn paint_flight(
 }
 
 /// A destination of the top bar: 14 pt medium, quiet unless it is where you are.
-fn nav_item(ui: &mut Ui, label: &str, current: bool) -> egui::Response {
+fn nav_item(ui: &mut Ui, label: &str, current: bool, count: u32) -> egui::Response {
     let theme = theme::theme(ui.ctx());
     let p = &theme.palette;
     let text = Type::Nav.line(ui, label, p.t1);
-    let size = vec2(text.size().x + layout::NAV_PAD * 2.0, control::BUTTON);
+    let extra = super::chat::nav_count_width(ui, count);
+    let size = vec2(
+        text.size().x + extra + layout::NAV_PAD * 2.0,
+        control::BUTTON,
+    );
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let name = label.to_owned();
     resp.widget_info(move || egui::WidgetInfo::selected(egui::Role::Button, true, current, &name));
@@ -394,6 +401,7 @@ fn nav_item(ui: &mut Ui, label: &str, current: bool) -> egui::Response {
         } else {
             mix(p.t3, p.t2, hover)
         };
+        let text_w = text.size().x;
         ui.painter().galley_with_override_text_color(
             pos2(
                 rect.left() + layout::NAV_PAD,
@@ -401,6 +409,13 @@ fn nav_item(ui: &mut Ui, label: &str, current: bool) -> egui::Response {
             ),
             text,
             color,
+        );
+        super::chat::nav_count(
+            ui,
+            &resp,
+            rect.left() + layout::NAV_PAD + text_w,
+            rect.center().y,
+            count,
         );
         if resp.has_focus() {
             focus_ring(ui.painter(), rect, corner, &theme);
@@ -603,14 +618,17 @@ fn top_bar(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, route: Route) {
                     ui.allocate_exact_size(vec2(layout::MARK, layout::MARK), Sense::hover());
                 brand::paint_mark(ui.painter(), mark, p.fill, p.bg);
                 ui.add_space(layout::MARK_GAP + layout::TOP_BAR_GAP);
+                // Library · Chat · Statistics · Settings (chat.html's top bar).
                 let here = match page_of(route) {
                     Route::Library | Route::Game(_) => Some(0),
-                    Route::Statistics => Some(1),
-                    Route::Settings(_) => Some(2),
+                    Route::Chat => Some(1),
+                    Route::Statistics => Some(2),
+                    Route::Settings(_) => Some(3),
                     _ => None,
                 };
                 let items = [
                     (strings::nav::LIBRARY(), Route::Library),
+                    (strings::nav::CHAT(), Route::Chat),
                     (strings::nav::STATISTICS(), Route::Statistics),
                     (
                         strings::nav::SETTINGS(),
@@ -621,9 +639,15 @@ fn top_bar(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, route: Route) {
                     .scope(|ui| {
                         ui.spacing_mut().item_spacing.x = layout::NAV_GAP;
                         for (i, (label, to)) in items.into_iter().enumerate() {
-                            if nav_item(ui, label, here == Some(i)).clicked()
-                                && page_of(route) != page_of(to)
-                            {
+                            // "Chat" carries the count of unread messages in unmuted
+                            // chats (ADR-0033).
+                            let count = if to == Route::Chat {
+                                env.bridge.chat().unread()
+                            } else {
+                                0
+                            };
+                            let item = nav_item(ui, label, here == Some(i), count);
+                            if item.clicked() && page_of(route) != page_of(to) {
                                 state.navigate(AfterDiscard::Route(to));
                             }
                         }
@@ -643,6 +667,8 @@ fn top_bar(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, route: Route) {
                         _ => {}
                     }
                     running_pill(ui, state, env);
+                    // A call or a share: left of the running game (laid out right to left).
+                    super::chat::top_bar_pill(ui, state, env);
                 });
             });
         });
@@ -849,6 +875,16 @@ fn handle_global_keys(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         text_focus,
         single_keys: env.bridge.prefs().integration.single_key_shortcuts,
     };
+    // `Esc` on the Chat page, from anywhere on it: one step back at a time (chat.html
+    // `chatKey`); with nothing left to undo it is Back, except from a field.
+    if route == Route::Chat
+        && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
+        && !super::chat::escape(&ctx, state)
+        && !text_focus
+        && !super::chat::had_text_focus(&ctx)
+    {
+        state.navigate(AfterDiscard::Back);
+    }
     // `Esc` in the library: search, then filters, then selection.
     if route == Route::Library
         && !text_focus
@@ -859,7 +895,9 @@ fn handle_global_keys(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     for action in shortcuts::dispatch(&ctx, d) {
         on_action(state, env, route, action);
     }
-    if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra1)) {
+    if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra1))
+        && !super::chat::back(state)
+    {
         state.navigate(AfterDiscard::Back);
     }
     #[cfg(debug_assertions)]
@@ -899,6 +937,8 @@ fn on_action(state: &mut UiState, env: &mut Env<'_>, route: Route, action: Actio
         Action::Settings => {
             state.navigate(AfterDiscard::Route(Route::Settings(SettingsTab::General)));
         }
+        // In a narrow window, Back on the Chat page closes the open conversation first.
+        Action::Back if super::chat::back(state) => {}
         Action::Back => state.navigate(AfterDiscard::Back),
         Action::NextTab | Action::PrevTab => {
             let fwd = action == Action::NextTab;

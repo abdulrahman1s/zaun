@@ -291,6 +291,19 @@ impl MemFs {
 
     /// Create a directory and its parents (mode 0755).
     pub fn dir(&self, path: impl AsRef<Path>) -> &Self {
+        // Already a directory: nothing to do. `create_dir_all` would find that out through
+        // `metadata` of every ancestor, whose link count scans everything below it, so a
+        // setup loop adding thousands of files to one folder was quadratic (11 s for 10 000).
+        {
+            let g = self.inner.lock();
+            let existing = g.resolve(FsOp::CreateDir, path.as_ref(), true).ok();
+            if let Some(Node {
+                kind: Kind::Dir, ..
+            }) = existing.and_then(|r| g.nodes.get(&r))
+            {
+                return self;
+            }
+        }
         self.create_dir_all(path.as_ref(), 0o755)
             .unwrap_or_else(|e| panic!("MemFs::dir {}: {e}", path.as_ref().display()));
         self
