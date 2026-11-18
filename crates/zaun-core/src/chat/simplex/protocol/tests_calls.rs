@@ -1,5 +1,5 @@
 //! The call codec (ADR-0035) against JSON recorded from simplex-chat 7.0 (two `zaun-chat`
-//! helpers through a local relay, a local recipe kept by the maintainer).
+//! helpers through a local relay, with a recipe kept by the maintainer).
 
 use std::path::Path;
 

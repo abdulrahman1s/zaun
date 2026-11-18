@@ -67,9 +67,12 @@ pub fn icon(icon: Icon, size: f32) -> RichText {
 mod tests {
     use super::*;
 
-    /// The names in the first and third columns of the §6 table, expanding `a` / `.b` forms.
-    fn documented_names() -> Vec<String> {
-        let doc = include_str!("../../../../docs/UI_DESIGN_SYSTEM.md");
+    /// The names in the first and third columns of the §6 table, expanding `a` / `.b` forms;
+    /// `None` in a checkout without `docs/` (kept out of the public repository).
+    fn documented_names() -> Option<Vec<String>> {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/UI_DESIGN_SYSTEM.md");
+        let doc = std::fs::read_to_string(path).ok()?;
         let start = doc.find("## 6. Iconography").expect("section 6");
         let end = doc[start..].find("\nRules:").expect("end of table") + start;
         let mut names = Vec::new();
@@ -91,12 +94,15 @@ mod tests {
                 }
             }
         }
-        names
+        Some(names)
     }
 
     #[test]
     fn every_documented_icon_has_a_constant() {
-        let names = documented_names();
+        let Some(names) = documented_names() else {
+            eprintln!("skipped: docs/UI_DESIGN_SYSTEM.md is not in this checkout");
+            return;
+        };
         assert!(names.len() > 40, "parsed {names:?}");
         let missing: Vec<_> = names
             .iter()

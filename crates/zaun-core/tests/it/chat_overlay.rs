@@ -673,7 +673,7 @@ fn snapshots_are_not_sent_again_when_nothing_changed() {
 }
 
 /// The real `zaun-overlay` started by the real factory under bwrap, on a real
-/// compositor (ADR-0037; the recipe is in a local recipe kept by the maintainer). It needs
+/// compositor (ADR-0037; a local recipe kept by the maintainer). It needs
 /// `ZAUN_OVERLAY_BIN` (the built overlay), `ZAUN_OVERLAY_WAYLAND` (a compositor's
 /// socket, e.g. a private headless sway's) and `ZAUN_OVERLAY_PHASES` (a folder). It
 /// shows the design's scenes one after the other and writes each one's name there once it

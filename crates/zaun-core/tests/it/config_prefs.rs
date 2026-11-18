@@ -15,13 +15,16 @@ fn now() -> Timestamp {
     Timestamp::from_millis(1_794_480_000_000)
 }
 
-fn documented_file() -> String {
-    let doc = include_str!("../../../../docs/CONFIGURATION.md");
+/// CONFIGURATION §2's file; `None` in a checkout without `docs/` (kept out of the public
+/// repository).
+fn documented_file() -> Option<String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/CONFIGURATION.md");
+    let doc = std::fs::read_to_string(path).ok()?;
     let start = doc.find("## 2. `config.toml`").unwrap();
     let rest = &doc[start..];
     let open = rest.find("```toml\n").unwrap() + "```toml\n".len();
     let close = rest[open..].find("```").unwrap();
-    rest[open..open + close].to_owned()
+    Some(rest[open..open + close].to_owned())
 }
 
 fn write(path: &Path, text: &str) {
@@ -36,11 +39,15 @@ fn read(path: &Path) -> String {
 
 #[test]
 fn defaults_serialise_to_the_documented_file() {
+    let Some(documented) = documented_file() else {
+        eprintln!("skipped: docs/CONFIGURATION.md is not in this checkout");
+        return;
+    };
     let ours: toml::Table = load::to_toml_string(&Preferences::default())
         .unwrap()
         .parse()
         .unwrap();
-    let doc: toml::Table = documented_file().parse().unwrap();
+    let doc: toml::Table = documented.parse().unwrap();
     assert_eq!(ours, doc);
     let text = load::to_toml_string(&Preferences::default()).unwrap();
     assert!(text.starts_with(load::HEADER));
@@ -50,9 +57,13 @@ fn defaults_serialise_to_the_documented_file() {
 
 #[test]
 fn documented_file_loads_without_warnings() {
+    let Some(documented) = documented_file() else {
+        eprintln!("skipped: docs/CONFIGURATION.md is not in this checkout");
+        return;
+    };
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
-    write(&path, &documented_file());
+    write(&path, &documented);
     let loaded = load::load(&RealFs::new(), &path, now(), &LoadOptions::default()).unwrap();
     assert_eq!(loaded.source, ConfigSource::File);
     assert!(loaded.warnings.is_empty(), "{:?}", loaded.warnings);
@@ -225,7 +236,10 @@ fn gif_key_and_relay() {
         &LoadOptions::default(),
     );
     assert!(warnings.is_empty(), "{warnings:?}");
-    assert_eq!((p.chat.gif_key.as_str(), p.chat.gif_proxy.as_str()), ("", ""));
+    assert_eq!(
+        (p.chat.gif_key.as_str(), p.chat.gif_proxy.as_str()),
+        ("", "")
+    );
     let (p, _) = load::from_table(
         "[chat]\ngif_key = \"MyOwnKey123\"\ngif_proxy = \"http://proxy.example:8080\""
             .parse()

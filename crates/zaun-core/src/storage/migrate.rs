@@ -276,14 +276,17 @@ mod tests {
         .unwrap()
     }
 
-    /// The `sql` block of DATA_MODEL §6.
-    fn documented_schema() -> String {
-        let doc = include_str!("../../../../docs/DATA_MODEL.md");
+    /// The `sql` block of DATA_MODEL §6; `None` in a checkout without `docs/` (it is kept out
+    /// of the public repository).
+    fn documented_schema() -> Option<String> {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/DATA_MODEL.md");
+        let doc = std::fs::read_to_string(path).ok()?;
         let start = doc.find("## 6. SQLite schema").unwrap();
         let rest = &doc[start..];
         let open = rest.find("```sql\n").unwrap() + "```sql\n".len();
         let close = rest[open..].find("```").unwrap();
-        rest[open..open + close].to_owned()
+        Some(rest[open..open + close].to_owned())
     }
 
     fn normalise(sql: &str) -> String {
@@ -299,13 +302,16 @@ mod tests {
 
     #[test]
     fn fresh_database_has_exactly_the_documented_schema() {
+        let Some(sql) = documented_schema() else {
+            eprintln!("skipped: docs/DATA_MODEL.md is not in this checkout");
+            return;
+        };
         let mut db = Db::open_in_memory().unwrap();
         assert_eq!(db.schema_version().unwrap(), DB_SCHEMA_VERSION);
         let ours = schema_dump(db.conn());
 
         // A raw connection that runs only the documented SQL.
         let mut raw = Conn::open_raw_memory().unwrap();
-        let sql = documented_schema();
         raw.run(async move |c| exec(c, &sql).await).unwrap();
         let theirs = schema_dump(&mut raw);
 

@@ -14,8 +14,7 @@
   <a href="#chat">Chat</a> ·
   <a href="#privacy">Privacy</a> ·
   <a href="#troubleshooting">Troubleshooting</a> ·
-  <a href="#building-from-source">Build</a> ·
-  <a href="docs/README.md">Docs</a>
+  <a href="#building-from-source">Build</a>
 </p>
 
 ---
@@ -296,7 +295,7 @@ asked for:
 | *Check links before opening* (off by default) | Google Safe Browsing | The name of the site you are opening |
 
 Games are a different matter: a game set to *Online* talks to whatever it wants, as it
-would anywhere. All the details are in [docs/PRIVACY.md](docs/PRIVACY.md).
+would anywhere.
 
 ## Troubleshooting
 
@@ -345,10 +344,8 @@ To try the interface with sample games and friends, without touching your own li
 | | |
 |---|---|
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Setting up, tests, snapshots, conventions |
-| [docs/README.md](docs/README.md) | The full design and specification, in reading order |
-| [docs/adr/](docs/adr/README.md) | Every design decision and why it was made |
-| [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md), [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | What the sandbox protects against, and what it doesn't |
-| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Every setting in `~/.config/zaun/config.toml` |
+| [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each version |
 
 ## Licence
 

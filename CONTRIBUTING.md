@@ -1,17 +1,15 @@
 # Contributing to Zaun
 
-Thank you for helping. Zaun is built from a written specification: read
-[docs/README.md](docs/README.md) first (reading order, the design in one page, open
-questions). If the code and the documents disagree, the documents win until changed by a
-decision record in [docs/adr](docs/adr/README.md). Work is organised as tasks in
-[docs/tasks](docs/tasks/README.md), with progress in
-[docs/tasks/STATUS.md](docs/tasks/STATUS.md).
+Thank you for helping. Zaun is built from a written specification and decision records
+kept by the maintainer; open an issue before a large change, so it can be checked against
+them.
 
 ## Code shape
 
-How code is written here (one verb per file, handlers that return `Result`, `err!`, macros
-for tables, terse comments) is in [AGENTS.md](AGENTS.md) and ADR-0034. It is written for
-coding agents and people alike.
+One action per file, handlers that read top to bottom and return `Result` with `?`, the
+`err!`/`bail!`/`ensure!` macros for errors with stable codes, declarative macros for tables
+written three or more times, and comments only where they say why. No `unwrap` outside
+tests, no async runtime (threads and channels), exhaustive matches on our own enums.
 
 ## Development environment
 
@@ -115,7 +113,7 @@ The interface's text lives in `crates/zaun-ui/locales/<code>.yml` (ADR-0032).
 - **Add a language.** Add a variant to `i18n::Language` (code, direction, plural rules in
   `i18n::plural::category`), a `locales/<code>.yml` with every key of `en.yml`, the font for
   its script after the Latin faces in `theme::typography::font_definitions` (and a licence
-  under `assets/licenses/`), and its value to `general.language` in `docs/CONFIGURATION.md`.
+  under `assets/licenses/`), and its value to the `general.language` setting's accepted values.
   A right-to-left script other than Arabic also needs `i18n::bidi` taught which characters its
   face draws, with tests like the Arabic ones.
 
@@ -152,8 +150,8 @@ under *Unreleased*.
 | AppArmor | `packaging/apparmor/zaun` | Check syntax with `apparmor_parser -Q -K`; real validation needs Ubuntu (below). |
 | Nix | `flake.nix`, `nix/` | `nix build`, `nix flake check`. |
 
-What CI cannot check and must be done by hand on real systems before a release is listed in
-[docs/RELEASE_STRATEGY.md §6](docs/RELEASE_STRATEGY.md). For the AppArmor profile (V-004),
+Some checks CI cannot do must be done by hand on real systems before a release. For the
+AppArmor profile (V-004),
 on each supported Ubuntu release with `kernel.apparmor_restrict_unprivileged_userns=1`:
 install the `.deb`, confirm `aa-status` lists `zaun`, `zaun//bwrap` and
 `zaun//srt-bwrap`, run `zaun doctor` (the nested user-namespace check must pass), and

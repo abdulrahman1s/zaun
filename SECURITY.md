@@ -25,9 +25,7 @@ single-instance socket, and the packages in this repository (including the AppAr
 
 Out of scope, but welcome as ordinary issues: bugs in bubblewrap, umu-launcher, Proton, Wine
 or the Steam Linux Runtime themselves (please also report those upstream), and attacks that
-need the user to widen a game's permissions first. What a sandbox can and cannot protect
-against is described in [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) and
-[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
+need the user to widen a game's permissions first.
 
 ## Supported versions
 

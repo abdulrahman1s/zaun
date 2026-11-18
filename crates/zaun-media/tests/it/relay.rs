@@ -1,7 +1,7 @@
 //! Relay-only calls through a local TURN server (ADR-0035): both sides offer only relay
 //! candidates, so every packet goes through the relay, over UDP, TCP and TLS.
 //!
-//! Ignored: it needs a TURN server on loopback. a local recipe kept by the maintainer runs
+//! Ignored: it needs a TURN server on loopback; a local recipe kept by the maintainer runs
 //! coturn and this test inside `bwrap --unshare-net` (loopback only) with:
 //!
 //! ```text

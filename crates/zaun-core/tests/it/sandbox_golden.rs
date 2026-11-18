@@ -36,20 +36,21 @@ fn normalized(w: &SandboxWorld, text: &str) -> String {
     normalize_paths(text, &pairs)
 }
 
-/// The two `text` blocks of §6: the option listing and the command line.
-fn worked_example_from_doc() -> (String, String) {
+/// The two `text` blocks of §6: the option listing and the command line; `None` in a
+/// checkout without `docs/` (kept out of the public repository).
+fn worked_example_from_doc() -> Option<(String, String)> {
     use zaun_core::fsx::{Fs, RealFs};
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/BUBBLEWRAP_SANDBOX.md");
-    let doc = String::from_utf8(RealFs.read(&path, 1 << 20).unwrap()).unwrap();
+    let doc = String::from_utf8(RealFs.read(&path, 1 << 20).ok()?).unwrap();
     let section = &doc[doc.find("## 6. Worked example").unwrap()..];
     let mut blocks = section
         .split("```text\n")
         .skip(1)
         .map(|b| b.split("```").next().unwrap().to_owned());
-    (
+    Some((
         blocks.next().unwrap(),
         blocks.next().unwrap().trim().to_owned(),
-    )
+    ))
 }
 
 #[test]
@@ -57,7 +58,10 @@ fn worked_example_matches_bubblewrap_sandbox_section_6() {
     let w = SandboxWorld::worked_example();
     let p = plan(&offline(), &w.ctx(), &w.host).expect("plan");
     let r = render(&p).unwrap();
-    let (listing, command) = worked_example_from_doc();
+    let Some((listing, command)) = worked_example_from_doc() else {
+        eprintln!("skipped: docs/BUBBLEWRAP_SANDBOX.md is not in this checkout");
+        return;
+    };
     let ours = normalized(&w, &bwrap::display_lines(&r));
     if ours != listing {
         let a: Vec<&str> = ours.lines().collect();

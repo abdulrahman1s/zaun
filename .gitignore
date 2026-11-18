@@ -1,8 +1,68 @@
+# Build output
 /target
+/target-*/
+/dist
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/
+/fuzz/coverage/
+
+# Nix
 /result
+/result-*
 .direnv/
+
+# Local runs
 /.real-run
+graphify-out/
+
+# Internal documents, kept on the owner's machine and out of the public repository: the
+# engineering docs and ADRs, the coding-agent instructions, and the HTML design prototypes.
+/docs/
+/AGENTS.md
+/chat.html
+/chat-calls.html
+/zaun-redesign.html
+
+# Snapshot review leftovers (kittest, insta)
 crates/*/tests/snapshots/*.diff.png
 crates/*/tests/snapshots/*.old.png
 crates/*/tests/snapshots/*.new.png
-/dist
+*.snap.new
+*.pending-snap
+
+# Secrets: environment files and keys (release signing keys stay offline)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.minisign
+*.age
+# Test fixtures may carry throwaway keys on purpose.
+!**/fixtures/**
+!**/testdata/**
+
+# Logs, profiles, crash dumps
+*.log
+*.profraw
+*.profdata
+perf.data*
+flamegraph*.svg
+/core
+/core.*
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Tooling
+node_modules/
+__pycache__/
+*.pyc

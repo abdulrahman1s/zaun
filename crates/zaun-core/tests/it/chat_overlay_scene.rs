@@ -1,6 +1,6 @@
 //! The overlay design's scenes (`chat-calls.html` §G: Lantern Keep, Friday Crew in a call),
 //! sent to the real overlay by the ignored real-compositor test so its screenshots can be
-//! held against a local recipe kept by the maintainer.
+//! held against the design renders kept by the maintainer.
 
 #![allow(
     clippy::unwrap_used,

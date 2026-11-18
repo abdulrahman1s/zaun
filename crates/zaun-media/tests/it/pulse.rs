@@ -1,7 +1,7 @@
 //! The PulseAudio backend against a real sound server (ADR-0035): a microphone and speakers
 //! open, frames are read and written.
 //!
-//! Ignored: it needs a PulseAudio server. a local recipe kept by the maintainer starts a
+//! Ignored: it needs a PulseAudio server; a local recipe kept by the maintainer starts a
 //! private one (a null sink, its own socket, `PULSE_SERVER`), so the user's sound devices are
 //! never opened.
 
