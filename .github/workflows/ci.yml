@@ -63,6 +63,11 @@ jobs:
             libpipewire-0.3-dev libspa-0.2-dev clang libclang-dev libopus-dev libpulse-dev \
             libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev \
             libswresample-dev libswscale-dev
+          # bindgen must load the libclang installed above: the runner image ships other LLVM
+          # versions whose libclang lacks its headers, which leaves FFmpeg's types empty.
+          echo "LIBCLANG_PATH=/usr/lib/llvm-$(clang -dumpversion | cut -d. -f1)/lib" >> "$GITHUB_ENV"
+          echo "BINDGEN_EXTRA_CLANG_ARGS=-I$(clang -print-resource-dir)/include" >> "$GITHUB_ENV"
+          ls -d /usr/lib/llvm-*/lib/libclang.so* 2>/dev/null || true
       - name: Install Rust 1.95 (rust-version of the workspace)
         run: |
           rustup toolchain install 1.95 --profile minimal
@@ -118,6 +123,11 @@ jobs:
             libpipewire-0.3-dev libspa-0.2-dev clang libclang-dev libopus-dev libpulse-dev \
             libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev \
             libswresample-dev libswscale-dev
+          # bindgen must load the libclang installed above: the runner image ships other LLVM
+          # versions whose libclang lacks its headers, which leaves FFmpeg's types empty.
+          echo "LIBCLANG_PATH=/usr/lib/llvm-$(clang -dumpversion | cut -d. -f1)/lib" >> "$GITHUB_ENV"
+          echo "BINDGEN_EXTRA_CLANG_ARGS=-I$(clang -print-resource-dir)/include" >> "$GITHUB_ENV"
+          ls -d /usr/lib/llvm-*/lib/libclang.so* 2>/dev/null || true
       # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor; bubblewrap
       # is not setuid there. The runner is a throw-away VM, so the restriction is lifted
       # for the job (users get an AppArmor profile instead, PKG-006).
@@ -220,6 +230,11 @@ jobs:
             libpipewire-0.3-dev libspa-0.2-dev clang libclang-dev libopus-dev libpulse-dev \
             libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev \
             libswresample-dev libswscale-dev
+          # bindgen must load the libclang installed above: the runner image ships other LLVM
+          # versions whose libclang lacks its headers, which leaves FFmpeg's types empty.
+          echo "LIBCLANG_PATH=/usr/lib/llvm-$(clang -dumpversion | cut -d. -f1)/lib" >> "$GITHUB_ENV"
+          echo "BINDGEN_EXTRA_CLANG_ARGS=-I$(clang -print-resource-dir)/include" >> "$GITHUB_ENV"
+          ls -d /usr/lib/llvm-*/lib/libclang.so* 2>/dev/null || true
       - name: Install Rust (rust-toolchain.toml)
         run: |
           rustup show active-toolchain || rustup toolchain install
