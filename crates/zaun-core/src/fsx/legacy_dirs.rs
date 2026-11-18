@@ -20,7 +20,11 @@ pub enum LegacyMove {
         to: PathBuf,
         error: String,
     },
-    /// Both exist: nothing was touched.
+    /// The old path was an empty directory next to the new one (a mount point left behind
+    /// when the data was moved outside the app, e.g. by an impermanence setup): it is now a
+    /// link to the new one.
+    Linked { from: PathBuf, to: PathBuf },
+    /// Both exist and the old one is not empty: nothing was touched.
     BothExist { from: PathBuf, to: PathBuf },
     /// The rename failed: nothing was touched.
     Failed {
@@ -47,6 +51,23 @@ pub fn adopt_legacy_dirs(fs: &dyn Fs, env: &PathEnv, paths: &AppPaths) -> Vec<Le
     .collect()
 }
 
+/// Both exist: an empty old directory becomes a link to the new one; one with anything in it
+/// is left alone (removing only an empty directory never loses data).
+fn link_leftover(fs: &dyn Fs, from: PathBuf, to: PathBuf) -> LegacyMove {
+    let empty = fs.read_dir(&from).is_ok_and(|e| e.is_empty());
+    if !empty || fs.remove_dir(&from).is_err() {
+        return LegacyMove::BothExist { from, to };
+    }
+    match fs.symlink(&to, &from) {
+        Ok(()) => LegacyMove::Linked { from, to },
+        Err(e) => LegacyMove::LinkFailed {
+            from,
+            to,
+            error: e.to_string(),
+        },
+    }
+}
+
 fn move_one(fs: &dyn Fs, new: &Path) -> Option<LegacyMove> {
     if new.file_name()? != DIR_NAME {
         return None;
@@ -58,7 +79,7 @@ fn move_one(fs: &dyn Fs, new: &Path) -> Option<LegacyMove> {
     }
     let to = new.to_owned();
     if fs.exists(&to) {
-        return Some(LegacyMove::BothExist { from, to });
+        return Some(link_leftover(fs, from, to));
     }
     if let Err(e) = fs.rename(&from, &to) {
         // Another process of ours won the race.

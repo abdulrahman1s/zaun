@@ -137,3 +137,37 @@ fn a_missing_link_is_reported_after_the_move() {
         b"t"
     );
 }
+
+#[test]
+fn an_empty_old_dir_next_to_the_new_one_becomes_a_link_and_a_full_one_is_kept() {
+    // The data was moved outside the app (an impermanence setup): the old mount points stay
+    // behind empty. A non-empty old dir is a real conflict and is never touched.
+    let fs = MemFs::new();
+    fs.file("/home/sam/.local/share/zaun/library.db", b"db")
+        .file("/home/sam/.config/zaun/config.toml", b"c")
+        .file("/home/sam/.config/easyplay/config.toml", b"old");
+    fs.dir("/home/sam/.local/share/easyplay");
+    let env = env();
+    let paths = AppPaths::resolve(&env).unwrap();
+
+    let out = adopt_legacy_dirs(&fs, &env, &paths);
+    assert!(out.iter().any(|m| matches!(m, LegacyMove::Linked { .. })));
+    assert!(
+        out.iter()
+            .any(|m| matches!(m, LegacyMove::BothExist { .. }))
+    );
+    let old = Path::new("/home/sam/.local/share/easyplay");
+    assert!(fs.metadata(old).unwrap().is_symlink());
+    assert_eq!(fs.read_follow(&old.join("library.db"), 10).unwrap(), b"db");
+    assert_eq!(
+        fs.contents("/home/sam/.config/easyplay/config.toml")
+            .unwrap(),
+        b"old"
+    );
+    // Next start: the link is the result of the earlier run, nothing to say.
+    assert!(
+        adopt_legacy_dirs(&fs, &env, &paths)
+            .iter()
+            .all(|m| matches!(m, LegacyMove::BothExist { .. }))
+    );
+}

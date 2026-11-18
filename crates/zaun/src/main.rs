@@ -23,6 +23,8 @@ mod runtime_verbs;
 mod sandbox_print;
 mod session_verbs;
 mod steam_verbs;
+mod update_start;
+mod update_verbs;
 mod wiring;
 
 use std::io::IsTerminal;
@@ -40,7 +42,7 @@ use crate::cli::{Cli, Command};
 
 fn role_of(cli: &Cli) -> ProcessRole {
     match cli.command {
-        None | Some(Command::Open { .. } | Command::Service) => ProcessRole::Gui,
+        None | Some(Command::Open { .. } | Command::Service { .. }) => ProcessRole::Gui,
         Some(Command::Supervise { .. }) => ProcessRole::Supervisor,
         Some(_) => ProcessRole::Cli,
     }
@@ -106,6 +108,9 @@ fn log_legacy_dirs(moves: &[LegacyMove]) {
             }
             LegacyMove::LinkFailed { from, to, error } => {
                 tracing::warn!(from = %from.display(), to = %to.display(), error, "moved the old directory, but could not link the old path");
+            }
+            LegacyMove::Linked { from, to } => {
+                tracing::info!(from = %from.display(), to = %to.display(), "the empty old directory now links to the new one");
             }
             LegacyMove::BothExist { from, to } => {
                 tracing::warn!(from = %from.display(), to = %to.display(), "the old and the new directory both exist; nothing was moved");
