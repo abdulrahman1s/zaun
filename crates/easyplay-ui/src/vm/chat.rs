@@ -51,6 +51,8 @@ pub enum ChatDialog {
     UnsafeLink,
     /// "Invite to <group>": friends to add, or the group's own link (details).
     InviteToGroup(i64),
+    /// A group's picture, for its owner (its number; ADR-0038).
+    GroupPicture(i64),
 }
 
 /// The open conversation.
@@ -198,6 +200,10 @@ pub struct ChatVm {
     /// The Invite-to-group dialog: its tab (0 friends, 1 link), the friends ticked, and the
     /// search over them (details).
     pub group_invite: GroupInvite,
+    /// The picture being chosen in Your profile or a group's picture (pictures).
+    pub picture: crate::vm::chat_picture::PictureEdit,
+    /// The call box, the watch stage and the share dialog's steps (callui).
+    pub call: crate::vm::chat_call::CallVm,
 }
 
 /// The Invite-to-group dialog's state (details).
@@ -257,8 +263,10 @@ pub struct ProfileDraft {
 /// The Share dialog's picture and sound (details).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ShareChoice {
-    /// 0 = 720p, 1 = 1080p, 2 = as in the game.
+    /// 0 = 720p, 1 = 1080p, 2 = 1440p, 3 = as in the game (callui: notes J).
     pub quality: usize,
+    /// 0 = 30, 1 = 60 frames a second.
+    pub fps: usize,
     /// Include the game's sound.
     pub sound: bool,
 }
@@ -587,6 +595,10 @@ impl ChatVm {
         if self.viewer.take().is_some() {
             return true;
         }
+        // The call's device menu, then full screen (callui).
+        if self.call.escape_over() {
+            return true;
+        }
         // Attachments waiting go first, while the field is empty (composer).
         if !self.attachments.is_empty()
             && self
@@ -618,6 +630,10 @@ impl ChatVm {
         }
         if self.stage_large {
             self.stage_large = false;
+            return true;
+        }
+        // A focused tile of the call's stage (callui).
+        if self.call.unfocus() {
             return true;
         }
         if self.open.is_some() && self.details_open() {

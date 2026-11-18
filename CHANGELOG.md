@@ -11,6 +11,46 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 
 ### For users
 
+- Chat: a call opens as a stage under the conversation's header: a poster for each person
+  on their own colour, a ring that grows with the voice that speaks, mute and stop-hearing
+  marks, and a click shows one person big over the others. The bar says Calling…,
+  Connecting… or Reconnecting… and, once the sound flows, how good the connection is (three
+  bars, quiet while it is good). "Make smaller" turns it back into the slim tray, and the
+  grip under it resizes it. The microphone's menu lists the microphones and speakers, the
+  microphone volume with a live level, and background noise (the same settings as
+  Settings › Chat; they apply from the next call). Sharing now says which
+  window to pick before the desktop asks, and a friend's game can fill the screen (F). Your
+  own unanswered call reads "Mira didn't answer" with Call again. Ctrl+Shift+M mutes and
+  Ctrl+Shift+D stops hearing on any page during a call. Sharing chooses the picture
+  (720p to 1440p, or as in the game) and 30 or 60 frames a second; while you share, a chip
+  says what is sent ("1080p · 60") and changes it at once, and a friend watching sees what
+  arrives.
+- Chat: message times read like Discord's. A group's first message says "Today at 13:59",
+  "Yesterday at 13:59" or "12/11/2026 21:40"; day dividers give the full date ("Tuesday,
+  17 November 2026"); the chat list says the time today, "Yesterday", the weekday within six
+  days, then the date. Pointing at any time shows the full date and time after half a
+  second. "New" joins the day's divider instead of adding a second line, and events (calls,
+  someone joining) now sit evenly between messages: 14 points between groups, none inside
+  one. In Arabic, dates and clocks read as one left-to-right run, and left-to-right messages
+  line up on the avatar's side.
+- Settings › Chat: "Calls" is now "Voice and video", with the microphone volume
+  (`chat.mic_volume`) and, under Advanced, your own relay servers (`chat.ice_servers`). A
+  new Overlay group turns the in-game overlay on, records the key its hints show
+  (`chat.overlay_key`; the desktop owns the binding) and places its call widget; on desktops
+  that cannot show it, the group says so and its rows are dimmed.
+- Chat: share the game you are playing with a friend, or watch theirs (ADR-0036), one to one:
+  the game's window only (never the screen), chosen in the desktop's own window picker, sent
+  as H.264 through the same end-to-end encrypted, relay-only connection as calls, and only
+  while the friend watches. A friend's stream is ready to watch at once; it pauses while the
+  game's window is hidden and ends with the game. No sound yet, not during a call with the
+  same friend, not in groups. It needs a build with window capture (the `portal` feature);
+  other builds hide it. The preview (`easyplay --preview`) shows a test picture on the watch
+  stage. New messages `EP-CHT-014` to `EP-CHT-017` say why a share could not start.
+- Shared games are encoded on the graphics card when it can (NVIDIA NVENC, or VA-API on AMD
+  and Intel), lighter on the game; software encoding takes over if it cannot, even in the
+  middle of a share (`chat.share_hw_encode`, on by default). The picture can be 720p, 1080p,
+  1440p or as in the game, at 30 or 60 frames a second (`chat.share_quality`,
+  `chat.share_fps`, default 60), and changed while sharing without stopping.
 - When something was removed in the meantime (from another window or the command line), the
   message now says so: "This game is no longer in the library", "This tag
   no longer exists" or "This session is no longer there" (`EP-LIB-040`, `EP-LIB-041`,
@@ -37,6 +77,27 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   folder that games cannot reach. Voice calls, watching a friend play and an in-game overlay
   are planned and appear only in the preview (`easyplay --preview`) for now. Chat shows "not
   included in this build" when the package leaves it out.
+- Chat: profile pictures. Friends', groups' and group members' pictures are read from their
+  profiles (a bad or oversized one is skipped, never the friend). Your own picture, and a
+  group's for its owner, is made from any picture file the way the official SimpleX apps make
+  it: a square you choose, shrunk to fit the profile's limit (12 500 characters), with none
+  of the file's metadata kept. It reaches friends end-to-end encrypted inside your profile.
+  Pictures replace the initials wherever an avatar is drawn and fade in once decoded.
+  *Your profile* has *Choose a picture…*, a crop step (drag, zoom 100–400 %, arrow keys) and
+  *Remove picture*; nothing is sent until Save. A group's owner changes the group's picture
+  from its details.
+- Chat: voice calls with a friend (one to one, one call at a time). Calls ring for 20 seconds
+  and then show as a missed call; declining stops the caller's ringing at once and both
+  sides read "Call declined" (not counted as unread); leaving writes
+  "Call ended, N min". The sound goes through a relay by default (*Relay calls*), so your
+  friend never learns your IP address: the SimpleX apps' own public call relay
+  (`turn.simplex.im`), or the servers you list in `chat.ice_servers`; it is encrypted end to
+  end and the relay cannot hear it. Mute, deafen, noise suppression, and your choice of
+  microphone and speakers (PulseAudio or PipeWire). Blocking a friend ends a call with them.
+  A desktop notification announces an incoming call (`chat.notify_calls`). A call from the
+  official SimpleX apps cannot be answered and shows as missed. New errors `EP-CHT-010`
+  (no microphone), `EP-CHT-011` (the call's sound stopped), `EP-CHT-012` (the call could not
+  connect). Group voice and watching a friend play are still to come.
 - The interface is available in Arabic (Settings → General → Language: *Same as system*, *English*, *العربية*). Text is set right to left; the layout of columns and bars is not mirrored yet. Texts that come from outside the interface (some error messages and system-check results) stay in English.
 - First public release. Open a Windows `.exe` from the file manager, choose *Offline*,
   *Online* or *Standard* protection, and play; every game runs through umu-launcher inside
@@ -98,8 +159,38 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   `easyplay steam launch-options <GAME> [--set TEXT] [--mangohud on|off]` does the same.
 - Steam games carry a small Steam mark on their cover. The library's Filter menu lists
   only EasyPlay's own compatibility layers and gains a *Source* group (EasyPlay, Steam).
+- The groundwork of Chat's in-game overlay (ADR-0037), off by default (`chat.overlay` in
+  the settings file) until its design arrives: while a game runs, new messages appear over
+  it and a call shows a small widget; a key bound in the compositor to
+  `easyplay overlay toggle` (for example Shift+F1) opens a chat panel above the game and
+  gives the keyboard back when closed. Works on niri, KDE, Sway and Hyprland; GNOME keeps the
+  notifications. The overlay never runs inside a game's sandbox and games cannot reach it.
+- The in-game overlay now looks like the design: people in the call as pills with speaking
+  rings in a corner of your choice, message and call toasts in the opposite corner, and,
+  on the key, a chat panel over the dimmed game with your recent chats, the conversation,
+  the call's buttons, a "Show while playing" menu and an answer bar for a call that rings
+  while you play. It speaks your language (Arabic included) and uses your accent.
+  `easyplay overlay` now says why the overlay can't open (for example on GNOME).
 
 ### For packagers
+
+- Game streams (ADR-0036) compile Cisco's OpenH264 from source into `easyplay-media`
+  (the `openh264` crate, BSD-2-Clause; a C++ compiler is needed, no system library). Cisco's
+  H.264 patent licence covers only Cisco's own binaries, not a build from source: check
+  what your distribution allows. The window capture is behind the cargo feature `portal`
+  (`easyplay` and `easyplay-media`; on by default in `easyplay` and the Nix package): it links `libpipewire-0.3` and needs
+  libclang to build (bindgen); without it sharing fails with `EP-CHT-016` and watching
+  still works.
+- Hardware encoding of shared games (ADR-0036, cargo feature `hwenc`, on by default in
+  `easyplay`) links FFmpeg 8's `libavcodec` and `libavutil` (nixpkgs `ffmpeg_8-headless`, a
+  GPL-3 build with NVENC and VA-API) through the MIT `rsmpeg` binding; bindgen needs
+  libclang. NVENC and VA-API drivers are loaded at run time; without them software encoding
+  is used.
+- The in-game overlay (ADR-0037) adds the binary crate `easyplay-overlay`
+  (GPL-3.0-or-later; egui-wgpu, wgpu, smithay-client-toolkit, all already in the tree, and
+  the `xkbcommon` crate, which links `libxkbcommon`). Install it to `libexec/easyplay/`; it
+  dlopens `libwayland-client` and the Vulkan or GL loader, so give it the same run path as
+  `easyplay`. Without it, or without a Wayland session, there is simply no overlay.
 
 - New build dependency `strum` (MIT, derive macros only). `anyhow` is no longer used.
 - Chat (ADR-0033) adds the crate `easyplay-chat`, licensed **AGPL-3.0-only** (the rest is

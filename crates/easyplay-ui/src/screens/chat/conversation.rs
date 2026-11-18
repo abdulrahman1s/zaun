@@ -82,23 +82,23 @@ mod m {
     pub const START_MAX: f32 = 520.0;
     pub const START_LINE: f32 = 19.0;
     pub const START_GAP: f32 = 4.0;
-    /// `.day`: 22 above, 6 below, 12 before the hairline.
+    /// `.day` (and "New"): 22 above, 8 below, 12 between the label, the hairline and "New".
     pub const DAY_TOP: f32 = 22.0;
-    pub const DAY_BOTTOM: f32 = 6.0;
+    pub const DAY_BOTTOM: f32 = 8.0;
     pub const DAY_GAP: f32 = 12.0;
-    /// `.m`: the plate reaches 8 past the column; padded 2 (5 on top of a first message,
-    /// which has 12 above); radius 8.
+    /// `.m`: the plate reaches 8 past the column; padded 2 (4 on top of a head); radius 8.
+    /// A group (one person's run of messages, or a run of events) has 14 above it and
+    /// nothing between its rows (notes B, "One rule").
     pub const OVERHANG: f32 = 8.0;
     pub const ROW_PAD: f32 = 2.0;
-    pub const HEAD_TOP: f32 = 12.0;
-    pub const HEAD_PAD_TOP: f32 = 5.0;
+    pub const GROUP_GAP: f32 = 14.0;
+    pub const HEAD_PAD_TOP: f32 = 4.0;
     pub const ROW_R: u8 = 8;
     /// `.m-n`: lines 18, 8 between name and time.
     pub const NAME_H: f32 = 18.0;
     pub const NAME_GAP: f32 = 8.0;
-    /// `.m-g`: the gutter's time, lines 21.
+    /// `.m-g`: the gutter's time on the first text line (21 high), 11 like every time.
     pub const GUTTER_LINE: f32 = 21.0;
-    pub const GUTTER_SIZE: f32 = 10.0;
     /// `.rp`: lines 17, 1 under, 6 between, a 12 glyph.
     pub const RP_H: f32 = 17.0;
     pub const RP_BELOW: f32 = 1.0;
@@ -161,8 +161,9 @@ mod m {
     /// The stand-in's word: 21% of the width, 6% in from each side.
     /// Black at 62% behind the tag and the star.
     pub const GIF_SCRIM: u8 = 158;
-    /// `.sys`: at least 30 high.
-    pub const SYS_H: f32 = 30.0;
+    /// `.sys`: an event's plate, 28 high: padded 4 around one 20 line.
+    pub const EVENT_PAD: f32 = 4.0;
+    pub const EVENT_LINE: f32 = 20.0;
     /// `.sc`: at most 440 wide, padded 8 · 10 · 8 · 8, radius 12, 12 between, a 40 cover
     /// (2:3), 3 above and under.
     pub const SC_W: f32 = 440.0;
@@ -617,7 +618,7 @@ fn header(
     let more_r = slot(m::BTN);
     let details_r = (!narrow).then(|| slot(m::BTN));
     let share_r = (f.share && !blocked).then(|| slot(m::BTN));
-    let call_r = (f.calls && !blocked).then(|| slot(m::BTN));
+    let call_r = (f.calls && (!group || f.group_voice) && !blocked).then(|| slot(m::BTN));
     // More.
     let more = head_button(
         ui,
@@ -811,7 +812,8 @@ fn header(
         ChatRef::Direct(_) => (name, friend.and_then(|f| f.paper), AvShape::Person),
         ChatRef::Group(_) => (name, None, AvShape::Group),
     };
-    avatar::avatar(ui.painter(), ar, av_name, paper, shape);
+    let pic = avatar::of_chat(snap, chat);
+    avatar::pictured(ui.painter(), ar, av_name, paper, shape, pic);
     if let Some(fr) = friend
         && f.presence
         && !fr.blocked
@@ -1370,18 +1372,26 @@ fn transcript(
                 }
                 let mut prev: Option<&ChatMessage> = None;
                 let mut after_line = true;
+                let mut after_event = false;
                 for msg in messages.iter() {
                     let day = local_day(msg.at, env.utc_offset_s);
                     let new_day = prev.is_none_or(|q| local_day(q.at, env.utc_offset_s) != day);
-                    if new_day {
-                        let label = crate::strings::stats::day(msg.at, env.now, env.utc_offset_s);
-                        day_line(&mut col, &label, false);
-                        after_line = true;
-                    }
                     let is_new = new_from == Some(msg.id);
                     if is_new {
                         new_y = Some(col.cursor().top());
-                        day_line(&mut col, s::NEW(), true);
+                    }
+                    if new_day || is_new {
+                        // The first unread message of a day: one line with the day and "New".
+                        let label = new_day.then(|| {
+                            crate::strings::chat::time::cached(
+                                col.ctx(),
+                                crate::strings::chat::time::Kind::Day,
+                                msg.at,
+                                env.now,
+                                env.utc_offset_s,
+                            )
+                        });
+                        day_line(&mut col, label.as_deref(), is_new);
                         after_line = true;
                     }
                     let joined = !new_day && !is_new && prev.is_some_and(|q| continues(q, msg));
@@ -1393,6 +1403,7 @@ fn transcript(
                         chat,
                         head: !joined,
                         after_line,
+                        after_event,
                         active: active.item == Some(msg.id),
                         reveal: active.reveal && active.item == Some(msg.id),
                         rise,
@@ -1402,7 +1413,7 @@ fn transcript(
                         lock,
                     };
                     let top = col.cursor().top();
-                    message(
+                    after_event = message(
                         &mut col, state, env, snap, msg, &messages, &ctx, &mut acts, &mut owner,
                     );
                     rows.push((msg.id, top, col.cursor().top()));
@@ -1609,32 +1620,59 @@ fn start_block(ui: &mut Ui, name: &str, group: bool) {
     );
 }
 
-/// A day ("Today") or "New" in accent, with a hairline running on; 22 above.
-fn day_line(ui: &mut Ui, label: &str, new: bool) {
+/// A divider, 22 above and 8 below: the day ("Tuesday, 17 November 2026", 12 medium t3)
+/// with a `line` hairline 12 after it to the column's end, and/or "New": the hairline in
+/// accent mark at 45 % with "New" (11, accent text) 12 after its end. The first unread
+/// message of a day gets one line with both. It mirrors in a right-to-left interface.
+fn day_line(ui: &mut Ui, label: Option<&str>, new: bool) {
     let p = theme::theme(ui.ctx()).palette.clone();
-    let color = if new { p.accent_text } else { p.t3 };
     let line = if new {
         palette::fade(p.accent_mark, 0.45)
     } else {
         p.line
     };
     ui.add_space(m::DAY_TOP);
-    let g = Type::Label.galley(ui, label, color, f32::INFINITY, 1);
     let h = Type::Label.line_height();
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
     let flip = Flip::new(r);
-    let lx = r.left() + m::INDENT;
-    let gw = g.size().x;
-    let gr = flip.r(Rect::from_min_size(pos2(lx, r.top()), g.size()));
-    ui.painter().galley(gr.min, g, color);
-    let a = flip.p(pos2(lx + gw + m::DAY_GAP, r.center().y));
-    let b = flip.p(pos2(r.right(), r.center().y));
-    ui.painter().hline(
-        a.x.min(b.x)..=a.x.max(b.x),
-        r.center().y.round() + 0.5,
-        Stroke::new(1.0, line),
-    );
-    crate::a11y::item(&resp, egui::Role::Label, label);
+    let y = r.center().y;
+    let mut from = r.left() + m::INDENT;
+    let mut to = r.right();
+    if let Some(label) = label {
+        let g = Type::Label.galley(ui, label, p.t3, f32::INFINITY, 1);
+        let gr = flip.r(Rect::from_min_size(
+            pos2(from, y - g.size().y / 2.0),
+            g.size(),
+        ));
+        from += g.size().x + m::DAY_GAP;
+        ui.painter().galley(gr.min, g, p.t3);
+    }
+    if new {
+        let g = Type::MicroStrong.galley(ui, s::NEW(), p.accent_text, f32::INFINITY, 1);
+        to -= g.size().x + m::DAY_GAP;
+        let gr = flip.r(Rect::from_min_size(
+            pos2(r.right() - g.size().x, y - g.size().y / 2.0),
+            g.size(),
+        ));
+        ui.painter().galley(gr.min, g, p.accent_text);
+    }
+    let (a, b) = (flip.p(pos2(from, y)), flip.p(pos2(to, y)));
+    if to > from {
+        ui.painter().hline(
+            a.x.min(b.x)..=a.x.max(b.x),
+            y.round() + 0.5,
+            Stroke::new(1.0, line),
+        );
+    }
+    match (label, new) {
+        (Some(l), true) => crate::a11y::item(
+            &resp,
+            egui::Role::Label,
+            &format!("{l}{}{}", rust_i18n::t!("chat.spoken_sep"), s::NEW()),
+        ),
+        (Some(l), false) => crate::a11y::item(&resp, egui::Role::Label, l),
+        (None, _) => crate::a11y::item(&resp, egui::Role::Label, s::NEW()),
+    }
     ui.add_space(m::DAY_BOTTOM);
 }
 
@@ -1642,7 +1680,7 @@ fn day_line(ui: &mut Ui, label: &str, new: bool) {
 fn skeleton_messages(ui: &mut Ui) {
     let w = ui.available_width();
     for (k, share) in [0.5, 0.35, 0.6, 0.3].into_iter().enumerate() {
-        ui.add_space(m::HEAD_TOP);
+        ui.add_space(m::GROUP_GAP);
         let (rect, _) = ui.allocate_exact_size(vec2(w, m::AVATAR), Sense::hover());
         let av = Rect::from_min_size(rect.min, vec2(m::AVATAR, m::AVATAR));
         crate::widgets::skeleton::block_at(
@@ -1673,8 +1711,10 @@ struct RowCtx {
     chat: ChatRef,
     /// The first of a run: avatar, name and time.
     head: bool,
-    /// Right under a day line or "New" (no 12 above).
+    /// Right under a day line or "New" (no gap above).
     after_line: bool,
+    /// The row above was drawn as an event: an event here continues its group.
+    after_event: bool,
     /// The keys' message.
     active: bool,
     /// Bring it into view.
@@ -1733,7 +1773,8 @@ enum Act {
     Media(i64, super::media::Act),
 }
 
-/// One row: a line that happened, a collapsed message, or a message with its parts.
+/// One row: a line that happened (an event), a collapsed message, or a message with its
+/// parts. True when it was drawn as an event, so that the next event joins its group.
 #[allow(clippy::too_many_arguments)]
 fn message(
     ui: &mut Ui,
@@ -1745,17 +1786,21 @@ fn message(
     rc: &RowCtx,
     acts: &mut Vec<Act>,
     owner: &mut Option<(i64, Rect)>,
-) {
+) -> bool {
+    use crate::strings::chat::time::{Kind, cached};
     let theme = theme::theme(ui.ctx());
     let p = theme.palette.clone();
     let f = snap.features;
     let author = who(snap, rc.chat, &msg.author);
-    let when = crate::strings::stats::clock_time(msg.at, env.utc_offset_s);
+    let when = cached(ui.ctx(), Kind::Clock, msg.at, env.now, env.utc_offset_s).to_string();
+    let full = cached(ui.ctx(), Kind::Full, msg.at, env.now, env.utc_offset_s);
     let hidden = author.blocked && !state.chat.revealed.contains(&(msg.id, u32::MAX));
     let sys = is_sys(msg) || hidden;
     let head = rc.head && !sys;
-    if head && !rc.after_line {
-        ui.add_space(m::HEAD_TOP);
+    // A head starts a group; so does the first event of a run (notes B).
+    let starts_group = if sys { !rc.after_event } else { head };
+    if starts_group && !rc.after_line {
+        ui.add_space(m::GROUP_GAP);
     }
     let w = ui.available_width();
     let top = ui.cursor().top();
@@ -1807,7 +1852,13 @@ fn message(
         vec2(plate_w, 1.0),
     ));
     let plate_shape = row.painter().add(Shape::Noop);
-    let pad_top = if head { m::HEAD_PAD_TOP } else { m::ROW_PAD };
+    let pad_top = if sys {
+        m::EVENT_PAD
+    } else if head {
+        m::HEAD_PAD_TOP
+    } else {
+        m::ROW_PAD
+    };
     let body_left = col_left + m::INDENT;
     let body_w = (w - m::INDENT).max(1.0);
     let body_rect = flip.r(Rect::from_min_size(
@@ -1835,6 +1886,12 @@ fn message(
             None => resp.contains_pointer(),
         };
     let hovered = pointer_on || resp.has_focus() || menu_open;
+    // Hover o1 on the plate, and the gutter's time, both 140 linear in and out.
+    let hover = row.ctx().animate_bool_with_time(
+        row_id.with("hover"),
+        hovered,
+        theme.motion.fade(Dur::Fast),
+    );
     // The first column: avatar, a line's glyph, or the gutter's time.
     let gutter = flip.r(Rect::from_min_size(
         pos2(col_left, top + dy + pad_top),
@@ -1848,22 +1905,13 @@ fn message(
             p.t3,
             gutter,
             &[(s::HIDDEN().to_owned(), p.t3, false)],
+            &full,
             Some((s::SHOW(), Act::Reveal(msg.id))),
             acts,
         );
     } else if let MessageBody::Call(rec) = &msg.body {
-        let (text, glyph) = match rec.kind {
-            CallKind::Ended => (
-                s::call_ended(&crate::strings::fmt::play_time(
-                    u64::from(rec.minutes) * 60_000,
-                )),
-                p.t3,
-            ),
-            CallKind::Missed => (s::missed_from(&author.short), p.coral),
-            CallKind::Declined => (s::CALL_DECLINED().to_owned(), p.t3),
-        };
-        let back = (rec.kind == CallKind::Missed && f.calls && !author.mine)
-            .then(|| (s::CALL_BACK(), Act::CallBack));
+        let text = call_words(rec, &author, &friend_name(snap, rc.chat));
+        let (glyph, back) = call_look(rec, &author, &p, f.calls);
         sys_line(
             &mut body,
             &p,
@@ -1871,6 +1919,7 @@ fn message(
             glyph,
             gutter,
             &[(text, p.t2, false), (when.clone(), p.t3, true)],
+            &full,
             back,
             acts,
         );
@@ -1882,35 +1931,34 @@ fn message(
             icons::INFO,
             p.t3,
             gutter,
-            &[(t.clone(), p.t3, false), (when.clone(), p.t3, true)],
+            &[(t.clone(), p.t2, false), (when.clone(), p.t3, true)],
+            &full,
             None,
             acts,
         );
     } else {
         if head {
-            avatar::avatar(
+            avatar::pictured(
                 row.painter(),
                 gutter,
                 &author.name,
                 author.paper,
                 AvShape::Person,
+                avatar::of_author(snap, rc.chat, &msg.author),
             );
-            name_row(&mut body, &p, &author.short, &when);
-        } else if hovered {
-            let size = FontId::new(m::GUTTER_SIZE, Type::Micro.numeric_font_id().family);
-            let x = col_left + m::AVATAR;
-            let at = flip.p(pos2(x, top + dy + pad_top + m::GUTTER_LINE / 2.0));
-            row.painter().text(
-                at,
-                if flip.rtl {
-                    Align2::LEFT_CENTER
-                } else {
-                    Align2::RIGHT_CENTER
-                },
-                &when,
-                size,
-                p.t3,
-            );
+            let head_when = cached(ui.ctx(), Kind::Head, msg.at, env.now, env.utc_offset_s);
+            name_row(&mut body, &p, &author.short, &head_when, &full);
+        } else if hover > 0.0 {
+            // Right-aligned to the 36 gutter's end, on the first text line.
+            let g = super::paint::time_galley(&row, &when, Type::Micro, p.t3);
+            let y = top + dy + pad_top + (m::GUTTER_LINE - g.size().y) / 2.0;
+            let r = flip.r(Rect::from_min_size(
+                pos2(col_left + m::AVATAR - g.size().x, y),
+                g.size(),
+            ));
+            let mut painter = row.painter().clone();
+            painter.multiply_opacity(hover);
+            time_label(&row, &painter, row_id.with("gutter.time"), r, g, &full);
         }
         if let Some(q) = &msg.reply
             && f.replies
@@ -1928,24 +1976,40 @@ fn message(
         .height()
         .max(if head { m::AVATAR } else { 0.0 });
     let row_h = if sys {
-        body_h.max(m::SYS_H - m::ROW_PAD * 2.0) + m::ROW_PAD * 2.0
+        m::EVENT_PAD + body_h.max(m::EVENT_LINE) + m::EVENT_PAD
     } else {
         pad_top + body_h + m::ROW_PAD
     };
     drop(body);
     let plate = Rect::from_min_size(pos2(plate_left, top + dy), vec2(plate_w, row_h));
     row.expand_to_include_rect(plate);
-    // Hover o1, radius 8.
-    let hover = row.ctx().animate_bool_with_time(
-        row_id.with("hover"),
-        hovered,
-        theme.motion.fade(Dur::Fast),
-    );
+    // The row's node takes the plate's bounds: its response only knows the last pass's.
+    row.ctx().accesskit_node_builder(resp.id, |n| {
+        n.set_bounds(egui::accesskit::Rect {
+            x0: plate.min.x.into(),
+            y0: plate.min.y.into(),
+            x1: plate.max.x.into(),
+            y1: plate.max.y.into(),
+        });
+    });
+    // Hover o1, radius 8 (high contrast: and a 1 pt line).
     let focus = resp.has_focus();
-    let fill = palette::fade(p.o1, hover.max(if focus { 1.0 } else { 0.0 }));
+    let lit = hover.max(if focus { 1.0 } else { 0.0 });
+    let fill = palette::fade(p.o1, lit);
+    let edge = if p.kind == theme::ThemeKind::HighContrast && lit > 0.0 {
+        Stroke::new(1.0, palette::fade(p.line, lit))
+    } else {
+        Stroke::NONE
+    };
     row.painter().set(
         plate_shape,
-        Shape::rect_filled(plate, CornerRadius::same(m::ROW_R), fill),
+        Shape::Rect(egui::epaint::RectShape::new(
+            plate,
+            CornerRadius::same(m::ROW_R),
+            fill,
+            edge,
+            StrokeKind::Inside,
+        )),
     );
     if focus && crate::widgets::focus_visible(row.ctx()) {
         crate::widgets::focus_ring(
@@ -1987,6 +2051,7 @@ fn message(
     }
     drop(row);
     ui.allocate_exact_size(vec2(w, row_h), Sense::hover());
+    sys
 }
 
 /// The friend of a direct chat, by name (empty in a group).
@@ -2023,13 +2088,7 @@ fn spoken_of(
             &s::size(m.size),
         ),
         MessageBody::File(m) => s::file_spoken(&m.name, &s::size(m.size)),
-        MessageBody::Call(rec) => match rec.kind {
-            CallKind::Ended => s::call_ended(&crate::strings::fmt::play_time(
-                u64::from(rec.minutes) * 60_000,
-            )),
-            CallKind::Missed => s::missed_from(&author.short),
-            CallKind::Declined => s::CALL_DECLINED().to_owned(),
-        },
+        MessageBody::Call(rec) => call_words(rec, author, &friend_name(snap, chat)),
         MessageBody::Stream(st) => stream_title(st, author),
         MessageBody::Deleted => s::DELETED().to_owned(),
     };
@@ -2042,6 +2101,41 @@ fn spoken_of(
     s::message_spoken(&author.short, when, &text)
 }
 
+/// A call line's words: "Call ended, 38 min", "Missed call from Aiko", "Mira didn't answer"
+/// (the user's own call that rang out) or "Call declined".
+fn call_words(rec: &easyplay_core::model::CallRecord, author: &Who, friend: &str) -> String {
+    match rec.kind {
+        CallKind::Ended => s::call_ended(&crate::strings::fmt::play_time(
+            u64::from(rec.minutes) * 60_000,
+        )),
+        CallKind::Missed if author.mine => crate::strings::chat::calls::no_answer(friend),
+        CallKind::Missed => s::missed_from(&author.short),
+        CallKind::Declined => s::CALL_DECLINED().to_owned(),
+    }
+}
+
+/// A call line's glyph colour (coral for a call the user missed) and its action: Call back
+/// after a missed call, Call again after the user's own unanswered one.
+fn call_look(
+    rec: &easyplay_core::model::CallRecord,
+    author: &Who,
+    p: &theme::Palette,
+    calls: bool,
+) -> (Color32, Option<(&'static str, Act)>) {
+    let missed = rec.kind == CallKind::Missed;
+    let glyph = if missed && !author.mine {
+        p.coral
+    } else {
+        p.t3
+    };
+    let act = match (missed && calls, author.mine) {
+        (false, _) => None,
+        (true, false) => Some((s::CALL_BACK(), Act::CallBack)),
+        (true, true) => Some((crate::strings::chat::calls::CALL_AGAIN(), Act::CallBack)),
+    };
+    (glyph, act)
+}
+
 fn stream_title(st: &StreamRecord, author: &Who) -> String {
     match (st.live, author.mine) {
         (true, true) => s::you_sharing(&st.title),
@@ -2051,10 +2145,11 @@ fn stream_title(st: &StreamRecord, author: &Who) -> String {
     }
 }
 
-/// `.m-n`: the first name in 13 semibold and the time in 11 quiet, on one 18 line.
-fn name_row(ui: &mut Ui, p: &theme::Palette, name: &str, when: &str) {
+/// `.m-n`: the first name in 13 semibold and the head's time ("Today at 13:59", 11 t3
+/// tabular) 8 after it on the name's baseline, on one 18 line.
+fn name_row(ui: &mut Ui, p: &theme::Palette, name: &str, when: &str, full: &str) {
     let ng = Type::BodyBold.galley(ui, name, p.t1, ui.available_width(), 1);
-    let tg = Type::Micro.galley(ui, when, p.t3, f32::INFINITY, 1);
+    let tg = super::paint::time_galley(ui, when, Type::Micro, p.t3);
     let w = ng.size().x + m::NAME_GAP + tg.size().x;
     let (r, _) = ui.allocate_exact_size(vec2(w, m::NAME_H), Sense::hover());
     let flip = Flip::new(r);
@@ -2068,7 +2163,31 @@ fn name_row(ui: &mut Ui, p: &theme::Palette, name: &str, when: &str) {
         pos2(r.left() + nw + m::NAME_GAP, base - tb),
         tg.size(),
     ));
-    ui.painter().galley(tr.min, tg, p.t3);
+    let id = ui.scope_id().with("head.time");
+    time_label(ui, ui.painter(), id, tr, tg, full);
+}
+
+/// A time painted at `r`: t3, turning t2 while pointed at (140 linear); after 500 ms its
+/// full date shows in a tooltip (notes A). A screen reader reads the full date.
+fn time_label(
+    ui: &Ui,
+    painter: &egui::Painter,
+    id: Id,
+    r: Rect,
+    g: std::sync::Arc<egui::Galley>,
+    full: &str,
+) {
+    let theme = theme::theme(ui.ctx());
+    let resp = ui.interact(r, id, Sense::hover());
+    let t = ui.ctx().animate_bool_with_time(
+        id.with("lit"),
+        resp.hovered(),
+        theme.motion.fade(Dur::Fast),
+    );
+    let color = mix(theme.palette.t3, theme.palette.t2, t);
+    painter.galley_with_override_text_color(r.min, g, color);
+    crate::a11y::item(&resp, egui::Role::Label, full);
+    super::paint::time_tip(&resp, full);
 }
 
 fn galley_baseline(g: &egui::Galley) -> f32 {
@@ -2333,7 +2452,9 @@ fn note(ui: &mut Ui, p: &theme::Palette, snap: &ChatSnapshot, chat: ChatRef, msg
     crate::a11y::item(&resp, egui::Role::Status, &text);
 }
 
-/// A line that happened: a glyph in the first column, then words, and maybe one action.
+/// An event: a 16 glyph centred in the 36 gutter, then words (13 on a 20 line) and the
+/// time (11 tabular, `small`) 8 after them, and maybe one action (13 medium accent) 8 after
+/// the time, all centred on the one 20 line. `full` is the time's tooltip.
 #[allow(clippy::too_many_arguments)]
 fn sys_line(
     ui: &mut Ui,
@@ -2342,10 +2463,11 @@ fn sys_line(
     glyph: Color32,
     gutter: Rect,
     words: &[(String, Color32, bool)],
+    full: &str,
     action: Option<(&str, Act)>,
     acts: &mut Vec<Act>,
 ) {
-    let h = m::SYS_H - m::ROW_PAD * 2.0;
+    let h = m::EVENT_LINE;
     paint_icon(
         ui.painter(),
         pos2(gutter.center().x, gutter.top() + h / 2.0),
@@ -2357,38 +2479,53 @@ fn sys_line(
     let link = action
         .as_ref()
         .map(|(l, _)| Type::BodyStrong.galley(ui, l, p.accent_text, f32::INFINITY, 1));
-    let style = |small: bool| if small { Type::Micro } else { Type::Body };
+    let lay = |ui: &Ui, (t, c, small): &(String, Color32, bool), w: f32| {
+        let g = if *small {
+            super::paint::time_galley(ui, t, Type::Micro, *c)
+        } else {
+            Type::Body.galley(ui, t, *c, w, 1)
+        };
+        (g, *c, *small)
+    };
     let rest: Vec<_> = words
         .iter()
         .skip(1)
-        .map(|(t, c, small)| (style(*small).galley(ui, t, *c, f32::INFINITY, 1), *c))
+        .map(|wd| lay(ui, wd, f32::INFINITY))
         .collect();
     let rest_w: f32 = rest
         .iter()
-        .map(|(g, _)| g.size().x + m::NAME_GAP)
+        .map(|(g, ..)| g.size().x + m::NAME_GAP)
         .sum::<f32>()
         + link.as_ref().map_or(0.0, |g| g.size().x + m::NAME_GAP);
     let first_w = (ui.available_width() - rest_w).max(1.0);
     let mut gs: Vec<_> = words
         .first()
-        .map(|(t, c, small)| (style(*small).galley(ui, t, *c, first_w, 1), *c))
+        .map(|wd| lay(ui, wd, first_w))
         .into_iter()
         .collect();
     gs.extend(rest);
     let w: f32 = gs
         .iter()
-        .map(|(g, _)| g.size().x + m::NAME_GAP)
+        .map(|(g, ..)| g.size().x + m::NAME_GAP)
         .sum::<f32>()
         + link.as_ref().map_or(0.0, |g| g.size().x);
     let (r, _) = ui.allocate_exact_size(vec2(w.min(ui.available_width()), h), Sense::hover());
     let flip = Flip::new(r);
-    let base = r.center().y + 4.5;
+    // Every part sits on the first words' baseline, those words centred on the line.
+    let base = gs.first().map_or(r.center().y, |(g, ..)| {
+        r.top() + (h - g.size().y) / 2.0 + galley_baseline(g)
+    });
     let mut x = r.left();
-    for (g, c) in gs {
+    for (k, (g, c, small)) in gs.into_iter().enumerate() {
         let b = galley_baseline(&g);
         let gw = g.size().x;
         let gr = flip.r(Rect::from_min_size(pos2(x, base - b), g.size()));
-        ui.painter().galley(gr.min, g, c);
+        if small {
+            let id = ui.scope_id().with(("sys.time", k));
+            time_label(ui, ui.painter(), id, gr, g, full);
+        } else {
+            ui.painter().galley(gr.min, g, c);
+        }
         x += gw + m::NAME_GAP;
     }
     if let (Some(g), Some((label, act))) = (link, action) {

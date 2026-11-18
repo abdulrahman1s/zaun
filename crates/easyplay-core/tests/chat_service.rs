@@ -113,6 +113,8 @@ fn deps(env: &TestEnv, engine: &FakeEngine, prefs: Preferences) -> ServiceDeps {
         umu_titles: Arc::new(NoUmuTitles),
         watch_sessions: false,
         chat: Some(Arc::new(engine.clone())),
+        overlay: None,
+        media: None,
     }
 }
 
@@ -1191,4 +1193,294 @@ fn a_file_outside_the_chat_folder_is_never_copied() {
     let events = save(&mut w, to.clone(), Some(secret));
     assert!(failed_with(&events, ErrorCode::ChtSaveFailed), "{events:?}");
     assert!(!to.exists());
+}
+
+// ---- profile pictures (ADR-0038) ----------------------------------------------------------
+
+/// Send `c` and wait for the failure it causes (pictures are made on the job pool).
+fn failure_of(w: &mut World, c: ChatCommand) -> Option<ErrorCode> {
+    w.drain();
+    w.cmd(c);
+    for _ in 0..200 {
+        w.settle();
+        if let Some(Event::Failure(u)) = w
+            .drain()
+            .into_iter()
+            .find(|e| matches!(e, Event::Failure(_)))
+        {
+            return Some(u.code);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    None
+}
+
+fn a_photo(w: &World, name: &str) -> PathBuf {
+    let path = w.env.home().join(name);
+    image::RgbImage::from_fn(1600, 900, |x, y| {
+        image::Rgb([(x % 251) as u8, (y % 241) as u8, ((x ^ y) % 256) as u8])
+    })
+    .save(&path)
+    .unwrap();
+    path
+}
+
+#[test]
+fn a_picture_file_becomes_the_profile_picture_once_the_engine_takes_it() {
+    use easyplay_core::chat::picture;
+    let mut w = World::new(true);
+    ready_with_kai(&mut w);
+    let path = a_photo(&w, "me.png");
+    w.cmd(ChatCommand::SetPicture { path, crop: None });
+    let Request::SetPicture(Some(made)) = w.next_request() else {
+        panic!("no picture request")
+    };
+    assert!(picture::data_uri(&made).len() <= picture::MAX_URI);
+    let shown = image::load_from_memory(made.bytes()).unwrap();
+    assert_eq!(shown.width(), shown.height(), "a square");
+    // Not shown until the engine has it.
+    let snap = w.svc.hub().chat.load();
+    assert_eq!(snap.profile.as_ref().and_then(|p| p.picture.clone()), None);
+    w.engine_says(ChatEvent::Profile(ChatProfile {
+        name: "Rin".into(),
+        picture: Some(made.clone()),
+        ..ChatProfile::default()
+    }));
+    let snap = w.svc.hub().chat.load();
+    assert_eq!(snap.profile.as_ref().unwrap().picture, Some(made));
+
+    w.cmd(ChatCommand::ClearPicture);
+    assert_eq!(w.next_request(), Request::SetPicture(None));
+}
+
+#[test]
+fn a_file_that_is_not_a_picture_or_is_too_large_is_refused() {
+    let mut w = World::new(true);
+    ready_with_kai(&mut w);
+    let text = w.env.home().join("notes.png");
+    std::fs::write(&text, b"just some words").unwrap();
+    let code = failure_of(
+        &mut w,
+        ChatCommand::SetPicture {
+            path: text,
+            crop: None,
+        },
+    );
+    assert_eq!(code, Some(ErrorCode::ChtNotAPicture));
+    // 21 MiB (sparse): refused before it is read.
+    let big = w.env.home().join("huge.jpg");
+    std::fs::File::create(&big)
+        .unwrap()
+        .set_len(21 * 1024 * 1024)
+        .unwrap();
+    let code = failure_of(
+        &mut w,
+        ChatCommand::SetPicture {
+            path: big,
+            crop: None,
+        },
+    );
+    assert_eq!(code, Some(ErrorCode::ChtPictureTooLarge));
+    assert!(w.engine.take_requests().is_empty(), "nothing was sent");
+}
+
+#[test]
+fn a_group_picture_goes_to_its_group_and_an_unknown_group_is_refused() {
+    let mut w = World::new(true);
+    ready_with_kai(&mut w);
+    w.engine_says(ChatEvent::Chats {
+        friends: Vec::new(),
+        groups: vec![ChatGroup {
+            id: 7,
+            name: "Raid".into(),
+            owner: true,
+            ..ChatGroup::default()
+        }],
+        requests: Vec::new(),
+        chats: Vec::new(),
+    });
+    let path = a_photo(&w, "raid.png");
+    w.cmd(ChatCommand::SetGroupPicture {
+        group: 7,
+        path: path.clone(),
+        crop: Some(easyplay_core::model::PictureCrop {
+            x: 100,
+            y: 0,
+            side: 600,
+        }),
+    });
+    let Request::SetGroupPicture {
+        group: 7,
+        picture: Some(_),
+    } = w.next_request()
+    else {
+        panic!("no group picture request")
+    };
+    w.cmd(ChatCommand::ClearGroupPicture(7));
+    assert_eq!(
+        w.next_request(),
+        Request::SetGroupPicture {
+            group: 7,
+            picture: None
+        }
+    );
+    let code = failure_of(
+        &mut w,
+        ChatCommand::SetGroupPicture {
+            group: 99,
+            path,
+            crop: None,
+        },
+    );
+    assert_eq!(code, Some(ErrorCode::ChtRequestFailed));
+}
+
+#[test]
+fn picture_commands_while_chat_is_off_are_refused() {
+    let mut w = World::new(false);
+    let code = failure_of(&mut w, ChatCommand::ClearPicture);
+    assert_eq!(code, Some(ErrorCode::ChtRequestFailed));
+    assert!(w.engine.take_requests().is_empty());
+}
+
+#[test]
+fn a_friends_new_picture_reaches_the_snapshot() {
+    let mut w = World::new(true);
+    ready_with_kai(&mut w);
+    let pic = easyplay_core::model::Picture::new(vec![0xff, 0xd8, 0xff, 1, 2, 3]);
+    let ChatEvent::Chats {
+        mut friends,
+        groups,
+        requests,
+        chats,
+    } = one_friend()
+    else {
+        unreachable!()
+    };
+    friends[0].picture = Some(pic.clone());
+    w.engine_says(ChatEvent::Chats {
+        friends,
+        groups,
+        requests,
+        chats,
+    });
+    let snap = w.svc.hub().chat.load();
+    assert_eq!(
+        snap.friend(3).unwrap().picture.as_ref().map(|p| p.key()),
+        Some(pic.key())
+    );
+}
+
+/// Ask for `path` for the crop step and wait for the answer.
+fn picture_source(w: &mut World, path: PathBuf, n: u128) -> QueryResult {
+    w.drain();
+    w.cmd(ChatCommand::LoadPicture {
+        path,
+        reply_to: query(n),
+    });
+    for _ in 0..200 {
+        w.settle();
+        for e in w.drain() {
+            if let Event::QueryResult { id, result } = e
+                && id == query(n)
+            {
+                return result;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("no answer")
+}
+
+#[test]
+fn the_crop_step_gets_the_pictures_size_and_a_smaller_copy() {
+    let mut w = World::new(true);
+    let path = a_photo(&w, "wide.png");
+    let QueryResult::PictureSource(src) = picture_source(&mut w, path.clone(), 41) else {
+        panic!("no picture")
+    };
+    assert_eq!((src.path, src.width, src.height), (path, 1600, 900));
+    let copy = image::load_from_memory(src.preview.bytes()).unwrap();
+    assert_eq!((copy.width(), copy.height()), (1024, 576));
+
+    let text = w.env.home().join("notes.jpg");
+    std::fs::write(&text, b"not a picture").unwrap();
+    let QueryResult::Failed(e) = picture_source(&mut w, text, 42) else {
+        panic!("not refused")
+    };
+    assert_eq!(e.code, ErrorCode::ChtNotAPicture);
+}
+
+/// A codec started as the user (recorded start-up), with nothing answered after.
+fn started_codec() -> easyplay_core::chat::simplex::protocol::Codec {
+    let resp = |corr: u64, body: &str| {
+        let body: serde_json::Value = serde_json::from_str(body).unwrap();
+        serde_json::json!({ "t": "resp", "corr": corr, "body": body }).to_string()
+    };
+    let mut c = easyplay_core::chat::simplex::protocol::Codec::new(
+        "Rin",
+        Vec::new(),
+        std::path::Path::new("/nonexistent/chat"),
+    );
+    c.on_line(r#"{"t":"ready"}"#);
+    c.on_line(&resp(
+        1,
+        include_str!("../src/chat/simplex/fixtures/active_user_picture.json"),
+    ));
+    c.on_line(&resp(2, r#"{"result":{"type":"cmdOk"}}"#));
+    c.on_line(&resp(
+        3,
+        include_str!("../src/chat/simplex/fixtures/chat_started.json"),
+    ));
+    assert!(c.started());
+    c
+}
+
+#[test]
+fn a_rename_and_a_new_picture_saved_together_send_both_in_the_last_profile() {
+    let mut w = World::new(true);
+    ready_with_kai(&mut w);
+    // One Save: the name changes at once, the picture follows from the job pool.
+    w.cmd(ChatCommand::SetProfile(ChatProfile {
+        name: "Rin Two".into(),
+        about: "Co-op only.".into(),
+        ..ChatProfile::default()
+    }));
+    let path = a_photo(&w, "me.png");
+    w.cmd(ChatCommand::SetPicture { path, crop: None });
+    let mut requests = Vec::new();
+    for _ in 0..200 {
+        w.settle();
+        requests.extend(w.engine.take_requests());
+        if requests.iter().any(|r| matches!(r, Request::SetPicture(_))) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        matches!(requests[0], Request::SetProfile(_)),
+        "{requests:?}"
+    );
+    // Through the real codec, the engine answering neither before the picture is sent.
+    let mut codec = started_codec();
+    let profiles: Vec<String> = requests
+        .into_iter()
+        .flat_map(|r| codec.request(r).lines)
+        .filter_map(|l| {
+            let v: serde_json::Value = serde_json::from_str(&l).unwrap();
+            let cmd = v["cmd"].as_str()?.to_owned();
+            cmd.starts_with("/_profile ").then_some(cmd)
+        })
+        .collect();
+    assert_eq!(profiles.len(), 2, "{profiles:?}");
+    let last = profiles.last().unwrap();
+    let json: serde_json::Value = serde_json::from_str(&last[last.find('{').unwrap()..]).unwrap();
+    assert_eq!(json["displayName"], "Rin Two");
+    assert_eq!(json["shortDescr"], "Co-op only.");
+    assert!(
+        json["image"]
+            .as_str()
+            .is_some_and(|i| i.starts_with("data:image/jpg;base64,")),
+        "{last}"
+    );
 }

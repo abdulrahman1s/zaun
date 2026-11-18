@@ -15,8 +15,13 @@
 //!   bar.
 //! - The count pill is 18 high, at least 18 wide, padded 5, on the accent fill, its count in
 //!   11 pt semibold tabular figures ("99+" past 99).
+//! - A picture (ADR-0038; chat-calls.html C) fills the circle or rounded square over the
+//!   initials, which stay until it is decoded ([`pictured`]); it then fades in over 140
+//!   linear (at once under reduced motion). One that cannot be decoded leaves the initials.
 
-use easyplay_core::model::{MyStatus, Presence};
+use easyplay_core::model::{
+    ChatRef, ChatSnapshot, GroupMember, MessageAuthor, MyStatus, Picture, Presence,
+};
 use egui::text::LayoutJob;
 use egui::{
     Align2, Color32, CornerRadius, FontId, Painter, Pos2, Rect, Shape as EShape, Stroke,
@@ -124,6 +129,104 @@ pub fn avatar(painter: &Painter, rect: Rect, name: &str, paper: Option<u8>, shap
         Stroke::new(stroke::BORDER, theme.palette.edge),
         StrokeKind::Inside,
     );
+}
+
+/// [`avatar`] with `picture` over the initials: they are drawn until the picture is decoded,
+/// then it fades in over 140 ms and the `edge` line is drawn over it.
+pub fn pictured(
+    painter: &Painter,
+    rect: Rect,
+    name: &str,
+    paper: Option<u8>,
+    shape: Shape,
+    picture: Option<&Picture>,
+) {
+    let face = picture.and_then(|pic| super::pictures::avatar(painter.ctx(), pic));
+    let Some((brush, since)) = face else {
+        avatar(painter, rect, name, paper, shape);
+        return;
+    };
+    let theme = theme::theme(painter.ctx());
+    let t = if theme.motion.reduced {
+        1.0
+    } else {
+        let now = painter.ctx().input(|i| i.time);
+        ((now - since) as f32 / theme::Dur::Fast.secs()).clamp(0.0, 1.0)
+    };
+    if t < 1.0 {
+        avatar(painter, rect, name, paper, shape);
+        painter.ctx().request_repaint();
+    }
+    let corner = corner(rect, shape);
+    let mut fill = egui::epaint::RectShape::filled(rect, corner, Color32::WHITE.gamma_multiply(t));
+    fill.brush = Some(brush);
+    painter.add(fill);
+    painter.rect_stroke(
+        rect,
+        corner,
+        Stroke::new(stroke::BORDER, theme.palette.edge),
+        StrokeKind::Inside,
+    );
+}
+
+/// The user's own picture.
+pub fn mine(snap: &ChatSnapshot) -> Option<&Picture> {
+    snap.profile.as_ref()?.picture.as_ref()
+}
+
+/// A friend's picture.
+pub fn of_friend(snap: &ChatSnapshot, friend: i64) -> Option<&Picture> {
+    snap.friend(friend)?.picture.as_ref()
+}
+
+/// The picture of a conversation: the friend's, or the group's.
+pub fn of_chat(snap: &ChatSnapshot, chat: ChatRef) -> Option<&Picture> {
+    match chat {
+        ChatRef::Direct(f) => of_friend(snap, f),
+        ChatRef::Group(g) => snap.group(g)?.picture.as_ref(),
+    }
+}
+
+/// A group member's picture: yours, or your friend's as their own profile has it (it is
+/// newer than the member list's copy), or the member's.
+pub fn of_member<'a>(snap: &'a ChatSnapshot, mem: &'a GroupMember) -> Option<&'a Picture> {
+    if mem.me {
+        return mine(snap);
+    }
+    mem.friend
+        .and_then(|f| of_friend(snap, f))
+        .or(mem.picture.as_ref())
+}
+
+/// The picture of a message's author in `chat`.
+pub fn of_author<'a>(
+    snap: &'a ChatSnapshot,
+    chat: ChatRef,
+    author: &MessageAuthor,
+) -> Option<&'a Picture> {
+    match (author, chat) {
+        (MessageAuthor::Me, _) => mine(snap),
+        (MessageAuthor::Friend, ChatRef::Direct(f)) => of_friend(snap, f),
+        (MessageAuthor::Friend, ChatRef::Group(_)) => None,
+        (MessageAuthor::Member(name), ChatRef::Group(g)) => {
+            let mem = snap
+                .group(g)?
+                .member_list
+                .iter()
+                .find(|m| m.name == *name)?;
+            of_member(snap, mem)
+        }
+        (MessageAuthor::Member(_), ChatRef::Direct(_)) => None,
+    }
+}
+
+/// The picture of the friend called `name` (where only a name is at hand, as in a call).
+pub fn of_name<'a>(snap: &'a ChatSnapshot, name: &str) -> Option<&'a Picture> {
+    snap.friends
+        .iter()
+        .find(|f| f.name == name)?
+        .picture
+        .as_ref()
 }
 
 /// What the user's own status looks like as a dot: invisible is offline.

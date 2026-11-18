@@ -68,6 +68,15 @@ pub enum RaiseThen {
     AddGame,
 }
 
+/// What `easyplay overlay` asks of the in-game overlay (ADR-0037).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayVerb {
+    Toggle,
+    Open,
+    Close,
+}
+
 /// A request (the `op` field selects the variant).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -118,6 +127,8 @@ pub enum Request {
     },
     /// Liveness check.
     Ping,
+    /// Open or close the in-game overlay (the hotkey; ADR-0037).
+    Overlay { action: OverlayVerb },
 }
 
 impl Request {
@@ -129,6 +140,7 @@ impl Request {
             Request::Stop { .. } => "stop",
             Request::Raise { .. } => "raise",
             Request::Ping => "ping",
+            Request::Overlay { .. } => "overlay",
         }
     }
 }
@@ -685,6 +697,7 @@ mod tests {
             r#"{"v":1,"op":"stop","game":"hollow knight","force":false}"#,
             r#"{"v":1,"op":"raise","activation_token":"x","then":"add_game"}"#,
             r#"{"v":1,"op":"ping"}"#,
+            r#"{"v":1,"op":"overlay","action":"toggle"}"#,
         ] {
             decode_request(l.as_bytes()).unwrap();
         }

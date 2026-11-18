@@ -107,7 +107,8 @@ fn tail(fs: &dyn Fs, path: &Path, n: usize, r: &Redactor) -> Option<String> {
     Some(out)
 }
 
-/// `config.toml` with every `launch.global_env` value and `chat.gif_key` replaced by `<set>`.
+/// `config.toml` with every `launch.global_env` value, `chat.gif_key` and each
+/// `chat.ice_servers` entry replaced by `<set>`.
 fn config_text(fs: &dyn Fs, path: &Path, r: &Redactor) -> Option<String> {
     let bytes = fs.read(path, 1024 * 1024).ok()?;
     let text = String::from_utf8_lossy(&bytes);
@@ -132,6 +133,16 @@ fn config_text(fs: &dyn Fs, path: &Path, r: &Redactor) -> Option<String> {
         && chat.contains_key("gif_key")
     {
         chat.insert("gif_key".into(), toml::Value::String(SET.into()));
+    }
+    // Calls' TURN servers carry passwords (ADR-0035): each entry becomes `<set>`.
+    if let Some(list) = table
+        .get_mut("chat")
+        .and_then(|c| c.get_mut("ice_servers"))
+        .and_then(|l| l.as_array_mut())
+    {
+        for v in list.iter_mut() {
+            *v = toml::Value::String(SET.into());
+        }
     }
     let out = toml::to_string_pretty(&table).ok()?;
     Some(r.redact_str(&out))
@@ -350,7 +361,7 @@ mod tests {
         // Included sources, with personal data that must be redacted.
         w(
             &paths.config_file,
-            "[launch]\nglobal_env = [{ name = \"API_TOKEN\", value = \"DECOY-GLOBAL-VALUE\" }]\n[paths]\numu_run = \"/home/sam/bin/umu-run\"\n[chat]\ngif_key = \"DECOY-GIF-KEY\"\n",
+            "[launch]\nglobal_env = [{ name = \"API_TOKEN\", value = \"DECOY-GLOBAL-VALUE\" }]\n[paths]\numu_run = \"/home/sam/bin/umu-run\"\n[chat]\ngif_key = \"DECOY-GIF-KEY\"\nice_servers = [\"turn:u:DECOY-TURN-PASSWORD@relay.example\"]\n",
         );
         let home_s = home.display().to_string();
         let mut log = String::new();
@@ -430,6 +441,7 @@ mod tests {
             "DECOY-OTHER-GAME",
             "DECOY-KEY",
             "DECOY-GIF-KEY",
+            "DECOY-TURN-PASSWORD",
             &home_s,
             "gamebox",
         ] {

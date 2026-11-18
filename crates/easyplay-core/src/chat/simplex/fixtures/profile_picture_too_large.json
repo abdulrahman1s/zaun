@@ -1,0 +1,9 @@
+{
+ "error": {
+  "type": "error",
+  "errorType": {
+   "type": "commandError",
+   "message": "Profile image is too large 12622"
+  }
+ }
+}

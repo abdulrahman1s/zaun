@@ -18,6 +18,7 @@ impl AppService {
         self.emit(Event::PreferencesChanged);
         self.steam_preference_changed();
         self.chat_preference_changed();
+        self.overlay_sync();
         Ok(())
     }
 }

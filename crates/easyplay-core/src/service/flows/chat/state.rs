@@ -32,6 +32,10 @@ pub(crate) enum ChatDone {
         generation: u64,
         result: Result<Request, Error>,
     },
+    /// A call's media or timer (ADR-0035).
+    Call(super::calls::CallDone),
+    /// A stream's media or timer (ADR-0036).
+    Stream(super::share::ShareDone),
 }
 
 #[derive(Default)]
@@ -55,6 +59,14 @@ pub(crate) struct ChatState {
     pub(super) saves: BTreeMap<u64, PathBuf>,
     /// Numbers for the temporary files of copies (two saves never share one).
     pub(super) next_save: u64,
+    /// The call, ringing or under way (ADR-0035).
+    pub(super) call: Option<super::calls::CallFlow>,
+    /// Numbers calls.
+    pub(super) next_call: u64,
+    /// The microphone test, with its number (events of an earlier one are ignored).
+    pub(super) mic_test: Option<(u64, Box<dyn crate::chat::media::MicTest>)>,
+    /// Shared and watched game streams (ADR-0036).
+    pub(super) share: super::share::ShareState,
 }
 
 /// The wait before restart number `failures` (1 → 1 s, 2 → 2 s, … at most [`MAX_BACKOFF`]).

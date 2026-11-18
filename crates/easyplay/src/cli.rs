@@ -176,6 +176,13 @@ pub enum Command {
         #[command(subcommand)]
         command: SteamVerb,
     },
+    /// Show or hide the in-game overlay in the running EasyPlay (bind it to a key in your
+    /// compositor, e.g. Shift+F1).
+    Overlay {
+        /// What to do.
+        #[arg(value_enum, default_value_t = OverlayArg::Toggle)]
+        action: OverlayArg,
+    },
     /// Keep EasyPlay running in the background so opened programs start at once.
     ///
     /// Usually started at login by the `easyplay.service` systemd user unit. Waits while an
@@ -297,6 +304,17 @@ pub enum SteamVerb {
     },
 }
 
+/// `overlay`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum OverlayArg {
+    /// Open it if closed, close it if open.
+    Toggle,
+    /// Show the chat panel and take the keyboard.
+    Open,
+    /// Hide the panel and give input back to the game.
+    Close,
+}
+
 /// `steam launch-options --mangohud`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum SwitchArg {
@@ -396,6 +414,18 @@ mod tests {
             Some(Command::Stop {
                 game: "g".into(),
                 force: true
+            })
+        );
+        assert_eq!(
+            parse(&["overlay"]).command,
+            Some(Command::Overlay {
+                action: OverlayArg::Toggle
+            })
+        );
+        assert_eq!(
+            parse(&["overlay", "open"]).command,
+            Some(Command::Overlay {
+                action: OverlayArg::Open
             })
         );
         assert!(matches!(

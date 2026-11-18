@@ -5,6 +5,10 @@
 //! Run one file: `cargo test -p easyplay-core --test it <module>::`.
 
 mod artwork;
+mod chat_calls;
+mod chat_overlay;
+mod chat_overlay_scene;
+mod chat_streams;
 mod config_prefs;
 mod desktop;
 mod failure_matrix;

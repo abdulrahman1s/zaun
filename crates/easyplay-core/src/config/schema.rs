@@ -73,8 +73,19 @@ str_enum!(
     pub ChatSendWith { Enter = "enter", CtrlEnter = "ctrl_enter" } default Enter
 );
 str_enum!(
-    /// `chat.share_quality`: the picture of a shared game.
-    pub ShareQuality { P720 = "720", P1080 = "1080", Source = "source" } default P1080
+    /// `chat.share_quality`: the picture of a shared game: its height at most, never more
+    /// than the game draws (`source`: as in the game). 1440 came last, so the order of the
+    /// first three is unchanged (ADR-0036).
+    pub ShareQuality { P720 = "720", P1080 = "1080", Source = "source", P1440 = "1440" } default P1080
+);
+str_enum!(
+    /// `chat.share_fps`: frames a second of a shared game at most (never more than the game
+    /// draws; ADR-0036).
+    pub ShareFps { F30 = "30", F60 = "60" } default F60
+);
+str_enum!(
+    /// `chat.overlay_corner`: where the in-game overlay's call widget sits (ADR-0037).
+    pub OverlayCorner { TopLeft = "top_left", TopRight = "top_right", BottomLeft = "bottom_left", BottomRight = "bottom_right" } default TopLeft
 );
 
 /// `runtime.default`: `umu-proton`, `ge-proton`, `pinned:<name>`, `external:<path>`.
@@ -225,13 +236,36 @@ settings! {
         /// The speakers for calls (empty = the system default).
         speakers: String = String::new() => string,
         noise_suppression: bool = true => bool,
+        /// The microphone's volume in calls, in percent (`0 ..= 100`); a gain on what is
+        /// recorded, before noise suppression.
+        mic_volume: u8 = 100 => int(0, 100),
         /// Calls and shared games pass through a relay, so friends never learn the address.
         relay_calls: bool = true => bool,
+        /// STUN and TURN servers for calls (`stun:host:port`,
+        /// `turn:user:password@host:port`, `turns:…`); empty = the SimpleX apps' public
+        /// ones (`chat::media::DEFAULT_ICE_SERVERS`, ADR-0035).
+        ice_servers: Vec<String> = Vec::new() => custom(custom::ice_servers),
         share_quality: ShareQuality = ShareQuality::P1080 => word,
+        share_fps: ShareFps = ShareFps::F60 => word,
+        /// Encode a shared game on the GPU (NVENC, VA-API) when there is one; off = always in
+        /// software (ADR-0036).
+        share_hw_encode: bool = true => bool,
         share_sound: bool = true => bool,
         /// Sharing pauses (a still picture) while the game is not in front.
         share_pause: bool = true => bool,
         notify_calls: bool = true => bool,
+        /// The in-game overlay (ADR-0037): started with a game, opened with the overlay
+        /// hotkey. Off until its design is ported.
+        overlay: bool = false => bool,
+        /// New messages appear as toasts over the game while the overlay is closed.
+        overlay_toasts: bool = true => bool,
+        /// The call's widget stays over the game while the overlay is closed.
+        overlay_voice_widget: bool = true => bool,
+        overlay_corner: OverlayCorner = OverlayCorner::TopLeft => word,
+        /// The key the user bound to `easyplay overlay` in their desktop, as the overlay's
+        /// hints show it ("Shift+F1"). Only a label: the desktop owns the binding. Empty = no
+        /// key ("Open the overlay to reply").
+        overlay_key: String = "Shift+F1".to_owned() => string,
     }
 
     /// `[protection]`.

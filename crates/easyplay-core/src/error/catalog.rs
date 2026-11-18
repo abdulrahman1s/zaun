@@ -584,9 +584,59 @@ pub const fn entry(code: ErrorCode) -> Entry {
             "The folder may be read-only or full. Try another place.",
             &[A::Dismiss],
         ),
+        C::ChtNotAPicture => e(
+            "This file is not a picture",
+            "Choose a JPEG, PNG, WebP, BMP or GIF picture.",
+            &[A::Dismiss],
+        ),
+        C::ChtPictureTooLarge => e(
+            "This picture is too large",
+            "Choose a picture of at most 20 MiB and 16,384 pixels a side.",
+            &[A::Dismiss],
+        ),
         C::ChtRequestFailed => e(
             "That did not work",
             "The chat engine refused the request. The details say why.",
+            &[A::CopyDetails],
+        ),
+        C::ChtNoMicrophone => e(
+            "No microphone for the call",
+            "Connect a microphone, or choose another one in Settings › Chat, then call again.",
+            &[A::Dismiss],
+        ),
+        C::ChtMediaFailed => e(
+            "The call's sound stopped",
+            "The speakers or the sound system stopped working during the call. The details say why.",
+            &[A::CopyDetails],
+        ),
+        C::ChtCallFailed => e(
+            "The call could not connect",
+            "No connection could be made between you and your friend. Check the internet connection, then call again.",
+            &[A::CopyDetails],
+        ),
+        C::ChtOverlayUnavailable => e(
+            "The in-game overlay is not available",
+            "It shows only while a game is running, with Chat and the overlay turned on, on a desktop that supports it.",
+            &[A::Dismiss],
+        ),
+        C::ChtShareRefused => e(
+            "The game was not shared",
+            "No window was chosen. Share again and pick the game's window.",
+            &[A::Dismiss],
+        ),
+        C::ChtNoGameRunning => e(
+            "No game is running",
+            "Sharing sends a running game's picture. Start the game, then share it.",
+            &[A::Dismiss],
+        ),
+        C::ChtCaptureFailed => e(
+            "The game's picture could not be captured",
+            "This desktop did not let EasyPlay capture the game's window. The details say why.",
+            &[A::CopyDetails],
+        ),
+        C::ChtStreamFailed => e(
+            "The stream stopped",
+            "The game's stream could not start or was cut off. The details say why.",
             &[A::CopyDetails],
         ),
 

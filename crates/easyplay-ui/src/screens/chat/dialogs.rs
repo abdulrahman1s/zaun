@@ -8,7 +8,7 @@
 //! [`share_flow`] and [`call_flow`] are the one place the header, the trays and the details
 //! decide what Share and Call do.
 
-use easyplay_core::config::schema::{PreferencePatch, ShareQuality};
+use easyplay_core::config::schema::{PreferencePatch, ShareFps};
 use easyplay_core::model::{
     Activity, Availability, ChatProfile, ChatRef, ChatSnapshot, EntryKind, GameSummary,
 };
@@ -16,16 +16,20 @@ use easyplay_core::service::ChatCommand;
 use egui::{Align2, Context, CornerRadius, FontFamily, FontId, Id, Rect, Sense, Ui, pos2, vec2};
 
 use super::avatar::{self, Shape};
+use super::share_quality as sq;
 use super::{Env, paint};
 use crate::app::UiState;
 use crate::bridge::{Command, UiCommand};
 use crate::strings::chat as c;
+use crate::strings::chat::calls as cs;
 use crate::strings::chat::details as s;
 use crate::theme::tokens::{layout, radius, space};
 use crate::theme::{self, Type, icons};
 use crate::vm::chat::{
     ChatDialog, PendingGroup, PendingShare, ProfileDraft, ShareChoice, valid_name,
 };
+use crate::vm::chat_call::ShareStep;
+use crate::vm::chat_picture::{PictureChange, PictureEdit};
 use crate::vm::dialogs::Dialog;
 use crate::vm::toasts::ToastKind;
 use crate::widgets::button::{Button, Variant};
@@ -33,6 +37,7 @@ use crate::widgets::choice::{PickKind, pick};
 use crate::widgets::modal::{self, Action, DialogOutcome, Spec};
 use crate::widgets::rows::SettingRow;
 use crate::widgets::segmented::{Segment, segmented};
+use crate::widgets::select::select;
 use crate::widgets::text_field::TextField;
 use crate::widgets::toggle::switch;
 
@@ -52,8 +57,6 @@ mod m {
     pub const LINE_GAP: f32 = 10.0;
     /// Above a heading in a dialog's body, and under it.
     pub const HEADING: [f32; 2] = [18.0, 8.0];
-    /// The profile's avatar.
-    pub const PROFILE_AVATAR: f32 = 64.0;
     /// The code's digits: size, line height, gaps between rows and columns.
     pub const CODE: [f32; 4] = [15.0, 24.0, 6.0, 18.0];
     /// The code: groups of five, twelve of them, four to a row.
@@ -91,6 +94,7 @@ pub fn dialog(
         ChatDialog::Blocked => blocked(ctx, id, state, env),
         ChatDialog::UnsafeLink => unsafe_link(ctx, id, state, env),
         ChatDialog::InviteToGroup(g) => invite_to_group(ctx, id, state, env, g),
+        ChatDialog::GroupPicture(g) => super::picture_edit::group_dialog(ctx, id, state, env, g),
         ChatDialog::RemoveFriend(f) => {
             let name = super::name_of(env.bridge.chat(), ChatRef::Direct(f));
             confirm(
@@ -153,6 +157,20 @@ pub(super) fn share_flow(
         }
         return;
     }
+    // Streams are one to one and never in a call with the same friend: the engine holds one
+    // call per friend, so a stream would end the call (ADR-0036).
+    let in_call = snap.live.call.as_ref().is_some_and(|c| c.chat == chat)
+        || snap.live.ringing.as_ref().is_some_and(|r| r.chat == chat);
+    let why = match chat {
+        ChatRef::Group(_) => Some(cs::SHARE_GROUP()),
+        ChatRef::Direct(_) if in_call => Some(cs::SHARE_IN_CALL()),
+        ChatRef::Direct(_) => None,
+    };
+    if let Some(why) = why {
+        state.toast(why, ToastKind::Info, None, env.mono);
+        return;
+    }
+    state.chat.call.share_step = ShareStep::Ask;
     let d = if running_game(env).is_some() {
         ChatDialog::Share(chat)
     } else {
@@ -550,7 +568,7 @@ fn new_group(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) -> b
                     };
                     ui.painter()
                         .galley(pos2(tx, r.center().y - g.size().y / 2.0), g, p.t1);
-                    avatar::avatar(
+                    avatar::pictured(
                         ui.painter(),
                         Rect::from_min_size(
                             pos2(ax, r.top()),
@@ -559,6 +577,7 @@ fn new_group(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) -> b
                         &f.name,
                         f.paper,
                         Shape::Person,
+                        f.picture.as_ref(),
                     );
                 });
                 if resp.clicked() {
@@ -879,12 +898,13 @@ fn friend_pick(
         };
         let ny = r.center().y - name.size().y / 2.0;
         name.paint(ui.painter(), pos2(tx, ny), p.t1);
-        avatar::avatar(
+        avatar::pictured(
             ui.painter(),
             Rect::from_min_size(pos2(ax, r.top()), vec2(m::PICK_AVATAR, m::PICK_AVATAR)),
             &f.name,
             f.paper,
             Shape::Person,
+            f.picture.as_ref(),
         );
         if let Some(g) = note_g {
             let nx = if rtl {
@@ -911,40 +931,46 @@ fn profile(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) -> boo
     let shown_pair = current
         .paper
         .unwrap_or_else(|| avatar_pair_of(&current.name));
+    if state.chat.profile.is_none() || state.chat.picture.whose != Some(None) {
+        state.chat.picture = PictureEdit::new(None);
+    }
+    // The picture's crop step is a step of this dialog (pictures, ADR-0038).
     let draft = state.chat.profile.get_or_insert_with(|| ProfileDraft {
         name: current.name.clone(),
         about: current.about.clone(),
         paper: shown_pair,
     });
+    if super::picture_edit::crop_step(ctx, id, &mut state.chat.picture) {
+        return false;
+    }
     let valid = valid_name(&draft.name);
-    let unsaved =
+    let changed =
         draft.name != current.name || draft.about != current.about || draft.paper != shown_pair;
+    let picture = &mut state.chat.picture;
+    let unsaved = changed || picture.change != PictureChange::Keep;
+    let busy = picture.loading.is_some();
     let shown = modal::show(
         ctx,
         id,
         Spec::new(s::PROFILE_TITLE())
             .text(s::PROFILE_TEXT())
+            .step(0)
             .unsaved(unsaved),
         |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = space::S4;
-                let (r, resp) = ui.allocate_exact_size(
-                    vec2(m::PROFILE_AVATAR, m::PROFILE_AVATAR),
-                    Sense::hover(),
-                );
-                crate::a11y::item(&resp, egui::Role::Image, s::YOUR_AVATAR());
-                avatar::avatar(
-                    ui.painter(),
-                    r,
-                    &draft.name,
-                    Some(draft.paper),
-                    Shape::Person,
-                );
-                if ui.add(Button::new(s::CHANGE_COLOUR())).clicked() {
-                    draft.paper = (draft.paper + 1) % PAIRS;
-                }
-            });
+            let colour = super::picture_edit::row(
+                ui,
+                &mut state.picks,
+                picture,
+                &draft.name,
+                Some(draft.paper),
+                Shape::Person,
+                current.picture.as_ref(),
+                true,
+            );
+            if colour {
+                draft.paper = (draft.paper + 1) % PAIRS;
+            }
             heading(ui, s::NAME(), false);
             let r = TextField::new(&mut draft.name, "chat.profile.name")
                 .accessible_name(s::NAME())
@@ -960,7 +986,7 @@ fn profile(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) -> boo
         },
         |ui| {
             let save = ui
-                .add_enabled(valid.is_some(), Button::primary(c::SAVE()))
+                .add_enabled(valid.is_some() && !busy, Button::primary(c::SAVE()))
                 .clicked();
             let cancel = ui.add(Button::new(c::CANCEL())).clicked();
             (save, cancel)
@@ -974,15 +1000,32 @@ fn profile(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) -> boo
             paper: 0,
         });
         let about: String = d.about.trim().chars().take(ABOUT_MAX).collect();
-        save_name(env, &name);
-        env.bridge
-            .send(Command::Chat(ChatCommand::SetProfile(ChatProfile {
-                name,
-                about,
-                // A colour that was never chosen stays the name's own.
-                paper: (current.paper.is_some() || d.paper != shown_pair).then_some(d.paper),
-                status: current.status,
-            })));
+        // The engine renders a picture's `/_profile` from the profile it last confirmed, so a
+        // removal goes before a rename. A new picture goes after it: its file is read and
+        // encoded first, and the preview's `SetProfile` replaces the whole profile.
+        let picture = std::mem::take(&mut state.chat.picture);
+        let removed = picture.change == PictureChange::Remove;
+        let cmd = picture.commands(None, super::crop::CIRCLE);
+        let (before, after) = if removed { (cmd, None) } else { (None, cmd) };
+        if let Some(cmd) = before {
+            env.bridge.send(Command::Chat(cmd));
+        }
+        if changed {
+            save_name(env, &name);
+            env.bridge
+                .send(Command::Chat(ChatCommand::SetProfile(ChatProfile {
+                    name,
+                    about,
+                    // A colour that was never chosen stays the name's own.
+                    paper: (current.paper.is_some() || d.paper != shown_pair).then_some(d.paper),
+                    status: current.status,
+                    // The picture has its own commands (ADR-0038); this keeps it.
+                    picture: current.picture.clone().filter(|_| !removed),
+                })));
+        }
+        if let Some(cmd) = after {
+            env.bridge.send(Command::Chat(cmd));
+        }
         modal::closed(ctx, id);
         return true;
     }
@@ -991,6 +1034,7 @@ fn profile(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) -> boo
     }
     if cancel || shown.close_requested {
         state.chat.profile = None;
+        state.chat.picture = PictureEdit::default();
         return true;
     }
     false
@@ -1132,18 +1176,33 @@ fn share_to(snap: &ChatSnapshot, chat: ChatRef) -> (String, bool) {
 
 fn share(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>, chat: ChatRef) -> bool {
     let snap = env.bridge.chat().clone();
+    let step = state.chat.call.share_step;
+    // The window was picked (the share runs), or the picker was closed or failed (a toast
+    // or the error says so): the dialog's part is over.
+    let picked = snap.live.share.as_ref().is_some_and(|sh| sh.chat == chat);
+    if step == ShareStep::Over || (step == ShareStep::Waiting && picked) {
+        state.chat.call.share_step = ShareStep::Ask;
+        state.chat.share_choice = None;
+        modal::closed(ctx, id);
+        return true;
+    }
     let Some(game) = running_game(env) else {
         // The game ended while the dialog was queued: offer one to start instead.
+        state.chat.call.share_step = ShareStep::Ask;
         state.show_dialog(Dialog::Chat(ChatDialog::StartGame(chat)));
         return true;
     };
+    if step != ShareStep::Ask {
+        return share_choose(ctx, id, state, env, chat, &game.name);
+    }
     let (to, group) = share_to(&snap, chat);
     let prefs = env.bridge.prefs().clone();
     let saved = ShareChoice {
-        quality: ShareQuality::ALL
+        quality: sq::HEIGHTS
             .iter()
             .position(|q| *q == prefs.chat.share_quality)
             .unwrap_or(1),
+        fps: usize::from(prefs.chat.share_fps == ShareFps::F60),
         sound: prefs.chat.share_sound,
     };
     let choice = state.chat.share_choice.get_or_insert(saved);
@@ -1175,33 +1234,43 @@ fn share(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>, chat: Ch
             let h = col.min_rect().height().max(pr.height());
             ui.allocate_space(vec2(w, h));
             ui.add_space(space::S4);
-            SettingRow::new(s::PICTURE())
-                .help(s::PICTURE_HELP())
+            // Picture and Frame rate are selects (notes J): choices, said once each.
+            let sizes: Vec<String> = sq::HEIGHTS.into_iter().map(sq::height_label).collect();
+            let sizes: Vec<&str> = sizes.iter().map(String::as_str).collect();
+            SettingRow::new(cs::PICTURE())
+                .help(cs::PICTURE_HELP())
                 .show(ui, |ui| {
-                    segmented(
+                    select(
                         ui,
-                        s::PICTURE(),
+                        cs::PICTURE(),
+                        None,
+                        None,
                         &mut choice.quality,
-                        &[
-                            Segment {
-                                icon: None,
-                                label: s::Q720(),
-                            },
-                            Segment {
-                                icon: None,
-                                label: s::Q1080(),
-                            },
-                            Segment {
-                                icon: None,
-                                label: s::QSOURCE(),
-                            },
-                        ],
+                        &sizes,
                         false,
                     );
                 });
-            SettingRow::new(s::INCLUDE_SOUND()).show(ui, |ui| {
-                switch(ui, &mut choice.sound, s::INCLUDE_SOUND());
+            let rates: Vec<String> = sq::RATES.into_iter().map(cs::fps).collect();
+            let rates: Vec<&str> = rates.iter().map(String::as_str).collect();
+            SettingRow::new(cs::FRAME_RATE()).show(ui, |ui| {
+                select(
+                    ui,
+                    cs::FRAME_RATE(),
+                    None,
+                    None,
+                    &mut choice.fps,
+                    &rates,
+                    false,
+                );
             });
+            // Streams carry no sound yet: the switch stays off and says why.
+            SettingRow::new(s::INCLUDE_SOUND())
+                .enabled(false)
+                .show(ui, |ui| {
+                    let mut off = false;
+                    let r = switch(ui, &mut off, s::INCLUDE_SOUND());
+                    crate::widgets::tooltip::disabled(r, cs::NO_SOUND());
+                });
         },
         |ui| {
             let go = ui.add(Button::primary(s::SHARE_GAME())).clicked();
@@ -1211,18 +1280,23 @@ fn share(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>, chat: Ch
     );
     let (go, cancel) = shown.footer;
     if go {
-        // The choice is kept for next time (`[chat] share_quality`, `share_sound`).
+        // The choice is kept for next time and is where the share starts
+        // (`[chat] share_quality`, `share_fps`, `share_sound`).
         let chosen = state.chat.share_choice.unwrap_or(saved);
         if chosen != saved {
-            let quality = ShareQuality::ALL
-                .get(chosen.quality)
-                .copied()
-                .unwrap_or_default();
+            let quality = sq::HEIGHTS.get(chosen.quality).copied().unwrap_or_default();
+            let fps = if chosen.fps == 0 {
+                ShareFps::F30
+            } else {
+                ShareFps::F60
+            };
             let mut next = (*prefs).clone();
             next.chat.share_quality = quality;
+            next.chat.share_fps = fps;
             next.chat.share_sound = chosen.sound;
             let patch = PreferencePatch::new()
                 .set("chat.share_quality", quality.as_str())
+                .set("chat.share_fps", fps.as_str())
                 .set("chat.share_sound", chosen.sound);
             env.bridge.send(UiCommand::SetPreference {
                 patch,
@@ -1230,17 +1304,115 @@ fn share(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>, chat: Ch
             });
             env.bridge.set_prefs_preview(next);
         }
-        env.bridge
-            .send(Command::Chat(ChatCommand::StartShare(chat)));
+        // Next: say which window to pick before the desktop asks.
+        state.chat.call.share_step = ShareStep::Choose;
+        return false;
     }
-    if go || cancel {
+    if cancel {
         modal::closed(ctx, id);
     }
-    let done = go || cancel || shown.close_requested;
+    let done = cancel || shown.close_requested;
     if done {
         state.chat.share_choice = None;
     }
     done
+}
+
+/// The share dialog's second step: "Choose <game> in the next window", then Continue opens
+/// the desktop's window picker and waits for it ("Waiting for your desktop…").
+fn share_choose(
+    ctx: &Context,
+    id: Id,
+    state: &mut UiState,
+    env: &mut Env<'_>,
+    chat: ChatRef,
+    game: &str,
+) -> bool {
+    let p = theme::theme(ctx).palette.clone();
+    let waiting = state.chat.call.share_step == ShareStep::Waiting;
+    let title = cs::choose_title(game);
+    let text = cs::choose_text(game);
+    let shown = modal::show(
+        ctx,
+        id,
+        Spec::new(&title).step(1),
+        |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let [pw, gap] = m::SHARE_POSTER;
+            let w = ui.available_width();
+            let top = ui.cursor().min;
+            let rtl = crate::i18n::dir() == crate::i18n::Dir::Rtl;
+            let px = if rtl { top.x + w - pw } else { top.x };
+            let pr = Rect::from_min_size(pos2(px, top.y), vec2(pw, pw * layout::COVER_ASPECT));
+            poster(ui, pr, game);
+            let tx = if rtl { top.x } else { top.x + pw + gap };
+            let tw = w - pw - gap;
+            let g = Type::Prose.galley(ui, &text, p.t2, tw, usize::MAX);
+            let gx = if rtl { tx + tw - g.size().x } else { tx };
+            let h = g.size().y.max(pr.height());
+            ui.painter().galley(pos2(gx, top.y), g, p.t2);
+            let (r, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
+            crate::a11y::item(
+                &ui.interact(r, id.with("text"), Sense::hover()),
+                egui::Role::Label,
+                &text,
+            );
+        },
+        |ui| {
+            let label = if waiting {
+                cs::WAITING()
+            } else {
+                cs::CONTINUE()
+            };
+            let go = ui.add(Button::primary(label).busy(waiting)).clicked() && !waiting;
+            let cancel = ui.add(Button::new(c::CANCEL())).clicked();
+            (go, cancel)
+        },
+    );
+    let (go, cancel) = shown.footer;
+    if go {
+        // The desktop's picker opens now; nothing is sent until a window is picked.
+        env.bridge
+            .send(Command::Chat(ChatCommand::StartShare(chat)));
+        state.chat.call.share_step = ShareStep::Waiting;
+    }
+    if cancel || shown.close_requested {
+        if waiting {
+            env.bridge.send(Command::Chat(ChatCommand::StopShare));
+        }
+        state.chat.call.share_step = ShareStep::Ask;
+        state.chat.share_choice = None;
+        if cancel {
+            modal::closed(ctx, id);
+        }
+        return true;
+    }
+    false
+}
+
+/// A failure while the desktop's window picker was open ends the wait: a closed picker says
+/// so in a toast (returns `true`: handled), anything else shows as an error.
+pub fn share_failed(
+    state: &mut UiState,
+    code: easyplay_core::error::ErrorCode,
+    mono: easyplay_core::clock::MonoInstant,
+) -> bool {
+    use easyplay_core::error::ErrorCode as E;
+    if state.chat.call.share_step != ShareStep::Waiting {
+        return false;
+    }
+    match code {
+        E::ChtShareRefused => {
+            state.chat.call.share_step = ShareStep::Over;
+            state.toast(cs::NOT_STARTED(), ToastKind::Info, None, mono);
+            true
+        }
+        E::ChtCaptureFailed | E::ChtStreamFailed | E::ChtNoGameRunning => {
+            state.chat.call.share_step = ShareStep::Over;
+            false
+        }
+        _ => false,
+    }
 }
 
 fn start_game(
@@ -1439,12 +1611,13 @@ fn blocked(ctx: &Context, id: Id, state: &mut UiState, env: &mut Env<'_>) -> boo
                 } else {
                     (r.left(), r.right() - bw + 10.0)
                 };
-                avatar::avatar(
+                avatar::pictured(
                     ui.painter(),
                     Rect::from_min_size(pos2(ax, r.center().y - av / 2.0), vec2(av, av)),
                     &f.name,
                     f.paper,
                     Shape::Person,
+                    f.picture.as_ref(),
                 );
                 let g = Type::Body.galley(ui, &f.name, p.t1, w - av - bw - 20.0, 1);
                 let tx = if rtl {

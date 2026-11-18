@@ -1,0 +1,413 @@
+{
+ "result": {
+  "type": "contactUpdated",
+  "user": {
+   "userId": 1,
+   "agentUserId": "1",
+   "userContactId": 1,
+   "localDisplayName": "bob",
+   "profile": {
+    "profileId": 1,
+    "displayName": "bob",
+    "fullName": "",
+    "localAlias": ""
+   },
+   "fullPreferences": {
+    "timedMessages": {
+     "allow": "yes"
+    },
+    "fullDelete": {
+     "allow": "no"
+    },
+    "reactions": {
+     "allow": "yes"
+    },
+    "voice": {
+     "allow": "yes"
+    },
+    "files": {
+     "allow": "always"
+    },
+    "calls": {
+     "allow": "yes"
+    },
+    "sessions": {
+     "allow": "no"
+    },
+    "commands": []
+   },
+   "activeUser": true,
+   "activeOrder": 1,
+   "showNtfs": true,
+   "sendRcptsContacts": true,
+   "sendRcptsSmallGroups": true,
+   "autoAcceptMemberContacts": false,
+   "userChatRelay": false,
+   "clientService": false
+  },
+  "fromContact": {
+   "contactId": 3,
+   "localDisplayName": "alice",
+   "profile": {
+    "profileId": 3,
+    "displayName": "alice",
+    "fullName": "",
+    "shortDescr": "Mostly co-op.",
+    "image": "data:image/jpg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAwADADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAP/xAAWEAEBAQAAAAAAAAAAAAAAAAAAERL/xAAYAQEBAAMAAAAAAAAAAAAAAAAABAEFBv/EABURAQEAAAAAAAAAAAAAAAAAAAAT/9oADAMBAAIRAxEAPwCEIpCOgaKicIpCBROEUhAopkypkyyionkypkyFE8mVMmQopCKQghonCKQgUThFIQKP/9k=",
+    "preferences": {
+     "timedMessages": {
+      "allow": "yes"
+     },
+     "fullDelete": {
+      "allow": "no"
+     },
+     "reactions": {
+      "allow": "yes"
+     },
+     "voice": {
+      "allow": "yes"
+     },
+     "files": {
+      "allow": "always"
+     },
+     "calls": {
+      "allow": "yes"
+     },
+     "sessions": {
+      "allow": "no"
+     },
+     "commands": []
+    },
+    "localAlias": ""
+   },
+   "activeConn": {
+    "connId": 1,
+    "agentConnId": "U29VaUl3TVZyWlg0S1FaRQ==",
+    "connChatVersion": 19,
+    "peerChatVRange": {
+     "minVersion": 1,
+     "maxVersion": 19
+    },
+    "connLevel": 0,
+    "viaGroupLink": false,
+    "connType": "contact",
+    "connStatus": {
+     "type": "ready"
+    },
+    "contactConnInitiated": false,
+    "localAlias": "",
+    "entityId": 3,
+    "pqSupport": true,
+    "pqEncryption": true,
+    "pqSndEnabled": true,
+    "pqRcvEnabled": true,
+    "authErrCounter": 0,
+    "quotaErrCounter": 0,
+    "createdAt": "2026-11-17T20:14:29.238181906Z"
+   },
+   "contactUsed": true,
+   "contactStatus": "active",
+   "chatSettings": {
+    "enableNtfs": "all",
+    "favorite": false
+   },
+   "userPreferences": {},
+   "mergedPreferences": {
+    "timedMessages": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "yes"
+      }
+     },
+     "contactPreference": {
+      "allow": "yes"
+     }
+    },
+    "fullDelete": {
+     "enabled": {
+      "forUser": false,
+      "forContact": false
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "no"
+      }
+     },
+     "contactPreference": {
+      "allow": "no"
+     }
+    },
+    "reactions": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "yes"
+      }
+     },
+     "contactPreference": {
+      "allow": "yes"
+     }
+    },
+    "voice": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "yes"
+      }
+     },
+     "contactPreference": {
+      "allow": "yes"
+     }
+    },
+    "files": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "always"
+      }
+     },
+     "contactPreference": {
+      "allow": "always"
+     }
+    },
+    "calls": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "yes"
+      }
+     },
+     "contactPreference": {
+      "allow": "yes"
+     }
+    },
+    "sessions": {
+     "enabled": {
+      "forUser": false,
+      "forContact": false
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "no"
+      }
+     },
+     "contactPreference": {
+      "allow": "no"
+     }
+    },
+    "commands": []
+   },
+   "createdAt": "2026-11-17T20:14:29.514964798Z",
+   "updatedAt": "2026-11-17T20:14:29.514964798Z",
+   "chatTs": "2026-11-17T20:14:29.518710499Z",
+   "contactGrpInvSent": false,
+   "chatTags": [],
+   "chatDeleted": false
+  },
+  "toContact": {
+   "contactId": 3,
+   "localDisplayName": "alice",
+   "profile": {
+    "profileId": 3,
+    "displayName": "alice",
+    "fullName": "",
+    "shortDescr": "Mostly co-op.",
+    "image": "data:image/jpg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAwADADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAT/xAAVEAEBAAAAAAAAAAAAAAAAAAAAEv/EABcBAQEBAQAAAAAAAAAAAAAAAAAEBQb/xAAVEQEBAAAAAAAAAAAAAAAAAAAAEv/aAAwDAQACEQMRAD8AgghRBDBp21p4IUQQUWnghRBBRamCFEEJ6SWnghRBBRaeCFEEFFqYIUQQnpJaeCFEEFFp4IUQQUW//9k=",
+    "preferences": {
+     "timedMessages": {
+      "allow": "yes"
+     },
+     "fullDelete": {
+      "allow": "no"
+     },
+     "reactions": {
+      "allow": "yes"
+     },
+     "voice": {
+      "allow": "yes"
+     },
+     "files": {
+      "allow": "always"
+     },
+     "calls": {
+      "allow": "yes"
+     },
+     "sessions": {
+      "allow": "no"
+     },
+     "commands": []
+    },
+    "localAlias": ""
+   },
+   "activeConn": {
+    "connId": 1,
+    "agentConnId": "U29VaUl3TVZyWlg0S1FaRQ==",
+    "connChatVersion": 19,
+    "peerChatVRange": {
+     "minVersion": 1,
+     "maxVersion": 19
+    },
+    "connLevel": 0,
+    "viaGroupLink": false,
+    "connType": "contact",
+    "connStatus": {
+     "type": "ready"
+    },
+    "contactConnInitiated": false,
+    "localAlias": "",
+    "entityId": 3,
+    "pqSupport": true,
+    "pqEncryption": true,
+    "pqSndEnabled": true,
+    "pqRcvEnabled": true,
+    "authErrCounter": 0,
+    "quotaErrCounter": 0,
+    "createdAt": "2026-11-17T20:14:29.238181906Z"
+   },
+   "contactUsed": true,
+   "contactStatus": "active",
+   "chatSettings": {
+    "enableNtfs": "all",
+    "favorite": false
+   },
+   "userPreferences": {},
+   "mergedPreferences": {
+    "timedMessages": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "yes"
+      }
+     },
+     "contactPreference": {
+      "allow": "yes"
+     }
+    },
+    "fullDelete": {
+     "enabled": {
+      "forUser": false,
+      "forContact": false
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "no"
+      }
+     },
+     "contactPreference": {
+      "allow": "no"
+     }
+    },
+    "reactions": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "yes"
+      }
+     },
+     "contactPreference": {
+      "allow": "yes"
+     }
+    },
+    "voice": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "yes"
+      }
+     },
+     "contactPreference": {
+      "allow": "yes"
+     }
+    },
+    "files": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "always"
+      }
+     },
+     "contactPreference": {
+      "allow": "always"
+     }
+    },
+    "calls": {
+     "enabled": {
+      "forUser": true,
+      "forContact": true
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "yes"
+      }
+     },
+     "contactPreference": {
+      "allow": "yes"
+     }
+    },
+    "sessions": {
+     "enabled": {
+      "forUser": false,
+      "forContact": false
+     },
+     "userPreference": {
+      "type": "user",
+      "preference": {
+       "allow": "no"
+      }
+     },
+     "contactPreference": {
+      "allow": "no"
+     }
+    },
+    "commands": []
+   },
+   "createdAt": "2026-11-17T20:14:29.514964798Z",
+   "updatedAt": "2026-11-17T20:14:29.514964798Z",
+   "chatTs": "2026-11-17T20:14:29.518710499Z",
+   "contactGrpInvSent": false,
+   "chatTags": [],
+   "chatDeleted": false
+  }
+ }
+}

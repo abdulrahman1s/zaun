@@ -580,7 +580,7 @@ fn chat(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
 /// engine cannot do are not drawn (`ChatSnapshot::features`, published whether Chat is on
 /// or off).
 fn chat_tab(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
-    use easyplay_core::config::schema::{ChatEmoji, ChatSendWith, ShareQuality};
+    use easyplay_core::config::schema::{ChatEmoji, ChatSendWith};
     use strings::chat::settings as cs;
     chat(ui, state, env);
     let prefs = env.bridge.prefs().clone();
@@ -699,80 +699,14 @@ fn chat_tab(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     );
 
     if f.calls {
-        rows::heading(ui, cs::CALLS(), false);
-        let (mics, outs) = if env.bridge.is_preview() {
-            cs::preview_devices()
-        } else {
-            (&[][..], &[][..])
-        };
-        device_row(ui, state, env, "chat.mic", cs::MIC(), mics, |p| {
-            &mut p.chat.mic
-        });
-        device_row(ui, state, env, "chat.speakers", cs::SPEAKERS(), outs, |p| {
-            &mut p.chat.speakers
-        });
-        switch_row(
-            ui,
-            state,
-            env,
-            "chat.noise_suppression",
-            cs::NOISE(),
-            "",
-            true,
-            |p| p.chat.noise_suppression,
-            |p, v| p.chat.noise_suppression = v,
-        );
-        switch_row(
-            ui,
-            state,
-            env,
-            "chat.relay_calls",
-            cs::RELAY_CALLS(),
-            cs::RELAY_CALLS_HELP(),
-            true,
-            |p| p.chat.relay_calls,
-            |p, v| p.chat.relay_calls = v,
-        );
+        voice_and_video(ui, state, env);
     }
 
     if f.share {
-        rows::heading(ui, cs::SHARING(), false);
-        seg_row(
-            ui,
-            state,
-            env,
-            "chat.share_quality",
-            cs::PICTURE(),
-            "",
-            true,
-            &[cs::PICTURE_720(), cs::PICTURE_1080(), cs::PICTURE_SOURCE()],
-            &["720", "1080", "source"],
-            idx(ShareQuality::ALL, prefs.chat.share_quality),
-            |p, i| p.chat.share_quality = ShareQuality::ALL[i],
-        );
-        switch_row(
-            ui,
-            state,
-            env,
-            "chat.share_sound",
-            cs::SHARE_SOUND(),
-            "",
-            true,
-            |p| p.chat.share_sound,
-            |p, v| p.chat.share_sound = v,
-        );
-        switch_row(
-            ui,
-            state,
-            env,
-            "chat.share_pause",
-            cs::SHARE_PAUSE(),
-            cs::SHARE_PAUSE_HELP(),
-            true,
-            |p| p.chat.share_pause,
-            |p, v| p.chat.share_pause = v,
-        );
+        sharing_group(ui, state, env);
     }
+
+    overlay_group(ui, state, env);
 
     rows::heading(ui, cs::NOTIFICATIONS(), false);
     switch_row(
@@ -847,52 +781,786 @@ fn gif_text_row(
     }
 }
 
-/// A row with a select over sound devices: the system default (stored as ""), `known`
-/// devices, and the stored one when it is not among them.
+/// The choices of a device row: stored names and what the select shows, kept until the
+/// snapshot's devices, the stored device or the language change.
+///
+/// Eviction rule: one entry per row key (two rows), replaced when its stamp changes.
+#[derive(Clone, Default)]
+struct DeviceChoices {
+    /// The device list it was made from (its address), the stored name, the language.
+    stamp: (usize, String, u64),
+    names: Vec<String>,
+    labels: Vec<String>,
+}
+
+/// A row with a select over sound devices: the system default (stored as ""), the devices
+/// the sound server listed (their descriptions shown, their names stored), and the stored
+/// one when it is not among them ("USB headset (not connected)", kept until changed).
 fn device_row(
     ui: &mut Ui,
     state: &mut UiState,
     env: &mut Env<'_>,
     key: &'static str,
     label: &str,
-    known: &[&str],
+    known: &[easyplay_core::model::AudioDevice],
     field: fn(&mut Preferences) -> &mut String,
 ) {
     note_key(ui, key);
     let current = field(&mut (**env.bridge.prefs()).clone()).clone();
-    let mut values: Vec<String> = std::iter::once(String::new())
-        .chain(known.iter().map(|d| (*d).to_owned()))
-        .collect();
-    if !values.contains(&current) {
-        values.push(current.clone());
+    let id = Id::unique(("settings.devices", key));
+    let stamp = (known.as_ptr() as usize, current, crate::i18n::generation());
+    let mut choices: DeviceChoices = ui.ctx().data(|d| d.get_temp(id)).unwrap_or_default();
+    if choices.stamp != stamp || choices.names.is_empty() {
+        let mut names = vec![String::new()];
+        let mut labels = vec![strings::chat::settings::SYSTEM_DEFAULT().to_owned()];
+        for d in known {
+            names.push(d.name.clone());
+            labels.push(d.description.clone());
+        }
+        if !names.contains(&stamp.1) {
+            names.push(stamp.1.clone());
+            labels.push(strings::chat::settings::not_connected(&stamp.1));
+        }
+        choices = DeviceChoices {
+            stamp,
+            names,
+            labels,
+        };
+        ui.ctx().data_mut(|d| d.insert_temp(id, choices.clone()));
     }
-    let labels: Vec<&str> = values
-        .iter()
-        .map(|v| {
-            if v.is_empty() {
-                strings::chat::settings::SYSTEM_DEFAULT()
-            } else {
-                v.as_str()
-            }
-        })
-        .collect();
-    let mut i = values.iter().position(|v| *v == current).unwrap_or(0);
+    let current = &choices.stamp.1;
+    let labels: Vec<&str> = choices.labels.iter().map(String::as_str).collect();
+    let mut i = choices.names.iter().position(|v| v == current).unwrap_or(0);
     let changed = SettingRow::new(label).show(ui, |ui| {
         band(ui, control::SM, |ui| {
             select(ui, label, None, None, &mut i, &labels, false).changed()
         })
     });
-    if changed && values[i] != current {
+    let picked = &choices.names[i.min(choices.names.len() - 1)];
+    if changed && picked != current {
         let mut next = (**env.bridge.prefs()).clone();
-        *field(&mut next) = values[i].clone();
+        field(&mut next).clone_from(picked);
         commit(
             state,
             env,
             key,
-            PreferencePatch::new().set(key, values[i].clone()),
+            PreferencePatch::new().set(key, picked.clone()),
             next,
         );
     }
+}
+
+/// Settings › Chat › Voice and video (chat-calls.html notes H): microphone, speakers, the
+/// input level with "Let's check", microphone volume, noise, the relay switch and, under
+/// Advanced, the relay servers. Opening it asks the sound server for its devices again.
+fn voice_and_video(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
+    use easyplay_core::service::ChatCommand;
+    use strings::chat::settings as cs;
+    let pass = ui.ctx().cumulative_pass_nr();
+    let last: Option<u64> = ui.ctx().data(|d| d.get_temp(voice_id()));
+    if last.is_none_or(|n| n + 2 < pass) {
+        env.bridge
+            .send(Command::Chat(ChatCommand::RefreshAudioDevices));
+    }
+    ui.ctx().data_mut(|d| d.insert_temp(voice_id(), pass));
+    rows::heading(ui, cs::CALLS(), false);
+    let before = mic_test_inputs(env.bridge.prefs());
+    let chat = std::sync::Arc::clone(env.bridge.chat());
+    let (mics, outs) = chat
+        .audio_devices
+        .as_ref()
+        .map_or((&[][..], &[][..]), |d| (&d.inputs[..], &d.outputs[..]));
+    device_row(ui, state, env, "chat.mic", cs::MIC(), mics, |p| {
+        &mut p.chat.mic
+    });
+    device_row(ui, state, env, "chat.speakers", cs::SPEAKERS(), outs, |p| {
+        &mut p.chat.speakers
+    });
+    input_level_row(ui, env);
+    mic_volume_row(ui, state, env);
+    switch_row(
+        ui,
+        state,
+        env,
+        "chat.noise_suppression",
+        cs::NOISE(),
+        cs::NOISE_HELP(),
+        true,
+        |p| p.chat.noise_suppression,
+        |p, v| p.chat.noise_suppression = v,
+    );
+    // The test reads these when it starts: a change restarts a running one.
+    if chat.live.mic_test.is_some() && mic_test_inputs(env.bridge.prefs()) != before {
+        env.bridge.send(Command::Chat(ChatCommand::MicTest(false)));
+        env.bridge.send(Command::Chat(ChatCommand::MicTest(true)));
+    }
+    switch_row(
+        ui,
+        state,
+        env,
+        "chat.relay_calls",
+        cs::RELAY_CALLS(),
+        cs::RELAY_CALLS_HELP(),
+        true,
+        |p| p.chat.relay_calls,
+        |p, v| p.chat.relay_calls = v,
+    );
+    relay_servers(ui, state, env);
+}
+
+fn voice_id() -> Id {
+    Id::unique("settings.chat.voice_drawn")
+}
+
+/// What the microphone test is started with.
+fn mic_test_inputs(p: &Preferences) -> (String, String, u8, bool) {
+    (
+        p.chat.mic.clone(),
+        p.chat.speakers.clone(),
+        p.chat.mic_volume,
+        p.chat.noise_suppression,
+    )
+}
+
+/// The longest a microphone test runs before it stops by itself, in seconds.
+const MIC_TEST_FOR: f64 = 30.0;
+
+/// The meter: 160 × 6, an `o2` track and the level in `t2`.
+const METER: [f32; 2] = [160.0, 6.0];
+
+/// "Input level": the meter and "Let's check" / "Stop". The microphone opens only when the
+/// check is asked for; the meter moves while it runs and rests empty otherwise.
+fn input_level_row(ui: &mut Ui, env: &mut Env<'_>) {
+    use easyplay_core::service::ChatCommand;
+    use strings::chat::settings as cs;
+    let live = &env.bridge.chat().live;
+    let level = live.mic_test;
+    let in_call = live.call.is_some();
+    let running = level.is_some();
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let help = if running {
+        cs::CHECKING()
+    } else {
+        cs::LEVEL_HELP()
+    };
+    let pressed = SettingRow::new(cs::LEVEL()).help(help).show(ui, |ui| {
+        band(ui, control::BUTTON, |ui| {
+            let (r, resp) = ui.allocate_exact_size(vec2(METER[0], METER[1]), Sense::hover());
+            // Between the service's updates (about 20 a second) the bar glides to the level.
+            let target = f32::from(level.unwrap_or(0)) / 100.0;
+            let shown = ui
+                .ctx()
+                .animate_value_with_time(resp.id.with("level"), target, 0.05);
+            let corner = egui::CornerRadius::same(3);
+            ui.painter().rect_filled(r, corner, p.o2);
+            if shown > 0.0 {
+                let fill = egui::Rect::from_min_size(r.min, vec2(r.width() * shown, r.height()));
+                ui.painter().rect_filled(fill, corner, p.t2);
+            }
+            crate::a11y::item(&resp, egui::Role::Meter, cs::LEVEL());
+            ui.ctx().accesskit_node_builder(resp.id, |n| {
+                n.set_min_numeric_value(0.0);
+                n.set_max_numeric_value(100.0);
+                n.set_numeric_value(f64::from(level.unwrap_or(0)));
+            });
+            ui.add_space(space::S2 - ui.spacing().item_spacing.x);
+            let label = if running {
+                cs::STOP_CHECK()
+            } else {
+                cs::CHECK()
+            };
+            ui.add_enabled(running || !in_call, Button::new(label))
+                .clicked()
+        })
+    });
+    if pressed {
+        env.bridge
+            .send(Command::Chat(ChatCommand::MicTest(!running)));
+        let now = ui.input(|i| i.time);
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(mic_test_id(), (!running).then_some(now)));
+    }
+}
+
+fn mic_test_id() -> Id {
+    Id::unique("settings.chat.mic_test_started")
+}
+
+/// Every frame, wherever the user is: a running microphone test stops when Settings ›
+/// Chat is no longer drawn (another tab or page) and after 30 s.
+pub fn watch_mic_test(ctx: &egui::Context, env: &mut Env<'_>) {
+    use easyplay_core::service::ChatCommand;
+    let running = env.bridge.chat().live.mic_test.is_some();
+    let started: Option<f64> = ctx.data(|d| d.get_temp(mic_test_id())).flatten();
+    if !running && started.is_none() {
+        return;
+    }
+    let now = ctx.input(|i| i.time);
+    let pass = ctx.cumulative_pass_nr();
+    let drawn = ctx
+        .data(|d| d.get_temp::<u64>(voice_id()))
+        .is_some_and(|n| n + 2 >= pass);
+    let too_long = started.is_some_and(|t| now - t >= MIC_TEST_FOR);
+    if let Some(t) = started {
+        ctx.request_repaint_after_secs((MIC_TEST_FOR - (now - t)).max(0.1) as f32);
+    }
+    if drawn && !too_long {
+        return;
+    }
+    ctx.data_mut(|d| d.insert_temp(mic_test_id(), None::<f64>));
+    // Once a second at most: the snapshot says it stopped a moment later.
+    let sent: Option<f64> = ctx.data(|d| d.get_temp(mic_test_id().with("stop")));
+    if running && sent.is_none_or(|t| now - t >= 1.0) {
+        env.bridge.send(Command::Chat(ChatCommand::MicTest(false)));
+        ctx.data_mut(|d| d.insert_temp(mic_test_id().with("stop"), now));
+    }
+}
+
+/// Settings › Chat › Sharing a game (chat-calls.html notes J): where sharing starts
+/// (picture and frame rate, both selects), the game's sound, pausing, and the encoder.
+fn sharing_group(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
+    use easyplay_core::config::schema::{ShareFps, ShareQuality};
+    use strings::chat::settings as cs;
+    let prefs = env.bridge.prefs().clone();
+    rows::heading(ui, cs::SHARING(), false);
+    const PICTURES: [ShareQuality; 4] = [
+        ShareQuality::P720,
+        ShareQuality::P1080,
+        ShareQuality::P1440,
+        ShareQuality::Source,
+    ];
+    let labels = [
+        cs::PICTURE_720(),
+        cs::PICTURE_1080(),
+        cs::PICTURE_1440(),
+        cs::PICTURE_SOURCE(),
+    ];
+    if let Some(q) = select_row(
+        ui,
+        "chat.share_quality",
+        (cs::PICTURE(), cs::PICTURE_HELP()),
+        &labels,
+        idx(&PICTURES, prefs.chat.share_quality),
+    ) {
+        let q = PICTURES[q];
+        let mut next = (*prefs).clone();
+        next.chat.share_quality = q;
+        let patch = PreferencePatch::new().set("chat.share_quality", q.as_str());
+        commit(state, env, "chat.share_quality", patch, next);
+    }
+    const RATES: [ShareFps; 2] = [ShareFps::F30, ShareFps::F60];
+    if let Some(i) = select_row(
+        ui,
+        "chat.share_fps",
+        (cs::FRAME_RATE(), ""),
+        &[cs::FPS_30(), cs::FPS_60()],
+        idx(&RATES, prefs.chat.share_fps),
+    ) {
+        let fps = RATES[i.min(1)];
+        let mut next = (*prefs).clone();
+        next.chat.share_fps = fps;
+        let patch = PreferencePatch::new().set("chat.share_fps", fps.as_str());
+        commit(state, env, "chat.share_fps", patch, next);
+    }
+    switch_row(
+        ui,
+        state,
+        env,
+        "chat.share_sound",
+        cs::SHARE_SOUND(),
+        cs::SHARE_SOUND_LATER(),
+        // Streams are video only (ADR-0036): a live switch here would do nothing.
+        false,
+        |p| p.chat.share_sound,
+        |p, v| p.chat.share_sound = v,
+    );
+    switch_row(
+        ui,
+        state,
+        env,
+        "chat.share_pause",
+        cs::SHARE_PAUSE(),
+        cs::SHARE_PAUSE_AUTO(),
+        // The media pauses on its own; it does not read this switch yet (ADR-0036).
+        false,
+        |p| p.chat.share_pause,
+        |p, v| p.chat.share_pause = v,
+    );
+    // On: the graphics card when there is one (NVENC, VA-API), else software.
+    switch_row(
+        ui,
+        state,
+        env,
+        "chat.share_hw_encode",
+        cs::HW_ENCODE(),
+        cs::HW_ENCODE_HELP(),
+        true,
+        |p| p.chat.share_hw_encode,
+        |p, v| p.chat.share_hw_encode = v,
+    );
+}
+
+/// A row with a select over `options` (`current` chosen); the newly chosen index.
+fn select_row(
+    ui: &mut Ui,
+    key: &'static str,
+    (label, help): (&str, &str),
+    options: &[&str],
+    current: usize,
+) -> Option<usize> {
+    note_key(ui, key);
+    let mut i = current;
+    let changed = SettingRow::new(label).help(help).show(ui, |ui| {
+        band(ui, control::SM, |ui| {
+            select(ui, label, None, None, &mut i, options, false).changed()
+        })
+    });
+    (changed && i != current).then_some(i)
+}
+
+/// "Microphone volume": a 150 slider and its value, stored when the drag ends
+/// (`chat.mic_volume`).
+fn mic_volume_row(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
+    use strings::chat::settings as cs;
+    const KEY: &str = "chat.mic_volume";
+    note_key(ui, KEY);
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let stored = f32::from(env.bridge.prefs().chat.mic_volume);
+    let mut v = stored;
+    let done = SettingRow::new(cs::MIC_VOLUME()).show(ui, |ui| {
+        band(ui, control::BUTTON, |ui| {
+            let shown = s::percent(f64::from(v) / 100.0);
+            let r = slider(
+                ui,
+                &mut v,
+                0.0..=100.0,
+                1.0,
+                control::SLIDER_W,
+                cs::MIC_VOLUME(),
+                &shown,
+            );
+            let text = s::percent(f64::from(v) / 100.0);
+            let (rect, _) = ui.allocate_exact_size(
+                vec2(layout::SLIDER_VALUE_W, Type::Label.line_height()),
+                Sense::hover(),
+            );
+            let g = Type::Caption.numeric_galley(ui, &text, p.t2);
+            ui.painter().galley(
+                pos2(
+                    rect.right() - g.size().x,
+                    rect.center().y - g.size().y / 2.0,
+                ),
+                g,
+                p.t2,
+            );
+            r.drag_stopped() || (r.changed() && !r.dragged())
+        })
+    });
+    if done && (v - stored).abs() > 0.5 {
+        let mut next = (**env.bridge.prefs()).clone();
+        next.chat.mic_volume = v.round().clamp(0.0, 100.0) as u8;
+        let value = i64::from(next.chat.mic_volume);
+        commit(
+            state,
+            env,
+            KEY,
+            PreferencePatch::new().set(KEY, value),
+            next,
+        );
+    }
+}
+
+/// "Advanced": a 30 high text button whose 13 caret turns 90° (220 out, 220 back), and
+/// under it the relay servers (`chat.ice_servers`), saved when the field loses focus.
+fn relay_servers(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
+    use strings::chat::settings as cs;
+    const KEY: &str = "chat.ice_servers";
+    // The field is one click away behind the disclosure: it counts as this key's control.
+    note_key(ui, KEY);
+    let theme = theme::theme(ui.ctx());
+    let p = theme.palette.clone();
+    let id = Id::unique("settings.chat.advanced");
+    let open: bool = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(false);
+    let t =
+        ui.ctx()
+            .animate_bool_with_time(id.with("turn"), open, theme.motion.movement(Dur::Base));
+    let label = Type::Body.galley(ui, cs::ADVANCED(), p.t2, f32::INFINITY, 1);
+    let caret = 13.0;
+    let w = caret + space::S2 + label.size().x;
+    let (r, resp) = ui.allocate_exact_size(vec2(w, control::BUTTON), Sense::click());
+    // Settings is laid out left to right in every language (as its other rows are).
+    let c = pos2(r.left() + caret / 2.0, r.center().y);
+    let g = ui.painter().layout_no_wrap(
+        theme::icons::CARET_RIGHT.text(false).to_string(),
+        theme::icons::font(caret),
+        p.t2,
+    );
+    let angle = t * std::f32::consts::FRAC_PI_2;
+    let half = egui::emath::Rot2::from_angle(angle) * (g.size() / 2.0);
+    ui.painter()
+        .add(egui::epaint::TextShape::new(c - half, g, p.t2).with_angle(angle));
+    let lx = r.left() + caret + space::S2;
+    ui.painter()
+        .galley(pos2(lx, r.center().y - label.size().y / 2.0), label, p.t2);
+    crate::a11y::button(&resp, cs::ADVANCED());
+    ui.ctx()
+        .accesskit_node_builder(resp.id, |n| n.set_expanded(open));
+    if resp.has_focus() && crate::widgets::focus_visible(ui.ctx()) {
+        crate::widgets::focus_ring(
+            ui.painter(),
+            r.expand(2.0),
+            egui::CornerRadius::same(theme::tokens::radius::SM),
+            &theme,
+        );
+    }
+    if resp.clicked() {
+        ui.ctx().data_mut(|d| d.insert_temp(id, !open));
+    }
+    if !open {
+        return;
+    }
+    let current = env.bridge.prefs().chat.ice_servers.join(" ");
+    let buf = state
+        .settings
+        .paths
+        .entry(KEY.to_owned())
+        .or_insert_with(|| current.clone());
+    let field = TextField::new(buf, KEY)
+        .accessible_name(cs::RELAY_SERVERS())
+        .hint(cs::RELAY_SERVERS_EMPTY())
+        .mono()
+        .width(layout::PATH_FIELD_W);
+    let r = SettingRow::new(cs::RELAY_SERVERS())
+        .help(cs::RELAY_SERVERS_HELP())
+        .show(ui, |ui| {
+            band(ui, control::BUTTON, |ui| field.show(ui).response)
+        });
+    let typed = buf.split_whitespace().collect::<Vec<_>>().join(" ");
+    if r.lost_focus() && typed != current {
+        let list: Vec<String> = typed.split_whitespace().map(str::to_owned).collect();
+        let mut next = (**env.bridge.prefs()).clone();
+        next.chat.ice_servers = list.clone();
+        commit(state, env, KEY, PreferencePatch::new().set(KEY, list), next);
+    } else if !r.has_focus() {
+        state.settings.paths.insert(KEY.to_owned(), current);
+    }
+}
+
+/// Settings › Chat › Overlay (notes H): the switch, the key the hints show, toasts, the
+/// call's widget and its corner. Where the desktop cannot show the overlay, one note line
+/// under the heading and every row dims in place (the switch shows off); the rows after
+/// the switch dim while it is off, and the corner while the widget is.
+fn overlay_group(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
+    use easyplay_core::config::schema::OverlayCorner;
+    use easyplay_core::service::OverlayStatus;
+    use strings::chat::settings as cs;
+    let prefs = env.bridge.prefs().clone();
+    let cannot = match env.bridge.overlay() {
+        OverlayStatus::Unsupported | OverlayStatus::NoGpu | OverlayStatus::Missing => true,
+        OverlayStatus::Idle | OverlayStatus::Running | OverlayStatus::Failing => false,
+    };
+    rows::heading(ui, cs::OVERLAY(), false);
+    if cannot {
+        note_line(ui, cs::OVERLAY_NONE());
+    }
+    note_key(ui, "chat.overlay");
+    let mut on = prefs.chat.overlay && !cannot;
+    let changed = SettingRow::new(cs::OVERLAY_ON())
+        .help(cs::OVERLAY_HELP())
+        .enabled(!cannot)
+        .show(ui, |ui| {
+            band(ui, control::TOGGLE_H, |ui| {
+                switch(ui, &mut on, cs::OVERLAY_ON()).changed()
+            })
+        });
+    if changed {
+        set_bool(state, env, "chat.overlay", on, |p, v| p.chat.overlay = v);
+    }
+    let live = !cannot && prefs.chat.overlay;
+    key_row(ui, state, env, live);
+    switch_row(
+        ui,
+        state,
+        env,
+        "chat.overlay_toasts",
+        cs::TOASTS(),
+        cs::TOASTS_HELP(),
+        live,
+        |p| p.chat.overlay_toasts,
+        |p, v| p.chat.overlay_toasts = v,
+    );
+    switch_row(
+        ui,
+        state,
+        env,
+        "chat.overlay_voice_widget",
+        cs::WIDGET(),
+        cs::WIDGET_HELP(),
+        live,
+        |p| p.chat.overlay_voice_widget,
+        |p, v| p.chat.overlay_voice_widget = v,
+    );
+    const CORNER: &str = "chat.overlay_corner";
+    note_key(ui, CORNER);
+    let labels = [
+        cs::CORNER_TL(),
+        cs::CORNER_TR(),
+        cs::CORNER_BL(),
+        cs::CORNER_BR(),
+    ];
+    let current = idx(OverlayCorner::ALL, prefs.chat.overlay_corner);
+    let mut i = current;
+    let changed = SettingRow::new(cs::CORNER())
+        .enabled(live && prefs.chat.overlay_voice_widget)
+        .show(ui, |ui| {
+            band(ui, control::SM, |ui| {
+                select(ui, cs::CORNER(), None, None, &mut i, &labels, false).changed()
+            })
+        });
+    if changed && i != current {
+        let corner = OverlayCorner::ALL[i.min(3)];
+        let mut next = (*prefs).clone();
+        next.chat.overlay_corner = corner;
+        commit(
+            state,
+            env,
+            CORNER,
+            PreferencePatch::new().set(CORNER, corner.as_str()),
+            next,
+        );
+    }
+}
+
+/// One quiet line under a heading: a 13 info glyph and 12 / 16 text in `t3`.
+fn note_line(ui: &mut Ui, text: &str) {
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let glyph = 13.0;
+    let w = ui.available_width();
+    let g = Type::Caption.galley(ui, text, p.t3, w - glyph - space::S2, usize::MAX);
+    let h = g.size().y.max(Type::Caption.line_height());
+    let (r, resp) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
+    let (gx, tx) = (r.left() + glyph / 2.0, r.left() + glyph + space::S2);
+    ui.painter().text(
+        pos2(gx, r.top() + Type::Caption.line_height() / 2.0),
+        egui::Align2::CENTER_CENTER,
+        theme::icons::INFO.text(false),
+        theme::icons::font(glyph),
+        p.t3,
+    );
+    ui.painter().galley(pos2(tx, r.top()), g, p.t3);
+    crate::a11y::item(&resp, egui::Role::Label, text);
+    ui.add_space(space::S2);
+}
+
+/// The overlay key's row (`chat.overlay_key`): under the label "Bind a key in your desktop
+/// to run [easyplay overlay] [Copy]"; at the end the key as a key cap. The key is only a
+/// label for the overlay's hints: the desktop owns the binding.
+fn key_row(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, enabled: bool) {
+    use strings::chat::settings as cs;
+    const KEY: &str = "chat.overlay_key";
+    note_key(ui, KEY);
+    let id = Id::unique("settings.chat.overlay_key");
+    let now = ui.input(|i| i.time);
+    let copied_at: Option<f64> = ui.ctx().data(|d| d.get_temp(id.with("copied")));
+    let copied = copied_at.is_some_and(|t| now - t < COPIED_FOR);
+    if copied {
+        ui.ctx().request_repaint_after_secs(0.1);
+    }
+    let mut copy = false;
+    let current = env.bridge.prefs().chat.overlay_key.clone();
+    let mut picked: Option<Pick> = None;
+    SettingRow::new(cs::KEY()).enabled(enabled).show_with(
+        ui,
+        |ui| copy = key_help_line(ui, copied),
+        |ui| {
+            band(ui, control::BUTTON_SM, |ui| {
+                picked = key_cap(ui, &current, enabled);
+            })
+        },
+    );
+    if copy {
+        ui.ctx().copy_text(cs::OVERLAY_COMMAND.to_owned());
+        ui.ctx().data_mut(|d| d.insert_temp(id.with("copied"), now));
+    }
+    let label = match picked {
+        Some(Pick::Key(k)) => k,
+        Some(Pick::Clear) => String::new(),
+        None => return,
+    };
+    if label != current {
+        let mut next = (**env.bridge.prefs()).clone();
+        next.chat.overlay_key.clone_from(&label);
+        commit(
+            state,
+            env,
+            KEY,
+            PreferencePatch::new().set(KEY, label),
+            next,
+        );
+    }
+}
+
+/// How long "Copied" shows after Copy, in seconds.
+const COPIED_FOR: f64 = 1.6;
+
+/// What the key cap recorded.
+enum Pick {
+    Key(String),
+    Clear,
+}
+
+/// The key row's help: the sentence around the command chip (mono, 22 high, `o2`, radius 5)
+/// and a small Copy button that reads "Copied" for a moment. True when Copy was pressed.
+fn key_help_line(ui: &mut Ui, copied: bool) -> bool {
+    use strings::chat::settings as cs;
+    let p = theme::theme(ui.ctx()).palette.clone();
+    let (before, after) = cs::key_help();
+    let mut pressed = false;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = space::S1 + 2.0;
+        let h = control::BUTTON_XS;
+        let text = |ui: &mut Ui, t: &str| {
+            if t.is_empty() {
+                return;
+            }
+            let g = Type::Caption.galley(ui, t, p.t3, f32::INFINITY, 1);
+            let (r, _) = ui.allocate_exact_size(vec2(g.size().x, h), Sense::hover());
+            ui.painter()
+                .galley(pos2(r.left(), r.center().y - g.size().y / 2.0), g, p.t3);
+        };
+        text(ui, &before);
+        let g = Type::Mono.galley(ui, cs::OVERLAY_COMMAND, p.t1, f32::INFINITY, 1);
+        let (r, _) = ui.allocate_exact_size(vec2(g.size().x + space::S2 * 2.0, h), Sense::hover());
+        ui.painter()
+            .rect_filled(r, egui::CornerRadius::same(5), p.o2);
+        ui.painter().galley(
+            pos2(r.left() + space::S2, r.center().y - g.size().y / 2.0),
+            g,
+            p.t1,
+        );
+        let (icon, label) = if copied {
+            (theme::icons::CHECK, cs::COPIED())
+        } else {
+            (theme::icons::COPY, cs::COPY())
+        };
+        pressed = ui
+            .add(
+                Button::new(label)
+                    .icon(icon)
+                    .size(crate::widgets::button::Size::Xs),
+            )
+            .clicked();
+        text(ui, &after);
+    });
+    pressed
+}
+
+/// The key as a key cap ("Shift+F1"; "None" without one). A click or Enter records: the cap
+/// reads "Press the key…" in accent text with a 1.5 accent ring, the next combination with
+/// a key that is not a modifier becomes the label, Esc cancels, Backspace or Delete clears.
+fn key_cap(ui: &mut Ui, current: &str, enabled: bool) -> Option<Pick> {
+    use strings::chat::settings as cs;
+    let theme = theme::theme(ui.ctx());
+    let p = theme.palette.clone();
+    let mut recording = enabled && listening_for_key(ui.ctx());
+    let text = if recording {
+        cs::KEY_PRESS()
+    } else if current.is_empty() {
+        cs::KEY_NONE()
+    } else {
+        current
+    };
+    let color = if recording { p.accent_text } else { p.t1 };
+    let g = Type::Label.galley(ui, text, color, f32::INFINITY, 1);
+    let size = vec2(g.size().x + space::S2 * 2.0, control::BUTTON_SM - 4.0);
+    let (r, resp) = ui.allocate_exact_size(size, Sense::click());
+    let corner = egui::CornerRadius::same(theme::tokens::radius::SM);
+    let ring = if recording {
+        egui::Stroke::new(1.5, p.accent_mark)
+    } else {
+        egui::Stroke::new(1.0, p.line2)
+    };
+    ui.painter()
+        .rect(r, corner, p.o1, ring, egui::StrokeKind::Inside);
+    ui.painter().galley(
+        pos2(
+            r.center().x - g.size().x / 2.0,
+            r.center().y - g.size().y / 2.0,
+        ),
+        g,
+        color,
+    );
+    crate::a11y::item(&resp, egui::Role::Button, cs::KEY_CHANGE());
+    if resp.has_focus() && crate::widgets::focus_visible(ui.ctx()) {
+        crate::widgets::focus_ring(ui.painter(), r.expand(2.0), corner, &theme);
+    }
+    let mut picked = None;
+    if recording {
+        // Every key goes to the recorder while it listens.
+        let keys: Vec<(egui::Key, egui::Modifiers)> = ui.input_mut(|i| {
+            let keys = i
+                .events
+                .iter()
+                .filter_map(|e| match e {
+                    egui::Event::Key {
+                        key,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } => Some((*key, *modifiers)),
+                    _ => None,
+                })
+                .collect();
+            i.events.retain(|e| !matches!(e, egui::Event::Key { .. }));
+            keys
+        });
+        if let Some((key, mods)) = keys.first() {
+            recording = false;
+            picked = match key {
+                egui::Key::Escape => None,
+                egui::Key::Backspace | egui::Key::Delete if mods.is_none() => Some(Pick::Clear),
+                _ => Some(Pick::Key(key_label(*key, *mods))),
+            };
+        } else if resp.lost_focus() || resp.clicked_elsewhere() {
+            recording = false;
+        }
+    } else if resp.clicked() && enabled {
+        recording = true;
+        resp.request_focus();
+    }
+    let pass = ui.ctx().cumulative_pass_nr();
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(recorder_id(), recording.then_some(pass)));
+    picked
+}
+
+fn recorder_id() -> Id {
+    Id::unique("settings.chat.overlay_key.recording")
+}
+
+/// The overlay key's cap is listening: every key goes to it, so the window's shortcuts
+/// (Esc, Backspace, F-keys) stand aside. It stops listening when it is no longer drawn.
+pub fn listening_for_key(ctx: &egui::Context) -> bool {
+    let last: Option<u64> = ctx.data(|d| d.get_temp(recorder_id())).flatten();
+    last.is_some_and(|n| n + 2 >= ctx.cumulative_pass_nr())
+}
+
+/// "Ctrl+Shift+F2": the modifiers held, then the key.
+fn key_label(key: egui::Key, mods: egui::Modifiers) -> String {
+    let mut out = String::new();
+    for (on, name) in [
+        (mods.ctrl, "Ctrl"),
+        (mods.alt, "Alt"),
+        (mods.shift, "Shift"),
+        (mods.mac_cmd, "Super"),
+    ] {
+        if on {
+            out.push_str(name);
+            out.push('+');
+        }
+    }
+    out.push_str(key.name());
+    out
 }
 
 fn appearance(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {

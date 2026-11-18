@@ -75,6 +75,7 @@ pub fn run(command: &Command) -> Result<u8, Error> {
         Command::Steam { command } => steam_verbs::run(command),
         Command::Export { game, output } => library_verbs::export(game, output.as_deref()),
         Command::Import { file, exe } => library_verbs::import(file, exe),
+        Command::Overlay { .. } => crate::overlay_verb::without_app(),
         // Dispatched before reaching here.
         Command::Open { .. }
         | Command::Service

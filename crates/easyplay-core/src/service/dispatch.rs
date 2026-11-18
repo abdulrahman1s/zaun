@@ -109,6 +109,10 @@ impl AppService {
             // Handled by `steam_route`.
             Command::Steam(_) => Ok(()),
             Command::Chat(c) => self.chat_command(c),
+            Command::Overlay(a) => {
+                self.overlay_action(a);
+                Ok(())
+            }
             Command::Shutdown => {
                 self.stopping = true;
                 Ok(())
@@ -180,6 +184,7 @@ impl AppService {
             FlowDone::Steam(d) => self.on_steam_done(d),
             FlowDone::Chat(d) => self.on_chat_done(d),
             FlowDone::ChatServices(d) => self.on_services_done(d),
+            FlowDone::Overlay(d) => self.on_overlay_done(d),
         }
     }
 

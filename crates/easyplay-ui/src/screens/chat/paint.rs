@@ -396,6 +396,65 @@ pub fn place(ui: &mut Ui, r: Rect, widget: impl egui::Widget) -> Response {
     child.add(widget)
 }
 
+/// A date or a clock ("12/11/2026 21:40", "Today at 13:59", "اليوم في 13:59") in `style`
+/// with tabular figures. Each date and clock is one left-to-right run; in a right-to-left
+/// interface the runs read from the right (the date first, then the time), even when the
+/// text has no Arabic letter to set the line's direction (notes A, Arabic).
+pub fn time_galley(ui: &Ui, text: &str, style: Type, color: Color32) -> Arc<Galley> {
+    let rtl = crate::i18n::dir() == crate::i18n::Dir::Rtl;
+    let job = LayoutJob::single_section(time_order(text, rtl), style.format(color, true));
+    ui.fonts_mut(|f| f.layout_job(job))
+}
+
+/// The order [`time_galley`] gives the engine, left to right on screen.
+fn time_order(text: &str, rtl: bool) -> String {
+    if !rtl {
+        text.to_owned()
+    } else if bidi::has_rtl(text) {
+        bidi::visual_line(text, Some(crate::i18n::Dir::Rtl)).into_owned()
+    } else {
+        text.split(' ').rev().collect::<Vec<_>>().join(" ")
+    }
+}
+
+/// The full-date tooltip of a time: 12 medium in the tooltip tokens, radius 6, padded 5 · 9,
+/// centred 6 above the time (6 below when there is no room). It waits the style's 500 ms;
+/// moving to another time keeps it open (egui's grace time) and it fades in over 100.
+pub fn time_tip(resp: &Response, text: &str) {
+    let mut tip = egui::Tooltip::for_enabled(resp);
+    tip.popup = tip
+        .popup
+        .frame(egui::Frame::NONE)
+        .gap(TIP_GAP)
+        .align(egui::RectAlign::TOP)
+        .align_alternatives(&[egui::RectAlign::BOTTOM]);
+    tip.show(|ui| {
+        let theme = theme::theme(ui.ctx());
+        let p = &theme.palette;
+        let a = theme::motion::appear(
+            ui.ctx(),
+            ui.layer_id().id.with("time.tip"),
+            theme.motion.fade(theme::Dur::Tip),
+        );
+        ui.multiply_opacity(a);
+        let g = Type::Label.galley(ui, text, p.tip_fg, f32::INFINITY, 1);
+        let size = g.size() + vec2(TIP_PAD[0], TIP_PAD[1]) * 2.0;
+        let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
+        a11y::item(&resp, egui::Role::Tooltip, text);
+        ui.painter().rect_filled(
+            rect,
+            CornerRadius::same(theme::tokens::radius::SM),
+            p.tip_bg,
+        );
+        ui.painter()
+            .galley(rect.min + vec2(TIP_PAD[0], TIP_PAD[1]), g, p.tip_fg);
+    });
+}
+
+/// The time tooltip's padding (across, down) and its distance from the time.
+const TIP_PAD: [f32; 2] = [9.0, 5.0];
+const TIP_GAP: f32 = 6.0;
+
 /// The side a QR code of `link` needs for whole modules of at least `min_px` pixels at
 /// one pixel per point (quiet zone included), at least `side` (the design's size).
 pub fn qr_side(ctx: &egui::Context, link: &str, side: f32, min_px: f32) -> f32 {
@@ -407,6 +466,16 @@ pub fn qr_side(ctx: &egui::Context, link: &str, side: f32, min_px: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn in_a_right_to_left_line_a_date_reads_first_from_the_right_and_stays_one_run() {
+        assert_eq!(time_order("12/11/2026 21:40", true), "21:40 12/11/2026");
+        assert_eq!(time_order("12/11/2026 21:40", false), "12/11/2026 21:40");
+        assert_eq!(time_order("13:59", true), "13:59");
+        // An Arabic head: the clock stays one left-to-right run, at the left end.
+        let shown = time_order("اليوم في 13:59", true);
+        assert!(shown.starts_with("13:59 "), "{shown}");
+    }
 
     /// The engine's short links (about 103 characters, 149 on a custom relay) get modules
     /// of at least 3 px at 1× in a 168 pt code.

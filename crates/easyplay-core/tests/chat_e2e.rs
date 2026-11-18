@@ -64,9 +64,10 @@ fn factory(log: PathBuf) -> SimplexFactory {
 
 /// The local relay's address on a loopback address nothing listens on.
 fn dead_relay(relay: &str) -> Option<String> {
+    // Any local port (agents running at once use their own).
     relay
-        .contains("@127.0.0.1:")
-        .then(|| relay.replace("@127.0.0.1:5223", "@127.0.0.2:5999"))
+        .split_once("@127.0.0.1:")
+        .map(|(key, _)| format!("{key}@127.0.0.2:5999"))
 }
 
 struct Peer {
@@ -280,6 +281,48 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
     });
     a.text("أهلاً");
 
+    // A profile picture (ADR-0038): made from a photo as the service makes it, taken by
+    // alice's engine, and seen by bob once his list is read again.
+    let photo = image::RgbImage::from_fn(1200, 800, |x, y| {
+        image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
+    });
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90)
+        .encode_image(&photo)
+        .unwrap();
+    let pic = easyplay_core::chat::picture::make(&jpeg, None).unwrap();
+    a.engine.request(Request::SetPicture(Some(pic.clone())));
+    let mine = a.wait(
+        |e| match e {
+            ChatEvent::Profile(p) => Some(p.picture.clone()),
+            _ => None,
+        },
+        "alice's profile with the picture",
+    );
+    assert_eq!(mine.as_ref().map(|p| p.key()), Some(pic.key()));
+    let seen = (0..30)
+        .find_map(|_| {
+            b.engine.request(Request::Refresh);
+            let got = b.wait(
+                |e| match e {
+                    ChatEvent::Chats { friends, .. } => Some(
+                        friends
+                            .iter()
+                            .find(|f| f.id == b_alice)
+                            .and_then(|f| f.picture.clone()),
+                    ),
+                    _ => None,
+                },
+                "bob's list",
+            );
+            if got.is_none() {
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            got
+        })
+        .expect("bob sees alice's picture");
+    assert_eq!(seen.bytes(), pic.bytes());
+
     // Reply, react, edit, delete for everyone.
     b.engine.request(Request::History {
         chat: ChatRef::Direct(b_alice),
@@ -491,6 +534,50 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
         "the group message",
     );
     assert_eq!(in_group.author, MessageAuthor::Member("alice".into()));
+
+    // The owner gives the group a picture (ADR-0038); the member's list shows it, and the
+    // member list shows alice's own picture.
+    a.engine.request(Request::SetGroupPicture {
+        group: gid,
+        picture: Some(pic.clone()),
+    });
+    let group_pic = (0..30)
+        .find_map(|_| {
+            b.engine.request(Request::Refresh);
+            let got = b.wait(
+                |e| match e {
+                    ChatEvent::Chats { groups, .. } => Some(
+                        groups
+                            .iter()
+                            .find(|g| g.id == b_gid)
+                            .and_then(|g| g.picture.clone()),
+                    ),
+                    _ => None,
+                },
+                "bob's list with the group",
+            );
+            if got.is_none() {
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            got
+        })
+        .expect("bob sees the group's picture");
+    assert_eq!(group_pic.bytes(), pic.bytes());
+    b.engine.request(Request::Members(b_gid));
+    let alice_in_group = b.wait(
+        |e| match e {
+            ChatEvent::Members { members, .. } => {
+                members.iter().find(|m| m.name == "alice").cloned()
+            }
+            _ => None,
+        },
+        "the members",
+    );
+    assert_eq!(
+        alice_in_group.picture.map(|p| p.key()),
+        Some(pic.key()),
+        "alice's member picture"
+    );
 
     // Stop bob and start him again from the same folder and key: history is there.
     drop(b);

@@ -1,24 +1,22 @@
-//! The trays under a conversation's header (chat.html section 8 "trays", script section
-//! 25 `traysHTML`): the call you are in, a group's voice you have not joined, your own
-//! sharing, and the stage of the game you watch. Owner: the details agent.
+//! The trays under a conversation's header (chat.html section 8 "trays",
+//! `chat-calls.html` notes D–F): the call box (its stage or this tray), a group's voice you
+//! have not joined, your own sharing, and the stage of the game you watch. Owner: callui.
 //!
 //! `show` is given the conversation's whole column and sets its own inset (24, 12 in a
 //! narrow window) and the 10 under each tray; the stage centres in the column.
 
-use easyplay_core::model::{ChatRef, ChatSnapshot, Watching};
+use easyplay_core::model::{ChatRef, ChatSnapshot};
 use easyplay_core::service::ChatCommand;
-use egui::{
-    Align2, Color32, CornerRadius, Id, Key, Modifiers, Painter, Pos2, Rect, Sense, Shape, Stroke,
-    StrokeKind, Ui, pos2, vec2,
-};
+use egui::{Align2, Color32, CornerRadius, Id, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
 use super::Env;
 use super::avatar::{self, Shape as AvShape};
 use super::paint::{self, Cc};
 use crate::app::UiState;
 use crate::bridge::Command;
+use crate::strings::chat::calls as cs;
 use crate::strings::chat::details as s;
-use crate::theme::palette::{self, Palette, fade, mix};
+use crate::theme::palette::{Palette, fade};
 use crate::theme::tokens::stroke;
 use crate::theme::{self, Dur, Type, icons, motion};
 use crate::vm::toasts::ToastKind;
@@ -52,16 +50,8 @@ mod m {
     pub const CC_GAP: f32 = 6.0;
     /// Your shared game's cover.
     pub const COVER: f32 = 26.0;
-    /// The stage takes at most this share of the window's height…
-    pub const STAGE_H: f32 = 0.46;
-    /// …or this one, larger.
-    pub const STAGE_H_LARGE: f32 = 0.72;
-    /// The stage's radius.
-    pub const STAGE_RADIUS: u8 = 12;
-    /// The stage's chips: 10 in, 28 high, 9 padding, radius 8, 6 apart.
-    pub const CHIP: [f32; 4] = [10.0, 28.0, 9.0, 6.0];
-    /// The chips' plate: black at 60 %, 80 % under the pointer.
-    pub const CHIP_ALPHA: [f32; 2] = [0.6, 0.8];
+    /// Paused: the cover keeps 20 % of its colour and 45 % of its light.
+    pub const PAUSED: [f32; 2] = [0.2, 0.45];
 }
 
 /// The trays of `chat`, under its header.
@@ -78,26 +68,46 @@ pub fn show(
     let saved = ui.spacing().item_spacing.y;
     ui.spacing_mut().item_spacing.y = 0.0;
     let call = snap.live.call.as_ref().filter(|c| c.chat == chat);
+    if snap.live.call.is_none() {
+        state.chat.call.call_over();
+    }
     if f.calls {
         if let Some(call) = call {
-            call_tray(ui, state, env, snap, call, inset);
-        } else if let ChatRef::Group(g) = chat
-            && let Some(group) = snap.group(g)
-            && !group.voice.is_empty()
-        {
-            voice_tray(ui, state, env, snap, chat, inset);
+            super::call_stage::show(ui, state, env, snap, call, inset);
+        } else {
+            super::call_stage::closing(ui, chat, inset);
+            if let ChatRef::Group(g) = chat
+                && let Some(group) = snap.group(g)
+                && !group.voice.is_empty()
+            {
+                voice_tray(ui, state, env, snap, chat, inset);
+            }
         }
     }
     if f.share {
         if let Some(sh) = snap.live.share.as_ref().filter(|s| s.chat == chat)
             && call.is_none()
         {
-            share_tray(ui, state, env, sh, inset);
+            share_tray(ui, state, env, snap, sh, inset);
         }
-        if let Some(w) = snap.live.watch.as_ref().filter(|w| w.chat == chat) {
-            stage(ui, state, env, w, inset);
+        let watched = snap.live.watch.as_ref().filter(|w| w.chat == chat);
+        match watched {
+            // A friend's game in this call takes the stage's big tile instead.
+            Some(_) if call.is_some() => {}
+            Some(w) => super::watch_stage::show(ui, state, env, snap, w, inset),
+            None if snap.live.stream.ended == Some(chat) => {
+                super::watch_stage::ended(ui, state, env, snap, chat, inset);
+            }
+            None => {}
         }
     }
+    if snap.live.watch.is_none() {
+        super::watch_stage::leave_full(ui, state, env);
+    }
+    if snap.live.stream.ended.is_none() {
+        state.chat.call.ended_at = None;
+    }
+    super::call_stage::note_pass(ui, chat);
     ui.spacing_mut().item_spacing.y = saved;
 }
 
@@ -212,7 +222,15 @@ fn person(snap: &ChatSnapshot, name: &str) -> (String, Option<u8>) {
 }
 
 /// An avatar of 32 in `r`, ringed in accent while `speaking` (the ring fades over 140).
-fn speaker(ui: &Ui, r: Rect, name: &str, paper: Option<u8>, speaking: bool, alpha: f32) {
+fn speaker(
+    ui: &Ui,
+    r: Rect,
+    name: &str,
+    paper: Option<u8>,
+    picture: Option<&easyplay_core::model::Picture>,
+    speaking: bool,
+    alpha: f32,
+) {
     let th = theme::theme(ui.ctx());
     let t = ui.ctx().animate_bool_with_time(
         Id::unique(("chat.speaking", name)),
@@ -227,20 +245,21 @@ fn speaker(ui: &Ui, r: Rect, name: &str, paper: Option<u8>, speaking: bool, alph
             Stroke::new(w, fade(th.palette.accent_mark, t * alpha)),
         );
     }
-    avatar::avatar(ui.painter(), r, name, paper, AvShape::Person);
+    avatar::pictured(ui.painter(), r, name, paper, AvShape::Person, picture);
 }
 
-/// The call you are in: who, the clock, and the round buttons.
-fn call_tray(
+/// The call box made smaller (its plate is the box's): who, the clock, Make larger and the
+/// round buttons.
+pub fn call_tray_in(
     ui: &mut Ui,
     state: &mut UiState,
     env: &mut Env<'_>,
     snap: &ChatSnapshot,
     call: &easyplay_core::model::Call,
-    inset: f32,
+    rect: Rect,
+    alpha: f32,
 ) {
     let p = theme::theme(ui.ctx()).palette.clone();
-    let (rect, alpha) = plate(ui, Id::unique(("chat.tray.call", call.chat)), inset);
     let mut row = Row::new(rect);
     // Avatars: the others, then you.
     let me = snap.profile.as_ref();
@@ -262,7 +281,13 @@ fn call_tray(
     for (i, (name, paper, speaking)) in people.iter().enumerate() {
         let gap = if i + 1 == n { m::GAP } else { m::AVATAR_GAP };
         let r = row.lead(m::AVATAR, m::AVATAR, gap);
-        speaker(ui, r, name, *paper, *speaking, alpha);
+        // The last one is you.
+        let pic = if i + 1 == n {
+            avatar::mine(snap)
+        } else {
+            avatar::of_name(snap, name)
+        };
+        speaker(ui, r, name, *paper, pic, *speaking, alpha);
     }
     // The buttons, from the end: leave, share, stop hearing, mute.
     let ringing = call.since.is_none();
@@ -281,20 +306,17 @@ fn call_tray(
             s::LEAVE_CALL()
         },
     );
-    let share = snap.features.share.then(|| {
+    // Sharing in a call is not carried (the stage's button says why): only Stop sharing.
+    let share = (snap.features.share && share_on).then(|| {
         paint::call_button(
             ui,
             row.trail(m::CC, m::CC, m::CC_GAP),
             Id::unique("chat.tray.share"),
             icons::SHARE_GAME,
             Cc::Share,
-            share_on,
+            true,
             s::SHARE_TIP(),
-            if share_on {
-                s::STOP_SHARE_TIP()
-            } else {
-                s::SHARE_TIP()
-            },
+            s::STOP_SHARE_TIP(),
         )
     });
     let deaf = paint::call_button(
@@ -313,13 +335,23 @@ fn call_tray(
     );
     let mute = paint::call_button(
         ui,
-        row.trail(m::CC, m::CC, m::GAP),
+        row.trail(m::CC, m::CC, m::CC_GAP),
         Id::unique("chat.tray.mute"),
         icons::MIC,
         Cc::Slash,
         call.muted,
         s::MUTE_MIC(),
         if call.muted { s::UNMUTE() } else { s::MUTE() },
+    );
+    let larger = paint::call_button(
+        ui,
+        row.trail(m::CC, m::CC, m::GAP),
+        Id::unique("chat.tray.larger"),
+        icons::EXPAND,
+        Cc::Plain,
+        false,
+        cs::LARGER(),
+        cs::LARGER(),
     );
     // Who and how long.
     let firsts: Vec<&str> = call.with.iter().map(|n| paint::first_name(n)).collect();
@@ -356,6 +388,9 @@ fn call_tray(
     if end.clicked() {
         env.bridge.send(Command::Chat(ChatCommand::EndCall));
     }
+    if larger.clicked() {
+        state.chat.call.smaller = false;
+    }
 }
 
 /// A group's voice you have not joined: who is talking, and Join.
@@ -385,7 +420,8 @@ fn voice_tray(
     for (i, (name, paper)) in talking.iter().enumerate() {
         let gap = if i + 1 == n { m::GAP } else { m::AVATAR_GAP };
         let r = row.lead(m::AVATAR, m::AVATAR, gap);
-        avatar::avatar(ui.painter(), r, name, *paper, AvShape::Person);
+        let pic = avatar::of_name(snap, name);
+        avatar::pictured(ui.painter(), r, name, *paper, AvShape::Person, pic);
     }
     let join = Button::primary(s::JOIN());
     let bw = join_width(ui);
@@ -412,11 +448,13 @@ fn join_width(ui: &Ui) -> f32 {
     g.size().x + theme::tokens::control::BUTTON_PAD * 2.0
 }
 
-/// Your own sharing outside a call: the game, who watches, and Stop sharing.
+/// Your own sharing outside a call: the game (dimmed with a pause mark while it is not in
+/// front), who watches, and Stop sharing.
 fn share_tray(
     ui: &mut Ui,
     state: &mut UiState,
     env: &mut Env<'_>,
+    snap: &ChatSnapshot,
     sh: &easyplay_core::model::Share,
     inset: f32,
 ) {
@@ -424,6 +462,11 @@ fn share_tray(
     let p = th.palette.clone();
     let (rect, alpha) = plate(ui, Id::unique(("chat.tray.share", sh.chat)), inset);
     let mut row = Row::new(rect);
+    let paused = ui.ctx().animate_bool_with_time(
+        Id::unique(("chat.tray.share.paused", sh.chat)),
+        snap.live.stream.share_paused,
+        th.motion.fade(Dur::Base),
+    );
     let cover = row.lead(
         m::COVER,
         m::COVER * theme::tokens::layout::COVER_ASPECT,
@@ -440,6 +483,23 @@ fn share_tray(
         },
         &th,
     );
+    if paused > 0.0 {
+        // No live picture of your own share is kept: the cover stands for it.
+        let [_, light] = m::PAUSED;
+        let corner = CornerRadius::same(theme::tokens::radius::SM);
+        ui.painter().rect_filled(
+            cover,
+            corner,
+            fade(Color32::BLACK, (1.0 - light) * paused * alpha),
+        );
+        ui.painter().text(
+            cover.center(),
+            Align2::CENTER_CENTER,
+            icons::PAUSE.text(true),
+            icons::font(11.0),
+            fade(Color32::WHITE, paused * alpha),
+        );
+    }
     let label = s::STOP_SHARING();
     let bw = Type::BodyStrong
         .line(ui, label, Color32::PLACEHOLDER)
@@ -448,16 +508,47 @@ fn share_tray(
         + theme::tokens::control::BUTTON_PAD * 2.0;
     let br = row.trail(bw, theme::tokens::control::BUTTON, m::GAP);
     let stop = paint::place(ui, br, Button::new(label)).clicked();
-    let who = if sh.watching == 0 {
-        s::NOBODY_WATCHING().to_owned()
+    // What is sent, as a select of the size and the rate (notes J).
+    let prefs = env.bridge.prefs().clone();
+    let (text, lower, tip) = super::share_quality::chip_text(&snap.live.stream, &prefs);
+    let qw = super::share_quality::chip_width(ui, &text);
+    let qr = row.trail(qw, 28.0, m::GAP);
+    super::share_quality::chip(ui, env, qr, &text, lower, tip.as_deref());
+    // The eye and the count, before the chip.
+    let count = Type::Body.numeric_galley(ui, &sh.watching.to_string(), p.t3);
+    let ew = 16.0 + 4.0 + count.size().x;
+    let er = row.trail(ew, m::AVATAR, m::GAP);
+    let eye = ui.interact(er, Id::unique("chat.tray.share.eye"), Sense::hover());
+    crate::widgets::tooltip::attach(eye, &s::watching(sh.watching));
+    let (ix, cx) = if row.rtl {
+        (er.right() - 8.0, er.left())
     } else {
-        s::watching(sh.watching)
+        (er.left() + 8.0, er.right() - count.size().x)
+    };
+    ui.painter().text(
+        pos2(ix, er.center().y),
+        Align2::CENTER_CENTER,
+        icons::EYE.text(false),
+        icons::font(13.0),
+        fade(p.t3, alpha),
+    );
+    ui.painter().galley(
+        pos2(cx, er.center().y - count.size().y / 2.0),
+        count,
+        fade(p.t3, alpha),
+    );
+    let sub = if snap.live.stream.share_paused {
+        cs::PAUSED().to_owned()
+    } else if sh.watching == 0 {
+        format!("{} {}", s::SHARE_ONLY(), s::NOBODY_WATCHING())
+    } else {
+        format!("{} {}", s::SHARE_ONLY(), cs::watching(sh.watching))
     };
     two_lines(
         ui,
         row.middle(),
         &s::you_share(&sh.title),
-        &format!("{} {who}", s::SHARE_ONLY()),
+        &sub,
         &p,
         alpha,
         row.rtl,
@@ -466,289 +557,4 @@ fn share_tray(
         env.bridge.send(Command::Chat(ChatCommand::StopShare));
         state.toast(s::STOPPED_SHARING(), ToastKind::Info, None, env.mono);
     }
-}
-
-/// The game you watch: a 16:9 stage, centred, at most 46 % of the window's height (72 %
-/// larger), with its chips; sound, size and Stop watching along the bottom while pointed
-/// at.
-fn stage(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, w: &Watching, inset: f32) {
-    let th = theme::theme(ui.ctx());
-    let large = state.chat.stage_large;
-    // Esc shrinks the stage once nothing nearer the field wants it.
-    if large
-        && state.chat.picker.is_none()
-        && state.chat.recording.is_none()
-        && state.chat.reply.is_none()
-        && state.chat.edit.is_none()
-        && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
-    {
-        state.chat.stage_large = false;
-    }
-    let col = ui.available_width();
-    let share = if large { m::STAGE_H_LARGE } else { m::STAGE_H };
-    let max_w = ui.ctx().content_rect().height() * share * 16.0 / 9.0;
-    let sw = (col - inset * 2.0).min(max_w).max(1.0);
-    let sh = sw * 9.0 / 16.0;
-    let alpha = motion::appear(
-        ui.ctx(),
-        Id::unique(("chat.stage", w.chat)),
-        th.motion.fade(Dur::Base),
-    );
-    let (row, _) = ui.allocate_exact_size(vec2(col, sh + m::BELOW), Sense::hover());
-    let rect = Rect::from_min_size(pos2(row.center().x - sw / 2.0, row.top()), vec2(sw, sh));
-    let resp = ui.interact(rect, Id::unique("chat.stage"), Sense::hover());
-    let who = s::stage_who(paint::first_name(&w.name), &w.title);
-    crate::a11y::item(&resp, egui::Role::Image, &who);
-    let painter = ui.painter().clone();
-    still(&painter, rect, &w.title, alpha);
-    let rtl = crate::i18n::dir() == crate::i18n::Dir::Rtl;
-    let [inn, ch, _, gap] = m::CHIP;
-    // Top: "● Live", "Jonas, Ninefold Arena"; the eye and the count at the other end.
-    let mut x = 0.0;
-    let place = |from: f32, cw: f32, top: bool| -> Rect {
-        let left = if rtl {
-            rect.right() - inn - from - cw
-        } else {
-            rect.left() + inn + from
-        };
-        let y = if top {
-            rect.top() + inn
-        } else {
-            rect.bottom() - inn - ch
-        };
-        Rect::from_min_size(pos2(left, y), vec2(cw, ch))
-    };
-    let place_end = |from_end: f32, cw: f32, top: bool| -> Rect {
-        place(sw - inn * 2.0 - from_end - cw, cw, top)
-    };
-    let live_w = {
-        let g = live_galley(&painter, s::LIVE());
-        6.0 + 5.0 + g.size().x
-    };
-    let r = place(x, live_w + m::CHIP[2] * 2.0, true);
-    chip_plate(&painter, r, 0.0, alpha);
-    paint::live_mark(
-        &painter,
-        r.left() + m::CHIP[2],
-        r.center().y,
-        s::LIVE(),
-        fade(paint::LIVE_ON_DARK, alpha),
-    );
-    x += r.width() + gap;
-    let g = Type::BodyStrong.galley(ui, &who, Color32::WHITE, (sw * 0.6).max(40.0), 1);
-    let r = place(x, g.size().x + m::CHIP[2] * 2.0, true);
-    chip_plate(&painter, r, 0.0, alpha);
-    painter.galley_with_override_text_color(
-        pos2(r.left() + m::CHIP[2], r.center().y - g.size().y / 2.0),
-        g,
-        fade(Color32::WHITE, alpha),
-    );
-    let count = Type::BodyStrong.numeric_galley(ui, &w.watching.to_string(), Color32::WHITE);
-    let ew = 14.0 + 6.0 + count.size().x + m::CHIP[2] * 2.0;
-    let r = place_end(0.0, ew, true);
-    chip_plate(&painter, r, 0.0, alpha);
-    let eye = ui.interact(r, Id::unique("chat.stage.count"), Sense::hover());
-    crate::widgets::tooltip::attach(eye, &s::watching(w.watching));
-    painter.text(
-        pos2(r.left() + m::CHIP[2] + 7.0, r.center().y),
-        Align2::CENTER_CENTER,
-        icons::EYE.text(false),
-        icons::font(14.0),
-        fade(Color32::WHITE, alpha),
-    );
-    painter.galley_with_override_text_color(
-        pos2(
-            r.left() + m::CHIP[2] + 14.0 + 6.0,
-            r.center().y - count.size().y / 2.0,
-        ),
-        count,
-        fade(Color32::WHITE, alpha),
-    );
-    // Bottom, while pointed at or holding focus: sound · larger · Stop watching.
-    let focus_in = ui.ctx().memory(|mem| {
-        mem.focused().is_some_and(|f| {
-            [
-                Id::unique("chat.stage.sound"),
-                Id::unique("chat.stage.size"),
-                Id::unique("chat.stage.stop"),
-            ]
-            .contains(&f)
-        })
-    });
-    let pointed = ui.rect_contains_pointer(rect);
-    let shown = ui.ctx().animate_bool_with_time(
-        Id::unique("chat.stage.bottom"),
-        pointed || focus_in,
-        th.motion.fade(Dur::Fast),
-    );
-    let b_alpha = alpha * shown;
-    let sound_r = place(0.0, ch, false);
-    let sound = stage_button(
-        ui,
-        sound_r,
-        "chat.stage.sound",
-        StageGlyph::Icon(if w.muted {
-            icons::SPEAKER_OFF
-        } else {
-            icons::SPEAKER
-        }),
-        if w.muted {
-            s::SOUND_ON()
-        } else {
-            s::SOUND_OFF()
-        },
-        b_alpha,
-    );
-    let stop_g = Type::BodyStrong.line(ui, s::STOP_WATCHING(), Color32::WHITE);
-    let stop_r = place_end(0.0, stop_g.size().x + m::CHIP[2] * 2.0, false);
-    let stop = stage_button(
-        ui,
-        stop_r,
-        "chat.stage.stop",
-        StageGlyph::Text(stop_g),
-        s::STOP_WATCHING(),
-        b_alpha,
-    );
-    let size_r = place_end(stop_r.width() + gap, ch, false);
-    let size = stage_button(
-        ui,
-        size_r,
-        "chat.stage.size",
-        StageGlyph::Icon(if large { icons::SHRINK } else { icons::EXPAND }),
-        if large { s::SMALLER() } else { s::LARGER() },
-        b_alpha,
-    );
-    if sound.clicked() {
-        env.bridge
-            .send(Command::Chat(ChatCommand::WatchMute(!w.muted)));
-    }
-    if size.clicked() {
-        state.chat.stage_large = !large;
-    }
-    if stop.clicked() {
-        state.chat.stage_large = false;
-        env.bridge.send(Command::Chat(ChatCommand::StopWatch));
-    }
-}
-
-fn live_galley(painter: &Painter, label: &str) -> std::sync::Arc<egui::Galley> {
-    painter.layout_no_wrap(
-        label.to_owned(),
-        egui::FontId::new(11.0, egui::FontFamily::Name("w600".into())),
-        Color32::WHITE,
-    )
-}
-
-/// A chip's black plate; `hover` 0–1 darkens it.
-fn chip_plate(painter: &Painter, r: Rect, hover: f32, alpha: f32) {
-    let [rest, over] = m::CHIP_ALPHA;
-    let a = rest + (over - rest) * hover;
-    painter.rect_filled(
-        r,
-        CornerRadius::same(theme::tokens::radius::MD),
-        fade(Color32::BLACK, a * alpha),
-    );
-}
-
-enum StageGlyph {
-    Icon(theme::Icon),
-    Text(std::sync::Arc<egui::Galley>),
-}
-
-/// A chip that acts (`button.sb`), at `alpha`.
-fn stage_button(
-    ui: &mut Ui,
-    r: Rect,
-    id: &str,
-    glyph: StageGlyph,
-    name: &str,
-    alpha: f32,
-) -> egui::Response {
-    let th = theme::theme(ui.ctx());
-    // Hidden at rest, but still there for the keyboard (focus reveals the row).
-    let resp = ui.interact(r, Id::unique(id), Sense::click());
-    crate::a11y::button(&resp, name);
-    let resp = if matches!(glyph, StageGlyph::Icon(_)) {
-        crate::widgets::tooltip::attach(resp, name)
-    } else {
-        resp
-    };
-    let hover = crate::widgets::hover_t(&resp, &th);
-    let painter = ui.painter();
-    chip_plate(painter, r, hover, alpha);
-    match glyph {
-        StageGlyph::Icon(i) => {
-            painter.text(
-                r.center(),
-                Align2::CENTER_CENTER,
-                i.text(false),
-                icons::font(14.0),
-                fade(Color32::WHITE, alpha),
-            );
-        }
-        StageGlyph::Text(g) => {
-            painter.galley_with_override_text_color(
-                pos2(r.left() + m::CHIP[2], r.center().y - g.size().y / 2.0),
-                g,
-                fade(Color32::WHITE, alpha),
-            );
-        }
-    }
-    if resp.has_focus() {
-        crate::widgets::focus_ring(
-            painter,
-            r,
-            CornerRadius::same(theme::tokens::radius::MD),
-            &th,
-        );
-    }
-    resp
-}
-
-/// A still stand-in for the live picture: the game's paper with two hills and a sun in its
-/// ink (the prototype's picture, not moving).
-fn still(painter: &Painter, rect: Rect, title: &str, alpha: f32) {
-    let palette::Paper { paper, ink } = palette::paper_for(title);
-    let corner = CornerRadius::same(m::STAGE_RADIUS);
-    painter.rect_filled(rect, corner, fade(Color32::BLACK, alpha));
-    painter.rect_filled(rect, corner, fade(paper, alpha));
-    let (w, h) = (rect.width(), rect.height());
-    // The sun: 13 % of the width, 62 % across and 16 % down.
-    let d = w * 0.13;
-    painter.circle_filled(
-        pos2(
-            rect.left() + w * 0.62 + d / 2.0,
-            rect.top() + h * 0.16 + d / 2.0,
-        ),
-        d / 2.0,
-        fade(mix(paper, ink, 0.8), alpha),
-    );
-    hill(painter, rect, 0.40, fade(mix(paper, ink, 0.22), alpha));
-    hill(painter, rect, 0.26, fade(mix(paper, ink, 0.5), alpha));
-}
-
-/// A hill: the top half of an ellipse twice the stage's width and `share` of its height,
-/// standing on its bottom, inside its rounded corners.
-fn hill(painter: &Painter, rect: Rect, share: f32, color: Color32) {
-    let (w, h) = (rect.width(), rect.height());
-    let (cx, base, rx, ry) = (rect.center().x, rect.bottom(), w, h * share);
-    let r = f32::from(m::STAGE_RADIUS);
-    let mut pts: Vec<Pos2> = Vec::new();
-    let steps = 32;
-    for i in 0..=steps {
-        let x = rect.left() + w * i as f32 / steps as f32;
-        let dx = (x - cx) / rx;
-        let y = base - ry * (1.0 - dx * dx).max(0.0).sqrt();
-        pts.push(pos2(x, y.max(rect.top())));
-    }
-    // Down the right side and round the bottom corners.
-    for i in 0..=8 {
-        let a = std::f32::consts::FRAC_PI_2 * i as f32 / 8.0;
-        pts.push(pos2(rect.right() - r + r * a.cos(), base - r + r * a.sin()));
-    }
-    for i in 0..=8 {
-        let a = std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_2 * i as f32 / 8.0;
-        pts.push(pos2(rect.left() + r + r * a.cos(), base - r + r * a.sin()));
-    }
-    painter.add(Shape::convex_polygon(pts, color, Stroke::NONE));
 }

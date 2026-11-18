@@ -264,6 +264,33 @@ error_codes! {
     ChtRequestFailed = "EP-CHT-006", Warning;
     /// A file from a chat could not be saved where the user chose.
     ChtSaveFailed = "EP-CHT-007", Warning;
+    /// The file chosen as a profile picture is not a picture EasyPlay can read.
+    ChtNotAPicture = "EP-CHT-008", Warning;
+    /// The file chosen as a profile picture is too large to read (over 20 MiB, or more than
+    /// 16 384 pixels a side).
+    ChtPictureTooLarge = "EP-CHT-009", Warning;
+    /// A call could not use a microphone (none, or the sound server refused it; ADR-0035).
+    ChtNoMicrophone = "EP-CHT-010", Warning;
+    /// A call's sound could not start or stopped (speakers, the voice codec, the network
+    /// socket).
+    ChtMediaFailed = "EP-CHT-011", Warning;
+    /// A call was answered but its sound never got through (no path between the two
+    /// computers, or the call relay could not be reached).
+    ChtCallFailed = "EP-CHT-012", Warning;
+    /// The in-game overlay cannot be shown now: EasyPlay or a game is not running, or Chat
+    /// or the overlay is off (ADR-0037).
+    ChtOverlayUnavailable = "EP-CHT-013", Warning;
+    /// Sharing a game: the user closed the portal's window picker, or the desktop refused
+    /// (ADR-0036).
+    ChtShareRefused = "EP-CHT-014", Warning;
+    /// Sharing asked for while no game runs (ADR-0036).
+    ChtNoGameRunning = "EP-CHT-015", Warning;
+    /// The game's window could not be captured: no ScreenCast portal, no window capture on
+    /// this desktop, PipeWire failed, or this build cannot capture (ADR-0036).
+    ChtCaptureFailed = "EP-CHT-016", Warning;
+    /// A stream could not start or was cut off: no connection to the friend's app, the
+    /// engine refused it, a group, or a call with the same friend (ADR-0036).
+    ChtStreamFailed = "EP-CHT-017", Warning;
 
     // ---- Integration and internal — EP-DSK, EP-INT ---------------------------------------
     /// Could not change the default application.

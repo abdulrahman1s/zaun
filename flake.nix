@@ -101,6 +101,8 @@
           ++ easyplay.hostTools
           ++ (with pkgs; [
             pkg-config
+            # libclang for pipewire-sys' bindings (the `portal` feature, ADR-0036).
+            rustPlatform.bindgenHook
             sqlite
             cargo-nextest
             cargo-deny

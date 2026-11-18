@@ -7,6 +7,8 @@ members = [
     "crates/easyplay-init",
     "crates/easyplay-testkit",
     "crates/easyplay-chat",
+    "crates/easyplay-overlay",
+    "crates/easyplay-media",
 ]
 
 [workspace.package]
@@ -25,6 +27,7 @@ publish = false
 easyplay-core = { path = "crates/easyplay-core" }
 easyplay-ui = { path = "crates/easyplay-ui" }
 easyplay-testkit = { path = "crates/easyplay-testkit" }
+easyplay-media = { path = "crates/easyplay-media" }
 
 # UI
 eframe = { version = "=0.37.0", default-features = false, features = [

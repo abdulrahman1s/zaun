@@ -180,6 +180,8 @@ pub enum QueryResult {
     Gifs(crate::gifs::GifAnswer),
     /// `ChatCommand::GifPreview`.
     GifPreview(crate::gifs::GifPreview),
+    /// `ChatCommand::LoadPicture`: a picture file for the crop step (ADR-0038).
+    PictureSource(crate::model::PictureSource),
     /// The query failed.
     Failed(Box<UserError>),
 }

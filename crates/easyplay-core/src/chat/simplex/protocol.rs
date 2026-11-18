@@ -44,7 +44,11 @@
 //! - **Security codes** (`/_get code`, `/_verify code`); a contact is verified while its
 //!   connection carries a code.
 //! - **Profile**: name and `shortDescr` (the line about the user). The avatar pair is
-//!   EasyPlay's own and stays on this computer.
+//!   EasyPlay's own and stays on this computer. **Pictures** (ADR-0038) are the profiles'
+//!   `image`, a `data:` URI: the user's through `/_profile`, a group's through
+//!   `/_group_profile` (owners only), each keeping the rest of the profile; a friend's,
+//!   a group's and a member's are read from the list, checked (`chat::picture`) and dropped
+//!   alone when bad.
 //! - **Files** go through XFTP file servers. With the preset relays the engine's preset
 //!   file servers are used; with custom relays only listed `xftp://` servers are, and
 //!   without one, files are off (fail closed, as for `/smp`). A picture or GIF from a friend
@@ -95,6 +99,19 @@ pub const CHAT_LIST_COUNT: u32 = 200;
 /// real engines and arrived byte for byte (`tests/chat_e2e.rs` with `EASYPLAY_TEST_GIPHY`;
 /// the service part in `tests/chat_service.rs`).
 pub const GIFS_SEND_WORKS: bool = true;
+
+/// Voice calls (ADR-0035), 1:1. On since 2026-11-17: two engines placed a call through a
+/// local relay and their media carried a tone each way, directly and relay-only through a
+/// local TURN server (`easyplay-media`'s `tests/it/call_e2e.rs`). The service still keeps
+/// calls off in a build without call media.
+pub const CALLS_WORK: bool = true;
+
+/// Game streams (ADR-0036), 1:1. On since 2026-11-18: two engines carried a stream of the
+/// test picture through a local relay, relay-only and direct (`easyplay-media`'s
+/// `tests/it/stream_e2e.rs`), and the ScreenCast portal handed a window's pictures to a
+/// watcher in a private headless session (`tests/it/portal.rs`). The service keeps sharing
+/// off in a build that cannot capture windows (without the `portal` feature).
+pub const SHARE_WORKS: bool = true;
 
 /// A 1×1 PNG: the preview the engine requires with a picture. EasyPlay shows the fetched
 /// file itself, so no thumbnail is made (core cannot decode GIFs).
@@ -168,6 +185,16 @@ enum Pending {
     MemberBlocked(i64),
     /// An answer nobody waits for (deleting a blocked friend's message, fetching a file).
     Quiet,
+    /// `/_call …` (ADR-0035); `quiet`: a failure is only logged.
+    Call {
+        friend: i64,
+        quiet: bool,
+    },
+    /// `/_call …` for a stream (ADR-0036); `quiet`: a failure is only logged.
+    Stream {
+        friend: i64,
+        quiet: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -237,6 +264,12 @@ pub struct Codec {
     /// by that item's number (read once with `/_get chat`), and those to read.
     previews: HashMap<ChatRef, (i64, Option<ChatMessage>)>,
     previews_to_read: Vec<(ChatRef, i64)>,
+    /// Call items lately reported as new (ADR-0035).
+    shown_calls: respond_calls::ShownCalls,
+    /// Friends whose engine call is a stream (ADR-0036).
+    streams: respond_streams::Streams,
+    /// Each group's engine profile from the last list, so a picture change keeps the rest.
+    group_profiles: HashMap<i64, Value>,
 }
 
 /// A message's file, as the engine knows it.
@@ -298,7 +331,10 @@ impl Codec {
             group_links_read: HashSet::new(),
             links_to_read: Vec::new(),
             previews: HashMap::new(),
+            group_profiles: HashMap::new(),
             previews_to_read: Vec::new(),
+            shown_calls: respond_calls::ShownCalls::default(),
+            streams: respond_streams::Streams::default(),
         }
     }
 
@@ -504,6 +540,7 @@ impl Codec {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_owned(),
+            picture: render_picture::picture_at(&profile, &["image"]),
             ..ChatProfile::default()
         };
         self.user_profile = profile;
@@ -706,6 +743,7 @@ impl Codec {
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_owned();
+                    self.profile.picture = render_picture::picture_at(p, &["image"]);
                     self.user_profile = p.clone();
                     out.events.push(ChatEvent::Profile(self.profile.clone()));
                 }
@@ -751,7 +789,16 @@ impl Codec {
     fn on_event(&mut self, r: &Value, out: &mut Output) {
         let ty = r.get("type").and_then(Value::as_str).unwrap_or("");
         match ty {
-            "newChatItems" => self.on_new_items(r, out),
+            "newChatItems" => {
+                self.note_stream_items(r);
+                self.on_new_items(r, out);
+            }
+            "chatItemUpdated" if respond_calls::is_call_item(r) => self.on_call_item(r, out),
+            "callInvitation" | "callOffer" | "callAnswer" | "callExtraInfo" | "callEnded" => {
+                if !self.on_stream_event(ty, r, out) {
+                    self.on_call_event(ty, r, out);
+                }
+            }
             "chatItemsStatusesUpdated" => {
                 let m = self.parse_items(r);
                 if !m.is_empty() {
@@ -829,6 +876,9 @@ impl Codec {
                     .filter(|g| self.members_read.contains(g))
                 {
                     self.send(out, Pending::Members(g), format!("/_members #{g}"));
+                }
+                if ty == "contactUpdated" {
+                    self.reread_members(out);
                 }
             }
             _ => {}
@@ -965,6 +1015,7 @@ impl Codec {
         self.custom.clear();
         self.blocked.clear();
         self.me_in.clear();
+        self.group_profiles.clear();
         for c in r
             .get("chats")
             .and_then(Value::as_array)
@@ -1029,6 +1080,7 @@ impl Codec {
                         verified,
                         blocked,
                         muted,
+                        picture: render_picture::picture_at(ct, &["profile", "image"]),
                         ..Friend::default()
                     });
                     if blocked {
@@ -1066,6 +1118,9 @@ impl Codec {
                     }
                     let chat = ChatRef::Group(id);
                     let muted = self.remember_settings(chat, g.get("chatSettings"));
+                    if let Some(p) = g.get("groupProfile").filter(|p| p.is_object()) {
+                        self.group_profiles.insert(id, p.clone());
+                    }
                     groups.push(ChatGroup {
                         id,
                         name: name.clone(),
@@ -1074,6 +1129,8 @@ impl Codec {
                         ),
                         members,
                         muted,
+                        picture: render_picture::picture_at(g, &["groupProfile", "image"]),
+                        owner: str_at(g, &["membership", "memberRole"]) == Some("owner"),
                         ..ChatGroup::default()
                     });
                     (chat, name, muted)
@@ -1385,20 +1442,21 @@ fn renamed(e: &Value) -> Option<ChatNotice> {
     (from != to).then_some(ChatNotice::NameChanged { from, to })
 }
 
-/// A call item as one line (calls are not carried yet: one that was not ended counts as
-/// missed).
-fn call_record(content: &Value) -> crate::model::CallRecord {
+/// A call item as one line, once the call is over (ADR-0035): `None` while it rings or runs
+/// (the call card shows it then). A call that ended after any time counts at least a minute.
+fn call_record(content: &Value) -> Option<crate::model::CallRecord> {
     use crate::model::{CallKind, CallRecord};
-    let kind = match content.get("status").and_then(Value::as_str) {
-        Some("ended") => CallKind::Ended,
-        Some("rejected") => CallKind::Declined,
-        _ => CallKind::Missed,
+    let kind = match content.get("status").and_then(Value::as_str)? {
+        "ended" | "error" => CallKind::Ended,
+        "rejected" => CallKind::Declined,
+        "missed" => CallKind::Missed,
+        _ => return None,
     };
     let secs = content.get("duration").and_then(Value::as_u64).unwrap_or(0);
-    CallRecord {
+    Some(CallRecord {
         kind,
-        minutes: u32::try_from(secs / 60).unwrap_or(u32::MAX),
-    }
+        minutes: u32::try_from(secs.div_ceil(60)).unwrap_or(u32::MAX),
+    })
 }
 
 /// Who a `chatDir` names.
@@ -1594,7 +1652,7 @@ fn parse_item(chat: ChatRef, ci: &Value, ctx: &Ctx<'_>) -> Option<ChatMessage> {
         "sndDeleted" | "rcvDeleted" | "sndModerated" | "rcvModerated" | "rcvBlocked" => {
             MessageBody::Deleted
         }
-        "sndCall" | "rcvCall" => MessageBody::Call(call_record(content)),
+        "sndCall" | "rcvCall" => MessageBody::Call(call_record(content)?),
         _ => match notice(ctype, content, ci.get("chatDir")) {
             Some(n) => MessageBody::Notice(n),
             None => {
@@ -1707,6 +1765,7 @@ fn member(m: &Value, me: bool) -> Option<GroupMember> {
             .and_then(|s| s.get("showMessages"))
             .and_then(Value::as_bool)
             == Some(false),
+        picture: render_picture::picture_at(m, &["memberProfile", "image"]),
         ..GroupMember::default()
     })
 }
@@ -1776,14 +1835,23 @@ fn host_of(server: &str) -> &str {
 }
 
 mod render;
+mod render_calls;
 mod render_files;
+mod render_picture;
 mod render_settings;
+mod render_streams;
 mod respond;
+mod respond_calls;
 mod respond_data;
 mod respond_net;
+mod respond_streams;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_calls;
+#[cfg(test)]
+mod tests_streams;
 
 /// What the engine carries with these relays (`smp://` and `xftp://` addresses; empty = the
 /// presets), known before it starts: Settings shows the same rows whether Chat is on or off.
@@ -1804,6 +1872,8 @@ fn features_for(files: bool) -> ChatFeatures {
         block: true,
         verify: true,
         mentions: true,
+        calls: CALLS_WORK,
+        share: SHARE_WORKS,
         ..ChatFeatures::default()
     }
 }

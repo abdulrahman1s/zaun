@@ -92,6 +92,10 @@ UNSAFE_ALLOWED = (
     "crates/easyplay-core/src/sandbox/fd.rs",
     # The FFI to libsimplex (ADR-0033).
     "crates/easyplay-chat/",
+    # The wgpu surface on libwayland's display and surface pointers (ADR-0037).
+    "crates/easyplay-overlay/src/surface.rs",
+    # FFmpeg frame and packet planes for the hardware encoder (ADR-0036).
+    "crates/easyplay-media/src/video/hw/planes.rs",
     # Test programs run inside the sandbox or in place of bwrap (PROC-013, SEC-002).
     "crates/easyplay-testkit/src/bin/",
     # A counting allocator proving that label lookups do not allocate (AGENTS.md §6).

@@ -78,15 +78,109 @@ texts! {
     SHARE_SOUND = "chat.settings.share_sound";
     /// Pause while the game is not in front.
     SHARE_PAUSE = "chat.settings.share_pause";
-    /// Under it.
-    SHARE_PAUSE_HELP = "chat.settings.share_pause_help";
+    /// Under the two sharing switches the media cannot honour yet (ADR-0036).
+    SHARE_SOUND_LATER = "chat.settings.share_sound_later";
+    /// See [`SHARE_SOUND_LATER`].
+    SHARE_PAUSE_AUTO = "chat.settings.share_pause_auto";
     /// Group: notifications.
     NOTIFICATIONS = "chat.settings.notifications";
     /// New messages.
     NOTIFY_MESSAGES = "chat.settings.notify_messages";
     /// Incoming calls.
     NOTIFY_CALLS = "chat.settings.notify_calls";
+    /// Microphone volume (`chat.mic_volume`).
+    MIC_VOLUME = "chat.settings.mic_volume";
+    /// Under "Reduce background noise".
+    NOISE_HELP = "chat.settings.noise_help";
+    /// The disclosure over the relay servers.
+    ADVANCED = "chat.settings.advanced";
+    /// The relay servers row (`chat.ice_servers`).
+    RELAY_SERVERS = "chat.settings.relay_servers";
+    /// Under it.
+    RELAY_SERVERS_HELP = "chat.settings.relay_servers_help";
+    /// The relay servers field when empty.
+    RELAY_SERVERS_EMPTY = "chat.settings.relay_servers_empty";
+    /// Group: the in-game overlay.
+    OVERLAY = "chat.settings.overlay";
+    /// The desktop has no way to show it (one line under the heading).
+    OVERLAY_NONE = "chat.settings.overlay_none";
+    /// The overlay's switch (`chat.overlay`).
+    OVERLAY_ON = "chat.settings.overlay_on";
+    /// Under it.
+    OVERLAY_HELP = "chat.settings.overlay_help";
+    /// The key row (`chat.overlay_key`).
+    KEY = "chat.settings.key";
+    /// The key cap's accessible name.
+    KEY_CHANGE = "chat.settings.key_change";
+    /// The key cap while recording.
+    KEY_PRESS = "chat.settings.key_press";
+    /// The key cap with no key.
+    KEY_NONE = "chat.settings.key_none";
+    /// Copy the command.
+    COPY = "chat.settings.copy";
+    /// The command was copied.
+    COPIED = "chat.settings.copied";
+    /// Toasts over the game (`chat.overlay_toasts`).
+    TOASTS = "chat.settings.toasts";
+    /// Under it.
+    TOASTS_HELP = "chat.settings.toasts_help";
+    /// The call's widget (`chat.overlay_voice_widget`).
+    WIDGET = "chat.settings.widget";
+    /// Under it.
+    WIDGET_HELP = "chat.settings.widget_help";
+    /// Where the widget sits (`chat.overlay_corner`).
+    CORNER = "chat.settings.corner";
+    /// Corner: top left.
+    CORNER_TL = "chat.settings.corner_tl";
+    /// Corner: top right.
+    CORNER_TR = "chat.settings.corner_tr";
+    /// Corner: bottom left.
+    CORNER_BL = "chat.settings.corner_bl";
+    /// Corner: bottom right.
+    CORNER_BR = "chat.settings.corner_br";
+    /// Picture: 1440p.
+    PICTURE_1440 = "chat.settings.picture_1440";
+    /// Under "Picture".
+    PICTURE_HELP = "chat.settings.picture_help";
+    /// The frame rate row (`chat.share_fps`).
+    FRAME_RATE = "chat.settings.frame_rate";
+    /// Frame rate: 30.
+    FPS_30 = "chat.settings.fps_30";
+    /// Frame rate: 60.
+    FPS_60 = "chat.settings.fps_60";
+    /// The input level row.
+    LEVEL = "chat.settings.level";
+    /// Under it, before the check.
+    LEVEL_HELP = "chat.settings.level_help";
+    /// Under it, while the check runs.
+    CHECKING = "chat.settings.checking";
+    /// Start the microphone check.
+    CHECK = "chat.settings.check";
+    /// Stop it.
+    STOP_CHECK = "chat.settings.stop_check";
+    /// Hardware encoding (`chat.share_hw_encode`).
+    HW_ENCODE = "chat.settings.hw_encode";
+    /// Under it.
+    HW_ENCODE_HELP = "chat.settings.hw_encode_help";
 }
+
+/// A stored device that is not connected now: "USB headset (not connected)".
+pub fn not_connected(name: &str) -> String {
+    rust_i18n::t!("chat.settings.not_connected", name = name).into_owned()
+}
+
+/// "Bind a key in your desktop to run" before the command chip: the help of the key row is
+/// the sentence around `%{cmd}`, split there (the chip is drawn in its place).
+pub fn key_help() -> (String, String) {
+    let s = rust_i18n::t!("chat.settings.key_help", cmd = "\u{1}").into_owned();
+    match s.split_once('\u{1}') {
+        Some((a, b)) => (a.trim_end().to_owned(), b.trim_start().to_owned()),
+        None => (s, String::new()),
+    }
+}
+
+/// The command a desktop key runs to open the overlay.
+pub const OVERLAY_COMMAND: &str = "easyplay overlay";
 
 /// Sample devices the preview offers (chat.html's), as `(microphones, speakers)`.
 pub fn preview_devices() -> (&'static [&'static str], &'static [&'static str]) {

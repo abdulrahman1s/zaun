@@ -170,6 +170,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     theme::set_controller_mode(&ctx, state.controller);
     restore_card_focus(state);
     handle_global_keys(ui, state, env);
+    settings::watch_mic_test(&ctx, env);
     handle_pad(&ctx, state, env);
     host_banners(state, env);
     super::debug::banners(state, env);
@@ -854,7 +855,8 @@ fn here(route: Route) -> Here {
 
 fn handle_global_keys(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let ctx = ui.ctx().clone();
-    if !state.nav.overlays().is_empty()
+    if settings::listening_for_key(&ctx)
+        || !state.nav.overlays().is_empty()
         || state.library.menu.is_some()
         || state.library.tag_menu.is_some()
         || egui::Popup::is_any_open(&ctx)

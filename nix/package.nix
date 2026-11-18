@@ -25,6 +25,11 @@
   libxcursor,
   libxi,
   libxrandr,
+  libopus,
+  libpulseaudio,
+  pipewire,
+  ffmpeg_8-headless,
+  aws-lc,
   appimageTools,
   runCommand,
   simplex-chat-desktop,
@@ -53,6 +58,14 @@ let
     libxcursor
     libxi
     libxrandr
+    # Calls (ADR-0035): Opus, and sound in and out through PulseAudio (or PipeWire's).
+    libopus
+    libpulseaudio
+    # Game streams (ADR-0036): a game window's pictures from the ScreenCast portal.
+    pipewire
+    # Game streams' hardware H.264 (ADR-0036): NVENC and VA-API through libavcodec (FFmpeg 8,
+    # GPL build; the NVIDIA and VA-API drivers are loaded at run time).
+    ffmpeg_8-headless
   ];
 
   # Host tools EasyPlay executes (RELEASE_STRATEGY §2: bubblewrap and umu-launcher on PATH).
@@ -194,6 +207,9 @@ rustPlatform.buildRustPackage {
   cargoBuildFlags = [
     "-p"
     "easyplay"
+    # The in-game overlay (ADR-0037), started by EasyPlay from libexec.
+    "-p"
+    "easyplay-overlay"
   ]
   ++ lib.optionals (simplexLib != null) [
     "-p"
@@ -208,10 +224,17 @@ rustPlatform.buildRustPackage {
     installShellFiles
     removeReferencesTo
     patchelf
+    # libspa/pipewire-sys generate their bindings with libclang (ADR-0036).
+    rustPlatform.bindgenHook
   ];
   # libsqlite3-sys currently resolves without its `bundled` feature and links the system
   # library through pkg-config; when the workspace bundles SQLite this is simply unused.
-  buildInputs = runtimeLibs ++ [ sqlite ];
+  # Calls' DTLS (str0m → dimpl → aws-lc-rs, ADR-0035): nixpkgs' cargo hook sets
+  # AWS_LC_SYS_USE_SYSTEM, so aws-lc-sys links this instead of building its own copy.
+  buildInputs = runtimeLibs ++ [
+    sqlite
+    aws-lc
+  ];
 
   # Compiled into easyplay-core's consts::LIBEXEC_DIR (RELEASE_STRATEGY §2.1).
   EASYPLAY_LIBEXEC_DIR = "${placeholder "out"}/libexec/easyplay";
@@ -220,6 +243,10 @@ rustPlatform.buildRustPackage {
 
   postInstall = ''
     install -Dm755 ${easyplay-init}/bin/easyplay-init $out/libexec/easyplay/easyplay-init
+    # The in-game overlay (ADR-0037): started by EasyPlay under bwrap, never by the user.
+    install -Dm755 $out/bin/easyplay-overlay $out/libexec/easyplay/easyplay-overlay
+    rm $out/bin/easyplay-overlay
+    remove-references-to -t ${rustToolchain} $out/libexec/easyplay/easyplay-overlay
   ''
   # The Chat helper is AGPL-3.0 (it loads libsimplex into its process); EasyPlay talks to it
   # over pipes only. Its library folder holds links into simplexLib, so the helper's sandbox
@@ -298,6 +325,9 @@ rustPlatform.buildRustPackage {
   # shrink step would drop it again (no DT_NEEDED entry names these libraries).
   postFixup = ''
     patchelf --add-rpath ${lib.makeLibraryPath runtimeLibs} $out/bin/.easyplay-wrapped
+    # The overlay runs with a cleared environment and dlopens libwayland-client and the
+    # Vulkan/GL loaders (ADR-0037).
+    patchelf --add-rpath ${lib.makeLibraryPath runtimeLibs} $out/libexec/easyplay/easyplay-overlay
   '';
 
   disallowedReferences = [ rustToolchain ];

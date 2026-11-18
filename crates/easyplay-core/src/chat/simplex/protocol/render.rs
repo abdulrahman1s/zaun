@@ -21,10 +21,11 @@ impl Codec {
                 self.render_history(chat, before, count, tag, out);
                 None
             }
-            Request::SetProfile(p) => Some((
-                RequestKind::SetProfile,
-                format!("/_profile {uid} {}", self.profile_json(&p)),
-            )),
+            Request::SetProfile(p) => Some(self.render_set_profile(&p)),
+            Request::SetPicture(p) => Some(self.render_set_picture(p.as_ref())),
+            Request::SetGroupPicture { group, picture } => {
+                self.render_set_group_picture(group, picture.as_ref(), out)
+            }
             Request::CreateInvite | Request::CreateAddress => {
                 self.render_link(request, retried, out);
                 None
@@ -136,6 +137,14 @@ impl Codec {
             // `full` (the friend is told); the mode is a word, not JSON (APIDeleteChat).
             Request::RemoveFriend(c) => {
                 Some((RequestKind::RemoveFriend, format!("/_delete @{c} full")))
+            }
+            Request::Call(c) => {
+                self.render_call(c, out);
+                None
+            }
+            Request::Stream(s) => {
+                self.render_stream(s, out);
+                None
             }
         };
         if let Some((kind, cmd)) = sent {

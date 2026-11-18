@@ -119,6 +119,28 @@ pub(super) fn relays(
     out
 }
 
+/// `chat.ice_servers` (ADR-0035): each a STUN or TURN server URI.
+pub(super) fn ice_servers(
+    r: &mut Reader<'_>,
+    s: &mut Section,
+    key: &str,
+    _default: Vec<String>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for (i, v) in r.list(s, key).into_iter().enumerate() {
+        match v {
+            Value::String(a) if crate::model::IceServer::parse(&a).is_some() => out.push(a),
+            _ => r.dropped(
+                s,
+                key,
+                i,
+                "not a stun:, turn: or turns: server (turn servers need user:password@)",
+            ),
+        }
+    }
+    out
+}
+
 pub(super) fn search_dirs(
     r: &mut Reader<'_>,
     s: &mut Section,

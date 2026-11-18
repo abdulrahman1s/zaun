@@ -35,6 +35,11 @@ pub enum NotifyEvent {
         /// The text, only with `chat.notify_preview` on.
         text: Option<String>,
     },
+    /// A friend calls (ADR-0035).
+    ChatCall {
+        /// The friend.
+        from: String,
+    },
 }
 
 /// A composed notification.
@@ -120,6 +125,26 @@ pub fn compose(event: &NotifyEvent, icon: Option<&str>) -> Notification {
             icon,
             open_action: true,
         },
+        NotifyEvent::ChatCall { from } => Notification {
+            summary: clean_name(from),
+            body: "Incoming call".to_owned(),
+            icon,
+            open_action: true,
+        },
+    }
+}
+
+/// A friend started calling between two Chat snapshots (ADR-0035).
+pub fn chat_calls(
+    before: &crate::model::ChatSnapshot,
+    now: &crate::model::ChatSnapshot,
+) -> Vec<NotifyEvent> {
+    match (&before.live.ringing, &now.live.ringing) {
+        (_, None) => Vec::new(),
+        (Some(b), Some(n)) if b.chat == n.chat && b.since == n.since => Vec::new(),
+        (_, Some(n)) => vec![NotifyEvent::ChatCall {
+            from: n.name.clone(),
+        }],
     }
 }
 
@@ -144,6 +169,10 @@ pub fn chat_messages(
         })
         .filter_map(|c| {
             let last = c.last.as_ref()?;
+            // Calls are announced as calls (`chat_calls`, `chat.notify_calls`).
+            if matches!(last.body, MessageBody::Call(_)) {
+                return None;
+            }
             if c.muted && !last.mentions.iter().any(|m| m.me) {
                 return None;
             }
@@ -169,6 +198,7 @@ pub fn wanted(event: &NotifyEvent, prefs: &Preferences, focused: bool) -> bool {
         NotifyEvent::Ended { .. } => !focused && prefs.launch.notify_on_exit,
         NotifyEvent::TamperRemoved => true,
         NotifyEvent::ChatMessage { .. } => !focused && prefs.chat.enabled && prefs.chat.notify,
+        NotifyEvent::ChatCall { .. } => !focused && prefs.chat.enabled && prefs.chat.notify_calls,
     }
 }
 
@@ -368,11 +398,23 @@ mod tests {
     fn a_muted_group_is_announced_only_for_a_mention_of_the_user() {
         let group = ChatRef::Group(4);
         let before = ChatSnapshot {
-            chats: vec![chat(group, "Crew", 0, MessageAuthor::Member("Ana".into()), "a")],
+            chats: vec![chat(
+                group,
+                "Crew",
+                0,
+                MessageAuthor::Member("Ana".into()),
+                "a",
+            )],
             ..ChatSnapshot::default()
         };
         let mut now = ChatSnapshot {
-            chats: vec![chat(group, "Crew", 1, MessageAuthor::Member("Ana".into()), "b")],
+            chats: vec![chat(
+                group,
+                "Crew",
+                1,
+                MessageAuthor::Member("Ana".into()),
+                "b",
+            )],
             ..ChatSnapshot::default()
         };
         now.chats[0].muted = true;
@@ -385,7 +427,10 @@ mod tests {
         if let Some(last) = now.chats[0].last.as_mut() {
             last.mentions = vec![mention(false)];
         }
-        assert!(chat_messages(&before, &now, false).is_empty(), "someone else");
+        assert!(
+            chat_messages(&before, &now, false).is_empty(),
+            "someone else"
+        );
         if let Some(last) = now.chats[0].last.as_mut() {
             last.mentions = vec![mention(true)];
         }
@@ -446,5 +491,86 @@ mod tests {
         let r = RecordingNotifier::default();
         r.notify(&compose(&crash, None));
         assert_eq!(r.sent().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod call_tests {
+    use super::*;
+    use crate::clock::Timestamp;
+    use crate::model::{
+        CallKind, CallRecord, ChatMessage, ChatPreview, ChatRef, ChatSnapshot, Delivery,
+        MessageAuthor, MessageBody, Ringing,
+    };
+
+    fn ringing(since: i64) -> ChatSnapshot {
+        let mut s = ChatSnapshot::default();
+        s.live.ringing = Some(Ringing {
+            chat: ChatRef::Direct(3),
+            name: "Mira".into(),
+            since: Timestamp::from_millis(since),
+        });
+        s
+    }
+
+    #[test]
+    fn a_call_is_announced_once_when_it_starts_ringing_and_follows_notify_calls() {
+        let quiet = ChatSnapshot::default();
+        let events = chat_calls(&quiet, &ringing(1));
+        assert_eq!(
+            events,
+            vec![NotifyEvent::ChatCall {
+                from: "Mira".into()
+            }]
+        );
+        assert!(
+            chat_calls(&ringing(1), &ringing(1)).is_empty(),
+            "still the same call"
+        );
+        assert_eq!(chat_calls(&ringing(1), &ringing(2)).len(), 1, "a new call");
+        assert!(chat_calls(&ringing(1), &quiet).is_empty());
+        let n = compose(&events[0], None);
+        assert_eq!(
+            (n.summary.as_str(), n.body.as_str()),
+            ("Mira", "Incoming call")
+        );
+
+        let mut p = Preferences::default();
+        p.chat.enabled = true;
+        assert!(wanted(&events[0], &p, false));
+        assert!(!wanted(&events[0], &p, true));
+        p.chat.notify_calls = false;
+        assert!(!wanted(&events[0], &p, false));
+    }
+
+    #[test]
+    fn a_missed_call_line_is_not_announced_as_a_new_message() {
+        let call = ChatMessage {
+            id: 9,
+            chat: ChatRef::Direct(3),
+            author: MessageAuthor::Friend,
+            body: MessageBody::Call(CallRecord {
+                kind: CallKind::Missed,
+                minutes: 0,
+            }),
+            at: Timestamp::EPOCH,
+            delivery: Delivery::Received,
+            unread: true,
+            reply: None,
+            reactions: Vec::new(),
+            edited: false,
+            mentions: Vec::new(),
+        };
+        let now = ChatSnapshot {
+            chats: vec![ChatPreview {
+                chat: ChatRef::Direct(3),
+                name: "Mira".into(),
+                last: Some(call),
+                unread: 1,
+                muted: false,
+            }],
+            ..ChatSnapshot::default()
+        };
+        assert!(chat_messages(&ChatSnapshot::default(), &now, true).is_empty());
     }
 }

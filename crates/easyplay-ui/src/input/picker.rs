@@ -62,6 +62,8 @@ pub enum PickPurpose {
     ChatPicture(easyplay_core::model::ChatRef),
     /// The Chat composer's *File…* for this conversation.
     ChatFile(easyplay_core::model::ChatRef),
+    /// *Choose a picture…* in Your profile (`None`) or a group's picture (ADR-0038).
+    ChatAvatar(Option<i64>),
     /// *Save as…* for a Chat message's file: where the copy goes (`name` is offered).
     ChatSave {
         /// The conversation.
@@ -81,7 +83,7 @@ impl PickPurpose {
             | PickPurpose::AddProgram(_)
             | PickPurpose::RunProgram(_)
             | PickPurpose::Locate(_) => PickKind::Programs,
-            PickPurpose::Artwork(..) => PickKind::Image,
+            PickPurpose::Artwork(..) | PickPurpose::ChatAvatar(_) => PickKind::Image,
             PickPurpose::FolderGrant(_)
             | PickPurpose::RelocateFolder(..)
             | PickPurpose::SaveFolder(_)

@@ -16,12 +16,15 @@ use std::sync::Arc;
 use easyplay_core::clock::Timestamp;
 use easyplay_core::ids::QueryId;
 use easyplay_core::model::{
-    Call, CallKind, CallRecord, ChatFeatures, ChatGroup, ChatMessage, ChatPreview, ChatProfile,
-    ChatRef, ChatSnapshot, ChatStatus, Delivery, Friend, FriendRequest, GroupMember, Membership,
-    Mention, MessageAuthor, MessageBody, MyStatus, Playing, Presence, Quote, Reaction, Ringing,
-    Share, StreamRecord, Watching,
+    Call, CallKind, CallLink, CallQuality, CallRecord, ChatFeatures, ChatGroup, ChatMessage,
+    ChatPreview, ChatProfile, ChatRef, ChatSnapshot, ChatStatus, Delivery, Friend, FriendRequest,
+    GroupMember, Membership, Mention, MessageAuthor, MessageBody, MyStatus, Playing, Presence,
+    Quote, Reaction, Ringing, Share, StreamRecord, Watching,
 };
 use easyplay_core::model::{FileState, Media};
+use easyplay_core::service::FrameSlot;
+use easyplay_core::service::chat_picture as picture;
+use easyplay_core::service::test_pattern;
 use easyplay_core::service::{ChatCommand, ChatPage};
 
 use crate::bridge::{QueryPayload, UiEvent};
@@ -66,6 +69,20 @@ pub const SPEAK_MS: i64 = 1_100;
 pub const VIEWER_MS: i64 = 2_600;
 /// An incoming call nobody answers becomes a missed call after this long.
 pub const RING_MS: i64 = 20_000;
+/// An answered call's sound gets through after this long ("Connecting…").
+pub const CONNECT_MS: i64 = 1_200;
+/// A live direct call loses its path once after this long ("Reconnecting…")…
+pub const DROP_MS: i64 = 30_000;
+/// …and finds it again after this long.
+pub const RESTORE_MS: i64 = 4_000;
+/// In a group's voice, another member joins this often (until all are in).
+pub const JOIN_MS: i64 = 3_000;
+/// A watched stream's first picture arrives after this long ("Waiting for the picture…").
+pub const PICTURE_MS: i64 = 1_500;
+/// Then one picture every this long (30 a second).
+pub const FRAME_MS: i64 = 33;
+/// The preview's shared game draws 1080 high: a larger choice is sent at 1080.
+pub const GAME_HEIGHT: u32 = 1080;
 
 /// The member number of `friend` in `group` (stable, for mentions and voice).
 pub const fn member_id(group: i64, friend: i64) -> i64 {
@@ -265,8 +282,42 @@ fn friends(now: Timestamp) -> Vec<Friend> {
             blocked: p.blocked,
             muted: false,
             seen: p.seen.iter().map(|s| (*s).to_owned()).collect(),
+            picture: portrait(p.id),
         })
         .collect()
+}
+
+/// A stand-in photo for a few friends (pictures agent, ADR-0038), so the preview shows
+/// pictures beside initials: background, skin, hair and shirt for Mira, Jonas and Dev.
+fn portrait(friend: i64) -> Option<easyplay_core::model::Picture> {
+    let [bg, skin, hair, shirt]: [[u8; 3]; 4] = match friend {
+        1 => [[118, 112, 58], [142, 92, 60], [40, 28, 22], [52, 120, 110]],
+        2 => [[60, 130, 96], [214, 168, 128], [96, 64, 36], [120, 70, 150]],
+        3 => [[150, 64, 92], [196, 138, 90], [30, 24, 20], [70, 150, 120]],
+        _ => return None,
+    };
+    let side = 192u32;
+    let img = image::RgbaImage::from_fn(side, side, |x, y| {
+        let (x, y) = (x as f32 / side as f32, y as f32 / side as f32);
+        let near = |cx: f32, cy: f32, rx: f32, ry: f32| {
+            ((x - cx) / rx).powi(2) + ((y - cy) / ry).powi(2) < 1.0
+        };
+        let c = if near(0.5, 1.02, 0.42, 0.3) {
+            shirt
+        } else if near(0.5, 0.36, 0.2, 0.2) && y < 0.33 {
+            hair
+        } else if near(0.5, 0.42, 0.17, 0.2) || (x - 0.5).abs() < 0.07 && y < 0.78 && y > 0.5 {
+            skin
+        } else {
+            let t = 1.0 - y * 0.35;
+            [bg[0], bg[1], bg[2]].map(|v| (f32::from(v) * t) as u8)
+        };
+        image::Rgba([c[0], c[1], c[2], 255])
+    });
+    let mut out = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+        .ok()?;
+    Some(easyplay_core::model::Picture::new(out))
 }
 
 fn me_member(group: i64, owner: bool) -> GroupMember {
@@ -279,6 +330,7 @@ fn me_member(group: i64, owner: bool) -> GroupMember {
         presence: Presence::Online,
         playing: None,
         blocked: false,
+        picture: None,
     }
 }
 
@@ -292,6 +344,7 @@ fn group_member(group: i64, f: &Friend, owner: bool) -> GroupMember {
         presence: f.presence,
         playing: f.playing.clone(),
         blocked: f.blocked,
+        picture: f.picture.clone(),
     }
 }
 
@@ -321,6 +374,8 @@ fn group(
         muted,
         voice: voice.iter().map(|f| member_id(id, *f)).collect(),
         link: None,
+        picture: None,
+        owner: owner.is_none(),
     }
 }
 
@@ -791,6 +846,7 @@ fn build(now: Timestamp) -> Built {
             about: "Mostly co-op, sometimes ranked.".into(),
             paper: Some(0),
             status: MyStatus::Online,
+            picture: None,
         }),
         friends,
         groups,
@@ -905,6 +961,34 @@ pub fn seed_vm(vm: &mut crate::vm::chat::ChatVm) {
 
 // ---- Playing the commands -------------------------------------------------------------------
 
+/// The preview's microphone test: a level every 50 ms, a voice rising and falling.
+const MIC_STEP_MS: i64 = 50;
+const MIC_LEVELS: [u8; 16] = [
+    6, 18, 42, 66, 74, 58, 40, 52, 70, 62, 34, 20, 12, 30, 48, 24,
+];
+
+/// The preview's sound devices (chat.html's), as the sound server would name them.
+fn demo_devices() -> easyplay_core::model::AudioDevices {
+    use easyplay_core::model::AudioDevice;
+    let d = |name: &str, description: &str| AudioDevice {
+        name: name.into(),
+        description: description.into(),
+    };
+    easyplay_core::model::AudioDevices {
+        inputs: vec![
+            d("alsa_input.usb-headset.mono-fallback", "USB headset"),
+            d("alsa_input.usb-webcam.analog-stereo", "Webcam microphone"),
+        ],
+        outputs: vec![
+            d("alsa_output.usb-headset.analog-stereo", "USB headset"),
+            d(
+                "alsa_output.pci-0000_01_00.1.hdmi-stereo",
+                "Monitor speakers",
+            ),
+        ],
+    }
+}
+
 /// Something that happens later by itself (chat.html section 25's timers).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Timer {
@@ -918,6 +1002,18 @@ enum Timer {
     Missed,
     /// A file the user sent reached the file servers (core agent, round 4).
     FileSent(ChatRef, i64),
+    /// The answered call's sound gets through (callui).
+    Connected,
+    /// The live direct call loses its path, and finds it again (callui).
+    Drop,
+    /// See [`Timer::Drop`].
+    Restore,
+    /// Another member joins the group's voice (callui).
+    Join,
+    /// The watched stream's first picture (callui).
+    Picture,
+    /// The microphone test's next level (times): its step.
+    MicLevel(u32),
 }
 
 /// The preview's Chat: the starting snapshot and the conversations' histories, changed by
@@ -936,6 +1032,10 @@ pub struct DemoChat {
     share_msg: Option<(ChatRef, i64)>,
     /// The title of the game running now (for sharing).
     running: Option<String>,
+    /// The watched stream's picture: the test picture, once, when watching starts.
+    frames: FrameSlot,
+    /// Pictures published to `frames` (callui: the stream's frame numbers).
+    pictures: u64,
 }
 
 impl DemoChat {
@@ -951,7 +1051,34 @@ impl DemoChat {
             turns: 0,
             share_msg: None,
             running: None,
+            frames: FrameSlot::new(),
+            pictures: 0,
         }
+    }
+
+    /// The share's chosen size and rate, and what is sent: never more than the game's own
+    /// 1080 (a larger choice shows as sent lower, in amber), hardware encoding above 30
+    /// frames a second and software at 30, so the tooltip names both (callui).
+    fn set_quality(&mut self, height: Option<u32>, fps: u32) {
+        let sent = height.map_or(GAME_HEIGHT, |h| h.min(GAME_HEIGHT));
+        let stream = &mut self.s().live.stream;
+        stream.share_height = height;
+        stream.share_fps = fps;
+        stream.sending = Some(easyplay_core::model::StreamInfo {
+            encoder: if fps > 30 {
+                easyplay_core::model::VideoEncoding::Hardware
+            } else {
+                easyplay_core::model::VideoEncoding::Software
+            },
+            width: sent * 16 / 9,
+            height: sent,
+            fps,
+        });
+    }
+
+    /// The watched stream's picture (ADR-0036).
+    pub fn frames(&self) -> FrameSlot {
+        self.frames.clone()
     }
 
     /// The current snapshot.
@@ -1126,35 +1253,103 @@ impl DemoChat {
             changed = true;
             match timer {
                 Timer::Answer => {
+                    if self.snapshot.live.call.is_some() {
+                        self.s().live.link = CallLink::Connecting;
+                        self.schedule(
+                            Timestamp::from_millis(due.as_millis() + CONNECT_MS),
+                            Timer::Connected,
+                        );
+                    }
+                }
+                Timer::Connected => {
                     if let Some(c) = &mut self.s().live.call
                         && c.since.is_none()
                     {
                         c.since = Some(due);
                     }
+                    self.s().live.link = CallLink::Connected;
+                    self.s().live.quality = Some(CallQuality {
+                        rtt_ms: 42,
+                        loss: 0,
+                    });
                     self.schedule(
                         Timestamp::from_millis(due.as_millis() + SPEAK_MS),
                         Timer::Speak,
                     );
+                    self.schedule(
+                        Timestamp::from_millis(due.as_millis() + DROP_MS),
+                        Timer::Drop,
+                    );
+                }
+                Timer::Drop => {
+                    if self.snapshot.live.call.is_some() {
+                        self.s().live.link = CallLink::Interrupted;
+                        self.s().live.levels.friend = 0;
+                        self.schedule(
+                            Timestamp::from_millis(due.as_millis() + RESTORE_MS),
+                            Timer::Restore,
+                        );
+                    }
+                }
+                Timer::Restore => {
+                    if self.snapshot.live.call.is_some() {
+                        self.s().live.link = CallLink::Connected;
+                    }
+                }
+                Timer::Join => self.join_voice(due),
+                Timer::MicLevel(step) => {
+                    if self.snapshot.live.mic_test.is_some() {
+                        self.s().live.mic_test = Some(MIC_LEVELS[step as usize % MIC_LEVELS.len()]);
+                        self.schedule(
+                            Timestamp::from_millis(due.as_millis() + MIC_STEP_MS),
+                            Timer::MicLevel(step.wrapping_add(1)),
+                        );
+                    }
+                }
+                Timer::Picture => {
+                    if self.snapshot.live.watch.is_some() {
+                        // Thirty pictures a second, so the stage measures what it receives.
+                        self.pictures += 1;
+                        self.frames.publish(test_pattern(1280, 720, self.pictures));
+                        if self.snapshot.live.stream.watch_waiting {
+                            self.s().live.stream.watch_waiting = false;
+                        }
+                        self.schedule(
+                            Timestamp::from_millis(due.as_millis() + FRAME_MS),
+                            Timer::Picture,
+                        );
+                    }
                 }
                 Timer::Speak => {
                     self.turns = self.turns.wrapping_add(1);
                     let turn = self.turns;
+                    let interrupted = self.snapshot.live.link == CallLink::Interrupted;
+                    let mut levels = easyplay_core::model::CallLevels::default();
                     if let Some(c) = &mut self.s().live.call {
                         // chat.html: [...with, ...with, you unless muted, nobody].
                         let mut pool: Vec<Option<&String>> =
                             c.with.iter().chain(c.with.iter()).map(Some).collect();
+                        let me_at = (!c.muted).then_some(pool.len());
                         if !c.muted {
                             pool.push(None);
                         }
                         pool.push(None);
-                        let pick = pool[(hash(&turn.to_string()) as usize) % pool.len()];
-                        c.speaking = match pick {
-                            Some(n) if !c.deafened => vec![n.clone()],
+                        let at = (hash(&turn.to_string()) as usize) % pool.len();
+                        let loud = 30 + (hash(&format!("l{turn}")) % 60) as u8;
+                        c.speaking = match pool[at] {
+                            Some(n) if !c.deafened && !interrupted => {
+                                levels.friend = loud;
+                                vec![n.clone()]
+                            }
                             _ => Vec::new(),
                         };
+                        if me_at == Some(at) {
+                            levels.me = loud;
+                        }
                         let next = Timestamp::from_millis(due.as_millis() + SPEAK_MS);
                         self.schedule(next, Timer::Speak);
                     }
+                    self.s().live.levels = levels;
                 }
                 Timer::Viewer(item) => {
                     if self.share_msg.is_some_and(|(_, m)| m == item) {
@@ -1218,7 +1413,21 @@ impl DemoChat {
         let Some(c) = self.s().live.call.take() else {
             return;
         };
-        self.cancel(|t| matches!(t, Timer::Answer | Timer::Speak));
+        self.cancel(|t| {
+            matches!(
+                t,
+                Timer::Answer
+                    | Timer::Speak
+                    | Timer::Connected
+                    | Timer::Drop
+                    | Timer::Restore
+                    | Timer::Join
+            )
+        });
+        let live = &mut self.s().live;
+        live.link = CallLink::default();
+        live.levels = easyplay_core::model::CallLevels::default();
+        live.quality = None;
         match c.chat {
             ChatRef::Direct(_) => {
                 if let Some(since) = c.since {
@@ -1248,6 +1457,10 @@ impl DemoChat {
         if self.s().live.share.take().is_none() {
             return;
         }
+        let stream = &mut self.s().live.stream;
+        stream.share_height = None;
+        stream.share_fps = 0;
+        stream.sending = None;
         let Some((chat, item)) = self.share_msg.take() else {
             return;
         };
@@ -1277,6 +1490,9 @@ impl DemoChat {
         let Some(w) = self.s().live.watch.take() else {
             return;
         };
+        self.cancel(|t| *t == Timer::Picture);
+        self.s().live.stream.watch_waiting = false;
+        self.frames.clear();
         let Some(item) = self.live_stream(w.chat) else {
             return;
         };
@@ -1337,6 +1553,46 @@ impl DemoChat {
                     .name = n;
             }
             ChatCommand::SetProfile(p) => self.s().profile = Some(p),
+            // Pictures (avatar agent, ADR-0038). The preview reads no files: every chosen
+            // file is the same stand-in photo, cropped and shrunk as the service would.
+            ChatCommand::LoadPicture { path, reply_to } => {
+                let payload = match picture::source(&path, &stand_in_photo()) {
+                    Ok(src) => QueryPayload::PictureSource(src),
+                    Err(e) => QueryPayload::Failed(describe_plain(&e)),
+                };
+                out.push(UiEvent::QueryResult {
+                    id: reply_to,
+                    payload,
+                });
+                return out;
+            }
+            ChatCommand::SetPicture { crop, .. } => match picture::make(&stand_in_photo(), crop) {
+                Ok(p) => {
+                    let me = self.s().profile.get_or_insert_with(ChatProfile::default);
+                    me.picture = Some(p);
+                }
+                Err(e) => out.push(UiEvent::Failure(describe_plain(&e))),
+            },
+            ChatCommand::ClearPicture => {
+                if let Some(me) = &mut self.s().profile {
+                    me.picture = None;
+                }
+            }
+            ChatCommand::SetGroupPicture { group, crop, .. } => {
+                match picture::make(&stand_in_photo(), crop) {
+                    Ok(p) => {
+                        if let Some(g) = self.s().group_mut(group) {
+                            g.picture = Some(p);
+                        }
+                    }
+                    Err(e) => out.push(UiEvent::Failure(describe_plain(&e))),
+                }
+            }
+            ChatCommand::ClearGroupPicture(group) => {
+                if let Some(g) = self.s().group_mut(group) {
+                    g.picture = None;
+                }
+            }
             ChatCommand::SetStatus(st) => {
                 self.s()
                     .profile
@@ -1570,6 +1826,32 @@ impl DemoChat {
                 }
             }
             ChatCommand::EndCall => self.end_call(now, &mut out),
+            ChatCommand::SetShareQuality { height, fps } => {
+                if self.snapshot.live.share.is_some() {
+                    let h = match height {
+                        easyplay_core::service::ShareHeight::P720 => Some(720),
+                        easyplay_core::service::ShareHeight::P1080 => Some(1080),
+                        easyplay_core::service::ShareHeight::P1440 => Some(1440),
+                        easyplay_core::service::ShareHeight::Source => None,
+                    };
+                    self.set_quality(h, fps);
+                }
+            }
+            ChatCommand::RefreshAudioDevices => {
+                self.s().audio_devices = Some(demo_devices());
+            }
+            ChatCommand::MicTest(on) => {
+                self.cancel(|t| matches!(t, Timer::MicLevel(_)));
+                if on && self.snapshot.live.call.is_none() {
+                    self.s().live.mic_test = Some(0);
+                    self.schedule(
+                        Timestamp::from_millis(now.as_millis() + MIC_STEP_MS),
+                        Timer::MicLevel(0),
+                    );
+                } else {
+                    self.s().live.mic_test = None;
+                }
+            }
             ChatCommand::CallMute(on) => {
                 if let Some(c) = &mut self.s().live.call {
                     c.muted = on;
@@ -1608,6 +1890,7 @@ impl DemoChat {
                     since: now,
                     watching: 0,
                 });
+                self.set_quality(Some(1080), 60);
                 self.schedule(
                     Timestamp::from_millis(now.as_millis() + VIEWER_MS),
                     Timer::Viewer(m.id),
@@ -1638,6 +1921,13 @@ impl DemoChat {
                         muted: false,
                     };
                     self.s().live.watch = Some(watch);
+                    // A still frame of the test picture comes a moment later: the preview
+                    // has no stream to decode.
+                    self.s().live.stream.watch_waiting = true;
+                    self.schedule(
+                        Timestamp::from_millis(now.as_millis() + PICTURE_MS),
+                        Timer::Picture,
+                    );
                     out.push(UiEvent::ChatMessages {
                         messages: vec![m],
                         updated: true,
@@ -1677,6 +1967,8 @@ impl DemoChat {
                     muted: false,
                     voice: Vec::new(),
                     link: None,
+                    picture: None,
+                    owner: true,
                 });
                 self.made.insert(ChatRef::Group(id), now);
                 self.histories.entry(ChatRef::Group(id)).or_default();
@@ -1887,6 +2179,7 @@ impl DemoChat {
                     muted: false,
                     deafened: false,
                 });
+                self.s().live.link = CallLink::Ringing;
                 self.schedule(
                     Timestamp::from_millis(now.as_millis() + ANSWER_MS),
                     Timer::Answer,
@@ -1916,12 +2209,43 @@ impl DemoChat {
                     muted: false,
                     deafened: false,
                 });
+                self.s().live.link = CallLink::Connected;
                 self.schedule(
                     Timestamp::from_millis(now.as_millis() + SPEAK_MS),
                     Timer::Speak,
                 );
+                self.schedule(
+                    Timestamp::from_millis(now.as_millis() + JOIN_MS),
+                    Timer::Join,
+                );
             }
         }
+    }
+
+    /// The next member of the group whose voice the user is in joins it, until all are in
+    /// (the preview's way to a call of four or more).
+    fn join_voice(&mut self, due: Timestamp) {
+        let Some(ChatRef::Group(g)) = self.snapshot.live.call.as_ref().map(|c| c.chat) else {
+            return;
+        };
+        let Some(next) = self.snapshot.group(g).and_then(|gr| {
+            gr.member_list
+                .iter()
+                .find(|m| !m.me && !gr.voice.contains(&m.id))
+                .map(|m| (m.id, m.name.clone()))
+        }) else {
+            return;
+        };
+        if let Some(gr) = self.s().groups.iter_mut().find(|x| x.id == g) {
+            gr.voice.push(next.0);
+        }
+        if let Some(c) = &mut self.s().live.call {
+            c.with.push(next.1);
+        }
+        self.schedule(
+            Timestamp::from_millis(due.as_millis() + JOIN_MS),
+            Timer::Join,
+        );
     }
 }
 
@@ -1952,6 +2276,16 @@ fn react(m: &mut ChatMessage, emoji: &str, on: bool) {
     }
 }
 
+/// The photo every picture file is in the preview (3 : 2, so the crop step has room).
+fn stand_in_photo() -> Vec<u8> {
+    preview_png(960, 640, [70, 120, 200], [240, 170, 90])
+}
+
+fn describe_plain(e: &easyplay_core::error::Error) -> easyplay_core::error::UserError {
+    use easyplay_core::error::catalog::{DescribeCtx, describe};
+    describe(e, &DescribeCtx::plain())
+}
+
 fn answer(reply_to: QueryId, page: ChatPage) -> UiEvent {
     UiEvent::QueryResult {
         id: reply_to,
@@ -1980,6 +2314,26 @@ mod tests {
 
     fn later(ms: i64) -> Timestamp {
         Timestamp::from_millis(now().as_millis() + ms)
+    }
+
+    #[test]
+    fn the_preview_lists_devices_and_its_microphone_test_moves_until_stopped() {
+        let mut c = DemoChat::new(now());
+        assert!(c.snapshot().audio_devices.is_none());
+        c.handle(ChatCommand::RefreshAudioDevices, now());
+        let d = c.snapshot().audio_devices.clone().unwrap();
+        assert_eq!((d.inputs.len(), d.outputs.len()), (2, 2));
+        c.handle(ChatCommand::MicTest(true), now());
+        assert_eq!(c.snapshot().live.mic_test, Some(0));
+        let mut seen = std::collections::BTreeSet::new();
+        for k in 1..10 {
+            c.tick(later(k * MIC_STEP_MS));
+            seen.insert(c.snapshot().live.mic_test.unwrap());
+        }
+        assert!(seen.len() > 3, "the level moves: {seen:?}");
+        c.handle(ChatCommand::MicTest(false), now());
+        c.tick(later(20 * MIC_STEP_MS));
+        assert_eq!(c.snapshot().live.mic_test, None);
     }
 
     fn text(m: &ChatMessage) -> &str {
@@ -2249,22 +2603,34 @@ mod tests {
         let mut c = DemoChat::new(now());
         c.handle(ChatCommand::Call(MIRA), now());
         assert_eq!(c.snapshot().live.call.as_ref().unwrap().since, None);
+        assert_eq!(c.snapshot().live.link, CallLink::Ringing);
         assert_eq!(c.next_due(), Some(later(ANSWER_MS)));
         assert!(c.tick(later(ANSWER_MS - 1)).is_empty());
+        // Answered: connecting, then the sound gets through and the clock starts.
         c.tick(later(ANSWER_MS));
+        assert_eq!(c.snapshot().live.link, CallLink::Connecting);
+        assert_eq!(c.snapshot().live.call.as_ref().unwrap().since, None);
+        let live = ANSWER_MS + CONNECT_MS;
+        c.tick(later(live));
+        assert_eq!(c.snapshot().live.link, CallLink::Connected);
         assert_eq!(
             c.snapshot().live.call.as_ref().unwrap().since,
-            Some(later(ANSWER_MS))
+            Some(later(live))
         );
         let mut spoke = false;
         for i in 1..12 {
-            c.tick(later(ANSWER_MS + i * SPEAK_MS));
+            c.tick(later(live + i * SPEAK_MS));
             spoke |= !c.snapshot().live.call.as_ref().unwrap().speaking.is_empty();
         }
         assert!(spoke);
+        // The path drops once and comes back.
+        c.tick(later(live + DROP_MS));
+        assert_eq!(c.snapshot().live.link, CallLink::Interrupted);
+        c.tick(later(live + DROP_MS + RESTORE_MS));
+        assert_eq!(c.snapshot().live.link, CallLink::Connected);
         c.handle(ChatCommand::CallMute(true), now());
         assert!(c.snapshot().live.call.as_ref().unwrap().muted);
-        let ev = c.handle(ChatCommand::EndCall, later(ANSWER_MS + 3 * 60_000));
+        let ev = c.handle(ChatCommand::EndCall, later(live + 3 * 60_000));
         assert!(c.snapshot().live.call.is_none());
         assert_eq!(c.next_due(), None);
         assert!(matches!(&ev[0], UiEvent::ChatMessages { messages, .. }
@@ -2367,6 +2733,28 @@ mod tests {
     }
 
     #[test]
+    fn group_voice_fills_up_and_a_watched_game_waits_for_its_picture() {
+        let mut c = DemoChat::new(now());
+        c.handle(ChatCommand::Call(CREW), now());
+        assert_eq!(c.snapshot().live.call.as_ref().unwrap().with.len(), 2);
+        c.tick(later(JOIN_MS));
+        c.tick(later(2 * JOIN_MS));
+        assert_eq!(
+            c.snapshot().live.call.as_ref().unwrap().with,
+            vec!["Jonas Weber", "Dev Patel", "Mira Okafor", "Lucía Fernández"]
+        );
+        c.handle(ChatCommand::Watch(CREW), later(2 * JOIN_MS));
+        assert!(c.snapshot().live.stream.watch_waiting);
+        assert!(!c.frames().has_frame());
+        c.tick(later(2 * JOIN_MS + PICTURE_MS));
+        assert!(!c.snapshot().live.stream.watch_waiting);
+        assert!(c.frames().has_frame());
+        c.handle(ChatCommand::EndCall, later(3 * JOIN_MS));
+        c.handle(ChatCommand::StopWatch, later(3 * JOIN_MS));
+        assert_eq!(c.next_due(), None);
+    }
+
+    #[test]
     fn a_sent_file_carries_its_caption_and_the_users_copy_and_is_sent_after_a_moment() {
         let mut c = DemoChat::new(now());
         let path = std::path::PathBuf::from("/home/sam/Pictures/raid.png");
@@ -2428,5 +2816,58 @@ mod tests {
             UiEvent::Toast(t) if t.text.contains("Downloads")
                 && t.level == crate::bridge::ToastLevel::Success
         )));
+    }
+
+    #[test]
+    fn a_chosen_picture_is_shown_for_the_user_and_a_group() {
+        use easyplay_core::model::PictureCrop;
+        let mut c = DemoChat::new(now());
+        let id = QueryId::from_uuid(uuid::Uuid::from_u128(77));
+        let path = std::path::PathBuf::from("/nonexistent/me.jpg");
+        let ev = c.handle(
+            ChatCommand::LoadPicture {
+                path: path.clone(),
+                reply_to: id,
+            },
+            now(),
+        );
+        let Some(UiEvent::QueryResult {
+            id: answered,
+            payload: QueryPayload::PictureSource(src),
+        }) = ev.first()
+        else {
+            panic!("{ev:?}")
+        };
+        assert_eq!((*answered, src.width, src.height), (id, 960, 640));
+        assert_eq!(src.path, path);
+        let crop = Some(PictureCrop {
+            x: 320,
+            y: 0,
+            side: 640,
+        });
+        c.handle(ChatCommand::SetPicture { path, crop }, now());
+        let mine = c
+            .snapshot()
+            .profile
+            .as_ref()
+            .and_then(|p| p.picture.clone());
+        let shown = image::load_from_memory(mine.expect("a picture").bytes()).unwrap();
+        assert_eq!(shown.width(), shown.height());
+        c.handle(ChatCommand::ClearPicture, now());
+        assert!(c.snapshot().profile.as_ref().unwrap().picture.is_none());
+
+        let crew = CREW.id();
+        let path = std::path::PathBuf::from("/nonexistent/crew.png");
+        c.handle(
+            ChatCommand::SetGroupPicture {
+                group: crew,
+                path,
+                crop: None,
+            },
+            now(),
+        );
+        assert!(c.snapshot().group(crew).unwrap().picture.is_some());
+        c.handle(ChatCommand::ClearGroupPicture(crew), now());
+        assert!(c.snapshot().group(crew).unwrap().picture.is_none());
     }
 }

@@ -2,8 +2,6 @@
 //! between that file's `chat.list` markers. The page's frame (the invitation, the Off page's
 //! headline), the list column, its menus and the "you" row.
 
-use easyplay_core::clock::Timestamp;
-
 texts! {
     /// The search field's placeholder and name.
     SEARCH = "chat.list.search";
@@ -184,37 +182,4 @@ pub fn new_messages(n: u32) -> String {
 /// "3 unread messages" (the top bar's count, spoken).
 pub fn unread_total(n: u32) -> String {
     crate::i18n::plural::counted("chat.list.unread_total", u64::from(n))
-}
-
-/// A chat's time in the list: "09:12" today, "Yesterday", the weekday within a week, then
-/// "3 Nov" (with the year in another year). `offset_s` is the local UTC offset.
-pub fn when_short(t: Timestamp, now: Timestamp, offset_s: i32) -> String {
-    let local = |t: Timestamp| (t.as_millis() + i64::from(offset_s) * 1000).div_euclid(86_400_000);
-    let (d, today) = (local(t), local(now));
-    match today - d {
-        i64::MIN..=0 => super::super::stats::clock_time(t, offset_s),
-        1 => super::super::date::yesterday().to_owned(),
-        2..=6 => super::super::stats::WEEKDAY_SHORT()[(d + 3).rem_euclid(7) as usize].to_owned(),
-        _ => super::short_time(t, now, offset_s),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn times_are_today_yesterday_weekday_then_date() {
-        crate::i18n::set(crate::i18n::Language::English);
-        // 2026-11-17 is a Tuesday.
-        let now = Timestamp::from_millis(1_794_873_600_000 + 10 * 3_600_000);
-        let ago = |h: i64| Timestamp::from_millis(now.as_millis() - h * 3_600_000);
-        assert_eq!(when_short(ago(1), now, 0), "09:00");
-        assert_eq!(
-            when_short(ago(24), now, 0),
-            crate::strings::date::yesterday()
-        );
-        assert_eq!(when_short(ago(24 * 4), now, 0), "Fri");
-        assert_eq!(when_short(ago(24 * 9), now, 0), "8 Nov");
-    }
 }

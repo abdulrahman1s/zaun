@@ -197,7 +197,12 @@ fn start_up_reads_the_user_then_starts_then_reads_the_list_and_address() {
     assert_eq!(profile.name, "alice");
     assert!(features.reactions && features.replies && features.edit && features.files);
     assert!(features.mute && features.block && features.verify && features.mentions);
-    assert!(!features.calls && !features.presence && !features.share && !features.voice);
+    assert!(!features.presence && !features.voice);
+    // Game streams since ADR-0036 (the service hides them in a build that cannot capture).
+    assert_eq!(features.share, SHARE_WORKS);
+    // Voice calls since ADR-0035 (1:1 only).
+    assert!(features.calls && !features.group_voice);
+    assert_eq!(features.calls, CALLS_WORK);
     assert_eq!(features.gifs, GIFS_SEND_WORKS);
     assert_eq!(reactions.as_deref().unwrap().len(), 8);
     let sent = cmds(&out);
@@ -502,15 +507,28 @@ fn changes_to_who_the_user_talks_to_read_the_list_once_more_at_most() {
     assert!(out.lines.is_empty());
     let out = c.on_line(&resp(4, &fixture("api_chats")));
     assert!(matches!(out.events[0], ChatEvent::Chats { .. }));
-    assert_eq!(cmds(&out).len(), 1, "one more read for both changes");
-    assert!(cmds(&out)[0].1.starts_with("/_get chats"));
+    // Besides the read of the latest shown message of the chat whose latest item is a call
+    // still ringing (ADR-0035: hidden until it is over).
+    let lists: Vec<_> = cmds(&out)
+        .into_iter()
+        .filter(|(_, c)| c.starts_with("/_get chats"))
+        .collect();
+    assert_eq!(lists.len(), 1, "one more read for both changes");
 }
 
 #[test]
-fn a_call_invitation_is_not_a_message_yet() {
+fn a_call_invitation_is_a_call_signal_not_a_message() {
     let mut c = started();
     let out = c.on_line(&event(&fixture("call_invitation")));
-    assert!(out.events.is_empty() && out.lines.is_empty());
+    // Recorded from the spike with the apps' encryption on: another app's call (ADR-0035).
+    assert!(matches!(
+        &out.events[..],
+        [ChatEvent::Call(crate::chat::media::CallSignal::Invited {
+            usable: false,
+            ..
+        })]
+    ));
+    assert!(out.lines.is_empty());
 }
 
 #[test]
@@ -1640,7 +1658,11 @@ fn the_link_of_each_group_the_user_runs_is_read_once_and_a_missing_one_is_no_fai
         }
     }
     let out = c.on_line(&resp(4, &list));
-    let (corr, cmd) = cmds(&out)[0].clone();
+    // (The latest shown message of the chat whose latest item is a ringing call is read too.)
+    let (corr, cmd) = cmds(&out)
+        .into_iter()
+        .find(|(_, c)| c.starts_with("/_get link"))
+        .unwrap();
     assert_eq!(cmd, "/_get link #1");
     let out = c.on_line(&resp(corr, &fixture("get_link_none_resp")));
     assert_eq!(
@@ -1904,3 +1926,5 @@ fn locating_a_file_for_a_copy_answers_at_once_even_when_it_is_not_here() {
         }]
     );
 }
+
+mod picture;

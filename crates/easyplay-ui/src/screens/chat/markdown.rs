@@ -932,7 +932,9 @@ pub fn show(ui: &mut Ui, id: Id, lines: &[Line], look: &Look<'_>) -> Clicked {
     let mut section_span: Vec<usize> = Vec::new(); // one per character of the job's text
     for (k, l) in laid.iter().enumerate() {
         let line_w: f32 = l.iter().map(|b| b.width).sum();
-        let mut lead = if look.rtl {
+        // Right-to-left text, and any text in a right-to-left interface, ends at the
+        // avatar's side (chat-calls.html notes A, "Also").
+        let mut lead = if look.rtl || crate::i18n::dir() == Dir::Rtl {
             (width - line_w).max(0.0)
         } else {
             0.0

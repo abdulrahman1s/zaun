@@ -68,6 +68,7 @@ mod pill {
 pub fn card(ctx: &egui::Context, state: &mut UiState, env: &mut Env<'_>) {
     let snap = env.bridge.chat().clone();
     resolve_waiting(state, env, &snap);
+    call_keys(ctx, env, &snap);
     let Some(ring) = snap.live.ringing.clone() else {
         return;
     };
@@ -124,7 +125,11 @@ pub fn card(ctx: &egui::Context, state: &mut UiState, env: &mut Env<'_>) {
             };
             let av = Rect::from_min_size(pos2(av_x, inner.top()), vec2(m::AVATAR, m::AVATAR));
             ring_mark(&painter, av, &p);
-            avatar::avatar(&painter, av, &name, friend_paper, Shape::Person);
+            let pic = match ring.chat {
+                ChatRef::Direct(f) => avatar::of_friend(&snap, f),
+                ChatRef::Group(_) => avatar::of_name(&snap, &name),
+            };
+            avatar::pictured(&painter, av, &name, friend_paper, Shape::Person, pic);
             // Name over "is calling you".
             let tw = inner.width() - m::AVATAR - m::GAP;
             let n = super::emoji::Line::new(ui, Type::Heading, &name, p.t1, tw);
@@ -197,6 +202,29 @@ fn ring_mark(painter: &egui::Painter, av: Rect, p: &theme::palette::Palette) {
     );
 }
 
+/// `Ctrl+Shift+M` mutes and `Ctrl+Shift+D` stops hearing, on every page while a call runs
+/// (listed in the shortcut sheet as local keys).
+fn call_keys(ctx: &egui::Context, env: &mut Env<'_>, snap: &ChatSnapshot) {
+    let Some(call) = snap.live.call.as_ref().filter(|_| snap.features.calls) else {
+        return;
+    };
+    let ctrl_shift = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+    let (mute, deaf) = ctx.input_mut(|i| {
+        (
+            i.consume_key(ctrl_shift, egui::Key::M),
+            i.consume_key(ctrl_shift, egui::Key::D),
+        )
+    });
+    if mute {
+        env.bridge
+            .send(Command::Chat(ChatCommand::CallMute(!call.muted)));
+    }
+    if deaf {
+        env.bridge
+            .send(Command::Chat(ChatCommand::CallDeafen(!call.deafened)));
+    }
+}
+
 /// Show `chat` on the Chat page.
 fn go_to_chat(state: &mut UiState, env: &mut Env<'_>, chat: ChatRef) {
     if state.nav.current() != Route::Chat {
@@ -218,9 +246,12 @@ fn resolve_waiting(state: &mut UiState, env: &mut Env<'_>, snap: &ChatSnapshot) 
             .map(|g| g.activity);
         match activity {
             Some(Activity::Running { .. }) => {
-                env.bridge
-                    .send(Command::Chat(ChatCommand::StartShare(ps.chat)));
+                // The game runs: say which window to pick, then the desktop asks.
                 state.chat.pending_share = None;
+                state.chat.call.share_step = crate::vm::chat_call::ShareStep::Choose;
+                state.show_dialog(crate::vm::dialogs::Dialog::Chat(
+                    crate::vm::chat::ChatDialog::Share(ps.chat),
+                ));
             }
             Some(Activity::Launching(_)) => {
                 ps.started = true;
@@ -382,7 +413,7 @@ pub fn top_bar_pill(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         match part {
             Part::Avatar => {
                 let a = Rect::from_center_size(pos2(r.center().x, cy), vec2(pw, pw));
-                avatar::avatar(&clip, a, &name, paper, shape);
+                avatar::pictured(&clip, a, &name, paper, shape, avatar::of_chat(&snap, chat));
             }
             Part::Text(g, c) => {
                 clip.galley(pos2(r.left(), cy - g.size().y / 2.0), g, fade(c, shown));

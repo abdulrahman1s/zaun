@@ -703,7 +703,14 @@ fn playing_now(ui: &mut Ui, env: &Env<'_>, friends: &[&Friend], acts: &mut Vec<A
                 );
                 ui.painter()
                     .circle_filled(ar.center(), ad / 2.0 + ring, p.bg);
-                avatar::avatar(ui.painter(), ar, &fr.name, fr.paper, Shape::Person);
+                avatar::pictured(
+                    ui.painter(),
+                    ar,
+                    &fr.name,
+                    fr.paper,
+                    Shape::Person,
+                    fr.picture.as_ref(),
+                );
                 let time = crate::strings::fmt::play_time(u64::from(pl.minutes) * 60_000);
                 crate::a11y::button(&resp, &s::playing_name(&fr.name, &pl.title));
                 let resp = tooltip::attach(
@@ -861,11 +868,18 @@ fn chat_row(
     };
     let unread = c.unread > 0;
     let pv = preview(snap, c);
-    let when = c
-        .last
-        .as_ref()
-        .map(|msg| s::when_short(msg.at, env.now, env.utc_offset_s))
-        .unwrap_or_default();
+    let when: std::sync::Arc<str> = c.last.as_ref().map_or_else(
+        || std::sync::Arc::from(""),
+        |msg| {
+            crate::strings::chat::time::cached(
+                ui.ctx(),
+                crate::strings::chat::time::Kind::List,
+                msg.at,
+                env.now,
+                env.utc_offset_s,
+            )
+        },
+    );
 
     // The slot, and where the row is drawn while it slides to it.
     let w = ui.available_width();
@@ -894,7 +908,7 @@ fn chat_row(
     }
     parts.push(pv.clone());
     if !when.is_empty() {
-        parts.push(when.clone());
+        parts.push(when.to_string());
     }
     match mark {
         Mark::Count(n) => parts.push(s::new_messages(n)),
@@ -943,12 +957,13 @@ fn chat_row(
     let av = flip.rect(av);
     match c.chat {
         ChatRef::Direct(_) => {
-            avatar::avatar(
+            avatar::pictured(
                 painter,
                 av,
                 &name,
                 friend.and_then(|x| x.paper),
                 Shape::Person,
+                friend.and_then(|x| x.picture.as_ref()),
             );
             if f.presence
                 && let Some(fr) = friend
@@ -957,11 +972,14 @@ fn chat_row(
                 avatar::status(painter, av, fr.presence, ring, false);
             }
         }
-        ChatRef::Group(_) => avatar::avatar(painter, av, &name, None, Shape::Group),
+        ChatRef::Group(_) => {
+            let pic = group.and_then(|g| g.picture.as_ref());
+            avatar::pictured(painter, av, &name, None, Shape::Group, pic);
+        }
     }
 
     // The trailing column: the time over its mark.
-    let time = Type::Micro.numeric_galley(ui, &when, p.t3);
+    let time = super::paint::time_galley(ui, &when, Type::Micro, p.t3);
     let mark_size = match mark {
         Mark::Count(n) => avatar::pill_size(ui, n),
         Mark::Muted => vec2(m::MARK_ICON, m::MARK_ICON),
@@ -1145,7 +1163,8 @@ fn me_row(ui: &mut Ui, env: &Env<'_>, snap: &ChatSnapshot, rect: Rect, acts: &mu
         pos2(rect.left() + m::ROW_PAD, rect.center().y - ad / 2.0),
         vec2(ad, ad),
     ));
-    avatar::avatar(ui.painter(), av, &me.name, me.paper, Shape::Person);
+    let pic = me.picture.as_ref();
+    avatar::pictured(ui.painter(), av, &me.name, me.paper, Shape::Person, pic);
     if f.presence {
         avatar::status(
             ui.painter(),

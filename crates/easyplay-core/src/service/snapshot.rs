@@ -157,6 +157,12 @@ pub struct SnapshotHub {
     pub diagnostics: Swap<Diagnostics>,
     /// Chat (ADR-0033).
     pub chat: Swap<crate::model::ChatSnapshot>,
+    /// The picture of the stream the user watches (ADR-0036), outside the snapshot: frames
+    /// come many times a second and only the latest counts.
+    pub frames: crate::chat::media::FrameSlot,
+    /// Whether the in-game overlay can be shown (ADR-0037): the hotkey's answer and
+    /// Settings' note on desktops without a layer shell.
+    pub overlay: Swap<crate::chat::overlay::OverlayStatus>,
 }
 
 impl SnapshotHub {
@@ -171,6 +177,8 @@ impl SnapshotHub {
             integration: Swap::default(),
             diagnostics: Swap::default(),
             chat: Swap::default(),
+            frames: crate::chat::media::FrameSlot::new(),
+            overlay: Swap::default(),
         }
     }
 }

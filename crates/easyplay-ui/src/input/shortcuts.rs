@@ -118,6 +118,10 @@ pub enum Action {
     Quit,
     /// Open the game folder.
     OpenFolder,
+    /// Mute or unmute the microphone in a call (the call's own key handler).
+    CallMute,
+    /// Stop or start hearing the call (the call's own key handler).
+    CallDeafen,
 }
 
 /// One key combination.
@@ -416,6 +420,19 @@ pub const TABLE: &[Binding] = &[
         Action::OpenFolder,
         Scope::GamePage,
         s::OPEN_FOLDER,
+    ),
+    // Handled by the Chat page's call handler on every page while a call runs.
+    local(
+        &[c(CTRL_SHIFT, Key::M)],
+        Action::CallMute,
+        Scope::Global,
+        s::CALL_MUTE,
+    ),
+    local(
+        &[c(CTRL_SHIFT, Key::D)],
+        Action::CallDeafen,
+        Scope::Global,
+        s::CALL_DEAFEN,
     ),
 ];
 

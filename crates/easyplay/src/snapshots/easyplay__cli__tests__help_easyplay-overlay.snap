@@ -1,0 +1,14 @@
+---
+source: crates/easyplay/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Show or hide the in-game overlay in the running EasyPlay (bind it to a key in your compositor, e.g. Shift+F1)
+
+Usage: easyplay overlay [OPTIONS] [ACTION]
+
+Arguments:
+  [ACTION]  What to do [default: toggle] [possible values: toggle, open, close]
+
+Options:
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+  -h, --help        Print help (see more with '--help')

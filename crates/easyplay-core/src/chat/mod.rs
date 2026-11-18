@@ -4,13 +4,19 @@
 //!   [`ChatEvent`]), in the protocol-neutral types of `model::chat`.
 //! - [`simplex`]: the one engine, the `easyplay-chat` helper over pipes.
 //! - [`key`]: the database key at rest.
+//! - [`picture`]: profile pictures, checked and made (ADR-0038).
 //! - [`fake`]: an engine for tests.
+//! - [`media`]: voice calls (ADR-0035): the media seam, ICE servers, call signals.
+//! - [`overlay`]: the in-game overlay's protocol, snapshot and process (ADR-0037).
 //!
 //! Depends on: `model`, `error`, `fsx`, `clock`, `session` (to start the helper).
 
 pub mod engine;
 pub mod fake;
 pub mod key;
+pub mod media;
+pub mod overlay;
+pub mod picture;
 pub mod simplex;
 
 pub use engine::{

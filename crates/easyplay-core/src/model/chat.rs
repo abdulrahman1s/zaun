@@ -2,6 +2,8 @@
 //! carries it. The engine behind it (`crate::chat`) maps its protocol to these types, so
 //! the service and the UI never see a protocol's own vocabulary.
 
+use std::sync::Arc;
+
 use crate::clock::Timestamp;
 
 /// The user's own profile, as friends see it.
@@ -14,6 +16,74 @@ pub struct ChatProfile {
     pub paper: Option<u8>,
     /// What the user tells friends about being around.
     pub status: MyStatus,
+    /// The picture friends see (ADR-0038); changed only by `ChatCommand::SetPicture` and
+    /// `ClearPicture`, never by `SetProfile`.
+    pub picture: Option<Picture>,
+}
+
+/// A profile picture (ADR-0038): the bytes of a JPEG or PNG, checked when it arrived
+/// (`chat::picture`: a picture's header, at most `chat::picture::MAX_SIDE` pixels a side).
+/// Clones share the bytes.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Picture {
+    bytes: Arc<[u8]>,
+    key: u64,
+}
+
+impl Picture {
+    /// Wrap checked bytes (`chat::picture` checks them; this does not).
+    pub fn new(bytes: impl Into<Arc<[u8]>>) -> Self {
+        use sha2::Digest;
+        let bytes: Arc<[u8]> = bytes.into();
+        // A cryptographic hash: friends choose these bytes, and two pictures with one key
+        // would share a texture on the page.
+        let digest = sha2::Sha256::digest(&bytes);
+        let key = u64::from_be_bytes(digest.first_chunk().copied().unwrap_or_default());
+        Self { bytes, key }
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// The bytes, shared (for an image loader that keeps them).
+    pub fn shared(&self) -> Arc<[u8]> {
+        Arc::clone(&self.bytes)
+    }
+
+    /// The first 64 bits of the bytes' SHA-256: the same picture always has the same key, so
+    /// the page caches its texture by it (`bytes://chat-picture/<key>`).
+    pub fn key(&self) -> u64 {
+        self.key
+    }
+}
+
+impl std::fmt::Debug for Picture {
+    // Never the bytes: snapshots and logs print profiles.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Picture({} bytes, {:016x})", self.bytes.len(), self.key)
+    }
+}
+
+/// A picture file as the crop step shows it (`ChatCommand::LoadPicture`, ADR-0038).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PictureSource {
+    pub path: std::path::PathBuf,
+    /// The picture's size as shown (EXIF orientation applied): the space of [`PictureCrop`].
+    pub width: u32,
+    pub height: u32,
+    /// A copy at most `chat::picture::SOURCE_PREVIEW` pixels a side, the aspect kept: scale
+    /// its pixels by `width / preview width` to get a crop.
+    pub preview: Picture,
+}
+
+/// The square of a picture the user keeps, in pixels of the picture as it is shown (EXIF
+/// orientation applied: `chat::picture::decode_upright`). It is clamped to the picture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PictureCrop {
+    pub x: u32,
+    pub y: u32,
+    pub side: u32,
 }
 
 /// The status the user chooses (chat.html "you" menu).
@@ -57,6 +127,8 @@ pub struct ChatFeatures {
     pub presence: bool,
     /// Voice calls (direct and group voice).
     pub calls: bool,
+    /// Group voice (a group's call). The real engine carries 1:1 calls only (ADR-0035).
+    pub group_voice: bool,
     /// Sharing a game and watching a friend's.
     pub share: bool,
     pub voice: bool,
@@ -81,6 +153,7 @@ impl ChatFeatures {
         Self {
             presence: true,
             calls: true,
+            group_voice: true,
             share: true,
             voice: true,
             gifs: true,
@@ -147,6 +220,8 @@ pub struct Friend {
     pub muted: bool,
     /// Games the app has seen them in, most recent first ("Also plays").
     pub seen: Vec<String>,
+    /// Their profile picture (ADR-0038).
+    pub picture: Option<Picture>,
 }
 
 /// The user's place in a group.
@@ -178,6 +253,10 @@ pub struct ChatGroup {
     pub voice: Vec<i64>,
     /// The group's invite link (short form when the relay offers one), if made.
     pub link: Option<String>,
+    /// The group's picture (ADR-0038).
+    pub picture: Option<Picture>,
+    /// The user owns the group: only an owner may change its picture (the engine's rule).
+    pub owner: bool,
 }
 
 /// One member of a group.
@@ -196,6 +275,8 @@ pub struct GroupMember {
     pub playing: Option<Playing>,
     /// Blocked by the user (their messages collapse).
     pub blocked: bool,
+    /// Their profile picture in the group (ADR-0038).
+    pub picture: Option<Picture>,
 }
 
 /// Someone asked to connect through the user's address.
@@ -479,16 +560,116 @@ pub struct Watching {
     pub muted: bool,
 }
 
-/// Calls, sharing and watching (preview only until voice and streams exist).
+/// How the sound of the call the user is in gets through (ADR-0035). Meaningful while
+/// `ChatLive::call` is set; the preview leaves it at `Connected`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CallLink {
+    /// Ringing the friend; no answer yet.
+    Ringing,
+    /// Answered; the sound is being set up.
+    Connecting,
+    #[default]
+    Connected,
+    /// The path was lost; the call keeps trying.
+    Interrupted,
+}
+
+/// A sound device for calls (ADR-0035): what `chat.mic` / `chat.speakers` store, and what
+/// the user reads.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AudioDevice {
+    /// The sound server's name for it (`alsa_input.usb-…`).
+    pub name: String,
+    /// Its description (`USB headset Analog Stereo`); the name when it has none.
+    pub description: String,
+}
+
+/// The microphones (monitors of outputs left out) and speakers this computer has.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AudioDevices {
+    pub inputs: Vec<AudioDevice>,
+    pub outputs: Vec<AudioDevice>,
+}
+
+/// Voice levels in a call, 0..=100 (ADR-0035).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CallLevels {
+    /// The user's microphone (0 while muted).
+    pub me: u8,
+    /// The friend's sound.
+    pub friend: u8,
+}
+
+/// How well the call's path carries sound, measured about once a second (ADR-0035).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CallQuality {
+    /// The round trip to the friend's app, in milliseconds.
+    pub rtt_ms: u16,
+    /// Packets lost on the way, in percent.
+    pub loss: u8,
+}
+
+/// Calls, sharing and watching.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ChatLive {
     /// The call the user is in.
     pub call: Option<Call>,
+    /// How the call gets through (ADR-0035).
+    pub link: CallLink,
+    /// The call's voice levels, a few times a second.
+    pub levels: CallLevels,
+    /// The microphone test runs ("Let's check", ADR-0035): its input level, 0..=100, about
+    /// 20 times a second. `None` = not running.
+    pub mic_test: Option<u8>,
+    /// The call path's latest measure; `None` until the first one.
+    pub quality: Option<CallQuality>,
     pub ringing: Option<Ringing>,
     /// The game the user shares.
     pub share: Option<Share>,
     /// The stream the user watches.
     pub watch: Option<Watching>,
+    /// How the shared and the watched stream go (ADR-0036).
+    pub stream: StreamLive,
+}
+
+/// How the user's shared stream and the watched one go (ADR-0036). The picture itself is
+/// not in the snapshot: the page reads it from the hub's frame slot.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StreamLive {
+    /// The game the user shares sends no picture: its window is hidden or minimised.
+    pub share_paused: bool,
+    /// The friend's game sends no picture (their window is hidden or minimised).
+    pub watch_paused: bool,
+    /// Watching: no picture has arrived yet.
+    pub watch_waiting: bool,
+    /// The stream the user watched is over (the friend stopped): its chat, until the user
+    /// watches another one or closes the stage.
+    pub ended: Option<ChatRef>,
+    /// The share's chosen height at most (`None`: as in the game), as `chat.share_quality`.
+    pub share_height: Option<u32>,
+    /// The share's chosen frames a second, as `chat.share_fps`.
+    pub share_fps: u32,
+    /// What the share sends now, once its encoder runs.
+    pub sending: Option<StreamInfo>,
+}
+
+/// What a share sends (ADR-0036).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StreamInfo {
+    pub encoder: VideoEncoding,
+    pub width: u32,
+    pub height: u32,
+    /// Frames a second actually sent (never more than the game draws).
+    pub fps: u32,
+}
+
+/// Where a share's picture is encoded.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VideoEncoding {
+    /// On the GPU (NVENC, VA-API).
+    Hardware,
+    #[default]
+    Software,
 }
 
 /// Whether Chat runs.
@@ -528,6 +709,8 @@ pub struct ChatSnapshot {
     pub offline: bool,
     /// Calls, sharing and watching.
     pub live: ChatLive,
+    /// The sound devices, once listed (`ChatCommand::RefreshAudioDevices`, ADR-0035).
+    pub audio_devices: Option<AudioDevices>,
     /// The security code of a friend, after `ChatCommand::ShowCode` (friend, code digits).
     pub code: Option<(i64, String)>,
     /// The emoji a reaction may use, in display form: `None` = any (the preview),

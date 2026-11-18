@@ -43,6 +43,8 @@ pub(crate) enum FlowDone {
     Chat(chat::ChatDone),
     /// A web service (GIFs, link check) finished.
     ChatServices(chat::ServicesDone),
+    /// The in-game overlay reported, or one of its timers is due (ADR-0037).
+    Overlay(chat::OverlayDone),
 }
 
 #[derive(Default)]
@@ -54,4 +56,5 @@ pub(crate) struct FlowState {
     pub steam: steam::SteamState,
     pub chat: chat::ChatState,
     pub services: chat::ServicesState,
+    pub overlay: chat::OverlayState,
 }

@@ -105,6 +105,8 @@ fn deps(env: &TestEnv, launcher: Arc<FakeLauncher>) -> ServiceDeps {
         umu_titles: Arc::new(NoUmuTitles),
         watch_sessions: false,
         chat: None,
+        overlay: None,
+        media: None,
     }
 }
 

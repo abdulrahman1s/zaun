@@ -191,6 +191,9 @@ pub fn request_for(cli: &Cli, env: &PathEnv) -> Result<Request, Error> {
             game: game.clone(),
             force: *force,
         },
+        Some(Command::Overlay { action }) => Request::Overlay {
+            action: crate::overlay_verb::wire(*action),
+        },
         Some(_) => return Err(Error::not_available("DESKTOP-002")),
     })
 }
@@ -293,6 +296,8 @@ mod tests {
             (&["launch", "g"], Route::Headless, Route::Forward),
             (&["launch", "g", "--wait"], Route::Headless, Route::Forward),
             (&["stop", "g"], Route::Headless, Route::Forward),
+            (&["overlay"], Route::Headless, Route::Forward),
+            (&["overlay", "close"], Route::Headless, Route::Forward),
             (&["add", "a.exe"], Route::Headless, Route::Forward),
             (
                 &["import", "f.toml", "--exe", "a.exe"],
@@ -350,5 +355,11 @@ mod tests {
             request_for(&cli(&["stop", "g", "--force"]), &env).unwrap(),
             Request::Stop { force: true, .. }
         ));
+        assert_eq!(
+            request_for(&cli(&["overlay"]), &env).unwrap(),
+            Request::Overlay {
+                action: instance::OverlayVerb::Toggle
+            }
+        );
     }
 }

@@ -2,6 +2,8 @@
 //! sections, pending queries, validation messages). Never references `egui::Ui`. See MODULES §8.
 
 pub mod chat;
+pub mod chat_call;
+pub mod chat_picture;
 pub mod debug;
 pub mod details;
 pub mod dialogs;

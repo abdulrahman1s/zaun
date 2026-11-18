@@ -22,6 +22,7 @@ Commands:
   doctor    Check this system for everything EasyPlay needs
   runtimes  Manage compatibility layers
   steam     Games installed with Steam (shown when "Show my Steam games" is on)
+  overlay   Show or hide the in-game overlay in the running EasyPlay (bind it to a key in your compositor, e.g. Shift+F1)
   service   Keep EasyPlay running in the background so opened programs start at once
   help      Print this message or the help of the given subcommand(s)
 

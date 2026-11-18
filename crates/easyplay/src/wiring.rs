@@ -258,6 +258,8 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
         policy_check: None,
         watch_sessions: true,
         chat: chat_factory(&env, &*fs, &paths, over.bwrap.clone()),
+        overlay: overlay_factory(&env, &*fs, &paths, over.bwrap.clone()),
+        media: Some(media_factory()),
     };
     Ok(Wiring {
         deps: Some(deps),
@@ -267,6 +269,15 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
         codec,
         art_index,
     })
+}
+
+/// Calls' media (ADR-0035): WebRTC through str0m on its own threads, sound through the
+/// system's PulseAudio (or PipeWire's) server. It also carries game streams (ADR-0036);
+/// shared windows come from the ScreenCast portal in a build with the `portal` feature.
+fn media_factory() -> Arc<dyn easyplay_core::chat::media::MediaFactory> {
+    Arc::new(easyplay_media::RtcMedia::new(Arc::new(
+        easyplay_media::PulseAudio,
+    )))
 }
 
 /// The Chat engine (ADR-0033), when this build has one: `easyplay-chat` beside
@@ -311,4 +322,62 @@ fn chat_factory(
         library_path: env.get("EASYPLAY_SIMPLEX_LIBRARY_PATH").map(Into::into),
         log: paths.logs_dir.join(easyplay_core::chat::simplex::LOG_NAME),
     }))
+}
+
+/// The in-game overlay (ADR-0037): `easyplay-overlay` beside this program or in the
+/// libexec folder, drawn on the compositor named by `WAYLAND_DISPLAY`. Without a Wayland
+/// display (X11, or the resident service started outside the session) there is no overlay.
+fn overlay_factory(
+    env: &PathEnv,
+    fs: &dyn Fs,
+    paths: &AppPaths,
+    bwrap: Option<PathBuf>,
+) -> Option<Arc<dyn easyplay_core::chat::overlay::OverlayFactory>> {
+    use easyplay_core::consts::LIBEXEC_DIR;
+    const HELPER: &str = "easyplay-overlay";
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(PathBuf::from));
+    let helper = exe_dir
+        .map(|d| d.join(HELPER))
+        .into_iter()
+        .chain([PathBuf::from(LIBEXEC_DIR).join(HELPER)])
+        .find(|p| {
+            fs.metadata_follow(p)
+                .is_ok_and(|m| m.is_file() && m.mode & 0o111 != 0)
+        })?;
+    let wayland = env
+        .get("WAYLAND_DISPLAY")
+        .filter(|d| !d.is_empty())
+        .and_then(|d| {
+            let d = PathBuf::from(d);
+            if d.is_absolute() {
+                Some(d)
+            } else {
+                env.get("XDG_RUNTIME_DIR").map(|r| PathBuf::from(r).join(d))
+            }
+        });
+    // NVIDIA's nodes; `/dev/dri` is bound as a whole.
+    let gpu_nodes = fs
+        .read_dir(std::path::Path::new("/dev"))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| e.name.to_string_lossy().starts_with("nvidia"))
+        .map(|e| e.path)
+        .filter(|p| !p.is_dir())
+        .collect();
+    let bwrap =
+        bwrap.or_else(|| easyplay_core::host::bwrap_probe::locate_bwrap(fs, env.get("PATH")));
+    Some(Arc::new(
+        easyplay_core::chat::overlay::HelperOverlayFactory {
+            helper,
+            bwrap,
+            wayland,
+            gpu_nodes,
+            library_path: env.get("LD_LIBRARY_PATH").map(Into::into),
+            log: paths
+                .logs_dir
+                .join(easyplay_core::chat::overlay::helper::LOG_NAME),
+        },
+    ))
 }

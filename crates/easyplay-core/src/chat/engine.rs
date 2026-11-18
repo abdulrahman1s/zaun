@@ -8,15 +8,24 @@ use std::sync::Arc;
 use crate::error::{ErrorCode, Result};
 use crate::model::{
     ChatFeatures, ChatGroup, ChatMessage, ChatPreview, ChatProfile, ChatRef, Friend, FriendRequest,
-    GroupMember,
+    GroupMember, Picture,
 };
 
 /// What the service asks the engine to do. Every answer comes back as [`ChatEvent`]s.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     /// Change the user's name and the line about them (the avatar pair stays on this
-    /// computer: the service keeps it).
+    /// computer: the service keeps it; the picture is kept: [`Request::SetPicture`]).
     SetProfile(ChatProfile),
+    /// Change the user's picture, keeping the rest of the profile (`None` = remove it;
+    /// answered as [`ChatEvent::Profile`], failures as [`RequestKind::SetProfile`]).
+    SetPicture(Option<Picture>),
+    /// Change a group's picture, keeping the rest of its profile (owners only; `None` =
+    /// remove it; failures as [`RequestKind::Group`]).
+    SetGroupPicture {
+        group: i64,
+        picture: Option<Picture>,
+    },
     /// Make a one-time invitation link ([`ChatEvent::Invite`]).
     CreateInvite,
     /// Use a friend's link (an invitation or an address).
@@ -114,6 +123,10 @@ pub enum Request {
     LeaveGroup(i64),
     /// Remove a friend and the conversation with them.
     RemoveFriend(i64),
+    /// Call signalling (ADR-0035).
+    Call(super::media::CallRequest),
+    /// Stream signalling (ADR-0036).
+    Stream(super::media::StreamRequest),
 }
 
 /// Which request failed.
@@ -161,6 +174,8 @@ pub enum RequestKind {
     File,
     /// [`Request::CreateGroupLink`] / [`Request::DeleteGroupLink`].
     GroupLink,
+    /// [`Request::Call`].
+    Call,
 }
 
 /// What a sent file is.
@@ -245,6 +260,10 @@ pub enum ChatEvent {
         /// The link (short form when the relay offers one).
         link: Option<String>,
     },
+    /// A call signal from a friend (ADR-0035).
+    Call(super::media::CallSignal),
+    /// A stream signal from a friend (ADR-0036).
+    Stream(super::media::StreamSignal),
     /// A request failed.
     Failed {
         request: RequestKind,

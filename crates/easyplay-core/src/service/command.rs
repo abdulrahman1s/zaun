@@ -13,6 +13,8 @@ use crate::library::{GameDraft, RemoveOptions, ResetOptions};
 use crate::model::{ArtSlot, LaunchConfig, PromptAnswer, RuntimeRef, SandboxPolicy, SlrVariant};
 use crate::stats::StatsRequest;
 
+/// A shared game's height at most: `chat.share_quality`'s values (ADR-0036).
+pub use crate::config::schema::ShareQuality as ShareHeight;
 pub use crate::session::StopMode;
 
 /// Where opened paths come from (LOGIC_SPECS §1, origin-specific behaviour).
@@ -284,8 +286,30 @@ pub enum ChatCommand {
         /// The code that was compared.
         code: String,
     },
-    /// The user's profile (name, about, avatar pair).
+    /// The user's profile (name, about, avatar pair; the picture is kept).
     SetProfile(crate::model::ChatProfile),
+    /// Make a picture file the user's profile picture (ADR-0038): read, cropped to `crop`
+    /// (`None` = the centre square) and shrunk off the service thread. Files over
+    /// `chat::picture::MAX_SOURCE` (20 MiB) are refused (`EP-CHT-009`), as is anything that is
+    /// not a picture (`EP-CHT-008`). The new picture arrives in `ChatProfile::picture`.
+    SetPicture {
+        path: PathBuf,
+        crop: Option<crate::model::PictureCrop>,
+    },
+    /// Remove the user's profile picture.
+    ClearPicture,
+    /// Read a picture file for the crop step, answered with `QueryResult::PictureSource` (or
+    /// `Failed`: `EP-CHT-008`, `EP-CHT-009`) to `reply_to`. The page does no file I/O.
+    LoadPicture { path: PathBuf, reply_to: QueryId },
+    /// Make a picture file a group's picture (owners only: `ChatGroup::owner`), as
+    /// `SetPicture`.
+    SetGroupPicture {
+        group: i64,
+        path: PathBuf,
+        crop: Option<crate::model::PictureCrop>,
+    },
+    /// Remove a group's picture (owners only).
+    ClearGroupPicture(i64),
     /// The user's status (online, away, do not disturb, invisible).
     SetStatus(crate::model::MyStatus),
     /// Call a friend, or start or join a group's voice.
@@ -300,6 +324,14 @@ pub enum ChatCommand {
     CallMute(bool),
     /// Stop or start hearing the call.
     CallDeafen(bool),
+    /// Start or stop the microphone test (Settings › Chat, "Let's check"; ADR-0035): the
+    /// chosen microphone with `chat.mic_volume` and noise suppression, its level in
+    /// `ChatLive::mic_test`, played back on the chosen speakers half a second late. A call
+    /// starting stops it; the page stops it when Settings closes.
+    MicTest(bool),
+    /// List the microphones and speakers again into `ChatSnapshot::audio_devices` (when
+    /// Settings opens).
+    RefreshAudioDevices,
     /// Share the running game with a conversation.
     StartShare(crate::model::ChatRef),
     /// Stop sharing.
@@ -310,6 +342,10 @@ pub enum ChatCommand {
     StopWatch,
     /// Turn the watched stream's sound off or on.
     WatchMute(bool),
+    /// The shared game's picture: its height at most and frames a second (30 or 60). Applies
+    /// to the running share at once and is kept for the next one (`chat.share_quality`,
+    /// `chat.share_fps`; ADR-0036).
+    SetShareQuality { height: ShareHeight, fps: u32 },
     /// Open a link from a message in the browser; with `chat.check_links` on, after the
     /// site is checked (a harmful one comes back as `Notice::ChatUnsafeLink` instead).
     OpenLink(String),
@@ -354,6 +390,14 @@ pub enum ChatCommand {
     LeaveGroup(i64),
     /// Remove a friend and the conversation.
     RemoveFriend(i64),
+}
+
+/// What the overlay hotkey asks (ADR-0037).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverlayAction {
+    Toggle,
+    Open,
+    Close,
 }
 
 /// Steam games (ADR-0031). Favourite, hidden, tags, notes (`UpdateGame` with
@@ -604,6 +648,8 @@ pub enum Command {
     // ---- Chat (ADR-0033)
     /// A Chat action.
     Chat(ChatCommand),
+    /// Open or close the in-game overlay (ADR-0037; the hotkey's `easyplay overlay`).
+    Overlay(OverlayAction),
     // ---- lifecycle
     /// Stop the service: parked flows are cancelled, running games are left alone.
     Shutdown,

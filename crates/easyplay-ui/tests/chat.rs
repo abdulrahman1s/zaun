@@ -13,7 +13,7 @@ use std::sync::{Mutex, MutexGuard};
 use common::{ChatBackend, Rig, now, rig_chat, settle, settled_library};
 use easyplay_core::model::{ChatRef, ChatSnapshot, ChatStatus};
 use easyplay_core::service::ChatCommand;
-use easyplay_ui::bridge::{FakeBackend, Command, UiCommand};
+use easyplay_ui::bridge::{Command, FakeBackend, UiCommand};
 use easyplay_ui::demo_chat::{self, CREW, INVITE, KIT_REQUEST, MIRA};
 use easyplay_ui::i18n::{self, Language};
 use easyplay_ui::route::Route;
@@ -351,10 +351,16 @@ fn the_menu_removes_adds_and_leaves() {
     pick(&mut r, "More");
     item(&mut r, "Invite people…");
     assert!(
-        r.h.state().state.dialogs.front().is_some_and(|(_, d)| matches!(
-            d,
-            easyplay_ui::vm::dialogs::Dialog::Chat(easyplay_ui::vm::chat::ChatDialog::InviteToGroup(10))
-        )),
+        r.h.state()
+            .state
+            .dialogs
+            .front()
+            .is_some_and(|(_, d)| matches!(
+                d,
+                easyplay_ui::vm::dialogs::Dialog::Chat(
+                    easyplay_ui::vm::chat::ChatDialog::InviteToGroup(10)
+                )
+            )),
         "the invite dialog"
     );
     key(&mut r, Key::Escape);
@@ -1222,14 +1228,24 @@ mod conversation_tests {
         for _ in 0..20 {
             r.h.step();
             common::serve(&mut r);
-            if r.h.state().state.chat.open.as_ref().is_some_and(|c| c.loaded) {
+            if r.h
+                .state()
+                .state
+                .chat
+                .open
+                .as_ref()
+                .is_some_and(|c| c.loaded)
+            {
                 r.h.step();
                 first = bounds(&r, "save_slot2.dat");
                 break;
             }
         }
         let first = first.expect("the last message on the first frame");
-        assert!(first.bottom() <= 900.0 - 60.0 && first.top() > 108.0, "{first:?}");
+        assert!(
+            first.bottom() <= 900.0 - 60.0 && first.top() > 108.0,
+            "{first:?}"
+        );
         for _ in 0..30 {
             std::thread::sleep(std::time::Duration::from_millis(5));
             r.h.step();
@@ -1242,9 +1258,8 @@ mod conversation_tests {
     fn opening_with_unread_shows_new() {
         let _l = lock();
         let r = opened("Friday Crew", W1440, ThemeChoice::Dark, "en");
-        let new = r
-            .h
-            .query_all_by(|n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        let new =
+            r.h.query_all_by(|n: &egui_kittest::kittest::AccessKitNode<'_>| {
                 n.role() == Role::Label && n.value().as_deref() == Some("New")
             })
             .next()
@@ -1433,7 +1448,7 @@ mod settings_tab {
         (r, backend)
     }
 
-    const ROWS: [&str; 18] = [
+    const ROWS: [&str; 22] = [
         "Show what I'm playing",
         "Emoji",
         "Send with",
@@ -1445,7 +1460,11 @@ mod settings_tab {
         "Microphone",
         "Speakers",
         "Reduce background noise",
-        "Hide my address in calls",
+        "Send calls through a relay",
+        "Microphone volume",
+        "Show the overlay in games",
+        "Frame rate",
+        "Use the graphics card to encode",
         "Picture",
         "Include the game's sound",
         "Pause while the game is not in front",
@@ -1531,6 +1550,288 @@ mod settings_tab {
                 "{kept:?} missing"
             );
         }
+    }
+
+    /// The preference changes sent so far: the keys and the preferences they make.
+    fn patches(r: &Rig) -> Vec<(Vec<String>, easyplay_core::config::Preferences)> {
+        r.fake
+            .sent()
+            .into_iter()
+            .filter_map(|c| match c {
+                UiCommand::SetPreference { patch, preview } => {
+                    Some((patch.keys().map(str::to_owned).collect(), *preview))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The one change sent: its key and preferences.
+    fn one_patch(r: &Rig) -> (String, easyplay_core::config::Preferences) {
+        let mut p = patches(r);
+        assert_eq!(
+            p.len(),
+            1,
+            "{:?}",
+            p.iter().map(|(k, _)| k).collect::<Vec<_>>()
+        );
+        let (keys, prefs) = p.remove(0);
+        assert_eq!(keys.len(), 1);
+        (keys[0].clone(), prefs)
+    }
+
+    /// Settings › Chat with the overlay turned on in the preferences.
+    fn overlay_on(r: &mut Rig) {
+        let mut prefs = (**r.h.state().bridge().prefs()).clone();
+        prefs.chat.overlay = true;
+        r.fake.publish_prefs(prefs);
+        r.h.run_steps(4);
+        r.fake.clear_sent();
+    }
+
+    #[test]
+    fn the_overlay_rows_dim_in_place_where_the_desktop_cannot_show_it() {
+        let _l = lock();
+        let (mut r, backend) = rig_settings(sample(), TALL, "en");
+        overlay_on(&mut r);
+        let note = "Your desktop can't show the overlay.";
+        // A label's name is its value.
+        let noted = |r: &Rig| {
+            r.h.query_by(|n| n.value().is_some_and(|l| l.starts_with(note)))
+                .is_some()
+        };
+        assert!(!noted(&r));
+        backend
+            .fake
+            .set_overlay(easyplay_core::chat::overlay::OverlayStatus::Unsupported);
+        r.h.run_steps(4);
+        assert!(noted(&r));
+        let switch =
+            r.h.get_by_role_and_label(Role::Switch, "Show the overlay in games");
+        assert_eq!(
+            switch.accesskit_node().toggled(),
+            Some(egui::accesskit::Toggled::False),
+            "the switch shows off"
+        );
+        assert!(switch.accesskit_node().is_disabled());
+        assert!(
+            r.h.get_by_role_and_label(Role::Switch, "Show new messages")
+                .accesskit_node()
+                .is_disabled()
+        );
+    }
+
+    #[test]
+    fn the_overlay_key_records_the_next_combination_esc_cancels_and_backspace_clears() {
+        let _l = lock();
+        let (mut r, _) = rig_settings(sample(), TALL, "en");
+        overlay_on(&mut r);
+        let cap = "Change the key shown in hints";
+        r.h.get_by_role_and_label(Role::Button, cap).click();
+        r.h.run_steps(3);
+        r.h.key_press_modifiers(Modifiers::SHIFT, Key::F2);
+        r.h.run_steps(3);
+        let (k, prefs) = one_patch(&r);
+        assert_eq!(
+            (k.as_str(), prefs.chat.overlay_key.as_str()),
+            ("chat.overlay_key", "Shift+F2")
+        );
+        r.fake.clear_sent();
+        r.h.get_by_role_and_label(Role::Button, cap).click();
+        r.h.run_steps(3);
+        r.h.key_press(Key::Escape);
+        r.h.run_steps(3);
+        assert!(patches(&r).is_empty(), "Esc cancels");
+        r.h.get_by_role_and_label(Role::Button, cap).click();
+        r.h.run_steps(3);
+        r.h.key_press(Key::Backspace);
+        r.h.run_steps(3);
+        let (k, prefs) = one_patch(&r);
+        assert_eq!(
+            (k.as_str(), prefs.chat.overlay_key.as_str()),
+            ("chat.overlay_key", "")
+        );
+    }
+
+    #[test]
+    fn relay_servers_wait_under_advanced_and_save_when_the_field_is_left() {
+        let _l = lock();
+        let (mut r, _) = rig_settings(sample(), TALL, "en");
+        assert!(
+            r.h.query_by_label("Relay servers").is_none(),
+            "closed at first"
+        );
+        r.h.get_by_role_and_label(Role::Button, "Advanced").click();
+        r.h.run_steps(4);
+        r.h.get_by_label("Relay servers").click();
+        r.h.run_steps(2);
+        type_text(&mut r, "stun:stun.example.org:3478");
+        key(&mut r, Key::Tab);
+        let (k, prefs) = one_patch(&r);
+        assert_eq!(k, "chat.ice_servers");
+        assert_eq!(prefs.chat.ice_servers, ["stun:stun.example.org:3478"]);
+    }
+
+    #[test]
+    fn the_microphone_volume_is_stored_when_it_stops_moving() {
+        let _l = lock();
+        let (mut r, _) = rig_settings(sample(), TALL, "en");
+        r.h.get_by_role_and_label(Role::Slider, "Microphone volume")
+            .focus();
+        r.h.run_steps(2);
+        key(&mut r, Key::ArrowLeft);
+        let (k, prefs) = one_patch(&r);
+        assert_eq!((k.as_str(), prefs.chat.mic_volume), ("chat.mic_volume", 99));
+    }
+
+    fn devices() -> easyplay_core::model::AudioDevices {
+        use easyplay_core::model::AudioDevice;
+        easyplay_core::model::AudioDevices {
+            inputs: vec![AudioDevice {
+                name: "alsa_input.usb-headset".into(),
+                description: "USB headset".into(),
+            }],
+            outputs: vec![AudioDevice {
+                name: "alsa_output.hdmi".into(),
+                description: "Monitor speakers".into(),
+            }],
+        }
+    }
+
+    fn chat_cmds(r: &Rig) -> Vec<ChatCommand> {
+        chat_sent(r)
+    }
+
+    #[test]
+    fn opening_the_tab_lists_the_devices_by_description_and_stores_their_names() {
+        let _l = lock();
+        let (mut r, backend) = rig_settings(sample(), TALL, "en");
+        // Opening Settings › Chat asks the sound server again.
+        r.h.state_mut()
+            .state
+            .nav
+            .replace(Route::Settings(SettingsTab::General));
+        r.h.run_steps(4);
+        r.fake.clear_sent();
+        r.h.state_mut()
+            .state
+            .nav
+            .replace(Route::Settings(SettingsTab::Chat));
+        r.h.run_steps(4);
+        assert!(chat_cmds(&r).contains(&ChatCommand::RefreshAudioDevices));
+        // A stored microphone that is gone stays, said to be not connected.
+        let mut prefs = (**r.h.state().bridge().prefs()).clone();
+        prefs.chat.mic = "alsa_input.old-mic".into();
+        r.fake.publish_prefs(prefs);
+        backend.publish_chat(ChatSnapshot {
+            audio_devices: Some(devices()),
+            ..sample()
+        });
+        r.h.run_steps(4);
+        r.fake.clear_sent();
+        r.h.get_by_role_and_label(
+            Role::ComboBox,
+            "Microphone: alsa_input.old-mic (not connected)",
+        )
+        .click();
+        r.h.run();
+        for item in [
+            "System default",
+            "USB headset",
+            "alsa_input.old-mic (not connected)",
+        ] {
+            assert!(
+                r.h.query_by_role_and_label(Role::MenuItemRadio, item)
+                    .is_some(),
+                "no {item:?}"
+            );
+        }
+        r.h.get_by_role_and_label(Role::MenuItemRadio, "USB headset")
+            .click();
+        r.h.run();
+        let (k, prefs) = one_patch(&r);
+        assert_eq!(k, "chat.mic");
+        assert_eq!(prefs.chat.mic, "alsa_input.usb-headset");
+    }
+
+    #[test]
+    fn lets_check_opens_the_mic_only_when_pressed_the_meter_follows_and_leaving_stops_it() {
+        let _l = lock();
+        let (mut r, backend) = rig_settings(sample(), TALL, "en");
+        assert!(
+            !chat_cmds(&r)
+                .iter()
+                .any(|c| matches!(c, ChatCommand::MicTest(_))),
+            "showing the page opens nothing"
+        );
+        r.h.get_by_role_and_label(Role::Button, "Let's check")
+            .click();
+        r.h.run_steps(2);
+        assert_eq!(
+            chat_cmds(&r)
+                .into_iter()
+                .filter(|c| matches!(c, ChatCommand::MicTest(_)))
+                .collect::<Vec<_>>(),
+            [ChatCommand::MicTest(true)]
+        );
+        // The service reports a level: the meter moves towards it, and the button stops.
+        let mut s = sample();
+        s.live.mic_test = Some(80);
+        backend.publish_chat(s.clone());
+        r.h.run_steps(8);
+        let meter =
+            r.h.get_by_role_and_label(Role::Meter, "Input level")
+                .accesskit_node()
+                .raw_bounds()
+                .unwrap();
+        assert_eq!(meter.width(), 160.0);
+        let level =
+            r.h.get_by_role_and_label(Role::Meter, "Input level")
+                .accesskit_node()
+                .numeric_value();
+        assert_eq!(level, Some(80.0), "the meter says the level");
+        r.h.get_by_role_and_label(Role::Button, "Stop").click();
+        r.h.run_steps(2);
+        assert!(chat_cmds(&r).contains(&ChatCommand::MicTest(false)));
+        // Running again, then leaving the tab stops it.
+        r.fake.clear_sent();
+        r.h.state_mut()
+            .state
+            .nav
+            .replace(Route::Settings(SettingsTab::General));
+        r.h.run_steps(6);
+        assert!(chat_cmds(&r).contains(&ChatCommand::MicTest(false)));
+    }
+
+    /// Settings › Chat with the overlay on; `cannot`: this desktop cannot show it.
+    fn snap_voice_overlay(name: &str, cannot: bool) {
+        let (mut r, backend) = rig_settings(sample(), TALL, "en");
+        overlay_on(&mut r);
+        if cannot {
+            backend
+                .fake
+                .set_overlay(easyplay_core::chat::overlay::OverlayStatus::Unsupported);
+        } else {
+            r.h.get_by_role_and_label(Role::Button, "Advanced").click();
+        }
+        r.h.event(egui::Event::PointerGone);
+        r.h.run_steps(8);
+        r.h.snapshot(name);
+    }
+
+    /// Voice and video with Advanced open, and Overlay (chat-calls.html `set-voice`,
+    /// `set-overlay`).
+    #[test]
+    fn snapshot_settings_voice_and_overlay() {
+        let _l = lock();
+        snap_voice_overlay("chat_settings_voice_overlay_dark_1440x2200", false);
+    }
+
+    /// Overlay dimmed in place with its note (`set-overlay-gnome`).
+    #[test]
+    fn snapshot_settings_overlay_unsupported() {
+        let _l = lock();
+        snap_voice_overlay("chat_settings_overlay_none_dark_1440x2200", true);
     }
 
     #[test]
@@ -1698,7 +1999,7 @@ mod details_tests {
     const W1440: Vec2 = Vec2::new(1440.0, 900.0);
 
     /// A rig over `chat` on `route`, with `running` (a game title) running.
-    fn rig_at(
+    pub(super) fn rig_at(
         chat: ChatSnapshot,
         route: Route,
         running: Option<&str>,
@@ -1730,13 +2031,13 @@ mod details_tests {
     }
 
     /// The sample with `live` and nothing else going on.
-    fn with_live(live: ChatLive) -> ChatSnapshot {
+    pub(super) fn with_live(live: ChatLive) -> ChatSnapshot {
         let mut s = sample();
         s.live = live;
         s
     }
 
-    fn calling_mira() -> ChatLive {
+    pub(super) fn calling_mira() -> ChatLive {
         ChatLive {
             call: Some(Call {
                 chat: MIRA,
@@ -1752,7 +2053,7 @@ mod details_tests {
         }
     }
 
-    fn click(r: &mut Rig, label: &str) {
+    pub(super) fn click(r: &mut Rig, label: &str) {
         let owned = label.to_owned();
         let found: Vec<_> =
             r.h.query_all_by(move |n| {
@@ -1769,7 +2070,7 @@ mod details_tests {
         r.h.run_steps(6);
     }
 
-    fn open_chat(r: &mut Rig, name: &str, details: bool) {
+    pub(super) fn open_chat(r: &mut Rig, name: &str, details: bool) {
         let (en, ar) = (format!("{name}, "), format!("{name}، "));
         let rows: Vec<_> =
             r.h.query_all_by(move |n| {
@@ -1865,9 +2166,27 @@ mod details_tests {
             "en",
         );
         open_chat(&mut r, "Mira Okafor", false);
-        r.h.snapshot("chat_call_tray_dark_1440x900");
+        // The call box opens as the stage.
+        assert!(!r.h.state().state.chat.call.smaller);
         click(&mut r, "Mute your microphone");
         click(&mut r, "Stop hearing the call");
+        // Made smaller: the tray, with the same controls.
+        click(&mut r, "Make smaller");
+        assert!(r.h.state().state.chat.call.smaller);
+        settle(&mut r);
+        r.h.snapshot("chat_call_tray_dark_1440x900");
+        // Sharing in a call with the same friend is not carried (ADR-0036): Share asks
+        // nothing and says why.
+        click(&mut r, "Share your game");
+        assert!(
+            r.h.query_by_label("Share Lantern Keep with Mira?")
+                .is_none()
+        );
+        assert!(
+            r.h.query_all_by_label_contains("can't be shared during a call")
+                .next()
+                .is_some()
+        );
         click(&mut r, "Leave call");
         assert_eq!(
             chat_sent(&r),
@@ -1877,12 +2196,8 @@ mod details_tests {
                 ChatCommand::EndCall
             ]
         );
-        // Share your game: a game runs, so the dialog asks.
-        click(&mut r, "Share your game");
-        r.h.get_by_label("Share Lantern Keep with Mira?");
-        r.h.snapshot("chat_dialog_share_dark_1440x900");
-        click(&mut r, "Share game");
-        assert_eq!(chat_sent(&r).last(), Some(&ChatCommand::StartShare(MIRA)));
+        click(&mut r, "Make larger");
+        assert!(!r.h.state().state.chat.call.smaller);
     }
 
     /// Watching: the stage, larger and back with Esc, and Stop watching.
@@ -1933,7 +2248,7 @@ mod details_tests {
             "en",
         );
         open_chat(&mut r, "Mira Okafor", false);
-        r.h.get_by_label_contains("1 person watching");
+        r.h.get_by_label_contains("1 watching");
         r.h.get_by_role_and_label(Role::Button, "Stop sharing")
             .click();
         r.h.run_steps(4);
@@ -2168,6 +2483,11 @@ mod details_tests {
         r.fake.clear_sent();
         settle(&mut r);
         r.h.run_steps(4);
+        // It runs: the dialog says which window to pick, then Continue opens the picker.
+        assert!(r.h.state().state.chat.pending_share.is_none());
+        r.h.get_by_label_contains("in the next window");
+        assert!(chat_sent(&r).is_empty());
+        click(&mut r, "Continue");
         assert_eq!(
             chat_sent(&r)
                 .into_iter()
@@ -2175,7 +2495,6 @@ mod details_tests {
                 .collect::<Vec<_>>(),
             vec![ChatCommand::StartShare(MIRA)]
         );
-        assert!(r.h.state().state.chat.pending_share.is_none());
     }
 
     /// A share whose game never starts stops waiting.
@@ -3438,7 +3757,10 @@ mod media_tests {
         let mut r = lucia();
         let pic = item_of(&r, |b| matches!(b, MessageBody::Image(_)));
         // The picture itself (not its round button) opens the viewer.
-        let b = by_label(&r, "Photo, 2.4 MB").accesskit_node().raw_bounds().unwrap();
+        let b = by_label(&r, "Photo, 2.4 MB")
+            .accesskit_node()
+            .raw_bounds()
+            .unwrap();
         let at = egui::pos2(b.x0 as f32 + 30.0, b.y0 as f32 + 30.0);
         r.h.event(egui::Event::PointerMoved(at));
         r.h.event(egui::Event::PointerButton {
@@ -3459,7 +3781,13 @@ mod media_tests {
         row_button_any(&r, "Download").click();
         r.h.run_steps(3);
         let sent = chat_sent(&r);
-        assert_eq!(sent, vec![ChatCommand::ReceiveFile { chat: LUCIA, item: pic }]);
+        assert_eq!(
+            sent,
+            vec![ChatCommand::ReceiveFile {
+                chat: LUCIA,
+                item: pic
+            }]
+        );
         play(&mut r, &sent);
         r.fake.clear_sent();
         let to = std::path::PathBuf::from("/tmp/easyplay-test/sunset.jpg");
@@ -3492,32 +3820,33 @@ mod media_tests {
         use easyplay_core::model::{ChatMessage, Delivery, FileState, Media, MessageAuthor};
         let _l = lock();
         let mut r = lucia();
-        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/data/chat/sent.png");
-        r.fake.push_event(easyplay_ui::bridge::UiEvent::ChatMessages {
-            messages: vec![ChatMessage {
-                id: 10_000,
-                chat: LUCIA,
-                author: MessageAuthor::Me,
-                body: MessageBody::Image(Media {
-                    name: "sent.png".into(),
-                    size: 51_444,
-                    preview: None,
-                    duration: None,
-                    caption: "the *new* route".into(),
-                    local: Some(fixture),
-                    state: FileState::Sent,
-                }),
-                at: now(),
-                delivery: Delivery::Delivered,
-                unread: false,
-                reply: None,
-                reactions: Vec::new(),
-                edited: false,
-                mentions: Vec::new(),
-            }],
-            updated: false,
-        });
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/chat/sent.png");
+        r.fake
+            .push_event(easyplay_ui::bridge::UiEvent::ChatMessages {
+                messages: vec![ChatMessage {
+                    id: 10_000,
+                    chat: LUCIA,
+                    author: MessageAuthor::Me,
+                    body: MessageBody::Image(Media {
+                        name: "sent.png".into(),
+                        size: 51_444,
+                        preview: None,
+                        duration: None,
+                        caption: "the *new* route".into(),
+                        local: Some(fixture),
+                        state: FileState::Sent,
+                    }),
+                    at: now(),
+                    delivery: Delivery::Delivered,
+                    unread: false,
+                    reply: None,
+                    reactions: Vec::new(),
+                    edited: false,
+                    mentions: Vec::new(),
+                }],
+                updated: false,
+            });
         // The file decodes on a worker: wait for the picture's own shape (240 × 180 → 360 ×
         // 270; without it, a 320 × 180 plate).
         let mut h = 0.0;
@@ -3553,7 +3882,10 @@ mod media_tests {
     fn snapshot_media_viewer_offered() {
         let _l = lock();
         let mut r = lucia();
-        let b = by_label(&r, "Photo, 2.4 MB").accesskit_node().raw_bounds().unwrap();
+        let b = by_label(&r, "Photo, 2.4 MB")
+            .accesskit_node()
+            .raw_bounds()
+            .unwrap();
         let at = egui::pos2(b.x0 as f32 + 30.0, b.y0 as f32 + 30.0);
         r.h.event(egui::Event::PointerMoved(at));
         r.h.event(egui::Event::PointerButton {
@@ -3571,5 +3903,1150 @@ mod media_tests {
         r.h.event(egui::Event::PointerGone);
         r.h.run_steps(20);
         r.h.snapshot("chat_media_viewer_offered_dark_1440x900");
+    }
+}
+
+/// The transcript's rhythm (chat-calls.html notes B): one person's run of messages or a run
+/// of events is a group; 14 between groups, 0 inside one; a divider has 22 above and 8
+/// below. Measured plate to plate on the rows' accessibility bounds.
+mod rhythm_tests {
+    use super::*;
+    use easyplay_core::clock::Timestamp;
+    use easyplay_core::model::{
+        CallKind, CallRecord, ChatMessage, ChatNotice, Delivery, MessageAuthor, MessageBody,
+    };
+    use easyplay_core::service::ChatPage;
+    use easyplay_ui::bridge::{QueryPayload, UiEvent};
+
+    const W1440: Vec2 = Vec2::new(1440.0, 900.0);
+    const DAY: i64 = 86_400_000;
+
+    fn msg(id: i64, at: Timestamp, who: &str, body: MessageBody, unread: bool) -> ChatMessage {
+        ChatMessage {
+            id,
+            chat: CREW,
+            author: MessageAuthor::Member(who.into()),
+            body,
+            at,
+            delivery: Delivery::Received,
+            unread,
+            reply: None,
+            reactions: Vec::new(),
+            edited: false,
+            mentions: Vec::new(),
+        }
+    }
+
+    /// Every transition of the notes, oldest first: yesterday head → event → head →
+    /// continuation → event → event; today event → head → head → "New" → head.
+    fn page() -> ChatPage {
+        let n = now().as_millis();
+        let today = n.div_euclid(DAY) * DAY;
+        let y = |h: i64, m: i64| Timestamp::from_millis(today - DAY + (h * 60 + m) * 60_000);
+        let t = |h: i64, m: i64| Timestamp::from_millis(today + (h * 60 + m) * 60_000);
+        let text = |s: &str| MessageBody::Text(s.into());
+        let notice = |s: &str| MessageBody::Notice(ChatNotice::MemberJoined(s.into()));
+        let call = MessageBody::Call(CallRecord {
+            kind: CallKind::Ended,
+            minutes: 38,
+        });
+        ChatPage {
+            chat: CREW,
+            messages: vec![
+                msg(
+                    1,
+                    y(22, 10),
+                    "Jonas Weber",
+                    text("who is on tomorrow?"),
+                    false,
+                ),
+                msg(2, y(22, 14), "Jonas Weber", notice("Kit"), false),
+                msg(3, y(22, 15), "Kit", text("hey all"), false),
+                msg(4, y(22, 16), "Kit", text("what are we playing?"), false),
+                msg(5, y(22, 30), "Mira Okafor", notice("Lucía"), false),
+                msg(6, y(22, 31), "Mira Okafor", notice("Noor"), false),
+                msg(7, t(0, 40), "Dev Patel", call, false),
+                msg(
+                    8,
+                    t(18, 41),
+                    "Dev Patel",
+                    text("for anyone on Linux"),
+                    false,
+                ),
+                msg(9, t(19, 10), "Jonas Weber", text("going live"), false),
+                msg(10, t(19, 18), "Mira Okafor", text("watching"), true),
+            ],
+        }
+    }
+
+    /// The transcript's plates and dividers, top first: (kind, top, height).
+    fn rows(r: &Rig) -> Vec<(&'static str, f32, f32)> {
+        let mut out: Vec<(&'static str, f32, f32)> =
+            r.h.query_all_by(|n: &egui_kittest::kittest::AccessKitNode<'_>| {
+                // Dividers are full-width labels one 16 line high.
+                (n.role() == Role::ListItem
+                    || n.role() == Role::Label && n.raw_bounds().is_some_and(|b| b.height() < 20.0))
+                    && n.raw_bounds()
+                        .is_some_and(|b| b.x0 > 300.0 && b.width() > 600.0)
+            })
+            .filter_map(|n| {
+                let node = n.accesskit_node();
+                let b = node.raw_bounds()?;
+                let kind = match node.role() {
+                    Role::ListItem => "row",
+                    _ => "divider",
+                };
+                Some((kind, b.y0 as f32, (b.y1 - b.y0) as f32))
+            })
+            .collect();
+        out.sort_by(|a, b| a.1.total_cmp(&b.1));
+        out
+    }
+
+    /// Friday Crew opened on [`page`].
+    fn opened() -> Rig {
+        opened_on(page())
+    }
+
+    /// Friday Crew opened on `page`.
+    fn opened_on(page: ChatPage) -> Rig {
+        let (mut r, _) = rig(sample(), W1440, ThemeChoice::Dark, "en");
+        // Friday Crew is open from the start: leave it for another chat first.
+        list_row(&r, "Mira Okafor", ", ").click();
+        settle(&mut r);
+        r.fake.clear_sent();
+        list_row(&r, "Friday Crew", ", ").click();
+        r.h.run_steps(3);
+        for c in r.fake.sent() {
+            if let UiCommand::Core(Command::Chat(ChatCommand::LoadChat { reply_to, .. })) = c {
+                r.fake.push_event(UiEvent::QueryResult {
+                    id: reply_to,
+                    payload: QueryPayload::Chat(page.clone()),
+                });
+            }
+        }
+        r.fake.clear_sent();
+        r.h.event(egui::Event::PointerGone);
+        r.h.run_steps(30);
+        r
+    }
+
+    fn rect(b: egui::accesskit::Rect) -> egui::Rect {
+        egui::Rect::from_min_max(
+            egui::pos2(b.x0 as f32, b.y0 as f32),
+            egui::pos2(b.x1 as f32, b.y1 as f32),
+        )
+    }
+
+    /// The bounds of the node whose value (a label's name) is `value`.
+    fn by_value(r: &Rig, value: &str) -> Option<egui::Rect> {
+        r.h.query_all_by(|n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.value().as_deref() == Some(value)
+        })
+        .find_map(|n| n.accesskit_node().raw_bounds())
+        .map(rect)
+    }
+
+    #[test]
+    fn the_first_unread_message_of_a_day_gets_one_line_with_the_day_and_new() {
+        let _l = lock();
+        let mut p = page();
+        p.messages[9].unread = false;
+        p.messages[6].unread = true;
+        let r = opened_on(p);
+        let rows = rows(&r);
+        let dividers: Vec<_> = rows.iter().filter(|(k, ..)| *k == "divider").collect();
+        assert_eq!(dividers.len(), 2, "{rows:?}");
+        let at = rows.iter().position(|(k, ..)| *k == "divider").unwrap();
+        let merged = rows
+            .iter()
+            .skip(at + 1)
+            .position(|(k, ..)| *k == "divider")
+            .unwrap()
+            + at
+            + 1;
+        let (above, line, below) = (rows[merged - 1], rows[merged], rows[merged + 1]);
+        assert_eq!(line.2, 16.0);
+        assert_eq!(line.1 - (above.1 + above.2), 22.0);
+        assert_eq!(below.1 - (line.1 + line.2), 8.0);
+        let label =
+            r.h.query_all_by(|n: &egui_kittest::kittest::AccessKitNode<'_>| {
+                n.value().is_some_and(|v| v.ends_with(", New"))
+            })
+            .count();
+        assert_eq!(label, 1, "one line says the day and New");
+    }
+
+    #[test]
+    fn a_continuations_time_ends_at_the_gutter_while_its_row_is_pointed_at() {
+        use easyplay_ui::strings::chat::time;
+        let _l = lock();
+        let mut r = opened();
+        let p = page();
+        let full = time::full_time(Language::English, p.messages[3].at, 0);
+        assert_eq!(by_value(&r, &full), None, "hidden until pointed at");
+        let rows = rows(&r);
+        let row = rows
+            .iter()
+            .filter(|(k, ..)| *k == "row")
+            .nth(3)
+            .copied()
+            .unwrap();
+        assert_eq!(row.2, 25.0, "the continuation");
+        let plate =
+            r.h.query_all_by(|n: &egui_kittest::kittest::AccessKitNode<'_>| {
+                n.role() == Role::ListItem
+                    && n.label()
+                        .is_some_and(|l| l.ends_with("what are we playing?"))
+            })
+            .find_map(|n| n.accesskit_node().raw_bounds())
+            .map(rect)
+            .unwrap();
+        // The rows light up on a pointer move after the transcript stops scrolling.
+        r.h.event(egui::Event::PointerMoved(plate.center()));
+        r.h.run_steps(2);
+        r.h.event(egui::Event::PointerMoved(
+            plate.center() + egui::vec2(2.0, 0.0),
+        ));
+        r.h.run_steps(3);
+        let time = by_value(&r, &full).expect("the gutter's time");
+        // The plate reaches 8 past the column; the gutter is the avatar's 36.
+        assert_eq!(time.right(), plate.left() + 8.0 + 36.0);
+        assert!(time.top() >= plate.top() && time.bottom() <= plate.top() + 2.0 + 21.0);
+    }
+
+    #[test]
+    fn pointing_at_a_time_shows_its_full_date_after_half_a_second() {
+        use easyplay_ui::strings::chat::time;
+        let _l = lock();
+        let mut r = opened();
+        let at = page().messages[9].at;
+        let full = time::full_time(Language::English, at, 0);
+        let head = time::head_time(Language::English, at, now(), 0);
+        assert!(head.starts_with("Today at "), "{head}");
+        // A label's name is its value.
+        let b =
+            r.h.query_by(|n| n.value().as_deref() == Some(full.as_str()))
+                .and_then(|n| n.accesskit_node().raw_bounds())
+                .expect("the head's time, named by its full date");
+        // egui's tooltip area is a tooltip node too; the plate inside it carries the words.
+        let tip = |r: &Rig| {
+            r.h.query_all_by(|n: &egui_kittest::kittest::AccessKitNode<'_>| {
+                n.role() == Role::Tooltip
+            })
+            .find_map(|n| {
+                let n = n.accesskit_node();
+                n.label().or_else(|| n.value())
+            })
+        };
+        r.h.event(egui::Event::PointerMoved(egui::pos2(
+            ((b.x0 + b.x1) / 2.0) as f32,
+            ((b.y0 + b.y1) / 2.0) as f32,
+        )));
+        // A step is a quarter of a second here.
+        r.h.step();
+        assert_eq!(tip(&r), None, "not before the delay");
+        r.h.run_steps(4);
+        assert_eq!(tip(&r).as_deref(), Some(full.as_str()));
+        // Centred 6 above the time.
+        let plate =
+            r.h.query_all_by(|n: &egui_kittest::kittest::AccessKitNode<'_>| {
+                n.role() == Role::Tooltip
+                    && (n.label().as_deref() == Some(full.as_str())
+                        || n.value().as_deref() == Some(full.as_str()))
+            })
+            .find_map(|n| n.accesskit_node().raw_bounds())
+            .map(rect)
+            .expect("the tooltip's plate");
+        let time = rect(b);
+        assert!(
+            (plate.bottom() + 6.0 - time.top()).abs() < 1.0,
+            "{plate:?} {time:?}"
+        );
+        assert!(
+            (plate.center().x - time.center().x).abs() < 1.0,
+            "{plate:?} {time:?}"
+        );
+    }
+
+    /// The owner's bug report as a picture: a head, a "joined" row, then the next head, with
+    /// the event row pointed at (its hover plate) and its time's full-date tooltip showing.
+    #[test]
+    fn snapshot_event_row_between_messages() {
+        use easyplay_ui::strings::chat::time;
+        let _l = lock();
+        let mut r = opened();
+        let full = time::full_time(Language::English, page().messages[1].at, 0);
+        let b = by_value(&r, &full).expect("the event row's time, named by its full date");
+        r.h.event(egui::Event::PointerMoved(b.center()));
+        r.h.run_steps(6);
+        r.h.snapshot("chat_rhythm_event_row_dark_1440x900");
+    }
+
+    #[test]
+    fn list_rows_say_the_time_the_list_way() {
+        use easyplay_ui::strings::chat::time;
+        let _l = lock();
+        let s = sample();
+        let (r, _) = rig(s.clone(), W1440, ThemeChoice::Dark, "en");
+        let mut weekdays = 0;
+        for c in &s.chats {
+            let Some(last) = &c.last else { continue };
+            let when = time::list_time(Language::English, last.at, now(), 0);
+            weekdays += usize::from(when.ends_with("day") && when != "Yesterday");
+            let row = list_row(&r, &c.name, ", ");
+            let label = row.accesskit_node().label().unwrap_or_default();
+            assert!(label.contains(&when), "{label:?} lacks {when:?}");
+        }
+        assert!(weekdays > 0, "a chat within six days says its weekday");
+    }
+
+    #[test]
+    fn groups_have_14_between_them_none_inside_and_dividers_22_above_8_below() {
+        let _l = lock();
+        let r = opened();
+        let rows = rows(&r);
+        let heights: Vec<(&str, f32)> = rows.iter().map(|(k, _, h)| (*k, *h)).collect();
+        assert_eq!(
+            heights,
+            vec![
+                ("divider", 16.0),
+                ("row", 45.0), // head
+                ("row", 28.0), // event
+                ("row", 45.0), // head
+                ("row", 25.0), // continuation
+                ("row", 28.0), // event
+                ("row", 28.0), // event
+                ("divider", 16.0),
+                ("row", 28.0),     // event
+                ("row", 45.0),     // head
+                ("row", 45.0),     // head
+                ("divider", 16.0), // New
+                ("row", 45.0),     // head
+            ],
+            "{rows:?}"
+        );
+        let gaps: Vec<f32> = rows
+            .windows(2)
+            .map(|w| w[1].1 - (w[0].1 + w[0].2))
+            .collect();
+        assert_eq!(
+            gaps,
+            vec![
+                8.0, 14.0, 14.0, 0.0, 14.0, 0.0, 22.0, 8.0, 14.0, 14.0, 22.0, 8.0
+            ],
+            "{rows:?}"
+        );
+    }
+}
+
+// ---- Profile pictures (pictures agent, ADR-0038; chat-calls.html C) -----------------------
+
+mod picture_tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use easyplay_core::chat::picture;
+    use easyplay_core::error::catalog::{DescribeCtx, describe};
+    use easyplay_core::ids::QueryId;
+    use easyplay_core::model::{Picture, PictureCrop};
+    use easyplay_ui::bridge::{QueryPayload, UiEvent};
+    use easyplay_ui::vm::chat::ChatDialog;
+    use easyplay_ui::vm::dialogs::Dialog;
+
+    const W1440: Vec2 = Vec2::new(1440.0, 900.0);
+    const PATH: &str = "/home/sam/Pictures/me.png";
+
+    fn photo() -> Vec<u8> {
+        demo_chat::preview_png(960, 640, [70, 120, 200], [240, 170, 90])
+    }
+
+    fn dialog(chat: ChatSnapshot, d: ChatDialog) -> Rig {
+        let (mut r, _) = rig(chat, W1440, ThemeChoice::Dark, "en");
+        r.h.state_mut().state.show_dialog(Dialog::Chat(d));
+        settle(&mut r);
+        r
+    }
+
+    fn press(r: &mut Rig, label: &str) {
+        let owned = label.to_owned();
+        r.h.query_all_by(move |n| n.role() == Role::Button && n.label().as_deref() == Some(&owned))
+            .next()
+            .unwrap_or_else(|| panic!("no button {label:?}"))
+            .click();
+        r.h.run_steps(6);
+    }
+
+    /// Choose the picture file: its `LoadPicture` query (nothing else is left sent).
+    fn choose(r: &mut Rig) -> QueryId {
+        r.picker.answer(vec![PathBuf::from(PATH)]);
+        press(r, "Choose a picture…");
+        let q = chat_sent(r)
+            .iter()
+            .find_map(|c| match c {
+                ChatCommand::LoadPicture { path, reply_to } if path == &PathBuf::from(PATH) => {
+                    Some(*reply_to)
+                }
+                _ => None,
+            })
+            .expect("LoadPicture is sent for the chosen file");
+        r.fake.clear_sent();
+        q
+    }
+
+    fn answer(r: &mut Rig, id: QueryId, payload: QueryPayload) {
+        r.fake.push_event(UiEvent::QueryResult { id, payload });
+        r.h.run_steps(4);
+        r.h.run();
+    }
+
+    fn source() -> QueryPayload {
+        QueryPayload::PictureSource(picture::source(&PathBuf::from(PATH), &photo()).unwrap())
+    }
+
+    fn has_heading(r: &Rig, text: &str) -> bool {
+        r.h.query_all_by_label(text).next().is_some()
+    }
+
+    #[test]
+    fn the_crop_step_sends_the_placed_square_only_on_save() {
+        let _l = lock();
+        let mut r = dialog(sample(), ChatDialog::Profile);
+        let q = choose(&mut r);
+        answer(&mut r, q, source());
+        assert!(
+            has_heading(&r, "Position your picture"),
+            "the crop step opens"
+        );
+        r.h.snapshot("chat_dialog_crop_dark_1440x900");
+        // Zoom in twice and move the picture 8 to the right, with the keyboard.
+        r.h.get_by_label("Picture position. Arrow keys move it, plus and minus zoom.")
+            .focus();
+        r.h.run_steps(2);
+        for k in [Key::Plus, Key::Plus, Key::ArrowRight] {
+            key(&mut r, k);
+        }
+        press(&mut r, "Use picture");
+        assert!(has_heading(&r, "Your profile"), "back to the profile step");
+        assert!(chat_sent(&r).is_empty(), "nothing is sent before Save");
+        r.h.run();
+        r.h.snapshot("chat_dialog_profile_picture_dark_1440x900");
+        press(&mut r, "Save");
+        // 960 × 640 in 396 × 280: 0.4375 pt a pixel, × 1.21 zoomed; the 240 circle is 453
+        // pixels; the picture moved 8 pt right, so the centre moved 15 pixels left.
+        assert_eq!(
+            chat_sent(&r),
+            vec![ChatCommand::SetPicture {
+                path: PathBuf::from(PATH),
+                crop: Some(PictureCrop {
+                    x: 238,
+                    y: 93,
+                    side: 453
+                }),
+            }],
+            "only the picture changed, so only the picture is sent"
+        );
+    }
+
+    #[test]
+    fn cancel_in_the_crop_step_keeps_the_old_picture() {
+        let _l = lock();
+        let mut r = dialog(sample(), ChatDialog::Profile);
+        let q = choose(&mut r);
+        answer(&mut r, q, source());
+        press(&mut r, "Cancel");
+        assert!(has_heading(&r, "Your profile"));
+        press(&mut r, "Save");
+        assert!(chat_sent(&r).is_empty(), "{:?}", chat_sent(&r));
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_picture_says_so_and_opens_no_crop_step() {
+        let _l = lock();
+        let mut r = dialog(sample(), ChatDialog::Profile);
+        let q = choose(&mut r);
+        let e = picture::source(&PathBuf::from(PATH), b"not a picture").unwrap_err();
+        answer(
+            &mut r,
+            q,
+            QueryPayload::Failed(describe(&e, &DescribeCtx::plain())),
+        );
+        assert!(!has_heading(&r, "Position your picture"));
+        assert!(
+            r.h.query_by_label("This file is not a picture").is_some(),
+            "the catalogue's title on the status line"
+        );
+        r.h.snapshot("chat_dialog_profile_not_picture_dark_1440x900");
+    }
+
+    #[test]
+    fn remove_picture_clears_it_on_save() {
+        let _l = lock();
+        let mut chat = sample();
+        if let Some(p) = &mut chat.profile {
+            p.picture = Some(Picture::new(photo()));
+        }
+        let mut r = dialog(chat, ChatDialog::Profile);
+        assert!(
+            r.h.query_by_label("Change colour").is_none(),
+            "a picture hides the colour"
+        );
+        press(&mut r, "Remove picture");
+        assert!(chat_sent(&r).is_empty(), "nothing is sent before Save");
+        assert!(
+            r.h.query_by_label("Change colour").is_some(),
+            "initials again"
+        );
+        press(&mut r, "Save");
+        assert_eq!(chat_sent(&r), vec![ChatCommand::ClearPicture]);
+    }
+
+    #[test]
+    fn a_groups_owner_sets_its_picture() {
+        let _l = lock();
+        let chat = sample();
+        let group = chat
+            .groups
+            .iter()
+            .find(|g| g.owner)
+            .expect("a group you own")
+            .id;
+        let mut r = dialog(chat, ChatDialog::GroupPicture(group));
+        assert!(has_heading(&r, "Group picture"));
+        let q = choose(&mut r);
+        answer(&mut r, q, source());
+        press(&mut r, "Use picture");
+        press(&mut r, "Save");
+        match chat_sent(&r).as_slice() {
+            [
+                ChatCommand::SetGroupPicture {
+                    group: g,
+                    path,
+                    crop: Some(_),
+                },
+            ] => {
+                assert_eq!((*g, path.as_path()), (group, std::path::Path::new(PATH)));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn escape_in_the_crop_step_goes_back_to_the_profile() {
+        let _l = lock();
+        let mut r = dialog(sample(), ChatDialog::Profile);
+        let q = choose(&mut r);
+        answer(&mut r, q, source());
+        key(&mut r, Key::Escape);
+        r.h.run_steps(20);
+        assert!(!has_heading(&r, "Position your picture"));
+        let causes = r.h.ctx.repaint_causes();
+        assert!(
+            !causes.iter().any(|c| c.file.ends_with("modal.rs")),
+            "no focus return waits behind the dialog: {causes:?}"
+        );
+        assert!(has_heading(&r, "Your profile"), "the dialog stays open");
+        assert!(
+            r.h.state().state.dialogs.front().is_some(),
+            "Your profile is still queued"
+        );
+    }
+
+    #[test]
+    fn a_removal_goes_before_a_rename() {
+        let _l = lock();
+        let mut chat = sample();
+        if let Some(p) = &mut chat.profile {
+            p.picture = Some(Picture::new(photo()));
+        }
+        let mut r = dialog(chat, ChatDialog::Profile);
+        press(&mut r, "Remove picture");
+        if let Some(d) = &mut r.h.state_mut().state.chat.profile {
+            d.name = "Samira".into();
+        }
+        r.h.run_steps(2);
+        press(&mut r, "Save");
+        match chat_sent(&r).as_slice() {
+            [ChatCommand::ClearPicture, ChatCommand::SetProfile(p)] => {
+                assert_eq!(p.name, "Samira");
+                assert_eq!(p.picture, None);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_file_chosen_after_its_dialog_closed_is_dropped() {
+        let _l = lock();
+        let (mut r, _) = rig(sample(), W1440, ThemeChoice::Dark, "en");
+        r.picker.answer(vec![PathBuf::from(PATH)]);
+        r.h.state_mut()
+            .state
+            .picks
+            .push(easyplay_ui::input::picker::PickPurpose::ChatAvatar(None));
+        r.h.run_steps(4);
+        assert!(chat_sent(&r).is_empty(), "{:?}", chat_sent(&r));
+    }
+
+    #[test]
+    fn snapshot_preparing() {
+        let _l = lock();
+        let mut r = dialog(sample(), ChatDialog::Profile);
+        let _ = choose(&mut r);
+        // Past the 150 ms before "Preparing" shows.
+        r.h.run_steps(12);
+        r.h.snapshot("chat_dialog_profile_preparing_dark_1440x900");
+    }
+
+    #[test]
+    fn snapshot_profile_with_a_picture_in_arabic() {
+        let _l = lock();
+        let mut chat = sample();
+        if let Some(p) = &mut chat.profile {
+            p.picture = chat.friends.first().and_then(|f| f.picture.clone());
+        }
+        let (mut r, _) = rig(chat, W1440, ThemeChoice::Dark, "ar");
+        r.h.state_mut()
+            .state
+            .show_dialog(Dialog::Chat(ChatDialog::Profile));
+        settle(&mut r);
+        r.h.snapshot("chat_dialog_profile_ar_dark_1440x900");
+    }
+
+    #[test]
+    fn snapshot_group_picture() {
+        let _l = lock();
+        let chat = sample();
+        let group = chat
+            .groups
+            .iter()
+            .find(|g| g.owner)
+            .expect("a group you own")
+            .id;
+        let mut r = dialog(chat, ChatDialog::GroupPicture(group));
+        r.h.snapshot("chat_dialog_group_picture_dark_1440x900");
+    }
+
+    #[test]
+    fn a_friend_with_a_picture_shows_it() {
+        let _l = lock();
+        let chat = sample();
+        let key = chat
+            .friend(1)
+            .and_then(|f| f.picture.as_ref())
+            .expect("Mira has a picture in the sample")
+            .key();
+        let (mut r, _) = rig(chat, W1440, ThemeChoice::Dark, "en");
+        list_row(&r, "Mira Okafor", ", ").click();
+        r.h.run_steps(3);
+        settle(&mut r);
+        let name = format!("chat-picture-{key:016x}");
+        let uploaded =
+            r.h.ctx
+                .tex_manager()
+                .read()
+                .allocated()
+                .any(|(_, meta)| meta.name == name);
+        assert!(uploaded, "Mira's picture is a texture");
+        r.h.snapshot("chat_picture_friend_dark_1440x900");
+    }
+}
+
+// ---- The call stage, its device menu, sharing's window step, watching (callui) ------------
+
+mod callui_tests {
+    use super::details_tests::{calling_mira, click, open_chat, rig_at, with_live};
+    use super::*;
+    use easyplay_core::model::{Call, CallLevels, CallLink, CallQuality, ChatLive, Watching};
+    use easyplay_ui::vm::chat_call::Tile;
+
+    /// A button whose label starts with `start`.
+    fn has_button(r: &Rig, start: &str) -> bool {
+        r.h.query_all_by(|n| {
+            n.role() == Role::Button && n.label().is_some_and(|l| l.starts_with(start))
+        })
+        .next()
+        .is_some()
+    }
+
+    /// The preference keys the page asked to change.
+    fn prefs_set(r: &Rig) -> Vec<String> {
+        r.fake
+            .sent()
+            .into_iter()
+            .filter_map(|c| match c {
+                UiCommand::SetPreference { patch, .. } => {
+                    Some(patch.keys().map(str::to_owned).collect::<Vec<_>>())
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
+    /// A live call with Mira, who speaks, on a good path.
+    fn live_with_mira() -> ChatLive {
+        ChatLive {
+            levels: CallLevels { me: 0, friend: 60 },
+            quality: Some(CallQuality {
+                rtt_ms: 42,
+                loss: 0,
+            }),
+            ..calling_mira()
+        }
+    }
+
+    /// Two people: a poster each, side by side; a click shows one big over the strip and
+    /// Show everyone brings the grid back.
+    #[test]
+    fn the_stage_shows_two_people_and_focuses_a_tile() {
+        let _l = lock();
+        let (mut r, backend) = rig_at(
+            with_live(live_with_mira()),
+            Route::Chat,
+            None,
+            ThemeChoice::Dark,
+            "en",
+        );
+        open_chat(&mut r, "Mira Okafor", false);
+        r.h.snapshot("chat_call_stage_two_dark_1440x900");
+        // Ringing out, then a lost path: Mira's tile dims; the status says so.
+        let calling = ChatLive {
+            link: CallLink::Ringing,
+            ..calling_mira()
+        };
+        let mut calling = calling;
+        if let Some(c) = &mut calling.call {
+            c.since = None;
+            c.speaking.clear();
+        }
+        backend.publish_chat(with_live(calling.clone()));
+        r.h.run_steps(4);
+        r.h.get_by_label("Cancel the call");
+        r.h.snapshot("chat_call_calling_dark_1440x900");
+        backend.publish_chat(with_live(ChatLive {
+            link: CallLink::Interrupted,
+            ..live_with_mira()
+        }));
+        r.h.run_steps(4);
+        r.h.snapshot("chat_call_reconnecting_dark_1440x900");
+        backend.publish_chat(with_live(ChatLive {
+            link: CallLink::Connecting,
+            ..calling
+        }));
+        r.h.run_steps(4);
+        r.h.snapshot("chat_call_connecting_dark_1440x900");
+        backend.publish_chat(with_live(live_with_mira()));
+        r.h.run_steps(4);
+        assert!(has_button(&r, "Mira Okafor, speaking"));
+        assert!(has_button(&r, "You, muted"));
+        assert!(!has_button(&r, "Show everyone"));
+        r.h.get_by_label("Mira Okafor, speaking").click();
+        r.h.run_steps(4);
+        assert_eq!(
+            r.h.state().state.chat.call.focus,
+            Some(Tile::Person("Mira Okafor".into()))
+        );
+        settle(&mut r);
+        r.h.snapshot("chat_call_focus_dark_1440x900");
+        click(&mut r, "Show everyone");
+        assert_eq!(r.h.state().state.chat.call.focus, None);
+        // Esc unfocuses a tile too.
+        r.h.get_by_label("You, muted").click();
+        r.h.run_steps(4);
+        r.h.key_press(Key::Escape);
+        r.h.run_steps(4);
+        assert_eq!(r.h.state().state.chat.call.focus, None);
+    }
+
+    /// Eight people: four columns, two rows, every one of them a tile.
+    #[test]
+    fn the_stage_shows_eight_people_in_two_rows() {
+        let _l = lock();
+        let others = [
+            "Mira Okafor",
+            "Jonas Weber",
+            "Dev Patel",
+            "Lucía Fernández",
+            "Kit Brennan",
+            "Aiko Tanaka",
+            "Tomasz Nowak",
+        ];
+        let live = ChatLive {
+            call: Some(Call {
+                chat: CREW,
+                since: Some(now()),
+                with: others.iter().map(|n| (*n).to_owned()).collect(),
+                speaking: vec!["Mira Okafor".into(), "Kit Brennan".into()],
+                muted: false,
+                deafened: false,
+            }),
+            quality: Some(CallQuality {
+                rtt_ms: 42,
+                loss: 0,
+            }),
+            ..ChatLive::default()
+        };
+        let (mut r, _) = rig_at(with_live(live), Route::Chat, None, ThemeChoice::Dark, "en");
+        open_chat(&mut r, "Friday Crew", false);
+        r.h.snapshot("chat_call_stage_eight_dark_1440x900");
+        for n in others {
+            assert!(has_button(&r, n), "{n} has a tile");
+        }
+        assert!(has_button(&r, "You"));
+    }
+
+    /// Right to left, the tiles flow from the right and the bar's status sits at the right.
+    #[test]
+    fn the_stage_mirrors_in_arabic() {
+        let _l = lock();
+        let (mut r, _) = rig_at(
+            with_live(live_with_mira()),
+            Route::Chat,
+            None,
+            ThemeChoice::Dark,
+            "ar",
+        );
+        open_chat(&mut r, "Mira Okafor", false);
+        r.h.snapshot("chat_call_stage_ar_dark_1440x900");
+        click(&mut r, "الميكروفون ومكبّر الصوت");
+        settle(&mut r);
+        assert!(r.h.state().state.chat.call.menu_open);
+        r.h.snapshot("chat_call_menu_ar_dark_1440x900");
+    }
+
+    /// In the light theme the posters mix the paper 72 % with the page.
+    #[test]
+    fn the_stage_in_light() {
+        let _l = lock();
+        let (mut r, _) = rig_at(
+            with_live(live_with_mira()),
+            Route::Chat,
+            None,
+            ThemeChoice::Light,
+            "en",
+        );
+        open_chat(&mut r, "Mira Okafor", false);
+        r.h.snapshot("chat_call_stage_light_1440x900");
+    }
+
+    /// Ctrl+Shift+M mutes and Ctrl+Shift+D stops hearing, on any page during a call.
+    #[test]
+    fn call_keys_work_on_every_page() {
+        let _l = lock();
+        let (mut r, _) = rig_at(
+            with_live(live_with_mira()),
+            Route::Library,
+            None,
+            ThemeChoice::Dark,
+            "en",
+        );
+        r.h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::M);
+        r.h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::D);
+        r.h.run_steps(4);
+        assert_eq!(
+            chat_sent(&r),
+            vec![ChatCommand::CallMute(false), ChatCommand::CallDeafen(true)]
+        );
+    }
+
+    /// The user's own call that rang out reads "Mira didn't answer", and Call again calls.
+    #[test]
+    fn an_unanswered_call_of_yours_offers_to_call_again() {
+        use easyplay_core::model::{
+            CallKind, CallRecord, ChatMessage, Delivery, MessageAuthor, MessageBody,
+        };
+        let _l = lock();
+        let (mut r, _) = rig_at(sample(), Route::Chat, None, ThemeChoice::Dark, "en");
+        open_chat(&mut r, "Mira Okafor", false);
+        r.fake
+            .push_event(easyplay_ui::bridge::UiEvent::ChatMessages {
+                messages: vec![ChatMessage {
+                    id: 10_000,
+                    chat: MIRA,
+                    author: MessageAuthor::Me,
+                    body: MessageBody::Call(CallRecord {
+                        kind: CallKind::Missed,
+                        minutes: 0,
+                    }),
+                    at: now(),
+                    delivery: Delivery::Delivered,
+                    unread: false,
+                    reply: None,
+                    reactions: Vec::new(),
+                    edited: false,
+                    mentions: Vec::new(),
+                }],
+                updated: false,
+            });
+        settle(&mut r);
+        assert!(
+            r.h.query_all_by_label_contains("Mira didn't answer")
+                .next()
+                .is_some()
+        );
+        r.fake.clear_sent();
+        click(&mut r, "Call again");
+        assert_eq!(chat_sent(&r), vec![ChatCommand::Call(MIRA)]);
+    }
+
+    /// The stream the user watched ended: the stage says so; Close (or 8 s) clears it.
+    #[test]
+    fn an_ended_stream_says_so_and_closes() {
+        let _l = lock();
+        let mut live = ChatLive::default();
+        live.stream.ended = Some(MIRA);
+        let (mut r, _) = rig_at(with_live(live), Route::Chat, None, ThemeChoice::Dark, "en");
+        open_chat(&mut r, "Mira Okafor", false);
+        r.h.snapshot("chat_watch_ended_dark_1440x900");
+        click(&mut r, "Close");
+        assert_eq!(chat_sent(&r), vec![ChatCommand::StopWatch]);
+    }
+
+    /// Sharing outside a call: paused while the game is not in front.
+    #[test]
+    fn the_sharing_tray_says_when_it_is_paused() {
+        let _l = lock();
+        let mut live = ChatLive {
+            share: Some(easyplay_core::model::Share {
+                chat: MIRA,
+                title: "Lantern Keep".into(),
+                since: now(),
+                watching: 2,
+            }),
+            ..ChatLive::default()
+        };
+        live.stream.share_paused = true;
+        let (mut r, _) = rig_at(
+            with_live(live),
+            Route::Chat,
+            Some("Lantern Keep"),
+            ThemeChoice::Dark,
+            "en",
+        );
+        open_chat(&mut r, "Mira Okafor", false);
+        r.h.get_by_label_contains("Paused while the game is not in front");
+        r.h.snapshot("chat_share_paused_dark_1440x900");
+    }
+
+    /// The mic's caret opens the device menu; its noise switch writes the same preference
+    /// as Settings, and Esc closes it.
+    #[test]
+    fn the_device_menu_writes_the_settings_preferences() {
+        let _l = lock();
+        let (mut r, _) = rig_at(
+            with_live(live_with_mira()),
+            Route::Chat,
+            None,
+            ThemeChoice::Dark,
+            "en",
+        );
+        open_chat(&mut r, "Mira Okafor", false);
+        click(&mut r, "Microphone and speaker");
+        settle(&mut r);
+        assert!(r.h.state().state.chat.call.menu_open);
+        r.h.get_by_label("Microphone volume");
+        r.h.snapshot("chat_call_menu_dark_1440x900");
+        r.fake.clear_sent();
+        r.h.get_by_role_and_label(Role::Switch, "Reduce background noise")
+            .click();
+        r.h.run_steps(4);
+        assert_eq!(prefs_set(&r), vec!["chat.noise_suppression".to_owned()]);
+        r.h.key_press(Key::Escape);
+        r.h.run_steps(4);
+        assert!(!r.h.state().state.chat.call.menu_open);
+    }
+
+    /// Sharing asks first, then says which window to pick; Continue opens the desktop's
+    /// picker and waits; a closed picker ends the wait with a toast.
+    #[test]
+    fn sharing_says_which_window_to_pick_and_waits_for_the_desktop() {
+        let _l = lock();
+        let (mut r, _) = rig_at(
+            sample(),
+            Route::Chat,
+            Some("Lantern Keep"),
+            ThemeChoice::Dark,
+            "en",
+        );
+        open_chat(&mut r, "Mira Okafor", true);
+        click(&mut r, "Share game");
+        r.h.get_by_label("Share Lantern Keep with Mira?");
+        settle(&mut r);
+        r.h.snapshot("chat_dialog_share_dark_1440x900");
+        // The dialog's own Share game (the header's is behind it).
+        r.h.query_all_by(|n| {
+            n.role() == Role::Button && n.label().as_deref() == Some("Share game")
+        })
+        .last()
+        .expect("the dialog's Share game")
+        .click();
+        r.h.run_steps(6);
+        r.h.get_by_label("Choose Lantern Keep in the next window");
+        assert!(chat_sent(&r).is_empty(), "nothing starts before Continue");
+        settle(&mut r);
+        r.h.snapshot("chat_dialog_share_choose_dark_1440x900");
+        click(&mut r, "Continue");
+        assert_eq!(chat_sent(&r), vec![ChatCommand::StartShare(MIRA)]);
+        r.h.get_by_label("Waiting for your desktop…");
+        r.fake.push_event(easyplay_ui::bridge::UiEvent::Failure(
+            easyplay_core::error::UserError {
+                code: easyplay_core::error::ErrorCode::ChtShareRefused,
+                severity: easyplay_core::error::Severity::Warning,
+                title: "The game was not shared".into(),
+                message: "No window was chosen.".into(),
+                actions: vec![],
+                details: None,
+                game: None,
+                session: None,
+            },
+        ));
+        r.h.run_steps(6);
+        assert!(
+            r.h.query_all_by_label_contains("Sharing didn't start")
+                .next()
+                .is_some(),
+            "the toast says the share did not start"
+        );
+        assert!(r.h.query_by_label("Waiting for your desktop…").is_none());
+        assert!(
+            r.h.query_by_role(Role::AlertDialog).is_none(),
+            "no error dialog"
+        );
+    }
+
+    /// Watching: no sound control that does nothing, and full screen with F and Esc.
+    #[test]
+    fn the_watched_game_goes_full_screen_and_has_no_sound_yet() {
+        let _l = lock();
+        let mut live = ChatLive {
+            watch: Some(Watching {
+                chat: CREW,
+                name: "Jonas Weber".into(),
+                title: "Ninefold Arena".into(),
+                watching: 3,
+                muted: false,
+            }),
+            ..ChatLive::default()
+        };
+        let (mut r, backend) = rig_at(
+            with_live(live.clone()),
+            Route::Chat,
+            None,
+            ThemeChoice::Dark,
+            "en",
+        );
+        open_chat(&mut r, "Friday Crew", false);
+        // No picture yet: its spinner turns, so the page is stepped rather than settled.
+        live.stream.watch_waiting = true;
+        backend.publish_chat(with_live(live));
+        r.h.run_steps(6);
+        r.h.snapshot("chat_watch_waiting_dark_1440x900");
+        click(&mut r, "Volume");
+        assert!(chat_sent(&r).is_empty(), "streams carry no sound yet");
+        click(&mut r, "Full screen");
+        assert!(r.h.state().state.chat.call.full);
+        r.h.snapshot("chat_watch_full_dark_1440x900");
+        r.h.key_press(Key::Escape);
+        r.h.run_steps(4);
+        assert!(!r.h.state().state.chat.call.full);
+        // F over the stage: full screen, and back; the letter never reaches the field.
+        r.h.get_by_role_and_label(Role::Image, "Jonas, Ninefold Arena")
+            .hover();
+        r.h.run_steps(2);
+        r.h.key_press(Key::F);
+        r.h.run_steps(4);
+        assert!(r.h.state().state.chat.call.full);
+        r.h.key_press(Key::F);
+        r.h.run_steps(4);
+        assert!(!r.h.state().state.chat.call.full);
+        assert!(
+            r.h.state()
+                .state
+                .chat
+                .drafts
+                .get(&CREW)
+                .is_none_or(String::is_empty)
+        );
+    }
+
+    /// The device menu lists the sound server's devices by description after "System
+    /// default", asks for them again each time it opens, and keeps a stored device that is
+    /// not connected, as Settings does.
+    #[test]
+    fn the_device_menu_lists_the_devices_and_a_missing_one() {
+        use easyplay_core::model::{AudioDevice, AudioDevices};
+        let _l = lock();
+        let mut snap = with_live(live_with_mira());
+        snap.audio_devices = Some(AudioDevices {
+            inputs: vec![AudioDevice {
+                name: "alsa_input.usb".into(),
+                description: "USB headset".into(),
+            }],
+            outputs: Vec::new(),
+        });
+        let (mut r, _) = rig_at(snap, Route::Chat, None, ThemeChoice::Dark, "en");
+        let mut prefs = easyplay_ui::demo::preferences();
+        prefs.chat.mic = "alsa_input.gone".into();
+        r.fake.publish_prefs(prefs);
+        open_chat(&mut r, "Mira Okafor", false);
+        click(&mut r, "Microphone and speaker");
+        settle(&mut r);
+        assert!(chat_sent(&r).contains(&ChatCommand::RefreshAudioDevices));
+        r.h.get_by_label("Microphone").click();
+        settle(&mut r);
+        r.h.get_by_label("USB headset");
+        r.h.get_by_label("alsa_input.gone (not connected)");
+        r.h.get_by_label("System default");
+    }
+
+    /// Sharing: the chip says what is sent ("1080p · 60"); its one menu holds both
+    /// choices, stays open after a pick, and shows a size above the game as not possible.
+    #[test]
+    fn the_quality_chip_changes_the_share_at_once() {
+        use easyplay_core::model::{Share, StreamInfo, VideoEncoding};
+        use easyplay_core::service::ShareHeight;
+        let _l = lock();
+        let mut live = ChatLive {
+            share: Some(Share {
+                chat: MIRA,
+                title: "Lantern Keep".into(),
+                since: now(),
+                watching: 2,
+            }),
+            ..ChatLive::default()
+        };
+        live.stream.share_height = Some(1440);
+        live.stream.share_fps = 60;
+        live.stream.sending = Some(StreamInfo {
+            encoder: VideoEncoding::Hardware,
+            width: 1920,
+            height: 1080,
+            fps: 60,
+        });
+        let (mut r, _) = rig_at(
+            with_live(live),
+            Route::Chat,
+            Some("Lantern Keep"),
+            ThemeChoice::Dark,
+            "en",
+        );
+        open_chat(&mut r, "Mira Okafor", false);
+        r.h.get_by_label("Change the picture and frame rate, 1080p · 60")
+            .click();
+        settle(&mut r);
+        r.h.snapshot("chat_share_quality_menu_dark_1440x900");
+        r.fake.clear_sent();
+        r.h.get_by_label("30 fps").click();
+        r.h.run_steps(4);
+        assert_eq!(
+            chat_sent(&r),
+            vec![ChatCommand::SetShareQuality {
+                height: ShareHeight::P1440,
+                fps: 30
+            }]
+        );
+        // Still open: the other choice can be made too.
+        r.h.get_by_label("720p");
     }
 }

@@ -14,6 +14,7 @@ mod host_verbs;
 mod instance_gui;
 mod library_verbs;
 mod notify_watch;
+mod overlay_verb;
 mod panic;
 mod run_gui;
 mod run_service;

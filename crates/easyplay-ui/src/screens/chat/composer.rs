@@ -2763,7 +2763,10 @@ fn plus_menu(ui: &mut Ui, state: &mut UiState, chat: ChatRef, rect: Rect) {
         .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
         .align(egui::RectAlign::TOP_START);
     context_menu::popup(popup, |ui| {
-        context_menu::section(ui, &s::file_limit(easyplay_core::chat::MAX_SEND >> 30));
+        context_menu::section(
+            ui,
+            &s::file_limit(easyplay_core::service::CHAT_MAX_SEND >> 30),
+        );
         if context_menu::icon_item(ui, icons::IMAGE, s::PICTURE(), None).clicked() {
             state.picks.push(PickPurpose::ChatPicture(chat));
         }
@@ -2815,6 +2818,7 @@ mod tests {
             presence: easyplay_core::model::Presence::Offline,
             playing: None,
             blocked: false,
+            picture: None,
         }
     }
 

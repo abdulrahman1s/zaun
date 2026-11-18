@@ -15,15 +15,22 @@ name = "easyplay"
 path = "src/main.rs"
 
 [features]
-default = ["gamepad", "seccomp", "wayland-security-context"]
+default = ["gamepad", "seccomp", "wayland-security-context", "portal", "hwenc"]
 gamepad = ["easyplay-ui/gamepad"]
 seccomp = ["easyplay-core/seccomp"]
 wayland-security-context = ["easyplay-core/wayland-security-context"]
 dev-inspection = ["easyplay-ui/dev-inspection"]
+# Share a game's window through the ScreenCast portal and PipeWire (ADR-0036). Building it
+# needs libpipewire and libclang (the dev shell and nix/package.nix provide both).
+portal = ["easyplay-media/portal"]
+# Encode shared games on the GPU (NVENC, VA-API) through FFmpeg 8's libavcodec (ADR-0036).
+hwenc = ["easyplay-media/hwenc"]
 
 [dependencies]
 easyplay-core.workspace = true
 easyplay-ui = { workspace = true, default-features = false }
+# Calls' media (ADR-0035): WebRTC, Opus, PulseAudio.
+easyplay-media.workspace = true
 clap.workspace = true
 signal-hook.workspace = true
 tracing.workspace = true

@@ -51,6 +51,8 @@ impl AppService {
     /// The service is ending: let the engine close its database before the process goes
     /// (the helper would otherwise be killed with the service thread).
     pub(crate) fn chat_shutdown(&mut self) {
+        self.call_reset();
+        self.stream_reset();
         if let Some(mut e) = self.flow.chat.engine.take() {
             self.flow.chat.generation += 1;
             e.shutdown();
@@ -65,6 +67,8 @@ impl AppService {
 
     fn chat_stop(&mut self) {
         self.chat_fail_pages(ErrorCode::ChtUnavailable);
+        self.call_reset();
+        self.stream_reset();
         let st = &mut self.flow.chat;
         st.engine = None;
         st.started_with = None;
@@ -154,10 +158,19 @@ impl AppService {
                 .unwrap_or_default();
             self.flow.chat.snapshot.features = features;
         }
+        // Calls need call media (ADR-0035).
+        self.flow.chat.snapshot.features.calls &= self.deps.media.is_some();
+        // Streams need media that can stream (ADR-0036).
+        self.flow.chat.snapshot.features.share &= self
+            .deps
+            .media
+            .as_ref()
+            .is_some_and(|m| m.streams().is_some_and(|s| s.can_share()));
         self.hub
             .chat
             .store(Arc::new(self.flow.chat.snapshot.clone()));
         self.emit(Event::ChatChanged);
+        self.overlay_sync();
     }
 
     pub(super) fn chat_request(&mut self, request: Request) {

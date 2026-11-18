@@ -146,6 +146,10 @@ pub struct ServiceDeps {
     pub watch_sessions: bool,
     /// Starts the Chat engine (ADR-0033); `None` = this build has none.
     pub chat: Option<Arc<dyn crate::chat::EngineFactory>>,
+    /// Starts the in-game overlay (ADR-0037); `None` = none in this build or session.
+    pub overlay: Option<Arc<dyn crate::chat::overlay::OverlayFactory>>,
+    /// Starts calls' media (ADR-0035); `None` = this build has none (calls stay off).
+    pub media: Option<Arc<dyn crate::chat::media::MediaFactory>>,
 }
 
 /// Messages into the loop: commands and job completions.
@@ -629,6 +633,8 @@ impl AppService {
         };
         self.hub.sessions.store(Arc::new(snap));
         self.emit(Event::SessionsChanged);
+        self.overlay_sync();
+        self.share_sessions_changed();
     }
 
     pub(super) fn watch(&self, id: SessionId) {

@@ -2302,6 +2302,9 @@ impl Backend for DemoBackend {
     fn chat(&self) -> Arc<easyplay_core::model::ChatSnapshot> {
         self.lock().chat.snapshot()
     }
+    fn frames(&self) -> Option<easyplay_core::service::FrameSlot> {
+        Some(self.lock().chat.frames())
+    }
 }
 
 /// Tag names as `TagName`s (drops invalid ones).

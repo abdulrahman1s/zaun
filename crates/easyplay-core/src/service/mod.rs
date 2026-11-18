@@ -23,12 +23,22 @@ pub mod recovery;
 pub mod session_watch;
 pub mod snapshot;
 
+/// The watch stage's pictures (ADR-0036), the preview's test picture, the profile-picture
+/// preparation the preview runs, and the send limit; here for the same reason.
+pub use crate::chat::MAX_SEND as CHAT_MAX_SEND;
+pub use crate::chat::media::pattern::test_pattern;
+pub use crate::chat::media::{FrameSlot, VideoFrame};
+/// Whether the in-game overlay can be shown (`SnapshotHub::overlay`, ADR-0037); here for the
+/// UI, which may not name `chat` (ARCHITECTURE §3 rule 2).
+pub use crate::chat::overlay::OverlayStatus;
+pub use crate::chat::picture as chat_picture;
 pub use app_service::{
     AppService, CommandSender, LaunchEnv, ServiceDeps, ServiceHandle, Waker, open_db,
 };
 pub use command::{
     AfterCreate, ChatCommand, ClipKind, Command, DatabaseChoice, FolderRequest, GameEdit,
-    InspectTarget, LaunchOrigin, LogFile, OpenOrigin, SteamCommand, StopMode,
+    InspectTarget, LaunchOrigin, LogFile, OpenOrigin, OverlayAction, ShareHeight, SteamCommand,
+    StopMode,
 };
 pub use event::{
     ChatPage, Event, LogChunk, Notice, QueryResult, RecoveredHow, SetupContext, SteamDetail,

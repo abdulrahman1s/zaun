@@ -371,6 +371,9 @@ impl easyplay_ui::Backend for ChatBackend {
     fn chat(&self) -> Arc<easyplay_core::model::ChatSnapshot> {
         self.chat.lock().unwrap().clone()
     }
+    fn overlay(&self) -> easyplay_core::chat::overlay::OverlayStatus {
+        self.fake.overlay()
+    }
 }
 
 /// A rig over a [`ChatBackend`] (its fake is the rig's `fake`), at `start`, `size`, with

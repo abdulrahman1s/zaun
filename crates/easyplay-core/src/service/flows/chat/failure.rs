@@ -34,6 +34,8 @@ impl AppService {
     /// Not something a restart fixes (no engine, a database that does not open, a name or
     /// relays the engine refuses): stop and say why. Turning Chat off and on again retries.
     fn on_start_failed(&mut self, code: ErrorCode) {
+        self.call_reset();
+        self.stream_reset();
         let st = &mut self.flow.chat;
         st.engine = None;
         st.started_with = None;
@@ -74,6 +76,8 @@ impl AppService {
     pub(super) fn on_chat_exited(&mut self, status: Option<i32>, started: bool) -> Result<()> {
         tracing::warn!(?status, started, "chat: the chat engine stopped");
         self.chat_fail_pages(ErrorCode::ChtEngineFailing);
+        self.call_reset();
+        self.stream_reset();
         let st = &mut self.flow.chat;
         st.engine = None;
         st.started_with = None;

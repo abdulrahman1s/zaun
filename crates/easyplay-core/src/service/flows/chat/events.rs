@@ -83,7 +83,10 @@ impl AppService {
                 detail,
             } => return self.on_chat_failed(request, code, detail),
             ChatEvent::Exited { status, started } => return self.on_chat_exited(status, started),
+            ChatEvent::Call(signal) => return self.on_call_signal(signal),
+            ChatEvent::Stream(signal) => return self.on_stream_signal(signal),
         }
+        self.stream_mark_friends();
         self.chat_publish();
         Ok(())
     }
@@ -107,6 +110,7 @@ impl AppService {
         if unknown {
             self.chat_request(Request::Refresh);
         }
+        self.overlay_messages(&messages);
         self.emit(Event::Notice(Notice::ChatMessages(messages)));
     }
 
@@ -118,11 +122,15 @@ impl AppService {
                 p.last = Some(m.clone());
             }
         }
+        self.overlay_updated(&messages);
         self.emit(Event::Notice(Notice::ChatMessagesUpdated(messages)));
     }
 
     fn on_history(&mut self, tag: u64, chat: ChatRef, messages: Vec<ChatMessage>) {
         if let Some(id) = self.flow.chat.pages.remove(&tag) {
+            if self.overlay_history(id, chat, &messages) {
+                return;
+            }
             self.emit(Event::QueryResult {
                 id,
                 result: QueryResult::Chat(ChatPage { chat, messages }),

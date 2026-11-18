@@ -458,6 +458,8 @@ pub enum QueryPayload {
     Gifs(easyplay_core::gifs::GifAnswer),
     /// `ChatCommand::GifPreview`: a picker picture.
     GifPreview(easyplay_core::gifs::GifPreview),
+    /// `ChatCommand::LoadPicture`: a picture file for the crop step (ADR-0038).
+    PictureSource(easyplay_core::model::PictureSource),
     /// The query failed.
     Failed(UserError),
 }
@@ -742,6 +744,15 @@ pub trait Backend: Send {
     fn chat(&self) -> Arc<easyplay_core::model::ChatSnapshot> {
         Arc::new(easyplay_core::model::ChatSnapshot::default())
     }
+    /// The picture of the stream the user watches (ADR-0036); `None`: this backend has none
+    /// (the stage shows its still picture).
+    fn frames(&self) -> Option<easyplay_core::service::FrameSlot> {
+        None
+    }
+    /// Whether the in-game overlay can be shown here (ADR-0037; Settings dims its rows).
+    fn overlay(&self) -> easyplay_core::service::OverlayStatus {
+        easyplay_core::service::OverlayStatus::Idle
+    }
 }
 
 /// A backend shared by several windows in turn (the resident service opens one window after
@@ -789,6 +800,12 @@ impl<B: Backend + Sync + ?Sized> Backend for Arc<B> {
     fn chat(&self) -> Arc<easyplay_core::model::ChatSnapshot> {
         (**self).chat()
     }
+    fn overlay(&self) -> easyplay_core::service::OverlayStatus {
+        (**self).overlay()
+    }
+    fn frames(&self) -> Option<easyplay_core::service::FrameSlot> {
+        (**self).frames()
+    }
 }
 
 /// Maximum events drained per frame (ARCHITECTURE §5.1).
@@ -803,6 +820,8 @@ pub struct UiBridge {
     runtimes: Arc<RuntimesView>,
     diagnostics: Arc<Diagnostics>,
     chat: Arc<easyplay_core::model::ChatSnapshot>,
+    /// The watched stream's picture (the backend's one slot, taken once).
+    frames: Option<easyplay_core::service::FrameSlot>,
     next_query: std::cell::Cell<u128>,
 }
 
@@ -816,6 +835,7 @@ impl UiBridge {
             runtimes: backend.runtimes(),
             diagnostics: backend.diagnostics(),
             chat: backend.chat(),
+            frames: backend.frames(),
             backend,
             next_query: std::cell::Cell::new(1),
         }
@@ -902,6 +922,16 @@ impl UiBridge {
         &self.chat
     }
 
+    /// The watched stream's latest picture, outside the snapshot (ADR-0036).
+    pub fn frames(&self) -> Option<&easyplay_core::service::FrameSlot> {
+        self.frames.as_ref()
+    }
+
+    /// See [`Backend::overlay`].
+    pub fn overlay(&self) -> easyplay_core::service::OverlayStatus {
+        self.backend.overlay()
+    }
+
     /// See [`Backend::assess`].
     pub fn assess(
         &self,
@@ -938,6 +968,7 @@ struct FakeState {
     runtimes: Arc<RuntimesView>,
     diagnostics: Arc<Diagnostics>,
     assess: Option<PolicyAssessment>,
+    overlay: easyplay_core::service::OverlayStatus,
 }
 
 /// A test backend: records commands; tests publish snapshots and events. `assess` uses the
@@ -966,6 +997,7 @@ impl FakeBackend {
                 runtimes: Arc::new(crate::demo::runtimes_view()),
                 diagnostics: Arc::new(Diagnostics::default()),
                 assess: None,
+                overlay: easyplay_core::service::OverlayStatus::Idle,
             })),
         }
     }
@@ -995,6 +1027,11 @@ impl FakeBackend {
         library.revision = s.library.revision + 1;
         s.library = Arc::new(library);
         s.events.push_back(UiEvent::LibraryChanged);
+    }
+
+    /// Set what [`Backend::overlay`] answers.
+    pub fn set_overlay(&self, status: easyplay_core::service::OverlayStatus) {
+        self.lock().overlay = status;
     }
 
     /// Publish preferences and announce them.
@@ -1073,6 +1110,9 @@ impl Backend for FakeBackend {
     fn set_waker(&self, _waker: Arc<dyn Fn() + Send + Sync>) {}
     fn diagnostics(&self) -> Arc<Diagnostics> {
         self.lock().diagnostics.clone()
+    }
+    fn overlay(&self) -> easyplay_core::service::OverlayStatus {
+        self.lock().overlay
     }
 }
 

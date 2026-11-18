@@ -50,6 +50,8 @@ fn headless() -> Result<(AppService, std::sync::mpsc::Receiver<Event>, LibraryLo
     // Chat runs only in the GUI or the background service (ADR-0033): a command-line
     // verb must not open the chat database a running EasyPlay has open, or reach the relays.
     deps.chat = None;
+    // The in-game overlay belongs to the running EasyPlay too (ADR-0037).
+    deps.overlay = None;
     let (svc, events) = AppService::open_headless(deps)?;
     Ok((svc, events, lock))
 }

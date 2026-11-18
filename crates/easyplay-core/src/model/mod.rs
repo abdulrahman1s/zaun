@@ -13,6 +13,7 @@ mod chat;
 mod doc;
 mod executable;
 mod game;
+mod ice;
 mod launch_config;
 mod policy;
 mod prompt;
@@ -24,10 +25,12 @@ mod tag;
 
 pub use artwork::{ArtOrigin, ArtSlot, ArtworkRef};
 pub use chat::{
-    Call, CallKind, CallRecord, ChatFeatures, ChatNotice, ChatGroup, ChatLive, ChatMessage, ChatPreview,
-    ChatProfile, ChatRef, ChatSnapshot, ChatStatus, Delivery, FileState, Friend, FriendRequest,
-    GroupMember, Media, Membership, Mention, MessageAuthor, MessageBody, MyStatus, Playing,
-    Presence, Quote, Reaction, Ringing, Share, StreamRecord, Watching,
+    AudioDevice, AudioDevices, Call, CallKind, CallLevels, CallLink, CallQuality, CallRecord,
+    ChatFeatures, ChatGroup, ChatLive, ChatMessage, ChatNotice, ChatPreview, ChatProfile, ChatRef,
+    ChatSnapshot, ChatStatus, Delivery, FileState, Friend, FriendRequest, GroupMember, Media,
+    Membership, Mention, MessageAuthor, MessageBody, MyStatus, Picture, PictureCrop, PictureSource,
+    Playing, Presence, Quote, Reaction, Ringing, Share, StreamInfo, StreamLive, StreamRecord,
+    VideoEncoding, Watching,
 };
 pub use doc::{DocError, UpgradeStep, parse_launch_config, parse_policy};
 pub use executable::{
@@ -39,6 +42,7 @@ pub use game::{
     SaveLocationKind, Store, SummaryFlags, sort_name_of, validate_name, validate_notes,
     validate_umu_id,
 };
+pub use ice::{DEFAULT_ICE_SERVERS, IceKind, IceServer, IceTransport, ice_servers};
 pub use launch_config::{
     CompatOptions, EnvVar, LaunchConfig, Renderer, SplitError, SyncMode, Tool, WindowSystem,
     WorkingDir, is_valid_locale, is_valid_winetricks_verb, join_args, split_args, validate_args,

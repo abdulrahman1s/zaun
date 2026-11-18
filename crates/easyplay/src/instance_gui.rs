@@ -435,6 +435,14 @@ impl RequestHandler for GuiRequests {
                 reply.reply(&Response::ok());
             }
             Request::Ping => reply.reply(&Response::ok()),
+            Request::Overlay { action } => {
+                if let Some(why) = crate::overlay_verb::refusal(&self.hub) {
+                    return reply.reply(&err(ErrorCode::ChtOverlayUnavailable, why));
+                }
+                self.cmds
+                    .send(Command::Overlay(crate::overlay_verb::action(action)));
+                reply.reply(&Response::ok());
+            }
         }
     }
 }

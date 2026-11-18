@@ -72,6 +72,8 @@ impl Codec {
                 }
             }
             Pending::Req(kind) => self.on_req(kind, a, out),
+            Pending::Call { friend, quiet } => self.on_call_answer(friend, quiet, a, out),
+            Pending::Stream { friend, quiet } => self.on_stream_answer(friend, quiet, a, out),
         }
     }
 

@@ -124,7 +124,12 @@ impl NotifyWatch {
                     }
                     let prefs = hub.prefs.load();
                     let focused = focus.load(Ordering::Relaxed);
-                    for ev in notify::chat_messages(&seen, &now, prefs.chat.notify_preview) {
+                    let calls = notify::chat_calls(&seen, &now);
+                    for ev in calls.into_iter().chain(notify::chat_messages(
+                        &seen,
+                        &now,
+                        prefs.chat.notify_preview,
+                    )) {
                         if notify::wanted(&ev, &prefs, focused) {
                             notifier.notify(&notify::compose(&ev, None));
                         }

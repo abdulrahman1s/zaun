@@ -141,6 +141,7 @@ fn big_avatar(
     name: &str,
     paper: Option<u8>,
     shape: Shape,
+    picture: Option<&easyplay_core::model::Picture>,
     presence: Option<Presence>,
     p: &Palette,
 ) {
@@ -152,7 +153,7 @@ fn big_avatar(
         row.left()
     };
     let r = Rect::from_min_size(pos2(x, row.top()), vec2(m::AVATAR, m::AVATAR));
-    avatar::avatar(ui.painter(), r, name, paper, shape);
+    avatar::pictured(ui.painter(), r, name, paper, shape, picture);
     if let Some(pr) = presence {
         avatar::status(ui.painter(), r, pr, p.bg, true);
     }
@@ -447,6 +448,7 @@ fn friend(
         &f.name,
         f.paper,
         Shape::Person,
+        f.picture.as_ref(),
         presence_on.then_some(f.presence),
         p,
     );
@@ -695,7 +697,8 @@ fn group(
         .as_ref()
         .map_or(Presence::Online, |pr| avatar::my_presence(pr.status));
     let members = ranked(g, me);
-    big_avatar(ui, &g.name, None, Shape::Group, None, p);
+    let pic = g.picture.as_ref();
+    big_avatar(ui, &g.name, None, Shape::Group, pic, None, p);
     name_line(ui, &g.name, p);
     let total = g
         .members
@@ -721,7 +724,7 @@ fn group(
     let in_this_call = snap.live.call.as_ref().is_some_and(|c| c.chat == chat);
     let (join, invite) = acts(
         ui,
-        (fe.calls && !in_this_call).then_some((
+        (fe.calls && fe.group_voice && !in_this_call).then_some((
             voice,
             icons::PHONE,
             in_other_call.then_some(s::IN_CALL()),
@@ -739,6 +742,12 @@ fn group(
         member_row(ui, state, env, snap, g, mem, *pr, p);
     }
     heading(ui, s::THIS_GROUP(), p);
+    // The group's picture, for its owner (pictures, ADR-0038).
+    let row = crate::strings::chat::picture::GROUP_ROW();
+    let change = crate::strings::chat::picture::CHANGE();
+    if g.owner && fact(ui, row, change, true, p).clicked() {
+        state.show_dialog(Dialog::Chat(ChatDialog::GroupPicture(g.id)));
+    }
     if fe.mute {
         let mut muted = g.muted;
         if switch_row(ui, s::MUTE_NOTIFICATIONS(), &mut muted, p) {
@@ -794,7 +803,8 @@ fn member_row(
     };
     let ax = if rtl() { r.right() - av } else { r.left() };
     let ar = Rect::from_min_size(pos2(ax, r.center().y - av / 2.0), vec2(av, av));
-    avatar::avatar(ui.painter(), ar, &mem.name, paper, Shape::Person);
+    let pic = avatar::of_member(snap, mem);
+    avatar::pictured(ui.painter(), ar, &mem.name, paper, Shape::Person, pic);
     let ring = mix(p.bg, p.o1, hover);
     if fe.presence && !mem.blocked {
         avatar::status(ui.painter(), ar, presence, ring, false);

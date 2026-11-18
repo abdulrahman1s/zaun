@@ -1,12 +1,15 @@
 //! The Chat page (ADR-0033). Copy rules: USER_EXPERIENCE §9; the chat engine is never
 //! named (no product names), relays are named by their host names only.
 
+pub mod calls;
 pub mod composer;
 pub mod conversation;
 pub mod details;
 pub mod list;
+pub mod picture;
 pub mod services;
 pub mod settings;
+pub mod time;
 
 texts! {
     /// The Settings group's heading.
@@ -265,33 +268,6 @@ pub fn leave_title(name: &str) -> String {
 /// "Add Ana to Squad" (a friend in the Add-member submenu, spoken).
 pub fn add_to(friend: &str, group: &str) -> String {
     rust_i18n::t!("chat.add_to", friend = friend, group = group).into_owned()
-}
-
-/// A conversation's time in the list: "21:04" today, "Yesterday", else "3 Nov" (with the
-/// year in another year). `offset_s` is the local UTC offset.
-pub fn short_time(
-    t: easyplay_core::clock::Timestamp,
-    now: easyplay_core::clock::Timestamp,
-    offset_s: i32,
-) -> String {
-    let local = |t: easyplay_core::clock::Timestamp| {
-        (t.as_millis() + i64::from(offset_s) * 1000).div_euclid(86_400_000)
-    };
-    let (d, today) = (local(t), local(now));
-    match today - d {
-        i64::MIN..=0 => super::stats::clock_time(t, offset_s),
-        1 => super::date::yesterday().to_owned(),
-        _ => {
-            let (y, m, dd) = easyplay_core::stats::rollup::civil_from_days(d);
-            let (ty, _, _) = easyplay_core::stats::rollup::civil_from_days(today);
-            let month = super::date::month_abbr((m.clamp(1, 12) - 1) as usize);
-            if y == ty {
-                super::date::day_month(dd, month)
-            } else {
-                super::date::day_month_year(dd, month, y)
-            }
-        }
-    }
 }
 
 texts! {

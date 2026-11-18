@@ -261,6 +261,7 @@ impl ServiceBackend {
                     QueryResult::Chat(c) => QueryPayload::Chat(c),
                     QueryResult::Gifs(g) => QueryPayload::Gifs(g),
                     QueryResult::GifPreview(g) => QueryPayload::GifPreview(g),
+                    QueryResult::PictureSource(p) => QueryPayload::PictureSource(p),
                     QueryResult::Failed(e) => QueryPayload::Failed(*e),
                 },
             },
@@ -656,6 +657,12 @@ impl Backend for ServiceBackend {
     }
     fn chat(&self) -> Arc<easyplay_core::model::ChatSnapshot> {
         self.handle.hub.chat.load()
+    }
+    fn frames(&self) -> Option<easyplay_core::service::FrameSlot> {
+        Some(self.handle.hub.frames.clone())
+    }
+    fn overlay(&self) -> easyplay_core::service::OverlayStatus {
+        *self.handle.hub.overlay.load()
     }
 
     fn host(&self) -> Arc<HostView> {

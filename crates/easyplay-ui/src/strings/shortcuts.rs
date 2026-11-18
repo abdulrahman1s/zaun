@@ -97,4 +97,8 @@ texts! {
     QUIT = "shortcuts.quit";
     /// Action.
     OPEN_FOLDER = "shortcuts.open_folder";
+    /// Action.
+    CALL_MUTE = "shortcuts.call_mute";
+    /// Action.
+    CALL_DEAFEN = "shortcuts.call_deafen";
 }

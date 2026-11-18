@@ -19,8 +19,11 @@
 //! field; `Ctrl+F` searches the chats.
 
 mod avatar;
+mod call_menu;
+mod call_stage;
 mod composer;
 mod conversation;
+mod crop;
 mod details;
 mod dialogs;
 pub(crate) mod emoji;
@@ -30,9 +33,14 @@ mod list;
 mod markdown;
 mod media;
 mod paint;
+mod picture_edit;
+mod pictures;
+mod share_quality;
+mod stage_picture;
 mod trays;
+mod watch_stage;
 
-pub use dialogs::dialog;
+pub use dialogs::{dialog, share_failed};
 pub use incoming::{card as incoming_card, top_bar_pill};
 
 use easyplay_core::model::{ChatRef, ChatSnapshot, ChatStatus};
@@ -120,6 +128,8 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     ui.ctx()
         .data_mut(|d| d.insert_temp(list::search_key(), false));
     let snap = env.bridge.chat().clone();
+    // `F` for the watched game's full screen, before the composer takes typed letters.
+    watch_stage::keys(ui.ctx(), state, &snap);
     if snap.status != ChatStatus::Off {
         state.chat.turning_on = false;
     }

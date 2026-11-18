@@ -422,6 +422,13 @@ impl EasyPlayApp {
             self.bridge.send(Command::DiscardDraft);
             self.state.setup = None;
         }
+        // The microphone test never outlives the window (chat-calls.html notes H).
+        if self.bridge.chat().live.mic_test.is_some() {
+            self.bridge
+                .send(Command::Chat(easyplay_core::service::ChatCommand::MicTest(
+                    false,
+                )));
+        }
         let prompts: Vec<_> = self.state.dialogs.prompts().map(|p| p.id).collect();
         for prompt in prompts {
             self.bridge.send(Command::AnswerPrompt {
@@ -653,6 +660,11 @@ impl EasyPlayApp {
                     }
                     a.settled();
                 }
+                // Chat: sharing that failed while the desktop's window picker was open ends
+                // the share dialog's wait; a closed picker is said in a toast (callui).
+                if crate::screens::chat::share_failed(s, e.code, mono) {
+                    return;
+                }
                 // Chat: the relays out of reach, or a link that is not one, are passing
                 // states, said in one line; the engine retries and the page shows "offline".
                 if matches!(
@@ -811,7 +823,10 @@ impl EasyPlayApp {
             return;
         };
         let s = &mut self.state;
-        if s.chat.on_query(id, &payload) || s.chat.gif.on_query(id, &payload) {
+        if s.chat.on_query(id, &payload)
+            || s.chat.gif.on_query(id, &payload)
+            || s.chat.picture.on_query(id, &payload)
+        {
             return;
         }
         if let Some(a) = &mut s.artwork
@@ -1114,6 +1129,11 @@ impl EasyPlayApp {
             // conversation's attachments (sent with the next message, the text as the first
             // one's caption); for a conversation no longer open they go at once.
             // *Save as…* of a Chat message's file (conversation agent): the service copies it.
+            // *Choose a picture…* (pictures, ADR-0038): read for the crop step.
+            PickPurpose::ChatAvatar(whose) => {
+                let now = ctx.input(|i| i.time);
+                s.chat.picture.load(&self.bridge, whose, first, now);
+            }
             PickPurpose::ChatSave { chat, item, .. } => {
                 self.bridge.send(Command::Chat(
                     easyplay_core::service::ChatCommand::SaveFile {
