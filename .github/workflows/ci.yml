@@ -33,12 +33,17 @@ env:
 
 jobs:
   architecture:
-    name: Architecture rules (ARCH-006)
+    name: Architecture rules and formatting (ARCH-006)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Layering, UI imports, unsafe, colours, screen strings
         run: scripts/ci/check-architecture.sh
+      # The release build checks formatting too; finding it here keeps a release from failing.
+      - name: Install Rust (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Formatting
+        run: cargo fmt --all --check
 
   deny:
     name: cargo-deny (licences, bans, advisories, sources)
