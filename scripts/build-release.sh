@@ -146,7 +146,9 @@ zaun_bin="$target_dir/$target/release/zaun"
 init_bin="$target_dir/$init_target/init-release/zaun-init"
 
 # Budgets of PERFORMANCE §1 (decimal megabytes).
-max_zaun=$((35 * 1000 * 1000))
+# 64 MB since calls and game streams (ADR-0035/0036): WebRTC and its crypto, OpenH264, the
+# FFmpeg bindings and the noise-suppression model took a stripped, fat-LTO zaun to 56 MB.
+max_zaun=$((64 * 1000 * 1000))
 max_init=$((1000 * 1000))
 
 cargo_common=(--locked)
