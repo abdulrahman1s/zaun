@@ -6,6 +6,7 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use crate::chat::overlay::OverlayStatus;
 use crate::config::Preferences;
 use crate::consts::APP_ID;
 
@@ -199,6 +200,28 @@ pub fn wanted(event: &NotifyEvent, prefs: &Preferences, focused: bool) -> bool {
         NotifyEvent::TamperRemoved => true,
         NotifyEvent::ChatMessage { .. } => !focused && prefs.chat.enabled && prefs.chat.notify,
         NotifyEvent::ChatCall { .. } => !focused && prefs.chat.enabled && prefs.chat.notify_calls,
+    }
+}
+
+/// Whether the in-game overlay already shows `event` (ADR-0037), so a desktop notification
+/// would say it twice over the game: a ringing call always has its toast there, a message
+/// only with `chat.overlay_toasts` on.
+pub fn in_overlay(event: &NotifyEvent, prefs: &Preferences, overlay: OverlayStatus) -> bool {
+    let running = match overlay {
+        OverlayStatus::Running => true,
+        OverlayStatus::Idle
+        | OverlayStatus::Missing
+        | OverlayStatus::Unsupported
+        | OverlayStatus::NoGpu
+        | OverlayStatus::Failing => false,
+    };
+    match event {
+        NotifyEvent::ChatMessage { .. } => running && prefs.chat.overlay_toasts,
+        NotifyEvent::ChatCall { .. } => running,
+        NotifyEvent::Crashed { .. }
+        | NotifyEvent::LayerReady
+        | NotifyEvent::Ended { .. }
+        | NotifyEvent::TamperRemoved => false,
     }
 }
 
@@ -435,6 +458,33 @@ mod tests {
             last.mentions = vec![mention(true)];
         }
         assert_eq!(chat_messages(&before, &now, false).len(), 1);
+    }
+
+    #[test]
+    fn what_the_running_overlay_shows_is_not_announced_on_the_desktop_too() {
+        let message = NotifyEvent::ChatMessage {
+            from: "Kai".into(),
+            text: None,
+        };
+        let call = NotifyEvent::ChatCall { from: "Kai".into() };
+        let crash = NotifyEvent::Crashed {
+            game: "Hades".into(),
+        };
+        let mut p = Preferences::default();
+        assert!(in_overlay(&message, &p, OverlayStatus::Running));
+        assert!(in_overlay(&call, &p, OverlayStatus::Running));
+        assert!(!in_overlay(&crash, &p, OverlayStatus::Running));
+        assert!(!in_overlay(&message, &p, OverlayStatus::Idle), "no game");
+        assert!(!in_overlay(&call, &p, OverlayStatus::Unsupported));
+        p.chat.overlay_toasts = false;
+        assert!(
+            !in_overlay(&message, &p, OverlayStatus::Running),
+            "no toasts"
+        );
+        assert!(
+            in_overlay(&call, &p, OverlayStatus::Running),
+            "a call always rings there"
+        );
     }
 
     #[test]

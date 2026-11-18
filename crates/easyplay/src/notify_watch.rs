@@ -104,7 +104,8 @@ impl NotifyWatch {
     }
 
     /// New friend messages (ADR-0033), from the Chat snapshot: one notification per
-    /// conversation whose unread count rose, while no window has focus.
+    /// conversation whose unread count rose, while no window has focus and the in-game
+    /// overlay is not already showing it.
     fn spawn_chat(
         hub: Arc<SnapshotHub>,
         stop: Arc<AtomicBool>,
@@ -124,13 +125,16 @@ impl NotifyWatch {
                     }
                     let prefs = hub.prefs.load();
                     let focused = focus.load(Ordering::Relaxed);
+                    let overlay = *hub.overlay.load();
                     let calls = notify::chat_calls(&seen, &now);
                     for ev in calls.into_iter().chain(notify::chat_messages(
                         &seen,
                         &now,
                         prefs.chat.notify_preview,
                     )) {
-                        if notify::wanted(&ev, &prefs, focused) {
+                        if notify::wanted(&ev, &prefs, focused)
+                            && !notify::in_overlay(&ev, &prefs, overlay)
+                        {
                             notifier.notify(&notify::compose(&ev, None));
                         }
                     }
