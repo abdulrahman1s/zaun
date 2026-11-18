@@ -11,6 +11,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${root}"
 out="${CARGO_TARGET_DIR:-${root}/target}/bench-results.jsonl"
 if [[ $# -gt 0 && "$1" != "--" ]]; then out="$1"; shift; fi
+# Absolute: `cargo bench` runs each bench from its crate's folder.
+[[ "${out}" = /* ]] || out="${root}/${out}"
 [[ "${1:-}" == "--" ]] && shift
 rm -f "${out}"
 mkdir -p "$(dirname "${out}")"
