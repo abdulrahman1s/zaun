@@ -278,6 +278,10 @@ mod tests {
 
     /// The `sql` block of DATA_MODEL §6; `None` in a checkout without `docs/` (it is kept out
     /// of the public repository).
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a test reading a document of the checkout, not app I/O"
+    )]
     fn documented_schema() -> Option<String> {
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/DATA_MODEL.md");

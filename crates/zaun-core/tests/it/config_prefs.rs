@@ -17,6 +17,10 @@ fn now() -> Timestamp {
 
 /// CONFIGURATION §2's file; `None` in a checkout without `docs/` (kept out of the public
 /// repository).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a test reading a document of the checkout, not app I/O"
+)]
 fn documented_file() -> Option<String> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/CONFIGURATION.md");
     let doc = std::fs::read_to_string(path).ok()?;
