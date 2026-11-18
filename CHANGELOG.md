@@ -11,6 +11,15 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 
 ### For users
 
+- Updates: Settings › About › Updates has a "Check for updates" switch (off until you turn
+  it on; it says that Zaun then asks github.com once a day and that GitHub learns only your
+  IP address and the time), the installed version with "Check now", and a newer version with
+  "What's new". A copy installed from the release tarball into your home folder downloads
+  the new version, checks its signature and installs it on "Restart now" or the next start,
+  never while a game runs, and goes back to the previous version if the new one does not
+  start. Copies from Nix, Flatpak or a distribution package say how to update them instead.
+  A quiet message announces each new version once. `zaun update check|apply|on|off` does the
+  same from a terminal (`check` exits with 10 when a newer version is available).
 - The app is now called Zaun (binary `zaun`, app ID `io.github.zaun.Zaun`, errors `ZN-…`, settings
   `ZAUN_*`). On first start your library, settings, chat and caches move from `…/easyplay` to
   `…/zaun`, and a link stays at the old path; nothing is deleted. Shortcuts made by the old
@@ -180,6 +189,13 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 
 ### For packagers
 
+- Releases built by the workflow now also carry `zaun-V-x86_64-linux.zaun.gz`,
+  `zaun-V-x86_64-linux.zaun-init.gz`, `manifest.json` and `manifest.json.sig` (the update
+  files of tarball installs, ADR-0040). The release job needs the Actions secret
+  `ZAUN_UPDATE_SIGNING_KEY`; tags with a pre-release suffix are published as pre-releases.
+  Third-party actions are pinned by commit.
+- New preference `[updates] check` (default `false`). Distribution packages never update
+  themselves; with checks on they only announce a newer release.
 - Game streams (ADR-0036) compile Cisco's OpenH264 from source into `zaun-media`
   (the `openh264` crate, BSD-2-Clause; a C++ compiler is needed, no system library). Cisco's
   H.264 patent licence covers only Cisco's own binaries, not a build from source: check
@@ -231,4 +247,4 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   `packaging/deb`, `packaging/apparmor`, `packaging/tarball`, and the Nix flake.
 - Library schema version 2 (migration `0002_steam`, adds two tables, changes no data).
 
-[Unreleased]: https://github.com/zaun/zaun/commits/master
+[Unreleased]: https://github.com/abdulrahman1s/zaun/commits/master
