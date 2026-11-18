@@ -82,6 +82,9 @@ pkg="$work/root"
 mkdir -p "$pkg"
 
 cp -a "$stage/." "$pkg/"
+# Debian wants no symbol tables at all (lintian: unstripped-binary-or-object); cargo's
+# `strip = "symbols"` leaves sections a full strip removes.
+strip --strip-all "$pkg/usr/bin/zaun" "$pkg/usr/libexec/zaun/zaun-init"
 install -Dm644 "$ROOT/packaging/apparmor/zaun" "$pkg/etc/apparmor.d/zaun"
 
 doc="$pkg/usr/share/doc/zaun"

@@ -382,8 +382,9 @@ jobs:
         include:
           - format: deb
             container: ""
-          - format: rpm
-            container: fedora:latest
+          # No RPM for now: current Fedora ships FFmpeg 9 (libavcodec.so.63) and Zaun's GPU
+          # encoder is built against FFmpeg 8, so the binary cannot start there. It returns
+          # with the self-contained bundle, which carries its own FFmpeg.
           - format: arch
             container: archlinux:base-devel
     container: ${{ matrix.container || null }}
