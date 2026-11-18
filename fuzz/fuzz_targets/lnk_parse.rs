@@ -1,7 +1,7 @@
 //! The shortcut parser on arbitrary bytes.
 #![no_main]
 
-use easyplay_core::identity::lnk;
+use zaun_core::identity::lnk;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

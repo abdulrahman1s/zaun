@@ -1,5 +1,5 @@
 {
-  description = "EasyPlay: run Windows games through umu-run inside a per-game bubblewrap sandbox";
+  description = "Zaun: run Windows games through umu-run inside a per-game bubblewrap sandbox";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -22,7 +22,7 @@
 
       cargoToml = lib.importTOML ./Cargo.toml;
       version = cargoToml.workspace.package.version or "0.0.0";
-      # build.rs embeds this in `easyplay --version`; 12 hex digits like `git rev-parse --short=12`.
+      # build.rs embeds this in `zaun --version`; 12 hex digits like `git rev-parse --short=12`.
       commit =
         if self ? rev then
           builtins.substring 0 12 self.rev
@@ -44,7 +44,7 @@
       };
 
       # Builds the package against any nixpkgs instance; shared by packages and the overlay.
-      mkEasyplay =
+      mkZaun =
         pkgs:
         pkgs.callPackage ./nix/package.nix {
           # Single source of truth for the toolchain: rust-toolchain.toml.
@@ -54,16 +54,16 @@
         };
     in
     {
-      overlays.default = final: _prev: { easyplay = mkEasyplay final; };
+      overlays.default = final: _prev: { zaun = mkZaun final; };
 
       nixosModules = {
-        easyplay = import ./nix/nixos-module.nix self;
-        default = self.nixosModules.easyplay;
+        zaun = import ./nix/nixos-module.nix self;
+        default = self.nixosModules.zaun;
       };
 
       homeManagerModules = {
-        easyplay = import ./nix/home-manager-module.nix self;
-        default = self.homeManagerModules.easyplay;
+        zaun = import ./nix/home-manager-module.nix self;
+        default = self.homeManagerModules.zaun;
       };
     }
     # x86_64 only (RELEASE_STRATEGY §2): nixpkgs' umu-launcher is an FHS environment with a
@@ -74,23 +74,23 @@
         pkgs = nixpkgs.legacyPackages.${system};
         rustBin = rust-overlay.lib.mkRustBin { } pkgs;
         toolchain = rustBin.fromRustupToolchainFile ./rust-toolchain.toml;
-        easyplay = mkEasyplay pkgs;
+        zaun = mkZaun pkgs;
       in
       {
         packages = {
-          inherit easyplay;
-          inherit (easyplay) easyplay-init;
-          default = easyplay;
+          inherit zaun;
+          inherit (zaun) zaun-init;
+          default = zaun;
         };
 
         apps.default = {
           type = "app";
-          program = lib.getExe easyplay;
-          inherit (easyplay) meta;
+          program = lib.getExe zaun;
+          inherit (zaun) meta;
         };
 
         checks = {
-          inherit easyplay;
+          inherit zaun;
           nixos-module = import ./nix/nixos-test.nix { inherit self pkgs; };
         };
 
@@ -98,7 +98,7 @@
           packages = [
             toolchain
           ]
-          ++ easyplay.hostTools
+          ++ zaun.hostTools
           ++ (with pkgs; [
             pkg-config
             # libclang for pipewire-sys' bindings (the `portal` feature, ADR-0036).
@@ -113,11 +113,11 @@
             desktop-file-utils
             appstream
           ]);
-          buildInputs = easyplay.runtimeLibs;
-          LD_LIBRARY_PATH = lib.makeLibraryPath easyplay.runtimeLibs;
+          buildInputs = zaun.runtimeLibs;
+          LD_LIBRARY_PATH = lib.makeLibraryPath zaun.runtimeLibs;
           RUST_BACKTRACE = "1";
           shellHook = ''
-            echo "easyplay dev shell: $(rustc --version)"
+            echo "zaun dev shell: $(rustc --version)"
           '';
         };
 

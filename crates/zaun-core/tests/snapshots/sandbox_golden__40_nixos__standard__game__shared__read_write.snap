@@ -1,0 +1,115 @@
+---
+source: crates/zaun-core/tests/sandbox_golden.rs
+expression: run_cell(c)
+---
+--unshare-user
+--unshare-pid
+--unshare-uts
+--unshare-cgroup-try
+--hostname zaun
+--die-with-parent
+--new-session
+--json-status-fd 4
+--sync-fd 5
+--seccomp 7
+--ro-bind /usr /usr
+--ro-bind /bin /bin
+--ro-bind-try /opt /opt
+--ro-bind /nix /nix
+--ro-bind /run/current-system /run/current-system
+--ro-bind-try /run/opengl-driver /run/opengl-driver
+--ro-bind-try /run/opengl-driver-32 /run/opengl-driver-32
+--ro-bind-try /etc/static /etc/static
+--ro-bind-try /etc/profiles/per-user/sam /etc/profiles/per-user/sam
+--dir /var
+--symlink ../run /var/run
+--perms 1777 --tmpfs /var/tmp
+--ro-bind-try /var/cache/fontconfig /var/cache/fontconfig
+--dir /etc
+--ro-bind-try /nix/store/x1-etc/etc/fonts /etc/fonts
+--ro-bind-try /nix/store/x1-etc/etc/os-release /etc/os-release
+--ro-bind-try /nix/store/t1-tzdata/share/zoneinfo/Europe/Berlin /etc/localtime
+--ro-bind-try /nix/store/t1-tzdata/share/zoneinfo /etc/zoneinfo
+--ro-bind-try /nix/store/x1-etc/etc/pulse /etc/pulse
+--perms 0444 --ro-bind-data 8 /etc/passwd
+--perms 0444 --ro-bind-data 9 /etc/group
+--perms 0444 --ro-bind-data 10 /etc/nsswitch.conf
+--ro-bind /etc/machine-id /etc/machine-id
+--ro-bind /nix/store/x1-etc/etc/hosts /etc/hosts
+--ro-bind /etc/resolv.conf /etc/resolv.conf
+--ro-bind-try /nix/store/x1-etc/etc/ssl /etc/ssl
+--proc /proc
+--dev /dev
+--dev-bind /dev/dri /dev/dri
+--dev-bind-try /dev/ntsync /dev/ntsync
+--dev-bind /dev/input /dev/input
+--dev-bind /dev/hidraw4 /dev/hidraw4
+--ro-bind /sys/block /sys/block
+--ro-bind /sys/bus /sys/bus
+--ro-bind /sys/class /sys/class
+--ro-bind /sys/dev /sys/dev
+--ro-bind /sys/devices /sys/devices
+--perms 1777 --tmpfs /tmp
+--dir /run
+--perms 0700 --tmpfs /run/user/1000
+--dir /run/zaun
+--dir /tmp/.X11-unix
+--ro-bind /tmp/.X11-unix/X0 /tmp/.X11-unix/X0
+--ro-bind /run/user/1000/.mutter-Xwaylandauth.A1B2C3 /run/user/1000/zaun-xauth
+--ro-bind /run/user/1000/zaun/sessions/S/wayland /run/user/1000/wayland-0
+--dir /run/user/1000/pulse
+--ro-bind /run/user/1000/zaun/sessions/S/sound/native /run/user/1000/pulse/native
+--ro-bind /run/udev /run/udev
+--bind D/games/G/home /home/sam
+--ro-bind-try /home/sam/.local/share/fonts /home/sam/.local/share/fonts
+--bind D/runtimes/umu /home/sam/.local/share/umu
+--ro-bind D/runtimes/Steam/compatibilitytools.d/GE-Proton10-25 /home/sam/.local/share/Steam/compatibilitytools.d/GE-Proton10-25
+--bind D/games/G/prefix D/games/G/prefix
+--bind "/mnt/games/Hollow Knight" "/mnt/games/Hollow Knight"
+--ro-bind /usr/libexec/zaun/zaun-init /run/zaun/init
+--clearenv
+--setenv DISPLAY :0
+--setenv GAMEID umu-default
+--setenv GST_DEBUG 0
+--setenv HOME /home/sam
+--setenv LANG en_US.UTF-8
+--setenv LOGNAME sam
+--setenv PATH /run/current-system/sw/bin:/usr/bin:/bin
+--setenv PRESSURE_VESSEL_SHARE_HOME 1
+--setenv PROTONPATH /home/sam/.local/share/Steam/compatibilitytools.d/GE-Proton10-25
+--setenv PULSE_SERVER unix:/run/user/1000/pulse/native
+--setenv UMU_RUNTIME_UPDATE 0
+--setenv USER sam
+--setenv WAYLAND_DISPLAY wayland-0
+--setenv WINEPREFIX D/games/G/prefix
+--setenv XAUTHORITY /run/user/1000/zaun-xauth
+--setenv XDG_CURRENT_DESKTOP GNOME
+--setenv XDG_RUNTIME_DIR /run/user/1000
+--setenv XDG_SESSION_TYPE wayland
+--chdir "/mnt/games/Hollow Knight"
+-- /run/zaun/init --status-fd 6 -- /run/current-system/sw/bin/umu-run "/mnt/games/Hollow Knight/hollow_knight.exe"
+
+# descriptors
+7  <seccomp program>
+8 /etc/passwd sam:x:1000:1000:sam:/home/sam:/bin/sh\nnobody:x:65534:65534:nobody:/:/usr/sbin/nologin\n
+9 /etc/group sam:x:1000:\nnobody:x:65534:\n
+10 /etc/nsswitch.conf passwd: files\ngroup: files\nhosts: files dns\n
+
+# host actions
+{"create_wayland_context":{"display":"/run/user/1000/wayland-0","socket":"/run/user/1000/zaun/sessions/S/wayland","app_id":"G","instance_id":"S"}}
+{"start_sound_server":{"program":"/usr/bin/pipewire","dir":"/run/user/1000/zaun/sessions/S/sound","remote":"/run/user/1000/pipewire-0","log":"/home/sam/.local/state/zaun/logs/sessions/S/sound-server.log"}}
+{"create_dir":{"path":"D/games/G/home","mode":448}}
+{"create_dir":{"path":"D/games/G/prefix","mode":448}}
+{"acquire_lock":{"path":"D/games/G/session.lock"}}
+{"write_memfd":{"fd":3}}
+{"write_memfd":{"fd":7}}
+{"write_memfd":{"fd":8}}
+{"write_memfd":{"fd":9}}
+{"write_memfd":{"fd":10}}
+{"mark_tainted":{"game":"G"}}
+
+# notes
+note.ipc.shared: Shared memory is shared with the display server so X11 rendering works
+note.runtime.shared: The compatibility layer is shared and checked after the session
+
+# issues

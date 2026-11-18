@@ -1,7 +1,7 @@
-# EasyPlay icon subset: semantic name -> Phosphor 2.x glyph (UI_DESIGN_SYSTEM §6).
+# Zaun icon subset: semantic name -> Phosphor 2.x glyph (UI_DESIGN_SYSTEM §6).
 #
-# Read by assets/tools/build_fonts.py, which writes assets/fonts/easyplay-icons.ttf and
-# crates/easyplay-ui/src/theme/icons_gen.rs. Every icon gets a regular and a fill variant.
+# Read by assets/tools/build_fonts.py, which writes assets/fonts/zaun-icons.ttf and
+# crates/zaun-ui/src/theme/icons_gen.rs. Every icon gets a regular and a fill variant.
 #
 # Columns: semantic name, Phosphor source, and an optional third column:
 #   `doc`   the name is listed in UI_DESIGN_SYSTEM §6 (a test keeps the two in sync)

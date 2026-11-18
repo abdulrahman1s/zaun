@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Build EasyPlay's bundled fonts (UI_DESIGN_SYSTEM §3, §6, §9).
+"""Build Zaun's bundled fonts (UI_DESIGN_SYSTEM §3, §6, §9).
 
 Outputs (all committed; rerun only when the icon list or a source font changes):
 
-  assets/fonts/easyplay-icons.ttf          Phosphor subset, regular at U+E000+i, fill at U+E100+i
+  assets/fonts/zaun-icons.ttf          Phosphor subset, regular at U+E000+i, fill at U+E100+i
   assets/fonts/Inter-Tabular.ttf           Inter Variable digits with tabular figures baked in
   assets/fonts/Inter-Variable.ttf          copied
   assets/fonts/JetBrainsMono-Regular.ttf   copied
   assets/fonts/InstrumentSans_Condensed-Bold.ttf          the display face: Instrument Sans
                                            instanced at wdth 75, wght 700
   assets/fonts/InstrumentSans_Condensed-Bold-Tabular.ttf  its digits with tabular figures
-  crates/easyplay-ui/src/theme/icons_gen.rs
+  crates/zaun-ui/src/theme/icons_gen.rs
 
 Usage (from the repository root); every source is optional, and only what is given is built:
 
@@ -39,7 +39,7 @@ from fontTools.varLib import instancer
 
 ROOT = Path(__file__).resolve().parents[2]
 FONTS = ROOT / "assets" / "fonts"
-GEN_RS = ROOT / "crates" / "easyplay-ui" / "src" / "theme" / "icons_gen.rs"
+GEN_RS = ROOT / "crates" / "zaun-ui" / "src" / "theme" / "icons_gen.rs"
 REGULAR_BASE = 0xE000
 FILL_BASE = 0xE100
 
@@ -162,11 +162,11 @@ def build_icons(phosphor_dir):
         hmtx[gname] = (hmtx[gname][0], getattr(g, "xMin", 0))
     fb.setupHorizontalMetrics(hmtx)
     fb.setupHorizontalHeader(ascent=960, descent=-64)
-    fb.setupNameTable({"familyName": "EasyPlay Icons", "styleName": "Regular"})
+    fb.setupNameTable({"familyName": "Zaun Icons", "styleName": "Regular"})
     fb.setupOS2(sTypoAscender=960, sTypoDescender=-64, usWinAscent=960, usWinDescent=64)
     fb.setupPost()
     out = fb.font
-    out.save(FONTS / "easyplay-icons.ttf")
+    out.save(FONTS / "zaun-icons.ttf")
     return icons
 
 

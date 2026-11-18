@@ -1,6 +1,0 @@
----
-source: crates/easyplay-core/tests/sandbox_golden.rs
-expression: run_cell(c)
----
-# planning failed
-SEC-OVERLAY-001 Error /mnt/games/Hollow Knight sec.game.overlay_unsupported|Protected game folders are not supported here

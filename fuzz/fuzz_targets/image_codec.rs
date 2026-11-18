@@ -2,9 +2,9 @@
 //! limits and never panic past the codec's own `catch_unwind`. Small limits keep each run fast.
 #![no_main]
 
-use easyplay_core::artwork::{ImageCodec, ImageCrateCodec, ImageLimits};
-use easyplay_core::artwork::steam::parse_search;
-use easyplay_core::artwork::thumbs::read_colour_chunk;
+use zaun_core::artwork::{ImageCodec, ImageCrateCodec, ImageLimits};
+use zaun_core::artwork::steam::parse_search;
+use zaun_core::artwork::thumbs::read_colour_chunk;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

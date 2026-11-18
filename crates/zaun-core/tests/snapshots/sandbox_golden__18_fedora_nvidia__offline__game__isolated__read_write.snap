@@ -1,0 +1,150 @@
+---
+source: crates/zaun-core/tests/sandbox_golden.rs
+expression: run_cell(c)
+---
+--unshare-user
+--unshare-pid
+--unshare-uts
+--unshare-cgroup-try
+--unshare-net
+--hostname zaun
+--die-with-parent
+--new-session
+--json-status-fd 4
+--sync-fd 5
+--seccomp 7
+--ro-bind /usr /usr
+--symlink usr/bin /bin
+--symlink usr/sbin /sbin
+--symlink usr/lib /lib
+--symlink usr/lib64 /lib64
+--ro-bind-try /opt /opt
+--dir /var
+--symlink ../run /var/run
+--perms 1777 --tmpfs /var/tmp
+--ro-bind-try /var/cache/fontconfig /var/cache/fontconfig
+--dir /etc
+--ro-bind-try /etc/ld.so.cache /etc/ld.so.cache
+--ro-bind-try /etc/ld.so.conf /etc/ld.so.conf
+--ro-bind-try /etc/ld.so.conf.d /etc/ld.so.conf.d
+--ro-bind-try /etc/fonts /etc/fonts
+--symlink ../usr/lib/os-release /etc/os-release
+--symlink ../usr/share/zoneinfo/America/New_York /etc/localtime
+--ro-bind-try /etc/vulkan /etc/vulkan
+--ro-bind-try /etc/OpenCL /etc/OpenCL
+--ro-bind-try /etc/nvidia /etc/nvidia
+--ro-bind-try /etc/pulse /etc/pulse
+--ro-bind-try /etc/alsa /etc/alsa
+--perms 0444 --ro-bind-data 8 /etc/passwd
+--perms 0444 --ro-bind-data 9 /etc/group
+--perms 0444 --ro-bind-data 10 /etc/nsswitch.conf
+--perms 0444 --file 11 /etc/machine-id
+--ro-bind /etc/hosts /etc/hosts
+--proc /proc
+--dev /dev
+--dev-bind /dev/dri /dev/dri
+--dev-bind /dev/nvidia-caps /dev/nvidia-caps
+--dev-bind /dev/nvidia-modeset /dev/nvidia-modeset
+--dev-bind /dev/nvidia-uvm /dev/nvidia-uvm
+--dev-bind /dev/nvidia-uvm-tools /dev/nvidia-uvm-tools
+--dev-bind /dev/nvidia0 /dev/nvidia0
+--dev-bind /dev/nvidiactl /dev/nvidiactl
+--dev-bind /dev/input/event21 /dev/input/event21
+--dev-bind /dev/input/js0 /dev/input/js0
+--dev-bind /dev/hidraw4 /dev/hidraw4
+--ro-bind /sys/block /sys/block
+--ro-bind /sys/bus /sys/bus
+--ro-bind /sys/class /sys/class
+--ro-bind /sys/dev /sys/dev
+--ro-bind /sys/devices /sys/devices
+--tmpfs /sys/class/net
+--tmpfs /sys/devices/pci0000:00/0000:00:1c.0/0000:03:00.0/net
+--tmpfs /sys/devices/pci0000:00/0000:00:1f.6/net
+--tmpfs /sys/devices/virtual/net
+--tmpfs /sys/devices/virtual/dmi
+--tmpfs /sys/class/dmi
+--perms 1777 --tmpfs /tmp
+--dir /run
+--perms 0700 --tmpfs /run/user/1000
+--dir /run/zaun
+--dir /tmp/.X11-unix
+--ro-bind /tmp/.X11-unix/X0 /tmp/.X11-unix/X0
+--ro-bind /run/user/1000/.mutter-Xwaylandauth.A1B2C3 /run/user/1000/zaun-xauth
+--ro-bind /run/user/1000/wayland-0 /run/user/1000/wayland-0
+--dir /run/user/1000/pulse
+--ro-bind /run/user/1000/zaun/sessions/S/sound/native /run/user/1000/pulse/native
+--ro-bind /run/udev /run/udev
+--bind D/games/G/home /home/sam
+--ro-bind-try /home/sam/.local/share/fonts /home/sam/.local/share/fonts
+--ro-bind D/runtimes/umu /home/sam/.local/share/umu
+--tmpfs /home/sam/.local/share/umu/steamrt3
+--ro-bind D/runtimes/umu/steamrt3/README.md /home/sam/.local/share/umu/steamrt3/README.md
+--ro-bind D/runtimes/umu/steamrt3/VERSIONS.txt /home/sam/.local/share/umu/steamrt3/VERSIONS.txt
+--ro-bind D/runtimes/umu/steamrt3/_v2-entry-point /home/sam/.local/share/umu/steamrt3/_v2-entry-point
+--ro-bind D/runtimes/umu/steamrt3/mtree.txt.gz /home/sam/.local/share/umu/steamrt3/mtree.txt.gz
+--ro-bind D/runtimes/umu/steamrt3/pressure-vessel /home/sam/.local/share/umu/steamrt3/pressure-vessel
+--ro-bind D/runtimes/umu/steamrt3/pressure-vessel-arm64 /home/sam/.local/share/umu/steamrt3/pressure-vessel-arm64
+--ro-bind D/runtimes/umu/steamrt3/run /home/sam/.local/share/umu/steamrt3/run
+--ro-bind D/runtimes/umu/steamrt3/run-in-sniper /home/sam/.local/share/umu/steamrt3/run-in-sniper
+--ro-bind D/runtimes/umu/steamrt3/sniper_platform_3.0.20261110.268881 /home/sam/.local/share/umu/steamrt3/sniper_platform_3.0.20261110.268881
+--ro-bind D/runtimes/umu/steamrt3/steampipe /home/sam/.local/share/umu/steamrt3/steampipe
+--ro-bind D/runtimes/umu/steamrt3/toolmanifest.vdf /home/sam/.local/share/umu/steamrt3/toolmanifest.vdf
+--symlink _v2-entry-point /home/sam/.local/share/umu/steamrt3/umu
+--perms 0644 --file 12 /home/sam/.local/share/umu/steamrt3/.installed.ok
+--bind D/runtimes/umu/steamrt3/sniper_platform_3.0.20261110.268881/files/.ref /home/sam/.local/share/umu/steamrt3/sniper_platform_3.0.20261110.268881/files/.ref
+--bind D/runtimes/session-var/S /run/zaun/pv-var
+--ro-bind D/runtimes/Steam/compatibilitytools.d/GE-Proton10-25 /home/sam/.local/share/Steam/compatibilitytools.d/GE-Proton10-25
+--bind D/games/G/prefix D/games/G/prefix
+--bind "/mnt/games/Hollow Knight" "/mnt/games/Hollow Knight"
+--ro-bind /usr/libexec/zaun/zaun-init /run/zaun/init
+--clearenv
+--setenv DISPLAY :0
+--setenv GAMEID umu-default
+--setenv GST_DEBUG 0
+--setenv HOME /home/sam
+--setenv LANG en_US.UTF-8
+--setenv LOGNAME sam
+--setenv PATH /usr/local/bin:/usr/bin:/bin
+--setenv PRESSURE_VESSEL_SHARE_HOME 1
+--setenv PRESSURE_VESSEL_VARIABLE_DIR /run/zaun/pv-var
+--setenv PROTONPATH /home/sam/.local/share/Steam/compatibilitytools.d/GE-Proton10-25
+--setenv PULSE_SERVER unix:/run/user/1000/pulse/native
+--setenv UMU_RUNTIME_UPDATE 0
+--setenv USER sam
+--setenv WAYLAND_DISPLAY wayland-0
+--setenv WINEPREFIX D/games/G/prefix
+--setenv XAUTHORITY /run/user/1000/zaun-xauth
+--setenv XDG_CURRENT_DESKTOP GNOME
+--setenv XDG_RUNTIME_DIR /run/user/1000
+--setenv XDG_SESSION_TYPE wayland
+--chdir "/mnt/games/Hollow Knight"
+-- /run/zaun/init --status-fd 6 -- /usr/bin/umu-run "/mnt/games/Hollow Knight/hollow_knight.exe"
+
+# descriptors
+7  <seccomp program>
+8 /etc/passwd sam:x:1000:1000:sam:/home/sam:/bin/sh\nnobody:x:65534:65534:nobody:/:/usr/sbin/nologin\n
+9 /etc/group sam:x:1000:\nnobody:x:65534:\n
+10 /etc/nsswitch.conf passwd: files\ngroup: files\nhosts: files dns\n
+11 /etc/machine-id 8903ab10a3569ca8f1da7542333af088\n
+12 /home/sam/.local/share/umu/steamrt3/.installed.ok ok\n
+
+# host actions
+{"start_sound_server":{"program":"/usr/bin/pipewire","dir":"/run/user/1000/zaun/sessions/S/sound","remote":"/run/user/1000/pipewire-0","log":"/home/sam/.local/state/zaun/logs/sessions/S/sound-server.log"}}
+{"create_dir":{"path":"D/games/G/home","mode":448}}
+{"create_dir":{"path":"D/runtimes/session-var/S","mode":448}}
+{"create_dir":{"path":"D/games/G/prefix","mode":448}}
+{"acquire_lock":{"path":"D/games/G/session.lock"}}
+{"write_memfd":{"fd":3}}
+{"write_memfd":{"fd":7}}
+{"write_memfd":{"fd":8}}
+{"write_memfd":{"fd":9}}
+{"write_memfd":{"fd":10}}
+{"write_memfd":{"fd":11}}
+{"write_memfd":{"fd":12}}
+{"mark_tainted":{"game":"G"}}
+
+# notes
+note.ipc.shared: Shared memory is shared with the display server so X11 rendering works
+note.display.no_wayland_context: The compositor cannot restrict this Wayland connection: the game gets the compositor's own socket
+
+# issues

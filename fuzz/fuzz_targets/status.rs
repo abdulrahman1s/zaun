@@ -3,7 +3,7 @@
 //! (PROC-002, THREAT_MODEL T-20).
 #![no_main]
 
-use easyplay_core::session::{BwrapStatusParser, InitStatusParser};
+use zaun_core::session::{BwrapStatusParser, InitStatusParser};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

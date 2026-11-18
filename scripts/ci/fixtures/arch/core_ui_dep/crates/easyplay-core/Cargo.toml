@@ -1,5 +1,0 @@
-[package]
-name = "easyplay-core"
-
-[dependencies]
-eframe = { workspace = true }

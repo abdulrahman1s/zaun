@@ -1,13 +1,13 @@
 #!/bin/sh
-# Remove an EasyPlay tarball install (PKG-007).
+# Remove an Zaun tarball install (PKG-007).
 #
-#   PREFIX/libexec/easyplay/uninstall.sh       the installed copy knows its prefix
+#   PREFIX/libexec/zaun/uninstall.sh       the installed copy knows its prefix
 #   ./uninstall.sh [--user|--system|--prefix DIR]
 #
-# Removes exactly the files and directories listed in PREFIX/libexec/easyplay/install-manifest
+# Removes exactly the files and directories listed in PREFIX/libexec/zaun/install-manifest
 # (written by install.sh); directories are removed only when empty. Games, settings, the
-# library and downloaded runtimes in your home directory are kept: EasyPlay's data lives in
-# ~/.local/share/easyplay, ~/.config/easyplay, ~/.local/state/easyplay and ~/.cache/easyplay.
+# library and downloaded runtimes in your home directory are kept: Zaun's data lives in
+# ~/.local/share/zaun, ~/.config/zaun, ~/.local/state/zaun and ~/.cache/zaun.
 # DESTDIR is honoured.
 set -eu
 
@@ -33,9 +33,9 @@ done
 destdir="${DESTDIR:-}"
 if [ -z "$prefix" ]; then
     case "$self_dir" in
-        */libexec/easyplay)
+        */libexec/zaun)
             if [ -f "$self_dir/install-manifest" ]; then
-                prefix="${self_dir%/libexec/easyplay}"
+                prefix="${self_dir%/libexec/zaun}"
                 # Running the copy inside a DESTDIR tree: the prefix is below DESTDIR.
                 [ -n "$destdir" ] && prefix="${prefix#"$destdir"}"
             fi ;;
@@ -48,10 +48,10 @@ case "$prefix" in /*) ;; *) die "the prefix must be an absolute path: $prefix" ;
 prefix="${prefix%/}"
 
 dest="$destdir$prefix"
-manifest="$dest/libexec/easyplay/install-manifest"
-[ -f "$manifest" ] || die "no EasyPlay tarball install found under $dest ($manifest is missing)"
+manifest="$dest/libexec/zaun/install-manifest"
+[ -f "$manifest" ] || die "no Zaun tarball install found under $dest ($manifest is missing)"
 
-dirs="$(mktemp "${TMPDIR:-/tmp}/easyplay-uninstall.XXXXXX")"
+dirs="$(mktemp "${TMPDIR:-/tmp}/zaun-uninstall.XXXXXX")"
 trap 'rm -f "$dirs"' EXIT INT TERM
 # Deepest first: sort by the number of path components, descending.
 sed -n 's/^d //p' "$manifest" | awk -F/ '{ print NF "\t" $0 }' | sort -rn | cut -f2- >"$dirs"
@@ -83,5 +83,5 @@ if [ "$refresh" -eq 1 ] && [ -z "$destdir" ]; then
     fi
 fi
 
-printf 'EasyPlay removed from %s.\n' "$dest"
-printf 'Your games, settings and runtimes were kept (~/.local/share/easyplay, ~/.config/easyplay).\n'
+printf 'Zaun removed from %s.\n' "$dest"
+printf 'Your games, settings and runtimes were kept (~/.local/share/zaun, ~/.config/zaun).\n'

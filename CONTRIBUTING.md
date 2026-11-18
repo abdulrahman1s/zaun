@@ -1,6 +1,6 @@
-# Contributing to EasyPlay
+# Contributing to Zaun
 
-Thank you for helping. EasyPlay is built from a written specification: read
+Thank you for helping. Zaun is built from a written specification: read
 [docs/README.md](docs/README.md) first (reading order, the design in one page, open
 questions). If the code and the documents disagree, the documents win until changed by a
 decision record in [docs/adr](docs/adr/README.md). Work is organised as tasks in
@@ -40,10 +40,10 @@ interface language). `cargo nextest run --workspace` is the fastest local run
 
 | Task | Command |
 |---|---|
-| One test file | `cargo test -p easyplay-core --test it library::` (the module name) |
-| End-to-end tests that need real `bwrap` and user namespaces | `EASYPLAY_E2E=1 cargo test --workspace` |
-| Static init shim, as released | `cargo build --profile init-release -p easyplay-init --target x86_64-unknown-linux-musl` |
-| Compiled-in shim location | set `EASYPLAY_LIBEXEC_DIR` at build time (default `/usr/libexec/easyplay`) |
+| One test file | `cargo test -p zaun-core --test it library::` (the module name) |
+| End-to-end tests that need real `bwrap` and user namespaces | `ZAUN_E2E=1 cargo test --workspace` |
+| Static init shim, as released | `cargo build --profile init-release -p zaun-init --target x86_64-unknown-linux-musl` |
+| Compiled-in shim location | set `ZAUN_LIBEXEC_DIR` at build time (default `/usr/libexec/zaun`) |
 | Update snapshots | `cargo insta review` |
 | Release build, checks and staged install tree | `scripts/build-release.sh` (`--tarball` for the release tarball) |
 
@@ -59,15 +59,15 @@ R=/run/user/$(id -u)/ep-test         # short: the instance socket path must fit 
 S=$(mktemp -d)                        # throwaway library, settings and logs
 mkdir -p -m 700 "$R" "$S"/{cfg,data,cache,state}
 ln -s "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" "$R/"
-XDG_RUNTIME_DIR=$R EASYPLAY_CONFIG_DIR=$S/cfg EASYPLAY_DATA_DIR=$S/data \
-  EASYPLAY_CACHE_DIR=$S/cache EASYPLAY_STATE_DIR=$S/state \
-  target/debug/easyplay [open path/to/Game.exe] &
+XDG_RUNTIME_DIR=$R ZAUN_CONFIG_DIR=$S/cfg ZAUN_DATA_DIR=$S/data \
+  ZAUN_CACHE_DIR=$S/cache ZAUN_STATE_DIR=$S/state \
+  target/debug/zaun [open path/to/Game.exe] &
 niri msg --json windows               # is_floating and layout.window_size for that pid
 ```
 
-- The private `XDG_RUNTIME_DIR` keeps the instance from handing over to an EasyPlay that is
+- The private `XDG_RUNTIME_DIR` keeps the instance from handing over to an Zaun that is
   already running; empty data folders start in onboarding. A runtime path that is too long
-  fails with a misleading `EP-FS-003` before any window opens.
+  fails with a misleading `ZN-FS-003` before any window opens.
 - Read the size from the compositor (`niri msg`, `swaymsg -t get_tree`, `hyprctl
   clients`), not from a screenshot. `WAYLAND_DEBUG=1` shows the `configure` events and the
   `set_min_size` / `set_max_size` requests, which is how ADR-0021 was found.
@@ -78,7 +78,7 @@ niri msg --json windows               # is_floating and layout.window_size for t
 
 ## Measuring memory
 
-Measure a release build with the sample library (`easyplay --preview`), with the throwaway
+Measure a release build with the sample library (`zaun --preview`), with the throwaway
 folders and private `XDG_RUNTIME_DIR` from the section above. Run it in a headless sway, so no
 window appears on your desktop and input can be scripted:
 
@@ -96,11 +96,11 @@ grep -E 'Rss|Pss_Anon' /proc/$PID/smaps_rollup
   per-executable cache, which adds about 50 MB to that run.
 - **Use heaptrack for allocations.** `heaptrack_print` lists the allocation sites.
 - **Expect most of the total to be the GPU driver stack and the binary's code.** In the
-  measurements of 2026-11-17, EasyPlay's own heap was 46-49 MB of ~186 MB.
+  measurements of 2026-11-17, Zaun's own heap was 46-49 MB of ~186 MB.
 
 ## Strings and languages
 
-The interface's text lives in `crates/easyplay-ui/locales/<code>.yml` (ADR-0032).
+The interface's text lives in `crates/zaun-ui/locales/<code>.yml` (ADR-0032).
 
 - **Add a string.** Add a key `<module>.<name>` in `locales/en.yml` and in every other
   language file (a test fails when one is missing or its `%{...}` arguments differ). A fixed
@@ -121,10 +121,10 @@ The interface's text lives in `crates/easyplay-ui/locales/<code>.yml` (ADR-0032)
 
 ## Rules enforced by the build
 
-- No `unsafe` outside `easyplay-init`, `easyplay-chat` (the engine's C interface),
+- No `unsafe` outside `zaun-init`, `zaun-chat` (the engine's C interface),
   `core::session::sys` and `core::sandbox::fd`.
-- Time only through `easyplay_core::clock::Clock`; files in core only through
-  `easyplay_core::fsx::Fs`; processes only through `host::runner` and `session::spawn`
+- Time only through `zaun_core::clock::Clock`; files in core only through
+  `zaun_core::fsx::Fs`; processes only through `host::runner` and `session::spawn`
   (`clippy.toml`), plus the supervisor start in `session::launcher` and the detached
   hand-off to the Steam client in `session::handoff` (ADR-0031).
 - Every user-visible string follows the copy rules of USER_EXPERIENCE and SECURITY_MODEL §10
@@ -145,22 +145,22 @@ under *Unreleased*.
 | Format | Files | Notes |
 |---|---|---|
 | All | `scripts/build-release.sh` | Builds, checks and stages; every package starts from it. |
-| Tarball | `packaging/tarball/install.sh`, `uninstall.sh` | Relocatable; `install.sh` records what it adds in `PREFIX/libexec/easyplay/install-manifest`. |
-| Arch | `packaging/arch/PKGBUILD`, `packaging/arch/easyplay-bin/PKGBUILD` | `/usr/lib/easyplay` for the shim. |
-| Fedora | `packaging/rpm/easyplay.spec` | Source build with vendored crates (COPR), or `--with prebuilt` from the tarball. |
+| Tarball | `packaging/tarball/install.sh`, `uninstall.sh` | Relocatable; `install.sh` records what it adds in `PREFIX/libexec/zaun/install-manifest`. |
+| Arch | `packaging/arch/PKGBUILD`, `packaging/arch/zaun-bin/PKGBUILD` | `/usr/lib/zaun` for the shim. |
+| Fedora | `packaging/rpm/zaun.spec` | Source build with vendored crates (COPR), or `--with prebuilt` from the tarball. |
 | Debian/Ubuntu | `packaging/deb/build-deb.sh` | Builds the `.deb` from a staged tree or the tarball; ships the AppArmor profile. |
-| AppArmor | `packaging/apparmor/easyplay` | Check syntax with `apparmor_parser -Q -K`; real validation needs Ubuntu (below). |
+| AppArmor | `packaging/apparmor/zaun` | Check syntax with `apparmor_parser -Q -K`; real validation needs Ubuntu (below). |
 | Nix | `flake.nix`, `nix/` | `nix build`, `nix flake check`. |
 
 What CI cannot check and must be done by hand on real systems before a release is listed in
 [docs/RELEASE_STRATEGY.md §6](docs/RELEASE_STRATEGY.md). For the AppArmor profile (V-004),
 on each supported Ubuntu release with `kernel.apparmor_restrict_unprivileged_userns=1`:
-install the `.deb`, confirm `aa-status` lists `easyplay`, `easyplay//bwrap` and
-`easyplay//srt-bwrap`, run `easyplay doctor` (the nested user-namespace check must pass), and
+install the `.deb`, confirm `aa-status` lists `zaun`, `zaun//bwrap` and
+`zaun//srt-bwrap`, run `zaun doctor` (the nested user-namespace check must pass), and
 launch a real game in each protection preset; then repeat with the profile removed to
-confirm the Doctor shows `EP-HOST-004` with the AppArmor guidance.
+confirm the Doctor shows `ZN-HOST-004` with the AppArmor guidance.
 
 ## Reporting problems
 
-Bugs and ideas: [issues](https://github.com/easyplay/easyplay/issues). Security problems:
+Bugs and ideas: [issues](https://github.com/zaun/zaun/issues). Security problems:
 privately, see [SECURITY.md](SECURITY.md).

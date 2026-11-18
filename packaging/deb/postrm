@@ -1,5 +1,5 @@
 #!/bin/sh
-# Unload EasyPlay's AppArmor profile when the package is removed. dpkg removes the profile
+# Unload Zaun's AppArmor profile when the package is removed. dpkg removes the profile
 # file itself on purge (it is a conffile).
 set -e
 
@@ -7,10 +7,10 @@ case "$1" in
     remove | purge)
         if command -v apparmor_parser >/dev/null 2>&1 &&
             [ -e /sys/kernel/security/apparmor/profiles ] &&
-            grep -q '^easyplay ' /sys/kernel/security/apparmor/profiles 2>/dev/null; then
-            printf 'profile easyplay {}\n' | apparmor_parser -R >/dev/null 2>&1 || true
+            grep -q '^zaun ' /sys/kernel/security/apparmor/profiles 2>/dev/null; then
+            printf 'profile zaun {}\n' | apparmor_parser -R >/dev/null 2>&1 || true
         fi
-        rm -f /var/cache/apparmor/*/easyplay 2>/dev/null || true
+        rm -f /var/cache/apparmor/*/zaun 2>/dev/null || true
         ;;
 esac
 

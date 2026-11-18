@@ -1,0 +1,286 @@
+{
+  "result": {
+    "type": "newChatItems",
+    "user": {
+      "userId": 1,
+      "agentUserId": "1",
+      "userContactId": 1,
+      "localDisplayName": "alice",
+      "profile": {
+        "profileId": 1,
+        "displayName": "alice",
+        "fullName": "",
+        "shortDescr": "Speedrunner. Mostly Hades.",
+        "localAlias": ""
+      },
+      "fullPreferences": {
+        "timedMessages": {
+          "allow": "yes"
+        },
+        "fullDelete": {
+          "allow": "no"
+        },
+        "reactions": {
+          "allow": "yes"
+        },
+        "voice": {
+          "allow": "yes"
+        },
+        "files": {
+          "allow": "always"
+        },
+        "calls": {
+          "allow": "yes"
+        },
+        "sessions": {
+          "allow": "no"
+        },
+        "commands": []
+      },
+      "activeUser": true,
+      "activeOrder": 1,
+      "showNtfs": true,
+      "sendRcptsContacts": true,
+      "sendRcptsSmallGroups": true,
+      "autoAcceptMemberContacts": false,
+      "userMemberProfileUpdatedAt": "2026-11-17T07:39:41.496876472Z",
+      "userChatRelay": false,
+      "clientService": false
+    },
+    "chatItems": [
+      {
+        "chatInfo": {
+          "type": "direct",
+          "contact": {
+            "contactId": 3,
+            "localDisplayName": "bob",
+            "profile": {
+              "profileId": 3,
+              "displayName": "bob",
+              "fullName": "",
+              "preferences": {
+                "timedMessages": {
+                  "allow": "yes"
+                },
+                "fullDelete": {
+                  "allow": "no"
+                },
+                "reactions": {
+                  "allow": "yes"
+                },
+                "voice": {
+                  "allow": "yes"
+                },
+                "files": {
+                  "allow": "always"
+                },
+                "calls": {
+                  "allow": "yes"
+                },
+                "sessions": {
+                  "allow": "no"
+                },
+                "commands": []
+              },
+              "localAlias": ""
+            },
+            "activeConn": {
+              "connId": 1,
+              "agentConnId": "VWFoaFRIRmZRaTEyVFcwTA==",
+              "connChatVersion": 19,
+              "peerChatVRange": {
+                "minVersion": 1,
+                "maxVersion": 19
+              },
+              "connLevel": 0,
+              "viaGroupLink": false,
+              "connType": "contact",
+              "connStatus": {
+                "type": "ready"
+              },
+              "contactConnInitiated": false,
+              "localAlias": "",
+              "entityId": 3,
+              "connectionCode": {
+                "securityCode": "31318 25417 50099 52191 76268 75864 21999 05046 27558 81265 78079 43858 26797 49240 44718 39",
+                "verifiedAt": "2026-11-17T07:39:41.494296821Z"
+              },
+              "pqSupport": true,
+              "pqEncryption": true,
+              "pqSndEnabled": true,
+              "pqRcvEnabled": true,
+              "authErrCounter": 0,
+              "quotaErrCounter": 0,
+              "createdAt": "2026-11-17T07:39:38.142259981Z"
+            },
+            "contactUsed": true,
+            "contactStatus": "active",
+            "chatSettings": {
+              "enableNtfs": "none",
+              "favorite": false
+            },
+            "userPreferences": {},
+            "mergedPreferences": {
+              "timedMessages": {
+                "enabled": {
+                  "forUser": true,
+                  "forContact": true
+                },
+                "userPreference": {
+                  "type": "user",
+                  "preference": {
+                    "allow": "yes"
+                  }
+                },
+                "contactPreference": {
+                  "allow": "yes"
+                }
+              },
+              "fullDelete": {
+                "enabled": {
+                  "forUser": false,
+                  "forContact": false
+                },
+                "userPreference": {
+                  "type": "user",
+                  "preference": {
+                    "allow": "no"
+                  }
+                },
+                "contactPreference": {
+                  "allow": "no"
+                }
+              },
+              "reactions": {
+                "enabled": {
+                  "forUser": true,
+                  "forContact": true
+                },
+                "userPreference": {
+                  "type": "user",
+                  "preference": {
+                    "allow": "yes"
+                  }
+                },
+                "contactPreference": {
+                  "allow": "yes"
+                }
+              },
+              "voice": {
+                "enabled": {
+                  "forUser": true,
+                  "forContact": true
+                },
+                "userPreference": {
+                  "type": "user",
+                  "preference": {
+                    "allow": "yes"
+                  }
+                },
+                "contactPreference": {
+                  "allow": "yes"
+                }
+              },
+              "files": {
+                "enabled": {
+                  "forUser": true,
+                  "forContact": true
+                },
+                "userPreference": {
+                  "type": "user",
+                  "preference": {
+                    "allow": "always"
+                  }
+                },
+                "contactPreference": {
+                  "allow": "always"
+                }
+              },
+              "calls": {
+                "enabled": {
+                  "forUser": true,
+                  "forContact": true
+                },
+                "userPreference": {
+                  "type": "user",
+                  "preference": {
+                    "allow": "yes"
+                  }
+                },
+                "contactPreference": {
+                  "allow": "yes"
+                }
+              },
+              "sessions": {
+                "enabled": {
+                  "forUser": false,
+                  "forContact": false
+                },
+                "userPreference": {
+                  "type": "user",
+                  "preference": {
+                    "allow": "no"
+                  }
+                },
+                "contactPreference": {
+                  "allow": "no"
+                }
+              },
+              "commands": []
+            },
+            "createdAt": "2026-11-17T07:39:38.409758357Z",
+            "updatedAt": "2026-11-17T07:39:41.581025497Z",
+            "chatTs": "2026-11-17T07:39:41.61366417Z",
+            "contactGrpInvSent": false,
+            "chatTags": [],
+            "chatDeleted": false
+          }
+        },
+        "chatItem": {
+          "chatDir": {
+            "type": "directSnd"
+          },
+          "meta": {
+            "itemId": 27,
+            "itemTs": "2026-11-17T07:39:43.86281125Z",
+            "itemText": "",
+            "itemStatus": {
+              "type": "sndNew"
+            },
+            "itemSharedMsgId": "aHBtR1BiQm96SkxXWHVSTg==",
+            "itemEdited": false,
+            "userMention": false,
+            "hasLink": false,
+            "deletable": true,
+            "editable": true,
+            "showGroupAsSender": false,
+            "createdAt": "2026-11-17T07:39:43.86281125Z",
+            "updatedAt": "2026-11-17T07:39:43.86281125Z"
+          },
+          "content": {
+            "type": "sndMsgContent",
+            "msgContent": {
+              "type": "image",
+              "text": "",
+              "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+            }
+          },
+          "mentions": {},
+          "reactions": [],
+          "file": {
+            "fileId": 1,
+            "fileName": "party.gif",
+            "fileSize": 42,
+            "fileSource": {
+              "filePath": "/home/u/.local/share/zaun/chat/files/party.gif"
+            },
+            "fileStatus": {
+              "type": "sndStored"
+            },
+            "fileProtocol": "xftp"
+          }
+        }
+      }
+    ]
+  }
+}

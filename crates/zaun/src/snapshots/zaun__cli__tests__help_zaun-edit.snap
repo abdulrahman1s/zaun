@@ -1,0 +1,16 @@
+---
+source: crates/zaun/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Change a game's settings
+
+Usage: zaun edit [OPTIONS] <GAME>
+
+Arguments:
+  <GAME>  The game
+
+Options:
+      --runtime <RUNTIME>  Compatibility layer: `default`, `umu-proton`, `ge-proton`, a build name, or the absolute path of a Proton directory
+  -v, --verbose...         Increase log verbosity (-v debug, -vv trace)
+      --no-follow-updates  Keep using the current build of the channel instead of following its updates
+  -h, --help               Print help

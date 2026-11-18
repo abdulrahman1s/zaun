@@ -1,0 +1,11 @@
+---
+source: crates/zaun/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Stop showing them (what you set for them is kept)
+
+Usage: zaun steam off [OPTIONS]
+
+Options:
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+  -h, --help        Print help

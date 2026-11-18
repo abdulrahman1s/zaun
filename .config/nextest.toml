@@ -10,15 +10,15 @@ experimental = ["setup-scripts"]
 slow-timeout = { period = "15s", terminate-after = 8 }
 fail-fast = false
 
-# Tests in other packages find `easyplay`, `easyplay-init` and the testkit fakes through
-# `easyplay_testkit::bins::workspace_bin`, which runs `cargo build` once per process. Every
+# Tests in other packages find `zaun`, `zaun-init` and the testkit fakes through
+# `zaun_testkit::bins::workspace_bin`, which runs `cargo build` once per process. Every
 # test is a process here, so build them once before the run and tell the tests (when that
 # build fails, each test falls back to building them itself).
 [scripts.setup.workspace-bins]
 command = [
     "sh",
     "-c",
-    'cargo build --quiet -p easyplay -p easyplay-init -p easyplay-testkit --bins && echo EASYPLAY_TEST_BINS_BUILT=1 >> "$NEXTEST_ENV" || true',
+    'cargo build --quiet -p zaun -p zaun-init -p zaun-testkit --bins && echo ZAUN_TEST_BINS_BUILT=1 >> "$NEXTEST_ENV" || true',
 ]
 
 [[profile.default.scripts]]

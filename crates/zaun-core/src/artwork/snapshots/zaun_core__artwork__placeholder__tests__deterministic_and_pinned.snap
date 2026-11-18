@@ -1,0 +1,5 @@
+---
+source: crates/zaun-core/src/artwork/placeholder.rs
+expression: pinned
+---
+([87, 50, 133], [55, 16, 48], [165, 216, 100], (64, 33), 24)

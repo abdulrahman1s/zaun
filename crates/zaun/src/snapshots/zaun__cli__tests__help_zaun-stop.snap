@@ -1,0 +1,15 @@
+---
+source: crates/zaun/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Stop a running game
+
+Usage: zaun stop [OPTIONS] <GAME>
+
+Arguments:
+  <GAME>  The game
+
+Options:
+      --force       Force-stop immediately instead of asking the game to close
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+  -h, --help        Print help

@@ -5,7 +5,7 @@ allow-expect-in-tests = true
 allow-dbg-in-tests = false
 
 disallowed-methods = [
-    { path = "std::time::SystemTime::now", reason = "use easyplay_core::clock::Clock (MODULES §2 clock)" },
-    { path = "std::time::Instant::now", reason = "use easyplay_core::clock::Clock (MODULES §2 clock)" },
+    { path = "std::time::SystemTime::now", reason = "use zaun_core::clock::Clock (MODULES §2 clock)" },
+    { path = "std::time::Instant::now", reason = "use zaun_core::clock::Clock (MODULES §2 clock)" },
     { path = "std::process::Command::new", reason = "processes are started only by host::runner and session::spawn (ARCH-002; session::spawn also starts the Chat helper, ADR-0033)" },
 ]

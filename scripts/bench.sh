@@ -14,5 +14,5 @@ if [[ $# -gt 0 && "$1" != "--" ]]; then out="$1"; shift; fi
 [[ "${1:-}" == "--" ]] && shift
 rm -f "${out}"
 mkdir -p "$(dirname "${out}")"
-EASYPLAY_BENCH_OUT="${out}" cargo bench --locked --profile perf -p easyplay-core -p easyplay-ui
+ZAUN_BENCH_OUT="${out}" cargo bench --locked --profile perf -p zaun-core -p zaun-ui
 exec python3 scripts/bench-gate.py "${out}" "$@"

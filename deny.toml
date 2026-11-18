@@ -20,7 +20,7 @@ ignore = [
 [licenses]
 version = 2
 confidence-threshold = 0.9
-# GPL-3.0-or-later (EasyPlay itself, OQ-2) is compatible with every licence below.
+# GPL-3.0-or-later (Zaun itself, OQ-2) is compatible with every licence below.
 allow = [
     "GPL-3.0-or-later",
     "MIT",
@@ -60,8 +60,8 @@ deny = [
     # through tracing-subscriber and cannot be banned).
     { crate = "async-std" },
     { crate = "reqwest" },
-    # ADR-0018: only `easyplay-core` (its `artwork::http`) may use it.
-    { crate = "ureq", wrappers = ["easyplay-core"] },
+    # ADR-0018: only `zaun-core` (its `artwork::http`) may use it.
+    { crate = "ureq", wrappers = ["zaun-core"] },
     { crate = "chrono" },
     { crate = "egui_plot" },
     { crate = "sysinfo" },

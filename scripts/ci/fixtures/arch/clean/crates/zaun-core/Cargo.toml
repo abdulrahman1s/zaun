@@ -1,0 +1,9 @@
+[package]
+name = "zaun-core"
+
+[dependencies]
+serde.workspace = true
+tokio = { workspace = true }
+
+[dev-dependencies]
+egui.workspace = true

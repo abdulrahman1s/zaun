@@ -1,0 +1,67 @@
+[package]
+name = "zaun-ui"
+description = "Zaun user interface: egui views, widgets, theme and view-models"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[features]
+default = ["gamepad"]
+# Gamepad navigation through gilrs.
+gamepad = ["dep:gilrs"]
+# eframe's inspection feature for agent-driven UI testing; refused by release builds.
+dev-inspection = ["eframe/inspection"]
+# Builds the `review` test binary (throwaway renders for design review, tests/review/).
+review = []
+
+[dependencies]
+zaun-core.workspace = true
+eframe.workspace = true
+egui.workspace = true
+egui_extras.workspace = true
+rfd.workspace = true
+gilrs = { workspace = true, optional = true }
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+rust-i18n.workspace = true
+unicode-bidi.workspace = true
+qrcode.workspace = true
+flate2.workspace = true
+resvg.workspace = true
+emojis.workspace = true
+unicode-segmentation.workspace = true
+# Scaling Twemoji pictures into glyphs (already in the tree through egui_extras).
+image.workspace = true
+arboard.workspace = true
+winit.workspace = true
+
+# Packing Twemoji's SVGs into one deflated blob at build time (build.rs); the app does not
+# link twemoji-assets.
+[build-dependencies]
+twemoji-assets.workspace = true
+emojis.workspace = true
+flate2.workspace = true
+
+[dev-dependencies]
+zaun-testkit.workspace = true
+egui_kittest = { workspace = true, features = ["eframe"] }
+
+# `grid_frame_5000` and friends (PERFORMANCE §1, PERF-001): `cargo bench -p zaun-ui`.
+[[bench]]
+name = "grid"
+harness = false
+
+# Review renders, opt-in so ordinary builds do not link them: `cargo test -p zaun-ui
+# --features review --test review -- --ignored --test-threads=1`.
+[[test]]
+name = "review"
+path = "tests/review/main.rs"
+required-features = ["review"]
+
+[lints]
+workspace = true

@@ -1,7 +1,7 @@
 //! Every PE entry point on arbitrary bytes: must return, never panic past the boundary.
 #![no_main]
 
-use easyplay_core::identity::pe::{self, PeError, PeLimits};
+use zaun_core::identity::pe::{self, PeError, PeLimits};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

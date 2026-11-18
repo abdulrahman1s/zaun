@@ -125,22 +125,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: e2e
-      # The umu experiments (crates/easyplay/tests/e2e_experiments.rs, TEST-020) need a real
+      # The umu experiments (crates/zaun/tests/e2e_experiments.rs, TEST-020) need a real
       # umu-run, Proton and the Steam Linux Runtime; they run on a developer host
       # (TESTING_STRATEGY §10.1) and skip here.
       - name: e2e_sandbox, init shim, host probe, lifecycle, e2e_cli
         env:
-          EASYPLAY_E2E: "1"
+          ZAUN_E2E: "1"
         run: |
-          cargo test --locked -p easyplay-init
-          cargo test --locked -p easyplay-core --test e2e_sandbox --test host_e2e \
+          cargo test --locked -p zaun-init
+          cargo test --locked -p zaun-core --test e2e_sandbox --test host_e2e \
             --test session_lifecycle
-          cargo test --locked -p easyplay --test e2e_cli -- --nocapture
+          cargo test --locked -p zaun --test e2e_cli -- --nocapture
       # The job pool has clamp(cores - 1, 2, 6) workers. On two CPUs both can be inside a
       # job that waits for another job of the pool (host probe, runtime rescan), which once
       # stalled every command; the runner's four CPUs never show that.
       - name: e2e_cli as a two-CPU machine runs it (smallest job pool)
-        run: taskset -c 0,1 cargo test --locked -p easyplay --test e2e_cli
+        run: taskset -c 0,1 cargo test --locked -p zaun --test e2e_cli
 
   fuzz:
     name: Fuzz targets compile (SEC-004)

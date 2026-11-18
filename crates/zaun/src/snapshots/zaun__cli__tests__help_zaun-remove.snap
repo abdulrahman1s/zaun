@@ -1,0 +1,15 @@
+---
+source: crates/zaun/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Remove a game from the library
+
+Usage: zaun remove [OPTIONS] <GAME>
+
+Arguments:
+  <GAME>  The game
+
+Options:
+      --keep-storage  Keep its private Windows storage (prefix and home)
+  -v, --verbose...    Increase log verbosity (-v debug, -vv trace)
+  -h, --help          Print help

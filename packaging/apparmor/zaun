@@ -1,0 +1,45 @@
+# AppArmor profile for Zaun (PKG-006, RELEASE_STRATEGY §2.2, OQ-5, V-004).
+#
+# Installed by the .deb as /etc/apparmor.d/zaun. On systems that set
+# kernel.apparmor_restrict_unprivileged_userns=1 (Ubuntu 23.10 and newer), unconfined
+# programs may not create user namespaces unless a profile grants `userns`. Zaun's
+# sandbox is bubblewrap, which needs one, and the Steam Linux Runtime started inside it
+# (pressure-vessel's own srt-bwrap) needs a nested one.
+#
+# This profile does not restrict Zaun: every profile here is `unconfined` and only adds
+# the `userns` permission. bwrap and srt-bwrap get child profiles of their own, so that a
+# distribution profile attached to /usr/bin/bwrap (for example Ubuntu's
+# bwrap-userns-restrict, which strips capabilities inside the namespace) does not apply to
+# the sandboxes Zaun builds; those sandboxes are Zaun's security boundary
+# (SECURITY_MODEL §2).
+#
+# Local additions belong in /etc/apparmor.d/local/zaun. If a release cannot allow nested
+# namespaces through a profile, the alternative is the sysctl
+# kernel.apparmor_restrict_unprivileged_userns=0, which relaxes the restriction for every
+# program; Zaun's Doctor screen explains both. Zaun never edits AppArmor or sysctl
+# configuration itself.
+
+abi <abi/4.0>,
+
+include <tunables/global>
+
+profile zaun /usr/bin/zaun flags=(unconfined) {
+  userns,
+
+  # The supervisor is Zaun itself (same profile); bubblewrap gets a child profile.
+  /{usr/,usr/local/,}bin/bwrap cx -> bwrap,
+
+  profile bwrap flags=(unconfined) {
+    userns,
+
+    # pressure-vessel's bubblewrap inside the sandbox, from the Steam Linux Runtime that
+    # umu keeps under the user's data directory (path as seen inside the sandbox).
+    /**/srt-bwrap px -> zaun//srt-bwrap,
+  }
+
+  profile srt-bwrap flags=(unconfined) {
+    userns,
+  }
+
+  include if exists <local/zaun>
+}

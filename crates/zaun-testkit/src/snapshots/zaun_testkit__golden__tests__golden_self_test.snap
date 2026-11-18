@@ -1,0 +1,5 @@
+---
+source: crates/zaun-testkit/src/golden.rs
+expression: "$crate :: golden ::\nnormalize_paths(& text, &[(Path::new(\"/tmp/abc\"), \"<TMP>\")])"
+---
+path=<TMP>/file

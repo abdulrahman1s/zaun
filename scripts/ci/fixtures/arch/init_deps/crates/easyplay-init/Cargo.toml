@@ -1,6 +1,0 @@
-[package]
-name = "easyplay-init"
-
-[dependencies]
-libc.workspace = true
-serde = "1"

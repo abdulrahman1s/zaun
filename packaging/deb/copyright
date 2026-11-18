@@ -1,48 +1,48 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: easyplay
-Upstream-Contact: https://github.com/easyplay/easyplay/issues
-Source: https://github.com/easyplay/easyplay
+Upstream-Name: zaun
+Upstream-Contact: https://github.com/zaun/zaun/issues
+Source: https://github.com/zaun/zaun
 
 Files: *
-Copyright: 2026 Abdulrahman and the EasyPlay contributors
+Copyright: 2026 Abdulrahman and the Zaun contributors
 License: GPL-3.0-or-later
 
 Files: assets/fonts/Inter-*.ttf
 Copyright: 2016 The Inter Project Authors
 License: OFL-1.1
-Comment: Embedded in the easyplay binary. Full text in
- /usr/share/licenses/easyplay/OFL-Inter.txt.
+Comment: Embedded in the zaun binary. Full text in
+ /usr/share/licenses/zaun/OFL-Inter.txt.
 
 Files: assets/fonts/NotoSansArabic-*.ttf
 Copyright: 2022 The Noto Project Authors (https://github.com/notofonts/arabic)
 License: OFL-1.1
-Comment: Embedded in the easyplay binary. Full text in
- /usr/share/licenses/easyplay/OFL-NotoSansArabic.txt.
+Comment: Embedded in the zaun binary. Full text in
+ /usr/share/licenses/zaun/OFL-NotoSansArabic.txt.
 
 Files: assets/fonts/InstrumentSans_*.ttf
 Copyright: 2022 The Instrument Sans Project Authors
 License: OFL-1.1
-Comment: Embedded in the easyplay binary. Full text in
- /usr/share/licenses/easyplay/OFL-InstrumentSans.txt.
+Comment: Embedded in the zaun binary. Full text in
+ /usr/share/licenses/zaun/OFL-InstrumentSans.txt.
 
 Files: assets/fonts/JetBrainsMono-*.ttf
 Copyright: 2020 The JetBrains Mono Project Authors
 License: OFL-1.1
-Comment: Embedded in the easyplay binary. Full text in
- /usr/share/licenses/easyplay/OFL-JetBrainsMono.txt.
+Comment: Embedded in the zaun binary. Full text in
+ /usr/share/licenses/zaun/OFL-JetBrainsMono.txt.
 
-Files: assets/fonts/easyplay-icons.ttf
+Files: assets/fonts/zaun-icons.ttf
 Copyright: 2020-2021 Phosphor Icons
 License: Expat
-Comment: Subset of the Phosphor icon font, embedded in the easyplay binary. Full text in
- /usr/share/licenses/easyplay/MIT-Phosphor.txt.
+Comment: Subset of the Phosphor icon font, embedded in the zaun binary. Full text in
+ /usr/share/licenses/zaun/MIT-Phosphor.txt.
 
 Files: vendor/*
 Copyright: The authors of the respective Rust crates
 License: Expat or Apache-2.0
 Comment: Rust crates compiled into the binary. Most are dual-licensed Expat (MIT) or
  Apache-2.0; a few use other permissive licences. The list with each crate's licence is
- /usr/share/licenses/easyplay/THIRD-PARTY.txt. SQLite (bundled) is in the public domain.
+ /usr/share/licenses/zaun/THIRD-PARTY.txt. SQLite (bundled) is in the public domain.
 
 License: GPL-3.0-or-later
  This program is free software: you can redistribute it and/or modify
@@ -64,7 +64,7 @@ License: Apache-2.0
 
 License: OFL-1.1
  SIL Open Font License, Version 1.1. On Debian systems the text is in
- /usr/share/licenses/easyplay/ (see the Comment of each font above).
+ /usr/share/licenses/zaun/ (see the Comment of each font above).
 
 License: Expat
  Permission is hereby granted, free of charge, to any person obtaining a copy

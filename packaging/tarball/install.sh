@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install EasyPlay from the release tarball (PKG-007, RELEASE_STRATEGY §2).
+# Install Zaun from the release tarball (PKG-007, RELEASE_STRATEGY §2).
 #
 #   ./install.sh            as root: /usr/local; otherwise ~/.local
 #   ./install.sh --user     ~/.local
@@ -7,12 +7,12 @@
 #   ./install.sh --prefix DIR
 #
 # DESTDIR is honoured for staged installs (caches are then left alone). Every file and every
-# directory this script creates is recorded in PREFIX/libexec/easyplay/install-manifest, so
-# PREFIX/libexec/easyplay/uninstall.sh removes exactly what was added. Installing over an
+# directory this script creates is recorded in PREFIX/libexec/zaun/install-manifest, so
+# PREFIX/libexec/zaun/uninstall.sh removes exactly what was added. Installing over an
 # earlier tarball install upgrades it and removes files the new version no longer ships.
 #
-# This script never changes MIME defaults, never touches EasyPlay's data or settings, needs
-# no network and installs nothing setuid. EasyPlay needs `bwrap` (bubblewrap) and `umu-run`
+# This script never changes MIME defaults, never touches Zaun's data or settings, needs
+# no network and installs nothing setuid. Zaun needs `bwrap` (bubblewrap) and `umu-run`
 # (umu-launcher) from the distribution; the Doctor screen explains anything missing.
 set -eu
 
@@ -24,7 +24,7 @@ Options:
   --user              Install under ~/.local
   --system            Install under /usr/local
   --no-cache-refresh  Do not refresh desktop and icon caches
-  --force             Install over an EasyPlay that this script did not install
+  --force             Install over an Zaun that this script did not install
   -h, --help          This text
 EOF
 }
@@ -65,21 +65,21 @@ esac
 
 destdir="${DESTDIR:-}"
 dest="$destdir$prefix"
-state="$dest/libexec/easyplay"
+state="$dest/libexec/zaun"
 manifest="$state/install-manifest"
 
-if [ -e "$dest/bin/easyplay" ] || [ -L "$dest/bin/easyplay" ]; then
+if [ -e "$dest/bin/zaun" ] || [ -L "$dest/bin/zaun" ]; then
     if [ ! -f "$manifest" ] && [ "$force" -ne 1 ]; then
-        die "$dest/bin/easyplay exists and was not installed by this script (use --force to replace it)"
+        die "$dest/bin/zaun exists and was not installed by this script (use --force to replace it)"
     fi
 fi
 
-if command -v easyplay >/dev/null 2>&1; then
-    other="$(command -v easyplay)"
-    [ "$other" = "$prefix/bin/easyplay" ] || say "Note: another easyplay is on PATH at $other."
+if command -v zaun >/dev/null 2>&1; then
+    other="$(command -v zaun)"
+    [ "$other" = "$prefix/bin/zaun" ] || say "Note: another zaun is on PATH at $other."
 fi
 
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/easyplay-install.XXXXXX")"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/zaun-install.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
 # New manifest: directories created now, directories created by an earlier install (still
@@ -101,9 +101,9 @@ mkdir -p "$dest"
 
 # Absolute Exec for the desktop entry, so it works when PREFIX/bin is not on the session's
 # PATH (often the case for ~/.local/bin).
-exec_path="$prefix/bin/easyplay"
+exec_path="$prefix/bin/zaun"
 case "$exec_path" in
-    *[\"\`\$\\]*) desktop_exec="easyplay" ;; # Characters that need desktop-entry escaping.
+    *[\"\`\$\\]*) desktop_exec="zaun" ;; # Characters that need desktop-entry escaping.
     *[[:space:]]*) desktop_exec="\"$exec_path\"" ;;
     *) desktop_exec="$exec_path" ;;
 esac
@@ -123,24 +123,24 @@ while IFS= read -r rel; do
     fi
     case "$rel" in
         share/applications/*.desktop)
-            sed -e "s|^Exec=easyplay |Exec=$desktop_exec |" \
-                -e "s|^TryExec=easyplay\$|TryExec=$exec_path|" "$to.new" >"$tmp/desktop"
+            sed -e "s|^Exec=zaun |Exec=$desktop_exec |" \
+                -e "s|^TryExec=zaun\$|TryExec=$exec_path|" "$to.new" >"$tmp/desktop"
             cat "$tmp/desktop" >"$to.new" ;;
         share/systemd/user/*.service)
-            sed -e "s|^ExecStart=/usr/bin/easyplay |ExecStart=$exec_path |" "$to.new" >"$tmp/unit"
+            sed -e "s|^ExecStart=/usr/bin/zaun |ExecStart=$exec_path |" "$to.new" >"$tmp/unit"
             cat "$tmp/unit" >"$to.new" ;;
     esac
     mv -f "$to.new" "$to"
 done <"$src/FILES"
 
-make_dir libexec/easyplay
+make_dir libexec/zaun
 cp "$src/uninstall.sh" "$state/uninstall.sh.new"
 chmod 755 "$state/uninstall.sh.new"
 mv -f "$state/uninstall.sh.new" "$state/uninstall.sh"
 
 {
     cat "$src/FILES"
-    printf '%s\n' libexec/easyplay/uninstall.sh
+    printf '%s\n' libexec/zaun/uninstall.sh
 } | LC_ALL=C sort -u >"$tmp/files"
 
 # Upgrade: remove what the previous install had and this version no longer ships.
@@ -152,7 +152,7 @@ if [ -f "$manifest" ]; then
 fi
 
 {
-    printf '# EasyPlay tarball install of %s; read by uninstall.sh. Paths are relative to %s.\n' \
+    printf '# Zaun tarball install of %s; read by uninstall.sh. Paths are relative to %s.\n' \
         "$(cat "$src/VERSION" 2>/dev/null || echo unknown)" "$prefix"
     LC_ALL=C sort -u "$tmp/dirs" | sed 's/^/d /'
     sed 's/^/f /' "$tmp/files"
@@ -173,11 +173,11 @@ if [ "$refresh" -eq 1 ] && [ -z "$destdir" ]; then
     fi
 fi
 
-say "EasyPlay installed under $dest."
-say "Uninstall with: $prefix/libexec/easyplay/uninstall.sh"
+say "Zaun installed under $dest."
+say "Uninstall with: $prefix/libexec/zaun/uninstall.sh"
 case ":${PATH:-}:" in
     *":$prefix/bin:"*) ;;
-    *) say "Note: $prefix/bin is not on PATH; the menu entry still works. Add it to PATH to use 'easyplay' in a terminal." ;;
+    *) say "Note: $prefix/bin is not on PATH; the menu entry still works. Add it to PATH to use 'zaun' in a terminal." ;;
 esac
 command -v bwrap >/dev/null 2>&1 || say "Note: bwrap (bubblewrap) was not found; install it with your package manager."
-command -v umu-run >/dev/null 2>&1 || say "Note: umu-run (umu-launcher) was not found; EasyPlay's Doctor screen explains how to install it."
+command -v umu-run >/dev/null 2>&1 || say "Note: umu-run (umu-launcher) was not found; Zaun's Doctor screen explains how to install it."

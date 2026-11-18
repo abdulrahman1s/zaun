@@ -3,7 +3,7 @@
 
     scripts/bench-gate.py RESULTS.jsonl [--baseline FILE] [--record] [--strict-budget]
 
-RESULTS is what the bench binaries append to `$EASYPLAY_BENCH_OUT` (one JSON object per
+RESULTS is what the bench binaries append to `$ZAUN_BENCH_OUT` (one JSON object per
 row). For every row the gate compares the measured statistic (median or p99, as the row
 says) with
 

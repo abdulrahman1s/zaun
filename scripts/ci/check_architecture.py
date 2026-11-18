@@ -3,18 +3,18 @@
 
 Fails (exit 1) when, in the workspace at ROOT (default: the repository):
 
-  core-ui-dep      easyplay-core depends on egui, eframe, winit, wgpu, rfd or another
+  core-ui-dep      zaun-core depends on egui, eframe, winit, wgpu, rfd or another
                    windowing crate (§3 rule 1);
-  ui-import        easyplay-ui uses a core module outside the allowed set, or anything
+  ui-import        zaun-ui uses a core module outside the allowed set, or anything
                    under a forbidden path (§3 rule 2, see UI_ALLOWED / UI_FORBIDDEN);
   core-layer       a core module imports a module of a higher layer, or a layer-5 module
                    imports a layer-5 module other than the allowed pairs, or `model`
                    imports more than its vocabulary (§3 rule 3, §4);
-  init-deps        easyplay-init depends on anything but libc (§3 rule 4);
+  init-deps        zaun-init depends on anything but libc (§3 rule 4);
   unsafe           `unsafe` appears outside the allowed files (§3 rule 5);
   async            an async runtime is used outside `storage` (§3 rule 6);
-  colour-literal   a colour literal appears in easyplay-ui outside `theme/` (§13);
-  screen-string    a user-facing sentence is a literal in `easyplay-ui/src/screens`
+  colour-literal   a colour literal appears in zaun-ui outside `theme/` (§13);
+  screen-string    a user-facing sentence is a literal in `zaun-ui/src/screens`
                    instead of `strings` (heuristic, §13).
 
 Test modules (`#[cfg(test)]` to the end of a file) and comments are not checked.
@@ -63,7 +63,7 @@ LAYER_EXCEPTIONS = {
                             "PrefixLocks", "inspect"),
 }
 
-# What easyplay-ui may name in easyplay_core (§3 rule 2 as enforced): vocabulary and the
+# What zaun-ui may name in zaun_core (§3 rule 2 as enforced): vocabulary and the
 # pure planning/query functions, the service façade, and the state types it displays.
 UI_ALLOWED = ("model", "ids", "clock", "consts", "error", "config", "service", "library",
               "sandbox", "umu", "launch", "stats", "artwork", "jobs", "desktop", "host",
@@ -87,19 +87,19 @@ UI_FORBIDDEN = (
 )
 
 UNSAFE_ALLOWED = (
-    "crates/easyplay-init/",
-    "crates/easyplay-core/src/session/sys.rs",
-    "crates/easyplay-core/src/sandbox/fd.rs",
+    "crates/zaun-init/",
+    "crates/zaun-core/src/session/sys.rs",
+    "crates/zaun-core/src/sandbox/fd.rs",
     # The FFI to libsimplex (ADR-0033).
-    "crates/easyplay-chat/",
+    "crates/zaun-chat/",
     # The wgpu surface on libwayland's display and surface pointers (ADR-0037).
-    "crates/easyplay-overlay/src/surface.rs",
+    "crates/zaun-overlay/src/surface.rs",
     # FFmpeg frame and packet planes for the hardware encoder (ADR-0036).
-    "crates/easyplay-media/src/video/hw/planes.rs",
+    "crates/zaun-media/src/video/hw/planes.rs",
     # Test programs run inside the sandbox or in place of bwrap (PROC-013, SEC-002).
-    "crates/easyplay-testkit/src/bin/",
+    "crates/zaun-testkit/src/bin/",
     # A counting allocator proving that label lookups do not allocate (AGENTS.md §6).
-    "crates/easyplay-ui/tests/i18n_alloc.rs",
+    "crates/zaun-ui/tests/i18n_alloc.rs",
     "fuzz/",
 )
 
@@ -206,7 +206,7 @@ class Report:
 
 
 def check_core_deps(root: Path, r: Report) -> None:
-    toml = root / "crates/easyplay-core/Cargo.toml"
+    toml = root / "crates/zaun-core/Cargo.toml"
     if not toml.exists():
         return
     for section, names in dependencies(toml).items():
@@ -218,7 +218,7 @@ def check_core_deps(root: Path, r: Report) -> None:
 
 
 def check_init_deps(root: Path, r: Report) -> None:
-    toml = root / "crates/easyplay-init/Cargo.toml"
+    toml = root / "crates/zaun-init/Cargo.toml"
     if not toml.exists():
         return
     for section, names in dependencies(toml).items():
@@ -229,20 +229,20 @@ def check_init_deps(root: Path, r: Report) -> None:
 
 
 def check_ui_imports(root: Path, r: Report) -> None:
-    src = root / "crates/easyplay-ui/src"
+    src = root / "crates/zaun-ui/src"
     if not src.exists():
         return
     for f in sorted(src.rglob("*.rs")):
         rel = str(f.relative_to(root))
         lines = strip_tests_and_comments(f.read_text())
-        for no, path in use_paths(lines, "easyplay_core"):
+        for no, path in use_paths(lines, "zaun_core"):
             top = path.split("::", 1)[0]
             if top not in UI_ALLOWED:
-                r.add("ui-import", f"{rel}:{no}", f"easyplay_core::{path} (module `{top}` not allowed)")
+                r.add("ui-import", f"{rel}:{no}", f"zaun_core::{path} (module `{top}` not allowed)")
                 continue
             for pat in UI_FORBIDDEN:
                 if re.match(pat + r"(\b|$)", path):
-                    r.add("ui-import", f"{rel}:{no}", f"easyplay_core::{path} (forbidden)")
+                    r.add("ui-import", f"{rel}:{no}", f"zaun_core::{path} (forbidden)")
                     break
 
 
@@ -252,7 +252,7 @@ def module_of(src: Path, f: Path) -> str:
 
 
 def check_core_layers(root: Path, r: Report) -> None:
-    src = root / "crates/easyplay-core/src"
+    src = root / "crates/zaun-core/src"
     if not src.exists():
         return
     for f in sorted(src.rglob("*.rs")):
@@ -305,9 +305,9 @@ def check_async(root: Path, r: Report) -> None:
             if section.startswith("dev-"):
                 continue
             for n in names:
-                if n in ASYNC_RUNTIMES and crate != "easyplay-core":
+                if n in ASYNC_RUNTIMES and crate != "zaun-core":
                     r.add("async", str(toml.relative_to(root)), n)
-    src = root / "crates/easyplay-core/src"
+    src = root / "crates/zaun-core/src"
     if src.exists():
         for f in sorted(src.rglob("*.rs")):
             if module_of(src, f) == "storage":
@@ -318,7 +318,7 @@ def check_async(root: Path, r: Report) -> None:
 
 
 def check_colours(root: Path, r: Report) -> None:
-    src = root / "crates/easyplay-ui/src"
+    src = root / "crates/zaun-ui/src"
     if not src.exists():
         return
     for f in sorted(src.rglob("*.rs")):
@@ -337,7 +337,7 @@ IGNORED_MACROS = re.compile(r"\b(debug_assert\w*|assert\w*|tracing::\w+|trace|de
 
 
 def check_screen_strings(root: Path, r: Report) -> None:
-    src = root / "crates/easyplay-ui/src/screens"
+    src = root / "crates/zaun-ui/src/screens"
     if not src.exists():
         return
     for f in sorted(src.rglob("*.rs")):

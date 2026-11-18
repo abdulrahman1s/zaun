@@ -4,8 +4,8 @@
 //! panic, loop or allocate without bound, on any bytes.
 #![no_main]
 
-use easyplay_core::steam::keyvalues::{self, KvLimits};
-use easyplay_core::steam::{account, compat, manifest, roots};
+use zaun_core::steam::keyvalues::{self, KvLimits};
+use zaun_core::steam::{account, compat, manifest, roots};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -27,7 +27,7 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(text) = std::str::from_utf8(data) {
         let _ = compat::proton_dir_from_config_info(text);
         let _ = manifest::manifest_app_id(text);
-        let _ = easyplay_core::steam::client::launched_app_id(
+        let _ = zaun_core::steam::client::launched_app_id(
             &text.split(' ').map(std::ffi::OsString::from).collect::<Vec<_>>(),
         );
     }

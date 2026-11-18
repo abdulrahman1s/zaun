@@ -11,6 +11,10 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 
 ### For users
 
+- The app is now called Zaun (binary `zaun`, app ID `io.github.zaun.Zaun`, errors `ZN-…`, settings
+  `ZAUN_*`). On first start your library, settings, chat and caches move from `…/easyplay` to
+  `…/zaun`, and a link stays at the old path; nothing is deleted. Shortcuts made by the old
+  version are not recognised: make them again from the game's page (ADR-0039).
 - Chat: a call opens as a stage under the conversation's header: a poster for each person
   on their own colour, a ring that grows with the voice that speaks, mute and stop-hearing
   marks, and a click shows one person big over the others. The bar says Calling…,
@@ -44,8 +48,8 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   while the friend watches. A friend's stream is ready to watch at once; it pauses while the
   game's window is hidden and ends with the game. No sound yet, not during a call with the
   same friend, not in groups. It needs a build with window capture (the `portal` feature);
-  other builds hide it. The preview (`easyplay --preview`) shows a test picture on the watch
-  stage. New messages `EP-CHT-014` to `EP-CHT-017` say why a share could not start.
+  other builds hide it. The preview (`zaun --preview`) shows a test picture on the watch
+  stage. New messages `ZN-CHT-014` to `ZN-CHT-017` say why a share could not start.
 - Shared games are encoded on the graphics card when it can (NVIDIA NVENC, or VA-API on AMD
   and Intel), lighter on the game; software encoding takes over if it cannot, even in the
   middle of a share (`chat.share_hw_encode`, on by default). The picture can be 720p, 1080p,
@@ -53,8 +57,8 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   `chat.share_fps`, default 60), and changed while sharing without stopping.
 - When something was removed in the meantime (from another window or the command line), the
   message now says so: "This game is no longer in the library", "This tag
-  no longer exists" or "This session is no longer there" (`EP-LIB-040`, `EP-LIB-041`,
-  `EP-SES-040`). Before, it was a generic internal error or "This value cannot be used". The
+  no longer exists" or "This session is no longer there" (`ZN-LIB-040`, `ZN-LIB-041`,
+  `ZN-SES-040`). Before, it was a generic internal error or "This value cannot be used". The
   command line prints the same.
 - Less work in every frame: looking up interface text no longer allocates (about 1.3 million
   allocations fewer in a two-minute session). The Statistics page keeps one result per time
@@ -66,16 +70,16 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   autocomplete, pictures and GIFs; ↑ in an empty message box edits your last message. Mute
   a conversation, block someone (they are not told), or compare security codes with a
   friend. The top bar shows how many messages are unread. Messages are end-to-end
-  encrypted, with no account and no EasyPlay server: they travel through relays (by default
+  encrypted, with no account and no Zaun server: they travel through relays (by default
   the public servers at simplex.im and simplexonflux.com, or ones you list), which see your
   IP address and timing but never the content. The page says this before you turn it on.
   GIF search goes to GIPHY through Signal's content proxy, so GIPHY never sees your address;
   only your search words are sent, and friends receive the GIF as a file. Opening a link can
   first ask Google Safe Browsing about the site (*Check links before opening*, off by
   default; only the site's name is sent). Notifications show the sender's name only, unless
-  you choose to show the text. Everything lives in an encrypted database in EasyPlay's data
+  you choose to show the text. Everything lives in an encrypted database in Zaun's data
   folder that games cannot reach. Voice calls, watching a friend play and an in-game overlay
-  are planned and appear only in the preview (`easyplay --preview`) for now. Chat shows "not
+  are planned and appear only in the preview (`zaun --preview`) for now. Chat shows "not
   included in this build" when the package leaves it out.
 - Chat: profile pictures. Friends', groups' and group members' pictures are read from their
   profiles (a bad or oversized one is skipped, never the friend). Your own picture, and a
@@ -96,8 +100,8 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   microphone and speakers (PulseAudio or PipeWire). Blocking a friend ends a call with them.
   A desktop notification announces an incoming call (`chat.notify_calls`). Calls work with
   friends on the official SimpleX apps too (phone or desktop), both ways, with the apps'
-  extra frame encryption; their video calls are taken as voice. New errors `EP-CHT-010`
-  (no microphone), `EP-CHT-011` (the call's sound stopped), `EP-CHT-012` (the call could not
+  extra frame encryption; their video calls are taken as voice. New errors `ZN-CHT-010`
+  (no microphone), `ZN-CHT-011` (the call's sound stopped), `ZN-CHT-012` (the call could not
   connect). Group voice and watching a friend play are still to come.
 - The interface is available in Arabic (Settings → General → Language: *Same as system*, *English*, *العربية*). Text is set right to left; the layout of columns and bars is not mirrored yet. Texts that come from outside the interface (some error messages and system-check results) stay in English.
 - First public release. Open a Windows `.exe` from the file manager, choose *Offline*,
@@ -108,9 +112,9 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 - Compatibility layers (Proton) and the Steam Linux Runtime are installed and kept up to
   date through umu, with integrity checks and recovery.
 - Installer flow for `setup.exe`-style installers; per-game folder permissions, devices and
-  launch options; Doctor (`easyplay doctor`) for host problems.
-- Optional background service (`systemctl --user enable --now easyplay.service`, or
-  `programs.easyplay.backgroundService.enable` on NixOS and home-manager): EasyPlay stays
+  launch options; Doctor (`zaun doctor`) for host problems.
+- Optional background service (`systemctl --user enable --now zaun.service`, or
+  `programs.zaun.backgroundService.enable` on NixOS and home-manager): Zaun stays
   loaded without a window, so a game opened from the file manager starts in about 20 ms
   and windows open without a cold start. Running games are not affected when it stops.
 - The microphone is a permission of its own, off by default: games get sound through a
@@ -127,7 +131,7 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 - On Wayland desktops whose compositor supports security contexts, a game gets a
   restricted connection to the desktop, and the compositor decides what to keep from it; on
   niri (the only one tried so far) that is screen capture, clipboard managers, fake keyboard
-  and mouse input and windows drawn over everything. `easyplay doctor` says whether this
+  and mouse input and windows drawn over everything. `zaun doctor` says whether this
   desktop does. Games drawing through X11 (Proton's default) are still exposed to other X11
   windows. A game that uses Proton's Wayland driver and misbehaves this way can be switched
   to X11 in its options. *Copy as shell command* refuses to run for such games, since a
@@ -146,24 +150,24 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 - Movement explains what changed: covers slide to their new places when the library is
   filtered or sorted, and the cover you open flies to the game's page. With *Reduce motion*
   on, everything is a short fade.
-- Command line: `easyplay open|launch|stop|status|list|add|edit|remove|show|sandbox|export|import|doctor|runtimes|service`,
+- Command line: `zaun open|launch|stop|status|list|add|edit|remove|show|sandbox|export|import|doctor|runtimes|service`,
   with `--json` output, a man page and bash/zsh/fish completions.
 - Optional "Show my Steam games" (Settings → General): games installed with Steam appear
   in the library with their play time and update state from Steam; Play and "Update in
   Steam" hand over to Steam; programs such as mod installers can be run in a Steam game's
-  Windows storage inside EasyPlay's protection, without internet. Off by default; nothing
-  leaves the computer. New command `easyplay steam scan|on|off|update|open`.
+  Windows storage inside Zaun's protection, without internet. Off by default; nothing
+  leaves the computer. New command `zaun steam scan|on|off|update|open`.
 - A Steam game's page has a *Launch options* tab: the same setting as Steam › Properties ›
   Launch options, changed in Steam's own settings file while Steam is closed (the tab
-  offers to close Steam, and keeps a backup `localconfig.vdf.easyplay-bak`), with a
+  offers to close Steam, and keeps a backup `localconfig.vdf.zaun-bak`), with a
   *Performance overlay (MangoHud)* switch that adds or removes `mangohud %command%`.
-  `easyplay steam launch-options <GAME> [--set TEXT] [--mangohud on|off]` does the same.
+  `zaun steam launch-options <GAME> [--set TEXT] [--mangohud on|off]` does the same.
 - Steam games carry a small Steam mark on their cover. The library's Filter menu lists
-  only EasyPlay's own compatibility layers and gains a *Source* group (EasyPlay, Steam).
+  only Zaun's own compatibility layers and gains a *Source* group (Zaun, Steam).
 - The groundwork of Chat's in-game overlay (ADR-0037), off by default (`chat.overlay` in
   the settings file) until its design arrives: while a game runs, new messages appear over
   it and a call shows a small widget; a key bound in the compositor to
-  `easyplay overlay toggle` (for example Shift+F1) opens a chat panel above the game and
+  `zaun overlay toggle` (for example Shift+F1) opens a chat panel above the game and
   gives the keyboard back when closed. Works on niri, KDE, Sway and Hyprland; GNOME keeps the
   notifications. The overlay never runs inside a game's sandbox and games cannot reach it.
 - The in-game overlay now looks like the design: people in the call as pills with speaking
@@ -172,59 +176,59 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   the call's buttons, a "Show while playing" menu and an answer bar for a call that rings
   while you play. It speaks your language (Arabic included) and uses your accent. While it
   runs, the messages and calls it shows are not announced again as desktop notifications.
-  `easyplay overlay` now says why the overlay can't open (for example on GNOME).
+  `zaun overlay` now says why the overlay can't open (for example on GNOME).
 
 ### For packagers
 
-- Game streams (ADR-0036) compile Cisco's OpenH264 from source into `easyplay-media`
+- Game streams (ADR-0036) compile Cisco's OpenH264 from source into `zaun-media`
   (the `openh264` crate, BSD-2-Clause; a C++ compiler is needed, no system library). Cisco's
   H.264 patent licence covers only Cisco's own binaries, not a build from source: check
   what your distribution allows. The window capture is behind the cargo feature `portal`
-  (`easyplay` and `easyplay-media`; on by default in `easyplay` and the Nix package): it links `libpipewire-0.3` and needs
-  libclang to build (bindgen); without it sharing fails with `EP-CHT-016` and watching
+  (`zaun` and `zaun-media`; on by default in `zaun` and the Nix package): it links `libpipewire-0.3` and needs
+  libclang to build (bindgen); without it sharing fails with `ZN-CHT-016` and watching
   still works.
 - Hardware encoding of shared games (ADR-0036, cargo feature `hwenc`, on by default in
-  `easyplay`) links FFmpeg 8's `libavcodec` and `libavutil` (nixpkgs `ffmpeg_8-headless`, a
+  `zaun`) links FFmpeg 8's `libavcodec` and `libavutil` (nixpkgs `ffmpeg_8-headless`, a
   GPL-3 build with NVENC and VA-API) through the MIT `rsmpeg` binding; bindgen needs
   libclang. NVENC and VA-API drivers are loaded at run time; without them software encoding
   is used.
-- The in-game overlay (ADR-0037) adds the binary crate `easyplay-overlay`
+- The in-game overlay (ADR-0037) adds the binary crate `zaun-overlay`
   (GPL-3.0-or-later; egui-wgpu, wgpu, smithay-client-toolkit, all already in the tree, and
-  the `xkbcommon` crate, which links `libxkbcommon`). Install it to `libexec/easyplay/`; it
+  the `xkbcommon` crate, which links `libxkbcommon`). Install it to `libexec/zaun/`; it
   dlopens `libwayland-client` and the Vulkan or GL loader, so give it the same run path as
-  `easyplay`. Without it, or without a Wayland session, there is simply no overlay.
+  `zaun`. Without it, or without a Wayland session, there is simply no overlay.
 
 - New build dependency `strum` (MIT, derive macros only). `anyhow` is no longer used.
-- Chat (ADR-0033) adds the crate `easyplay-chat`, licensed **AGPL-3.0-only** (the rest is
+- Chat (ADR-0033) adds the crate `zaun-chat`, licensed **AGPL-3.0-only** (the rest is
   GPL-3.0-or-later; GPLv3 §13 permits the combination), the only code that links the SimpleX
-  chat engine. Install the binary to `libexec/easyplay/`, and `libsimplex.so` with the
-  libraries it needs to `libexec/easyplay/simplex/` (about 237 MiB; chat core 7.0.0.12 was
-  the one tested). Elsewhere: `EASYPLAY_SIMPLEX_LIB` names `libsimplex.so`;
-  `EASYPLAY_SIMPLEX_LIBRARY_PATH` becomes the helper's `LD_LIBRARY_PATH` (needed on NixOS).
+  chat engine. Install the binary to `libexec/zaun/`, and `libsimplex.so` with the
+  libraries it needs to `libexec/zaun/simplex/` (about 237 MiB; chat core 7.0.0.12 was
+  the one tested). Elsewhere: `ZAUN_SIMPLEX_LIB` names `libsimplex.so`;
+  `ZAUN_SIMPLEX_LIBRARY_PATH` becomes the helper's `LD_LIBRARY_PATH` (needed on NixOS).
   Without the helper or the library the Chat page says "not included in this build" and
   nothing else changes; the AGPL source of the helper must be offered with the package.
 - Chat ships Twemoji's PNG emoji (`twemoji-assets`, CC-BY 4.0; credited in Settings → About →
   Licences, text in `assets/licenses/CC-BY-4.0-Twemoji.txt`). It adds about 5.6 MB to the
   binary. The `image` crate gains its `gif` feature.
 - Build with `scripts/build-release.sh` (`--help` for options). It builds with `--locked`,
-  refuses the `dev-inspection` feature, checks the size budgets (`easyplay` <= 35 MB,
-  `easyplay-init` <= 1 MB) and that the shim is static, and stages DESKTOP_INTEGRATION §10.
-- `EASYPLAY_LIBEXEC_DIR` sets the compiled-in location of `easyplay-init` (default
-  `/usr/libexec/easyplay`); the shim is also found next to the running binary.
+  refuses the `dev-inspection` feature, checks the size budgets (`zaun` <= 35 MB,
+  `zaun-init` <= 1 MB) and that the shim is static, and stages DESKTOP_INTEGRATION §10.
+- `ZAUN_LIBEXEC_DIR` sets the compiled-in location of `zaun-init` (default
+  `/usr/libexec/zaun`); the shim is also found next to the running binary.
 - The `wayland-security-context` feature gives games a restricted Wayland socket
-  (ADR-0029). It is a default feature of `easyplay-core`, like `seccomp`, and needs no new
+  (ADR-0029). It is a default feature of `zaun-core`, like `seccomp`, and needs no new
   dependency (`wayland-client` and `wayland-protocols` were already built for the window).
 - Run-time dependencies: `bubblewrap` (>= 0.8), `umu-launcher` (>= 1.4); through `dlopen`:
   Wayland and/or X11 client libraries, `libxkbcommon`, Vulkan loader or OpenGL, `libudev`.
   SQLite is compiled in.
-- The Debian/Ubuntu package installs `/etc/apparmor.d/easyplay` (user namespaces for
-  EasyPlay, bwrap and pressure-vessel's srt-bwrap on systems with
+- The Debian/Ubuntu package installs `/etc/apparmor.d/zaun` (user namespaces for
+  Zaun, bwrap and pressure-vessel's srt-bwrap on systems with
   `kernel.apparmor_restrict_unprivileged_userns=1`).
-- `share/systemd/user/easyplay.service` is installed but must not be enabled by the
-  package; its `ExecStart` names `/usr/bin/easyplay` (the tarball installer and the Nix
+- `share/systemd/user/zaun.service` is installed but must not be enabled by the
+  package; its `ExecStart` names `/usr/bin/zaun` (the tarball installer and the Nix
   package rewrite it).
-- Packaging files: `packaging/arch` (`easyplay`, `easyplay-bin`), `packaging/rpm`,
+- Packaging files: `packaging/arch` (`zaun`, `zaun-bin`), `packaging/rpm`,
   `packaging/deb`, `packaging/apparmor`, `packaging/tarball`, and the Nix flake.
 - Library schema version 2 (migration `0002_steam`, adds two tables, changes no data).
 
-[Unreleased]: https://github.com/easyplay/easyplay/commits/master
+[Unreleased]: https://github.com/zaun/zaun/commits/master

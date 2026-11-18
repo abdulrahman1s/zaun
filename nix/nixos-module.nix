@@ -1,9 +1,9 @@
-# NixOS module for EasyPlay (exported as nixosModules.default and nixosModules.easyplay).
+# NixOS module for Zaun (exported as nixosModules.default and nixosModules.zaun).
 #
 # Installs the package, offers it as a handler for Windows executables without changing any
 # default application (DESKTOP_INTEGRATION §4), turns on 32-bit graphics drivers for games,
 # checks that unprivileged user namespaces, which bubblewrap needs, are available, and can run
-# EasyPlay's background service (ADR-0022).
+# Zaun's background service (ADR-0022).
 self:
 {
   config,
@@ -13,7 +13,7 @@ self:
 }:
 
 let
-  cfg = config.programs.easyplay;
+  cfg = config.programs.zaun;
   inherit (lib)
     literalExpression
     mkEnableOption
@@ -23,7 +23,7 @@ let
     types
     ;
 
-  desktopId = "io.github.easyplay.EasyPlay.desktop";
+  desktopId = "io.github.zaun.Zaun.desktop";
 
   # The MimeType list of the desktop entry (DESKTOP_INTEGRATION §2).
   mimeTypes = [
@@ -46,19 +46,19 @@ let
   kernelLooksHardened = lib.hasInfix "hardened" (kernel.modDirVersion or kernel.version or "");
 in
 {
-  options.programs.easyplay = {
+  options.programs.zaun = {
     enable = mkEnableOption ''
-      EasyPlay, which runs Windows games through umu-run inside a per-game bubblewrap
+      Zaun, which runs Windows games through umu-run inside a per-game bubblewrap
       sandbox. The package's wrapper already puts bubblewrap and umu-launcher on its PATH
     '';
 
     package = mkOption {
       type = types.package;
-      default = self.packages.${pkgs.stdenv.hostPlatform.system}.easyplay;
-      defaultText = literalExpression "easyplay.packages.\${pkgs.stdenv.hostPlatform.system}.easyplay";
+      default = self.packages.${pkgs.stdenv.hostPlatform.system}.zaun;
+      defaultText = literalExpression "zaun.packages.\${pkgs.stdenv.hostPlatform.system}.zaun";
       description = ''
-        The EasyPlay package to install. Defaults to the package built by this flake for the
-        host platform. With `overlays.default` applied, `pkgs.easyplay` builds the same
+        The Zaun package to install. Defaults to the package built by this flake for the
+        host platform. With `overlays.default` applied, `pkgs.zaun` builds the same
         package against your own nixpkgs instead.
       '';
     };
@@ -81,20 +81,20 @@ in
       default = true;
       example = false;
       description = ''
-        Whether to list EasyPlay as an available handler for Windows executables (`.exe`,
+        Whether to list Zaun as an available handler for Windows executables (`.exe`,
         `.msi`) in the system-wide `mimeapps.list` (`xdg.mime.addedAssociations`). This only
-        adds EasyPlay to "Open With" menus; it never sets a default application. Making
-        EasyPlay the default is the user's choice, made in EasyPlay's onboarding or the file
+        adds Zaun to "Open With" menus; it never sets a default application. Making
+        Zaun the default is the user's choice, made in Zaun's onboarding or the file
         manager.
       '';
     };
 
     backgroundService.enable = mkEnableOption ''
-      EasyPlay's background service (ADR-0022) for every user with a graphical session: the
+      Zaun's background service (ADR-0022) for every user with a graphical session: the
       library stays loaded, so a Windows program opened from the file manager starts at
-      once and EasyPlay's window opens without a cold start. It costs about 20 MiB while no
+      once and Zaun's window opens without a cold start. It costs about 20 MiB while no
       window has been opened. Running games are not stopped when the service stops or
-      restarts. After upgrading the package, `systemctl --user restart easyplay` runs the
+      restarts. After upgrading the package, `systemctl --user restart zaun` runs the
       new version'';
 
     allowUnprivilegedUsernsClone = mkOption {
@@ -120,7 +120,7 @@ in
         {
           assertion = config.security.allowUserNamespaces;
           message = ''
-            programs.easyplay: EasyPlay runs every game in a bubblewrap sandbox, which needs
+            programs.zaun: Zaun runs every game in a bubblewrap sandbox, which needs
             user namespaces, but security.allowUserNamespaces is false.
           '';
         }
@@ -129,14 +129,14 @@ in
           assertion =
             !config.security.allowUserNamespaces || maxUserNamespaces == null || !(isOff maxUserNamespaces);
           message = ''
-            programs.easyplay: boot.kernel.sysctl."user.max_user_namespaces" is 0, which
+            programs.zaun: boot.kernel.sysctl."user.max_user_namespaces" is 0, which
             disables the user namespaces bubblewrap needs.
           '';
         }
         {
           assertion = cfg.allowUnprivilegedUsernsClone -> !(isOff usernsCloneSysctl);
           message = ''
-            programs.easyplay: allowUnprivilegedUsernsClone is true but
+            programs.zaun: allowUnprivilegedUsernsClone is true but
             boot.kernel.sysctl."kernel.unprivileged_userns_clone" is set to 0 elsewhere.
           '';
         }
@@ -144,34 +144,34 @@ in
 
       warnings =
         lib.optional (!cfg.allowUnprivilegedUsernsClone && isOff usernsCloneSysctl) ''
-          programs.easyplay: boot.kernel.sysctl."kernel.unprivileged_userns_clone" is 0, so
-          bubblewrap cannot create user namespaces as a normal user and EasyPlay cannot start
-          games. Remove that setting or set programs.easyplay.allowUnprivilegedUsernsClone.
+          programs.zaun: boot.kernel.sysctl."kernel.unprivileged_userns_clone" is 0, so
+          bubblewrap cannot create user namespaces as a normal user and Zaun cannot start
+          games. Remove that setting or set programs.zaun.allowUnprivilegedUsernsClone.
         ''
         ++
           lib.optional (!cfg.allowUnprivilegedUsernsClone && usernsCloneSysctl == null && kernelLooksHardened)
             ''
-              programs.easyplay: the kernel (${
+              programs.zaun: the kernel (${
                 kernel.modDirVersion or kernel.version
               }) looks hardened; such kernels
-              usually disable unprivileged user namespaces, which bubblewrap needs. If EasyPlay
+              usually disable unprivileged user namespaces, which bubblewrap needs. If Zaun
               reports that sandboxes cannot be created, set
-              programs.easyplay.allowUnprivilegedUsernsClone = true.
+              programs.zaun.allowUnprivilegedUsernsClone = true.
             '';
     }
 
     (mkIf cfg.backgroundService.enable {
-      systemd.user.services.easyplay = {
-        description = "EasyPlay in the background";
-        documentation = [ "man:easyplay(1)" ];
+      systemd.user.services.zaun = {
+        description = "Zaun in the background";
+        documentation = [ "man:zaun(1)" ];
         partOf = [ "graphical-session.target" ];
         after = [ "graphical-session.target" ];
         wantedBy = [ "graphical-session.target" ];
-        # The tools a session-started EasyPlay finds (xdg-open, xdg-mime, gio, …), not
+        # The tools a session-started Zaun finds (xdg-open, xdg-mime, gio, …), not
         # NixOS's minimal unit PATH; the package's wrapper adds bwrap and umu-run itself.
         environment.PATH = lib.mkForce "/run/wrappers/bin:/etc/profiles/per-user/%u/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin";
         serviceConfig = {
-          ExecStart = "${cfg.package}/bin/easyplay service";
+          ExecStart = "${cfg.package}/bin/zaun service";
           Restart = "on-failure";
           RestartSec = 5;
           # Games run in the service's cgroup; stopping the service must not end them.

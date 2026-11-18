@@ -1,17 +1,17 @@
 #!/bin/sh
-# Load EasyPlay's AppArmor profile (RELEASE_STRATEGY §2.2). Modelled on dh_apparmor's
+# Load Zaun's AppArmor profile (RELEASE_STRATEGY §2.2). Modelled on dh_apparmor's
 # snippet. Never edits sysctl or other AppArmor configuration; never changes MIME defaults
 # (desktop and icon caches are refreshed by dpkg triggers).
 set -e
 
 if [ "$1" = "configure" ]; then
-    profile=/etc/apparmor.d/easyplay
+    profile=/etc/apparmor.d/zaun
     if [ -f "$profile" ] && command -v apparmor_parser >/dev/null 2>&1; then
         if aa-enabled --quiet 2>/dev/null || [ -d /sys/kernel/security/apparmor ]; then
             # An AppArmor too old for `userns` (before 4.0) rejects the profile; that system
             # does not restrict user namespaces either, so the install goes on.
             apparmor_parser -r -T -W "$profile" ||
-                echo "easyplay: could not load $profile; see 'easyplay doctor'." >&2
+                echo "zaun: could not load $profile; see 'zaun doctor'." >&2
         fi
     fi
 fi

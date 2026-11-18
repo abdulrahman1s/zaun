@@ -1,0 +1,12 @@
+---
+source: crates/zaun/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Show running games and the latest sessions
+
+Usage: zaun status [OPTIONS]
+
+Options:
+      --json        Machine-readable output
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+  -h, --help        Print help

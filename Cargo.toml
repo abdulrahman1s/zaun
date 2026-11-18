@@ -1,14 +1,14 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/easyplay-core",
-    "crates/easyplay-ui",
-    "crates/easyplay",
-    "crates/easyplay-init",
-    "crates/easyplay-testkit",
-    "crates/easyplay-chat",
-    "crates/easyplay-overlay",
-    "crates/easyplay-media",
+    "crates/zaun-core",
+    "crates/zaun-ui",
+    "crates/zaun",
+    "crates/zaun-init",
+    "crates/zaun-testkit",
+    "crates/zaun-chat",
+    "crates/zaun-overlay",
+    "crates/zaun-media",
 ]
 
 [workspace.package]
@@ -16,7 +16,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/easyplay/easyplay"
+repository = "https://github.com/zaun/zaun"
 authors = ["Abdulrahman <mail@abdulrahman.dev>"]
 publish = false
 
@@ -24,10 +24,10 @@ publish = false
 # with `=`, everything else uses caret requirements.
 [workspace.dependencies]
 # Workspace crates
-easyplay-core = { path = "crates/easyplay-core" }
-easyplay-ui = { path = "crates/easyplay-ui" }
-easyplay-testkit = { path = "crates/easyplay-testkit" }
-easyplay-media = { path = "crates/easyplay-media" }
+zaun-core = { path = "crates/zaun-core" }
+zaun-ui = { path = "crates/zaun-ui" }
+zaun-testkit = { path = "crates/zaun-testkit" }
+zaun-media = { path = "crates/zaun-media" }
 
 # UI
 eframe = { version = "=0.37.0", default-features = false, features = [
@@ -87,7 +87,7 @@ unicode-segmentation = "1.13"
 arboard = { version = "3.7", features = ["wayland-data-control"] }
 jiff = "0.2"
 rustix = { version = "1.0", features = ["fs", "process", "pipe", "event", "system", "thread", "net", "param", "rand"] }
-# `gif`: Chat GIFs are decoded by `easyplay_core::gifs::decode` (ADR-0033).
+# `gif`: Chat GIFs are decoded by `zaun_core::gifs::decode` (ADR-0033).
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "ico", "bmp", "gif"] }
 pelite = "0.10"
 # Search normalisation (GAME_LIBRARY §4: NFKD, combining marks removed).
@@ -198,10 +198,10 @@ strip = "debuginfo"
 inherits = "release"
 debug = false
 
-# `panic` and `lto` cannot be set per package; `cargo build --release -p easyplay-init`
+# `panic` and `lto` cannot be set per package; `cargo build --release -p zaun-init`
 # therefore uses unwinding and thin LTO. Packaging scripts that want the fully specified
 # shim profile (ARCHITECTURE §12) build with `--profile init-release`.
-[profile.release.package.easyplay-init]
+[profile.release.package.zaun-init]
 opt-level = "s"
 codegen-units = 1
 

@@ -1,6 +1,6 @@
 # egui_kittest configuration (TESTING_STRATEGY §9). Snapshot images live next to each crate's
 # tests in `tests/snapshots/`; update them only after a visual review
-# (`UPDATE_SNAPSHOTS=1 cargo test -p easyplay-ui`).
+# (`UPDATE_SNAPSHOTS=1 cargo test -p zaun-ui`).
 output_path = "tests/snapshots"
 # Per-pixel colour tolerance; the default absorbs differences between wgpu backends.
 threshold = 0.6

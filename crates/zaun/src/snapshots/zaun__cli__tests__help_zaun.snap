@@ -1,0 +1,33 @@
+---
+source: crates/zaun/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Run Windows games through umu-run inside a per-game bubblewrap sandbox
+
+Usage: zaun [OPTIONS] [COMMAND]
+
+Commands:
+  open      Open Windows programs: start known ones, set up unknown ones
+  launch    Launch a game
+  stop      Stop a running game
+  status    Show running games and the latest sessions
+  list      List games
+  add       Add a program to the library
+  edit      Change a game's settings
+  remove    Remove a game from the library
+  show      Show a game's settings
+  sandbox   Inspect sandboxes
+  export    Export a game's settings as TOML
+  import    Import a game's settings
+  doctor    Check this system for everything Zaun needs
+  runtimes  Manage compatibility layers
+  steam     Games installed with Steam (shown when "Show my Steam games" is on)
+  overlay   Show or hide the in-game overlay in the running Zaun (bind it to a key in your compositor, e.g. Shift+F1)
+  service   Keep Zaun running in the background so opened programs start at once
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+      --add         Start (or focus) Zaun and open the add-game dialog
+  -h, --help        Print help
+  -V, --version     Print version

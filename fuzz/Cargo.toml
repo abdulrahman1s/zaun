@@ -3,7 +3,7 @@
 # built in CI:
 #   cargo install cargo-fuzz && cargo +nightly fuzz run pe_inspect
 [package]
-name = "easyplay-fuzz"
+name = "zaun-fuzz"
 version = "0.0.0"
 edition = "2024"
 publish = false
@@ -14,7 +14,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-easyplay-core = { path = "../crates/easyplay-core" }
+zaun-core = { path = "../crates/zaun-core" }
 
 # Keep this crate out of the main workspace.
 [workspace]

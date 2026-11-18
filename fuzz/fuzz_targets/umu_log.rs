@@ -2,7 +2,7 @@
 //! (probe P-28, THREAT_MODEL T-20).
 #![no_main]
 
-use easyplay_core::umu::log_parse::LogClassifier;
+use zaun_core::umu::log_parse::LogClassifier;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

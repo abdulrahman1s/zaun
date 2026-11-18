@@ -1,0 +1,11 @@
+---
+source: crates/zaun/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Keep Zaun running in the background so opened programs start at once
+
+Usage: zaun service [OPTIONS]
+
+Options:
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+  -h, --help        Print help (see more with '--help')

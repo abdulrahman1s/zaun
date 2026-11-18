@@ -1,0 +1,61 @@
+[package]
+name = "zaun-media"
+description = "Zaun's call media (ADR-0035): WebRTC through str0m on our own threads, Opus, PulseAudio, a TURN client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+zaun-core = { workspace = true }
+# Sans-IO WebRTC (no async runtime); pure-Rust crypto (DTLS through dimpl).
+str0m = { version = "0.25", default-features = false, features = ["rust-crypto"] }
+# Opus over the system libopus (pkg-config; `opus` 0.4 would build its own copy with cmake).
+audiopus = "=0.3.0-rc.0"
+libpulse-binding = { version = "2.29", default-features = false }
+libpulse-simple-binding = { version = "2.29", default-features = false }
+nnnoiseless = { version = "0.5", default-features = false }
+# The TURN client (RFC 5766/8656): long-term credentials and the transport to the relay.
+hmac = "0.13"
+sha1 = "0.11"
+md-5 = "0.11"
+crc32fast = "1.5"
+# The official apps' frame encryption of calls (ADR-0035 §4); already in the tree through str0m.
+aes-gcm = "0.11"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "1.0"
+tracing = { workspace = true }
+rustix = { workspace = true }
+serde_json = { workspace = true }
+# Game streams (ADR-0036): H.264 through Cisco's OpenH264, built from its source (BSD-2).
+openh264 = { version = "0.9", default-features = false, features = ["source"] }
+# The ScreenCast portal (blocking API) and the window's pictures from PipeWire (`portal`).
+zbus = { workspace = true, optional = true }
+pipewire = { version = "0.10", optional = true }
+# Hardware H.264 (NVENC, VA-API) through the system's libavcodec (`hwenc`; MIT binding of
+# FFmpeg 8, which links it through pkg-config).
+rsmpeg = { version = "0.18", default-features = false, features = ["ffmpeg8", "link_system_ffmpeg"], optional = true }
+
+[features]
+# Capture a game's window through the ScreenCast portal and PipeWire (ADR-0036). Needs
+# libpipewire and, to build, libclang (bindgen).
+portal = ["dep:zbus", "dep:pipewire"]
+# Encode streams on the GPU (NVENC, VA-API) through libavcodec, OpenH264 as the fallback
+# (ADR-0036). Needs FFmpeg 8 (libavcodec, libavutil) and, to build, libclang.
+hwenc = ["dep:rsmpeg"]
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# The interop test with the apps' own call.js (`tests/it/app_interop.rs`).
+lz-str = { workspace = true }
+base64 = { workspace = true }
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
+
+[lints]
+workspace = true

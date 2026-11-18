@@ -39,8 +39,8 @@ concurrency:
     }}
 
 env:
-  BIN_NAME: easyplay
-  INIT_NAME: easyplay-init
+  BIN_NAME: zaun
+  INIT_NAME: zaun-init
   CARGO_TERM_COLOR: always
 
 jobs:
@@ -291,11 +291,11 @@ jobs:
         # PERFORMANCE §1, static shim, desktop/AppStream validation, staged tarball (PKG-007).
         id: tarball
         env:
-          EASYPLAY_COMMIT: ${{ needs.prepare-release.outputs.sha || github.sha }}
+          ZAUN_COMMIT: ${{ needs.prepare-release.outputs.sha || github.sha }}
         run: |
           set -euo pipefail
-          EASYPLAY_COMMIT="${EASYPLAY_COMMIT:0:12}" scripts/build-release.sh --tarball
-          version="$(cat dist/easyplay-*-x86_64-linux/VERSION)"
+          ZAUN_COMMIT="${ZAUN_COMMIT:0:12}" scripts/build-release.sh --tarball
+          version="$(cat dist/zaun-*-x86_64-linux/VERSION)"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Vendored crates for offline source builds (RPM/COPR)
@@ -308,7 +308,7 @@ jobs:
           cargo vendor --locked vendor > /dev/null
           echo "${COMMIT:0:12}" > vendor/COMMIT
           tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf - vendor \
-            | zstd -q -19 -T0 -o "dist/easyplay-${VERSION}-vendor.tar.zst"
+            | zstd -q -19 -T0 -o "dist/zaun-${VERSION}-vendor.tar.zst"
           rm -rf vendor
 
       - name: Upload release artifact
@@ -317,8 +317,8 @@ jobs:
         with:
           name: release-tarball
           path: |
-            dist/easyplay-${{ steps.tarball.outputs.version }}-x86_64-linux.tar.zst
-            dist/easyplay-${{ steps.tarball.outputs.version }}-vendor.tar.zst
+            dist/zaun-${{ steps.tarball.outputs.version }}-x86_64-linux.tar.zst
+            dist/zaun-${{ steps.tarball.outputs.version }}-vendor.tar.zst
           if-no-files-found: error
 
   packages:
@@ -373,11 +373,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive="$(ls dist/easyplay-*-x86_64-linux.tar.zst)"
+          archive="$(ls dist/zaun-*-x86_64-linux.tar.zst)"
           tar --zstd -xf "${archive}" -C dist
-          version="$(cat dist/easyplay-*-x86_64-linux/VERSION)"
+          version="$(cat dist/zaun-*-x86_64-linux/VERSION)"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
-          echo "tree=$(ls -d "${PWD}"/dist/easyplay-*-x86_64-linux)" >> "${GITHUB_OUTPUT}"
+          echo "tree=$(ls -d "${PWD}"/dist/zaun-*-x86_64-linux)" >> "${GITHUB_OUTPUT}"
           mkdir -p out
 
       - name: Build .deb
@@ -395,14 +395,14 @@ jobs:
           VERSION: ${{ steps.unpack.outputs.version }}
         run: |
           set -euo pipefail
-          sed -i "s/^%global upstream_version .*/%global upstream_version ${VERSION}/" packaging/rpm/easyplay.spec
+          sed -i "s/^%global upstream_version .*/%global upstream_version ${VERSION}/" packaging/rpm/zaun.spec
           rpmbuild -bb --with prebuilt \
             --define "_sourcedir ${PWD}/dist" --define "_rpmdir ${PWD}/out" \
             --define "_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm" \
-            packaging/rpm/easyplay.spec
-          rpmlint -r packaging/rpm/rpmlintrc.toml packaging/rpm/easyplay.spec out/*.rpm
+            packaging/rpm/zaun.spec
+          rpmlint -r packaging/rpm/rpmlintrc.toml packaging/rpm/zaun.spec out/*.rpm
 
-      - name: Build Arch package (easyplay-bin)
+      - name: Build Arch package (zaun-bin)
         if: ${{ matrix.format == 'arch' }}
         shell: bash
         env:
@@ -411,11 +411,11 @@ jobs:
           set -euo pipefail
           # makepkg refuses to run as root.
           useradd -m builder
-          work=/home/builder/easyplay-bin
+          work=/home/builder/zaun-bin
           mkdir -p "${work}"
-          cp packaging/arch/easyplay-bin/PKGBUILD "${work}/"
-          cp dist/easyplay-*-x86_64-linux.tar.zst "${work}/"
-          sum="$(sha256sum dist/easyplay-*-x86_64-linux.tar.zst | cut -d' ' -f1)"
+          cp packaging/arch/zaun-bin/PKGBUILD "${work}/"
+          cp dist/zaun-*-x86_64-linux.tar.zst "${work}/"
+          sum="$(sha256sum dist/zaun-*-x86_64-linux.tar.zst | cut -d' ' -f1)"
           # pacman versions cannot contain "-": 1.0.0-rc.1 -> 1.0.0rc.1.
           sed -i -e "s/^pkgver=.*/pkgver=${VERSION//-/}/" \
                  -e "s/^_upstreamver=.*/_upstreamver=${VERSION}/" \
@@ -425,8 +425,8 @@ jobs:
           namcap "${work}/PKGBUILD"
           namcap "${work}"/*.pkg.tar.zst
           cp "${work}"/*.pkg.tar.zst out/
-          cp "${work}/PKGBUILD" out/PKGBUILD-easyplay-bin
-          cp "${work}/.SRCINFO" out/SRCINFO-easyplay-bin
+          cp "${work}/PKGBUILD" out/PKGBUILD-zaun-bin
+          cp "${work}/.SRCINFO" out/SRCINFO-zaun-bin
 
       - name: Upload package
         uses: actions/upload-artifact@v4
@@ -451,7 +451,7 @@ jobs:
         uses: cachix/install-nix-action@v31
 
       - name: Build package
-        run: nix build -L .#easyplay
+        run: nix build -L .#zaun
 
       - name: Check dev shell
         run: nix develop -c cargo --version

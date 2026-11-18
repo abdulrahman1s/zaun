@@ -1,4 +1,4 @@
-# EasyPlay and its static init shim, built from the workspace in this repository.
+# Zaun and its static init shim, built from the workspace in this repository.
 #
 # Called from flake.nix and from overlays.default. `rustToolchain` is the toolchain pinned
 # by rust-toolchain.toml (through rust-overlay); everything else comes from nixpkgs.
@@ -45,7 +45,7 @@
 }:
 
 let
-  appId = "io.github.easyplay.EasyPlay";
+  appId = "io.github.zaun.Zaun";
 
   # Libraries eframe/winit/wgpu dlopen at run time.
   runtimeLibs = [
@@ -68,7 +68,7 @@ let
     ffmpeg_8-headless
   ];
 
-  # Host tools EasyPlay executes (RELEASE_STRATEGY §2: bubblewrap and umu-launcher on PATH).
+  # Host tools Zaun executes (RELEASE_STRATEGY §2: bubblewrap and umu-launcher on PATH).
   hostTools = [
     bubblewrap
     umu-launcher
@@ -77,7 +77,7 @@ let
 
   meta = {
     description = "Run Windows games through umu-run inside a per-game bubblewrap sandbox";
-    homepage = "https://github.com/easyplay/easyplay";
+    homepage = "https://github.com/zaun/zaun";
     license = lib.licenses.gpl3Plus;
     platforms = lib.platforms.linux;
   };
@@ -103,10 +103,10 @@ let
       };
     in
     if simplex-chat-desktop.passthru.sources ? ${system} then
-      runCommand "easyplay-simplex-lib-${simplex-chat-desktop.version}"
+      runCommand "zaun-simplex-lib-${simplex-chat-desktop.version}"
         {
           meta = {
-            description = "SimpleX chat core library for EasyPlay's Chat helper";
+            description = "SimpleX chat core library for Zaun's Chat helper";
             homepage = "https://github.com/simplex-chat/simplex-chat";
             license = lib.licenses.agpl3Only;
             sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
@@ -146,8 +146,8 @@ let
     ];
   };
 
-  easyplay-init = stdenv.mkDerivation {
-    pname = "easyplay-init";
+  zaun-init = stdenv.mkDerivation {
+    pname = "zaun-init";
     inherit version src cargoDeps;
     nativeBuildInputs = [
       rustPlatform.cargoSetupHook
@@ -158,12 +158,12 @@ let
     buildPhase = ''
       runHook preBuild
       cargo build --offline --locked -j $NIX_BUILD_CORES \
-        --profile init-release -p easyplay-init --target ${muslTarget}
+        --profile init-release -p zaun-init --target ${muslTarget}
       runHook postBuild
     '';
     installPhase = ''
       runHook preInstall
-      install -Dm755 target/${muslTarget}/init-release/easyplay-init $out/bin/easyplay-init
+      install -Dm755 target/${muslTarget}/init-release/zaun-init $out/bin/zaun-init
       runHook postInstall
     '';
     # A static binary has nothing to patch, and its RPATH must stay empty.
@@ -171,8 +171,8 @@ let
     # The shim's tests fork and signal real processes; they run in `cargo nextest`.
     doCheck = false;
     meta = meta // {
-      description = "EasyPlay's in-sandbox init shim";
-      mainProgram = "easyplay-init";
+      description = "Zaun's in-sandbox init shim";
+      mainProgram = "zaun-init";
     };
   };
 
@@ -182,11 +182,11 @@ let
     [Desktop Entry]
     Type=Application
     Version=1.5
-    Name=EasyPlay
+    Name=Zaun
     GenericName=Windows Game Launcher
     Comment=Play Windows games with per-game protection
-    Exec=easyplay open %F
-    TryExec=easyplay
+    Exec=zaun open %F
+    TryExec=zaun
     Icon=${appId}
     Terminal=false
     Categories=Game;
@@ -198,22 +198,22 @@ let
 
     [Desktop Action add-game]
     Name=Add Game…
-    Exec=easyplay --add
+    Exec=zaun --add
   '';
 in
 rustPlatform.buildRustPackage {
-  pname = "easyplay";
+  pname = "zaun";
   inherit version src cargoDeps;
   cargoBuildFlags = [
     "-p"
-    "easyplay"
-    # The in-game overlay (ADR-0037), started by EasyPlay from libexec.
+    "zaun"
+    # The in-game overlay (ADR-0037), started by Zaun from libexec.
     "-p"
-    "easyplay-overlay"
+    "zaun-overlay"
   ]
   ++ lib.optionals (simplexLib != null) [
     "-p"
-    "easyplay-chat"
+    "zaun-chat"
   ];
   # Tests that need real bwrap/umu cannot run in the Nix build sandbox.
   doCheck = false;
@@ -236,27 +236,27 @@ rustPlatform.buildRustPackage {
     aws-lc
   ];
 
-  # Compiled into easyplay-core's consts::LIBEXEC_DIR (RELEASE_STRATEGY §2.1).
-  EASYPLAY_LIBEXEC_DIR = "${placeholder "out"}/libexec/easyplay";
+  # Compiled into zaun-core's consts::LIBEXEC_DIR (RELEASE_STRATEGY §2.1).
+  ZAUN_LIBEXEC_DIR = "${placeholder "out"}/libexec/zaun";
   # There is no .git in the build sandbox; build.rs takes the commit from here.
-  EASYPLAY_COMMIT = commit;
+  ZAUN_COMMIT = commit;
 
   postInstall = ''
-    install -Dm755 ${easyplay-init}/bin/easyplay-init $out/libexec/easyplay/easyplay-init
-    # The in-game overlay (ADR-0037): started by EasyPlay under bwrap, never by the user.
-    install -Dm755 $out/bin/easyplay-overlay $out/libexec/easyplay/easyplay-overlay
-    rm $out/bin/easyplay-overlay
-    remove-references-to -t ${rustToolchain} $out/libexec/easyplay/easyplay-overlay
+    install -Dm755 ${zaun-init}/bin/zaun-init $out/libexec/zaun/zaun-init
+    # The in-game overlay (ADR-0037): started by Zaun under bwrap, never by the user.
+    install -Dm755 $out/bin/zaun-overlay $out/libexec/zaun/zaun-overlay
+    rm $out/bin/zaun-overlay
+    remove-references-to -t ${rustToolchain} $out/libexec/zaun/zaun-overlay
   ''
-  # The Chat helper is AGPL-3.0 (it loads libsimplex into its process); EasyPlay talks to it
+  # The Chat helper is AGPL-3.0 (it loads libsimplex into its process); Zaun talks to it
   # over pipes only. Its library folder holds links into simplexLib, so the helper's sandbox
   # binds a real directory (SimplexFactory binds the library's parent folder).
   + lib.optionalString (simplexLib != null) ''
-    install -Dm755 $out/bin/easyplay-chat $out/libexec/easyplay/easyplay-chat
-    rm $out/bin/easyplay-chat
-    remove-references-to -t ${rustToolchain} $out/libexec/easyplay/easyplay-chat
-    mkdir -p $out/libexec/easyplay/simplex
-    ln -s ${simplexLib}/lib/* $out/libexec/easyplay/simplex/
+    install -Dm755 $out/bin/zaun-chat $out/libexec/zaun/zaun-chat
+    rm $out/bin/zaun-chat
+    remove-references-to -t ${rustToolchain} $out/libexec/zaun/zaun-chat
+    mkdir -p $out/libexec/zaun/simplex
+    ln -s ${simplexLib}/lib/* $out/libexec/zaun/simplex/
   ''
   + ''
 
@@ -266,9 +266,9 @@ rustPlatform.buildRustPackage {
       cp -r assets/share/. $out/share/
     fi
     # The background service's user unit (ADR-0022) names the wrapped binary.
-    if [ -f $out/share/systemd/user/easyplay.service ]; then
-      substituteInPlace $out/share/systemd/user/easyplay.service \
-        --replace-fail "ExecStart=/usr/bin/easyplay " "ExecStart=$out/bin/easyplay "
+    if [ -f $out/share/systemd/user/zaun.service ]; then
+      substituteInPlace $out/share/systemd/user/zaun.service \
+        --replace-fail "ExecStart=/usr/bin/zaun " "ExecStart=$out/bin/zaun "
     fi
     if [ -d assets/desktop ]; then
       for f in assets/desktop/*.desktop; do
@@ -288,53 +288,53 @@ rustPlatform.buildRustPackage {
 
     # Licence texts, at the path the other packages use (DESKTOP_INTEGRATION §10).
     if [ -f LICENSE ]; then
-      install -Dm644 LICENSE -t $out/share/licenses/easyplay
+      install -Dm644 LICENSE -t $out/share/licenses/zaun
     fi
     for f in assets/licenses/*.txt; do
-      [ -e "$f" ] && install -Dm644 "$f" -t $out/share/licenses/easyplay
+      [ -e "$f" ] && install -Dm644 "$f" -t $out/share/licenses/zaun
     done
 
     # Man pages and shell completions from the clap definitions (CLI-004).
-    $out/bin/easyplay generate-assets --out generated
+    $out/bin/zaun generate-assets --out generated
     installManPage generated/man/man1/*.1
     # bash-completion looks the file up by command name.
-    installShellCompletion --bash --name easyplay generated/completions/easyplay.bash
-    installShellCompletion --zsh generated/completions/_easyplay
-    installShellCompletion --fish generated/completions/easyplay.fish
+    installShellCompletion --bash --name zaun generated/completions/zaun.bash
+    installShellCompletion --zsh generated/completions/_zaun
+    installShellCompletion --fish generated/completions/zaun.fish
 
     # Panic locations in std embed the toolchain's store path, which would otherwise pull
     # the whole toolchain (about 1.2 GiB) into the runtime closure.
-    remove-references-to -t ${rustToolchain} $out/bin/easyplay
+    remove-references-to -t ${rustToolchain} $out/bin/zaun
 
-    # A session-wide `MANGOHUD=1` would load the overlay into EasyPlay's own window, where
+    # A session-wide `MANGOHUD=1` would load the overlay into Zaun's own window, where
     # its sampling thread runs as long as the service does. Games are unaffected: they get
     # their environment from the launch plan, never from this process.
-    wrapProgram $out/bin/easyplay \
+    wrapProgram $out/bin/zaun \
       --set DISABLE_MANGOHUD 1 \
       --prefix PATH : ${lib.makeBinPath hostTools} \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath runtimeLibs} \
       ${lib.optionalString (simplexLib != null) ''
-        --set EASYPLAY_SIMPLEX_LIB $out/libexec/easyplay/simplex/libsimplex.so \
-        --set EASYPLAY_SIMPLEX_LIBRARY_PATH ${simplexLibraryPath}
+        --set ZAUN_SIMPLEX_LIB $out/libexec/zaun/simplex/libsimplex.so \
+        --set ZAUN_SIMPLEX_LIBRARY_PATH ${simplexLibraryPath}
       ''}
   '';
 
   # The wrapper's LD_LIBRARY_PATH reaches only the process it starts: the session supervisor
   # runs with a cleared environment and still has to dlopen libwayland-client (the Wayland
-  # security context, EP-SBX-001 otherwise). The run path is added after fixup, whose
+  # security context, ZN-SBX-001 otherwise). The run path is added after fixup, whose
   # shrink step would drop it again (no DT_NEEDED entry names these libraries).
   postFixup = ''
-    patchelf --add-rpath ${lib.makeLibraryPath runtimeLibs} $out/bin/.easyplay-wrapped
+    patchelf --add-rpath ${lib.makeLibraryPath runtimeLibs} $out/bin/.zaun-wrapped
     # The overlay runs with a cleared environment and dlopens libwayland-client and the
     # Vulkan/GL loaders (ADR-0037).
-    patchelf --add-rpath ${lib.makeLibraryPath runtimeLibs} $out/libexec/easyplay/easyplay-overlay
+    patchelf --add-rpath ${lib.makeLibraryPath runtimeLibs} $out/libexec/zaun/zaun-overlay
   '';
 
   disallowedReferences = [ rustToolchain ];
 
   passthru = {
     inherit
-      easyplay-init
+      zaun-init
       runtimeLibs
       hostTools
       simplexLib
@@ -342,8 +342,8 @@ rustPlatform.buildRustPackage {
   };
 
   meta = meta // {
-    # libexec/easyplay/easyplay-chat is AGPL-3.0-only (ADR-0033); everything else GPL-3.0+.
+    # libexec/zaun/zaun-chat is AGPL-3.0-only (ADR-0033); everything else GPL-3.0+.
     license = [ meta.license ] ++ lib.optional (simplexLib != null) lib.licenses.agpl3Only;
-    mainProgram = "easyplay";
+    mainProgram = "zaun";
   };
 }

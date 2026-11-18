@@ -42,14 +42,14 @@ clean() {
 
 case "${mode}" in
     clean) clean; exit 0 ;;
-    check) exec cargo test -p easyplay-ui --tests "${cargo_args[@]}" ;;
+    check) exec cargo test -p zaun-ui --tests "${cargo_args[@]}" ;;
     update) export UPDATE_SNAPSHOTS=1 ;;
     force) export UPDATE_SNAPSHOTS=force ;;
 esac
 
 clean
 status=0
-cargo test -p easyplay-ui --tests "${cargo_args[@]}" || status=$?
+cargo test -p zaun-ui --tests "${cargo_args[@]}" || status=$?
 
 # The review page: every snapshot the run rewrote has a *.old.png backup next to it.
 review="${CARGO_TARGET_DIR:-${root}/target}/snapshot-review"

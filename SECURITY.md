@@ -1,14 +1,14 @@
 # Security policy
 
-EasyPlay's purpose is to limit what a Windows program can reach, so a way out of a game's
+Zaun's purpose is to limit what a Windows program can reach, so a way out of a game's
 sandbox, or a way for one game to read another's data or yours, is a security problem. So is
 anything that loses or corrupts a user's library or saves.
 
 ## Reporting
 
 Please report privately, not in a public issue: use **Report a vulnerability** on the
-repository's [Security tab](https://github.com/easyplay/easyplay/security/advisories/new)
-(GitHub private vulnerability reporting). Include the EasyPlay version (`easyplay --version`),
+repository's [Security tab](https://github.com/zaun/zaun/security/advisories/new)
+(GitHub private vulnerability reporting). Include the Zaun version (`zaun --version`),
 the distribution, the game's protection settings, and the steps or a test program.
 
 - We acknowledge a report within **three working days**.
@@ -19,7 +19,7 @@ the distribution, the game's protection settings, and the steps or a test progra
 
 ## Scope
 
-In scope: the sandbox EasyPlay builds (the `bwrap` command line, mounts, environment,
+In scope: the sandbox Zaun builds (the `bwrap` command line, mounts, environment,
 devices, seccomp), the init shim, the supervisor, the library and its files, the
 single-instance socket, and the packages in this repository (including the AppArmor profile).
 
