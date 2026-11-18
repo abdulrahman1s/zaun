@@ -30,9 +30,17 @@ impl EncoderKind for Nvenc {
     }
 
     fn open(&self, spec: &EncodeSpec) -> Result<Box<dyn VideoEncoder>, String> {
+        // NVENC needs NVIDIA's kernel driver. Without it FFmpeg 8.0's h264_nvenc fails to load
+        // libcuda and then crashes while closing (seen on Ubuntu 26.04), so it is not tried.
+        if !std::path::Path::new(NVIDIA_CONTROL).exists() {
+            return Err(format!("no NVIDIA driver ({NVIDIA_CONTROL})"));
+        }
         Ok(Box::new(ffmpeg::Encoder::nvenc(spec)?))
     }
 }
+
+/// The NVIDIA driver's control device: present exactly when its kernel module is loaded.
+const NVIDIA_CONTROL: &str = "/dev/nvidiactl";
 
 /// VA-API (AMD, Intel; on NVIDIA it only decodes): the first render node.
 pub struct Vaapi;
