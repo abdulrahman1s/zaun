@@ -462,6 +462,10 @@ fn a_confirmed_version_drops_the_previous_one() {
     assert!(trial::confirm(&fs, &layout, &new).unwrap());
     assert!(!fs.exists(&layout.previous()));
     assert!(!fs.exists(&layout.trial_file()));
+    assert!(
+        !fs.exists(&layout.update_dir()),
+        "nothing is left for uninstall.sh"
+    );
     assert_eq!(
         trial::on_start(&fs, &layout, &new).unwrap(),
         TrialStart::None

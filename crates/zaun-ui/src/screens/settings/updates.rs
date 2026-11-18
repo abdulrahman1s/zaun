@@ -62,11 +62,16 @@ fn status(u: &UpdateSnapshot, on: bool, env: &Env<'_>) -> String {
     match (u.last_checked, on) {
         (_, false) => t::CHECKS_OFF().to_owned(),
         (None, true) => t::NEVER_CHECKED().to_owned(),
-        (Some(at), true) => t::up_to_date(&strings::fmt::relative_inline(
-            at,
-            env.now,
-            env.utc_offset_s,
-        )),
+        (Some(at), true) => {
+            let when = strings::fmt::relative_inline(at, env.now, env.utc_offset_s);
+            // A newer version (found or downloaded) is shown below: not "up to date".
+            let newer = u.available.is_some() || !matches!(u.download, UpdateDownload::Idle);
+            if newer {
+                t::checked(&when)
+            } else {
+                t::up_to_date(&when)
+            }
+        }
     }
 }
 

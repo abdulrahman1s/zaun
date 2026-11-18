@@ -21,7 +21,7 @@ impl AppService {
         match d {
             UpdatesDone::Due { generation } => {
                 if generation == self.flow.updates.generation {
-                    self.check_updates(false);
+                    self.schedule_updates();
                 }
                 Ok(())
             }

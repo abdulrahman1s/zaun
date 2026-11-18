@@ -51,6 +51,11 @@ pub fn up_to_date(when: &str) -> String {
     rust_i18n::t!("updates.up_to_date", when = when).into_owned()
 }
 
+/// "Checked today" (a newer version is shown below it).
+pub fn checked(when: &str) -> String {
+    rust_i18n::t!("updates.checked", when = when).into_owned()
+}
+
 /// "Couldn't check: The update server could not be reached …".
 pub fn failed(why: &str) -> String {
     rust_i18n::t!("updates.failed", why = why).into_owned()

@@ -2866,6 +2866,7 @@ updates:
   never_checked: "لم يُتحقق بعد"
   checks_off: "فعّل البحث لمعرفة إن كان هناك إصدار أحدث"
   up_to_date: "محدَّث · آخر تحقق %{when}"
+  checked: "آخر تحقق %{when}"
   failed: "تعذّر التحقق: %{why}"
   not_configured: "بُنيت هذه النسخة من Zaun دون المفتاح الذي يثبت أن التحديث أصلي، لذا لا تبحث عن تحديثات."
   available: "يتوفر Zaun %{v}"

@@ -62,6 +62,8 @@ sed -n 's/^f //p' "$manifest" | while IFS= read -r rel; do
     if [ -f "$dest/$rel" ] || [ -L "$dest/$rel" ]; then rm -f "$dest/$rel"; fi
 done
 rm -f "$manifest"
+# What Zaun's own updates keep next to the binary (ADR-0040): staged and previous files.
+rm -rf "$dest/libexec/zaun/.update"
 
 # Then the directories install.sh created, only when empty.
 while IFS= read -r rel; do

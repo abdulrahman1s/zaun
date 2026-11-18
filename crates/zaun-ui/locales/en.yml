@@ -2677,6 +2677,7 @@ updates:
   never_checked: "Not checked yet"
   checks_off: "Turn on checks to look for a newer version"
   up_to_date: "Up to date · checked %{when}"
+  checked: "Checked %{when}"
   failed: "Couldn't check: %{why}"
   not_configured: "This copy of Zaun was built without the key that proves an update is genuine, so it does not check for updates."
   available: "Zaun %{v} is available"

@@ -52,9 +52,10 @@ impl AppService {
             }
         }
         self.publish_updates();
-        // The next daily check, a day from now.
-        self.flow.updates.generation += 1;
-        if self.prefs.updates.check {
+        // After a daily check, the next one a day from now. "Check now" leaves the pending
+        // timer alone: when it runs out, `schedule_updates` waits for the rest of the day.
+        if !manual && self.prefs.updates.check {
+            self.flow.updates.generation += 1;
             self.updates_after(CHECK_EVERY);
         }
         Ok(())

@@ -42,6 +42,9 @@ impl AppService {
     /// are cancelled by the new generation.
     pub(super) fn schedule_updates(&mut self) {
         self.flow.updates.generation += 1;
+        // A check by `zaun update check` counts too: the file is the shared throttle.
+        let path = state::state_file(&self.deps.paths);
+        self.flow.updates.file = crate::update::UpdateState::load(&*self.deps.fs, &path);
         if !self.prefs.updates.check || self.update_deps().is_err() {
             return;
         }

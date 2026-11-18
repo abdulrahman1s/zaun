@@ -72,13 +72,18 @@ pub fn apply(
         let _ = clear_dir(fs, &staged); // best effort: the error below is what matters
         return Err(e);
     }
-    swap(fs, layout)?;
+    // The trial first: a new binary must never be in place without one (a stale trial is
+    // dropped by the next start, whose version does not match it).
     let trial = Trial {
         version: release.version.to_string(),
         previous: running.to_string(),
         starts: 0,
     };
     write_trial(fs, layout, &trial)?;
+    if let Err(e) = swap(fs, layout) {
+        let _ = remove_if_present(fs, &layout.trial_file()); // best effort; `e` is what matters
+        return Err(e);
+    }
     clear_dir(fs, &staged)?;
     Ok(Some(release.version))
 }
@@ -142,7 +147,15 @@ pub fn rollback(fs: &dyn Fs, layout: &Layout) -> Result<(), UpdateError> {
         }
     }
     clear_dir(fs, &previous)?;
-    remove_if_present(fs, &layout.trial_file())
+    remove_if_present(fs, &layout.trial_file())?;
+    remove_update_dir_if_empty(fs, layout);
+    Ok(())
+}
+
+/// Remove `.update/` once nothing is left in it, so uninstalling leaves no folder behind.
+pub(super) fn remove_update_dir_if_empty(fs: &dyn Fs, layout: &Layout) {
+    // Fails while something is staged: that is the point.
+    let _ = fs.remove_dir(&layout.update_dir());
 }
 
 pub(super) fn remove_if_present(fs: &dyn Fs, path: &std::path::Path) -> Result<(), UpdateError> {

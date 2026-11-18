@@ -2,7 +2,7 @@
 //! confirms; the third start without a confirmation puts the previous version back.
 
 use super::UpdateError;
-use super::apply::{Trial, remove_if_present, rollback, write_trial};
+use super::apply::{Trial, remove_if_present, remove_update_dir_if_empty, rollback, write_trial};
 use super::install::Layout;
 use super::stage::clear_dir;
 use super::version::Version;
@@ -60,5 +60,6 @@ pub fn confirm(fs: &dyn Fs, layout: &Layout, running: &Version) -> Result<bool, 
     }
     clear_dir(fs, &layout.previous())?;
     remove_if_present(fs, &layout.trial_file())?;
+    remove_update_dir_if_empty(fs, layout);
     Ok(true)
 }
