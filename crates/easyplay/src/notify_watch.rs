@@ -125,7 +125,8 @@ impl NotifyWatch {
                     }
                     let prefs = hub.prefs.load();
                     let focused = focus.load(Ordering::Relaxed);
-                    let overlay = *hub.overlay.load();
+                    let overlay =
+                        *hub.overlay.load() == easyplay_core::service::OverlayStatus::Running;
                     let calls = notify::chat_calls(&seen, &now);
                     for ev in calls.into_iter().chain(notify::chat_messages(
                         &seen,
