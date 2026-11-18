@@ -392,10 +392,7 @@ pub fn paint(
                 painter.rect_filled(
                     rect,
                     corner,
-                    fade(
-                        palette::fixed::MISSING_ART_VEIL,
-                        0.7 * t * look.opacity,
-                    ),
+                    fade(palette::fixed::MISSING_ART_VEIL, 0.7 * t * look.opacity),
                 );
             }
         }
