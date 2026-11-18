@@ -33,7 +33,7 @@ jobs:
     name: Architecture rules (ARCH-006)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Layering, UI imports, unsafe, colours, screen strings
         run: scripts/ci/check-architecture.sh
 
@@ -41,8 +41,8 @@ jobs:
     name: cargo-deny (licences, bans, advisories, sources)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: EmbarkStudios/cargo-deny-action@70f81531115945ba6eb6b941ec9d39d063438eb9 # v2
         with:
           command: check
           arguments: --all-features
@@ -51,7 +51,7 @@ jobs:
     name: MSRV 1.95 (build and test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Install system packages
         run: |
           sudo apt-get update
@@ -61,7 +61,7 @@ jobs:
         run: |
           rustup toolchain install 1.95 --profile minimal
           rustup override set 1.95
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           shared-key: msrv
       - name: Build
@@ -73,7 +73,7 @@ jobs:
     name: UI tests and snapshots (software rendering, TEST-030)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Install system packages (Mesa lavapipe for wgpu)
         run: |
           sudo apt-get update
@@ -82,7 +82,7 @@ jobs:
             mesa-vulkan-drivers libvulkan1
       - name: Install Rust (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           shared-key: ui
       - name: UI tests in debug with the UI-thread guard (PERF-002) and idle test (PERF-003)
@@ -91,7 +91,7 @@ jobs:
         run: scripts/update-snapshots.sh --check
       - name: Upload snapshot differences
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: snapshot-diffs
           path: |
@@ -103,7 +103,7 @@ jobs:
     name: End to end (real bubblewrap, TEST-010)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Install system packages
         run: |
           sudo apt-get update
@@ -122,7 +122,7 @@ jobs:
           bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc --dev /dev -- true
       - name: Install Rust (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           shared-key: e2e
       # The umu experiments (crates/zaun/tests/e2e_experiments.rs, TEST-020) need a real
@@ -146,10 +146,10 @@ jobs:
     name: Fuzz targets compile (SEC-004)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Install Rust (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: fuzz
           shared-key: fuzz
@@ -161,7 +161,7 @@ jobs:
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Install system packages
         run: |
           sudo apt-get update
@@ -169,12 +169,12 @@ jobs:
             pkg-config libudev-dev libxkbcommon-dev libwayland-dev libgl-dev
       - name: Install Rust (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           shared-key: bench
       - name: Run the benches and the 25 % regression gate
         run: scripts/bench.sh bench-results.jsonl
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: bench-results
@@ -187,7 +187,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Install system packages
         run: |
           sudo apt-get update
@@ -198,12 +198,12 @@ jobs:
         run: |
           rustup show active-toolchain || rustup toolchain install
           rustup component add llvm-tools-preview
-      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: taiki-e/install-action@c2e5d2ce8920c881761c4cabb41434daa1f95687 # cargo-llvm-cov
       - name: Coverage of the workspace tests
         run: cargo llvm-cov --locked --workspace --lcov --output-path lcov.info
       - name: Summary
         run: cargo llvm-cov report --summary-only
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-lcov
           path: lcov.info
