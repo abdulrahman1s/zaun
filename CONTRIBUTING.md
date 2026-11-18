@@ -42,7 +42,8 @@ interface language). `cargo nextest run --workspace` is the fastest local run
 | End-to-end tests that need real `bwrap` and user namespaces | `ZAUN_E2E=1 cargo test --workspace` |
 | Static init shim, as released | `cargo build --profile init-release -p zaun-init --target x86_64-unknown-linux-musl` |
 | Compiled-in shim location | set `ZAUN_LIBEXEC_DIR` at build time (default `/usr/libexec/zaun`) |
-| Update snapshots | `cargo insta review` |
+| Update text snapshots | `cargo insta review` |
+| UI snapshot images (kept out of the repository; the first run records them) | `scripts/update-snapshots.sh`, then review `target/snapshot-review/index.html` |
 | Release build, checks and staged install tree | `scripts/build-release.sh` (`--tarball` for the release tarball) |
 
 ## Checking a window on a real desktop

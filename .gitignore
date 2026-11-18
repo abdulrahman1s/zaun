@@ -24,6 +24,9 @@ graphify-out/
 /chat-calls.html
 /zaun-redesign.html
 
+# UI snapshot images are kept on the maintainer's machine only (scripts/update-snapshots.sh);
+# CI renders every screen but has no images to compare against.
+/crates/zaun-ui/tests/snapshots/
 # Snapshot review leftovers (kittest, insta)
 crates/*/tests/snapshots/*.diff.png
 crates/*/tests/snapshots/*.old.png
