@@ -45,6 +45,9 @@ env:
   BIN_NAME: zaun
   INIT_NAME: zaun-init
   CARGO_TERM_COLOR: always
+  # rusty_ffmpeg generates its bindings from the first include folder pkg-config reports, in
+  # no set order; on Ubuntu that is sometimes not the one holding FFmpeg's headers.
+  FFMPEG_INCLUDE_DIR: /usr/include/x86_64-linux-gnu
 
 jobs:
   prepare-release:

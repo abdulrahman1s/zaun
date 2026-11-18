@@ -25,6 +25,9 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  # rusty_ffmpeg generates its bindings from the first include folder pkg-config reports, in
+  # no set order; on Ubuntu that is sometimes not the one holding FFmpeg's headers.
+  FFMPEG_INCLUDE_DIR: /usr/include/x86_64-linux-gnu
   # Line tables keep backtraces useful while making test binaries several times smaller.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
@@ -98,6 +101,8 @@ jobs:
         env:
           WGPU_BACKEND: vulkan
           UPDATE_SNAPSHOTS: "1"
+          # Several wgpu harnesses rendering at once on lavapipe can crash (SIGSEGV).
+          RUST_TEST_THREADS: "1"
         run: cargo test -p zaun-ui --tests
 
   e2e:
