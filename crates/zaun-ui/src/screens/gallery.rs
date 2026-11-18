@@ -685,14 +685,7 @@ fn covers(ui: &mut Ui, env: &mut Env<'_>) {
         a.favorite = false;
         samples.push(a);
     }
-    for name in [
-        "Lantern Keep",
-        "Moss & Iron",
-        "Low Tide Motel",
-        "Starfall Tactics",
-        "Harbor Lights",
-        "Paper Kingdoms",
-    ] {
+    for name in crate::demo::GALLERY_POSTERS {
         if let Some(s) = find(name) {
             samples.push(s);
         }

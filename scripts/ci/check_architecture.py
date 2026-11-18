@@ -40,7 +40,7 @@ LAYERS = {
     "storage": 3, "config": 3, "host": 3, "steam": 3,
     "identity": 4, "sandbox": 4, "umu": 4,
     "runtime": 5, "launch": 5, "session": 5, "library": 5, "stats": 5, "artwork": 5,
-    "desktop": 5, "diagnostics": 5, "chat": 5, "update": 5,
+    "desktop": 5, "diagnostics": 5, "chat": 5, "update": 5, "gifs": 5, "linkcheck": 5,
     "service": 6,
 }
 # Allowed imports between layer-5 modules (§4).
@@ -53,6 +53,11 @@ LAYER5_ALLOWED = {
     ("chat", "session"),
     # Updates reach the network only through the one HTTP client (ADR-0018, ADR-0040).
     ("update", "artwork"),
+    # GIF search and the link check reach the network only through the same client.
+    ("gifs", "artwork"), ("linkcheck", "artwork"),
+    # Opening a Chat link takes the checked `WebLink` type; the link check reuses the GIF
+    # search's URL encoding.
+    ("desktop", "linkcheck"), ("linkcheck", "gifs"),
 }
 # `model` imports nothing but these (§3 rule 3).
 MODEL_ALLOWED = ("ids", "consts", "clock::Timestamp", "error::ErrorCode", "error::Error", "model")
@@ -69,7 +74,10 @@ LAYER_EXCEPTIONS = {
 # pure planning/query functions, the service façade, and the state types it displays.
 UI_ALLOWED = ("model", "ids", "clock", "consts", "error", "config", "service", "library",
               "sandbox", "umu", "launch", "stats", "artwork", "jobs", "desktop", "host",
-              "ui_thread", "identity", "diagnostics", "session")
+              "ui_thread", "identity", "diagnostics", "session",
+              # Their value types and pure functions (decoding a GIF, parsing a link); never
+              # the network calls, which run in the service (see UI_FORBIDDEN).
+              "gifs", "linkcheck", "steam")
 # Never, anywhere in the UI (outside tests): storage, filesystem and process mechanisms,
 # planners and renderers, the supervisor, umu's command builder.
 UI_FORBIDDEN = (
@@ -86,6 +94,9 @@ UI_FORBIDDEN = (
     r"stats::(rebuild|recorder|apply)", r"identity::(pe|fingerprint|PeInspector|lnk)",
     r"diagnostics::(doctor|run|collect|write)",
     r"artwork::(import|http|steam|store|icon_extract)", r"desktop::(mime|shortcuts|instance|open_uri|notify)",
+    r"gifs::(search|trending|fetch_preview|download|proxy|HOSTS)", r"linkcheck::(check|HOSTS)",
+    # Of Steam, only the launch-option text helpers (reading Steam's files is the service's).
+    r"steam::(?!launch_options\b)",
 )
 
 UNSAFE_ALLOWED = (

@@ -406,6 +406,16 @@ fn steam_summary(s: &SteamSpec, now: Timestamp) -> GameSummary {
 /// on: "Ridgeline Rally" (Proton, an update waiting), "Brass Lighthouse" (runs natively on
 /// Linux) and "Glass Garden" (Proton, Steam runs it now). Not part of [`library`], whose
 /// content the existing snapshot tests fix; [`preview_library`] has them.
+/// Preview games whose generated posters the gallery shows side by side.
+pub const GALLERY_POSTERS: [&str; 6] = [
+    "Lantern Keep",
+    "Moss & Iron",
+    "Low Tide Motel",
+    "Starfall Tactics",
+    "Harbor Lights",
+    "Paper Kingdoms",
+];
+
 pub fn steam_samples(now: Timestamp) -> Vec<GameSummary> {
     steam_specs()
         .iter()

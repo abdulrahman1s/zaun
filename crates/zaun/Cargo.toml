@@ -28,7 +28,7 @@ hwenc = ["zaun-media/hwenc"]
 
 [dependencies]
 zaun-core.workspace = true
-zaun-ui = { workspace = true, default-features = false }
+zaun-ui = { workspace = true }
 # Calls' media (ADR-0035): WebRTC, Opus, PulseAudio.
 zaun-media.workspace = true
 clap.workspace = true

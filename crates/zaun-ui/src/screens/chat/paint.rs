@@ -272,7 +272,7 @@ pub fn live_mark(painter: &Painter, left: f32, y: f32, label: &str, color: Color
 }
 
 /// The coral of the live mark on the black stage chips.
-pub const LIVE_ON_DARK: Color32 = Color32::from_rgb(0xFF, 0x8A, 0x7C);
+pub const LIVE_ON_DARK: Color32 = palette::fixed::LIVE_ON_DARK;
 
 /// "1:05", "12:30": a call's clock from `ms`.
 pub fn clock(ms: u64) -> String {

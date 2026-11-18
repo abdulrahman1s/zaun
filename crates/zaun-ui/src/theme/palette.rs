@@ -25,6 +25,22 @@ fn alpha_u8(fraction: f32) -> u8 {
 }
 
 const WHITE: u32 = 0xFFFFFF;
+
+/// Colours that are the same in every theme: what sits on or under pictures.
+pub mod fixed {
+    use egui::Color32;
+
+    /// Behind a picture or video that is still loading, in the media viewer.
+    pub const MEDIA_STAGE: Color32 = Color32::from_rgb(0x14, 0x15, 0x18);
+    /// A message picture that could not be shown, and its icon.
+    pub const PICTURE_MISSING: Color32 = Color32::from_gray(40);
+    pub const PICTURE_MISSING_ICON: Color32 = Color32::from_gray(160);
+    /// The coral of the live mark on the black stage chips.
+    pub const LIVE_ON_DARK: Color32 = Color32::from_rgb(0xFF, 0x8A, 0x7C);
+    /// A missing game's artwork: half brightness, under a grey veil.
+    pub const MISSING_ART_TINT: Color32 = Color32::from_gray(128);
+    pub const MISSING_ART_VEIL: Color32 = Color32::from_gray(52);
+}
 const BLACK: u32 = 0x000000;
 
 /// Which palette.

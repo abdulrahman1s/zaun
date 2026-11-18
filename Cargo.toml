@@ -25,7 +25,8 @@ publish = false
 [workspace.dependencies]
 # Workspace crates
 zaun-core = { path = "crates/zaun-core" }
-zaun-ui = { path = "crates/zaun-ui" }
+# Without its default features: `zaun` turns gamepad on by its own feature.
+zaun-ui = { path = "crates/zaun-ui", default-features = false }
 zaun-testkit = { path = "crates/zaun-testkit" }
 zaun-media = { path = "crates/zaun-media" }
 

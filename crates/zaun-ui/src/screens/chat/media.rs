@@ -90,10 +90,7 @@ fn decoder(ctx: &Context) -> Shared {
 
 /// Read a picture file on the worker thread (never the UI thread).
 fn read_file(path: &Path) -> Result<Vec<u8>, String> {
-    use zaun_core::fsx::Fs;
-    zaun_core::fsx::RealFs::new()
-        .read(path, MAX_FILE)
-        .map_err(|e| e.to_string())
+    zaun_core::service::read_picked_file(path, MAX_FILE)
 }
 
 /// Decode `bytes` (PNG, JPEG, WebP, BMP, GIF's first frame), scaled down to [`MAX_SIDE`].
@@ -533,7 +530,7 @@ pub fn video(ui: &mut Ui, key: &str, media: &Media, mine: bool) -> Option<Act> {
         Some(pic) => paint_picture(ui, rect, pic, corner, Color32::WHITE),
         None => {
             ui.painter()
-                .rect_filled(rect, corner, Color32::from_rgb(0x14, 0x15, 0x18));
+                .rect_filled(rect, corner, theme::palette::fixed::MEDIA_STAGE);
         }
     }
     if matches!(media.state, FileState::Offered | FileState::Cancelled) && !mine {
@@ -853,8 +850,18 @@ pub fn viewer(
                     paint_picture(&child, shown_rect, pic, CornerRadius::same(4), Color32::WHITE);
                 }
                 (Shown::Picture(..), None) => {
-                    clip.rect_filled(shown_rect, CornerRadius::same(4), Color32::from_gray(40));
-                    paint_icon(&clip, shown_rect.center(), icons::IMAGE, 28.0, Color32::from_gray(160));
+                    clip.rect_filled(
+                        shown_rect,
+                        CornerRadius::same(4),
+                        theme::palette::fixed::PICTURE_MISSING,
+                    );
+                    paint_icon(
+                        &clip,
+                        shown_rect.center(),
+                        icons::IMAGE,
+                        28.0,
+                        theme::palette::fixed::PICTURE_MISSING_ICON,
+                    );
                 }
                 (Shown::Gif(name), _) => {
                     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));

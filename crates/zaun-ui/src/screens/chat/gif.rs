@@ -158,10 +158,7 @@ fn decoder(ctx: &Context) -> Shared {
 
 /// Read a GIF file on the worker thread (never the UI thread), at most [`MAX_FILE`].
 fn read_file(path: &Path) -> Result<Vec<u8>, String> {
-    use zaun_core::fsx::Fs;
-    zaun_core::fsx::RealFs::new()
-        .read(path, MAX_FILE)
-        .map_err(|e| e.to_string())
+    zaun_core::service::read_picked_file(path, MAX_FILE)
 }
 
 fn worker(ctx: Context, jobs: mpsc::Receiver<(String, Source)>, done: mpsc::Sender<Done>) {

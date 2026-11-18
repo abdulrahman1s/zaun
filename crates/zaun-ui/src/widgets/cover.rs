@@ -381,7 +381,7 @@ pub fn paint(
             // A missing game's artwork at half its brightness, under a grey veil that takes
             // most of its colour.
             let tint = if look.missing {
-                Color32::from_gray(128)
+                palette::fixed::MISSING_ART_TINT
             } else {
                 Color32::WHITE
             };
@@ -392,7 +392,10 @@ pub fn paint(
                 painter.rect_filled(
                     rect,
                     corner,
-                    fade(Color32::from_gray(52), 0.7 * t * look.opacity),
+                    fade(
+                        palette::fixed::MISSING_ART_VEIL,
+                        0.7 * t * look.opacity,
+                    ),
                 );
             }
         }

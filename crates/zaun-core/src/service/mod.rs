@@ -22,6 +22,7 @@ pub mod prompts;
 pub mod recovery;
 pub mod session_watch;
 pub mod snapshot;
+mod ui_io;
 
 /// The watch stage's pictures (ADR-0036), the preview's test picture, the profile-picture
 /// preparation the preview runs, and the send limit; here for the same reason.
@@ -47,3 +48,4 @@ pub use snapshot::{
     ActiveSessions, Diagnostics, HostSnapshot, RecoveryReason, RecoveryState, RuntimesSnapshot,
     SnapshotHub, Swap,
 };
+pub use ui_io::{on_path, read_picked_file};

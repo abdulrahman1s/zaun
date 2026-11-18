@@ -86,12 +86,7 @@ impl ServiceBackend {
         .into_iter()
         .map(|d| (d, home.join(crate::demo::user_dir_name(d))))
         .collect();
-        let mangohud = zaun_core::host::exec::find_in(
-            &zaun_core::fsx::RealFs::new(),
-            &zaun_core::host::exec::path_dirs(std::env::var_os("PATH").as_deref()),
-            "mangohud",
-        )
-        .is_some();
+        let mangohud = zaun_core::service::on_path("mangohud");
         Self {
             handle,
             state: Mutex::new(State {
