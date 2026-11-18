@@ -5,13 +5,17 @@
 <h1 align="center">Zaun</h1>
 
 <p align="center">
-  <b>Double-click a Windows game on Linux and play it, each game in its own sandbox.</b>
+  <b>Your games and your friends, in one app. Built for Linux.</b><br>
+  A game library that runs every Windows game in its own sandbox, with private chat, voice
+  calls, game sharing and an in-game overlay built in. No accounts. No servers of ours. No
+  tracking.
 </p>
 
 <p align="center">
   <a href="#install">Install</a> ·
-  <a href="#first-run">First run</a> ·
-  <a href="#chat">Chat</a> ·
+  <a href="#games">Games</a> ·
+  <a href="#friends">Friends</a> ·
+  <a href="#how-chat-stays-private">Security</a> ·
   <a href="#privacy">Privacy</a> ·
   <a href="#troubleshooting">Troubleshooting</a> ·
   <a href="#building-from-source">Build</a>
@@ -19,74 +23,161 @@
 
 ---
 
-Zaun is a Linux desktop application for Windows games and other Windows `.exe`
-programs. Open an `.exe` from your file manager, give the game a name, say whether it may go
-online, and press **Play**. Zaun runs it through
-[umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) and Proton inside its
-own [bubblewrap](https://github.com/containers/bubblewrap) sandbox, with a private Windows
-folder of its own. The game sees its own files and nothing else of yours unless you allow it.
+Think of what you'd get if Steam and Discord had a kid that grew up on Linux and cared
+about privacy. The library side is where your games live: double-click a Windows `.exe`,
+name it, press **Play**. It runs through Proton, sealed inside its own sandbox. The friends
+side is where your people are: messages, groups, voice calls, watching a friend's game,
+and a chat panel you can pull up over a fullscreen game with one key.
 
-There is no account, no telemetry and no Zaun server. Your library, play time and
-settings stay on your computer.
+There's no Zaun account and no Zaun server. Your library, play time and settings never
+leave your computer. Chat is optional, and when it's on it runs on the
+[SimpleX](https://simplex.chat) messaging protocol: no user IDs of any kind, end-to-end
+encryption, and relays that can't tell who is talking to whom.
 
 > **Status:** pre-1.0. Everything works end to end, but expect rough edges and changes
 > between `0.x` releases. Your library is migrated forward automatically; downgrading is not
 > supported.
 
-## What it does
+## Games
 
-**Protection you can read.** Every game starts from the same short list: sound, game
-controllers, its own folder and its saves. Internet is off unless you choose *Online*. Its
-**Protection** tab is one list read from top to bottom. Each item (the internet, microphone,
-camera, controllers, your Pictures or Downloads folder, a folder you share) has an icon that
-lights up while it is allowed, one plain line saying what it is, and a switch. Folders show
-their full path. Under the game's title it simply says *Offline* or *Online*.
+**Every game in its own box.** Each game runs through
+[umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) and Proton inside its
+own [bubblewrap](https://github.com/containers/bubblewrap) sandbox, with a private Windows
+folder of its own. It sees its own files and nothing else of yours unless you say so.
+Internet is off unless you choose *Online*.
 
-**A library that looks like a shelf.** The library is a wall of covers. A game without
-artwork gets a poster of its own: its title set large on one of ten colour pairs, the same
-for as long as the game keeps its name. Search, filters, tags, favourites and sorting sit on
-one line of words under the top bar. A small library shows its few games larger, in the
-middle of the window.
+**Protection you can read.** A game's **Protection** tab is one list, top to bottom: the
+internet, microphone, camera, controllers, your Pictures or Downloads folder, a folder you
+share. Each has an icon that lights up while it's allowed, one plain line saying what it
+is, and a switch. Folders show their full path.
 
-**A page for every game.** Each game's page shows its cover with thirty days of play under
-it. The **Overview** says what the game is: the engine it was made with (Unity, Unreal,
-Godot, Ren'Py and more), who made it, and whether it uses anti-cheat or Steam DRM, which
-often stop games under Proton. Then come **Protection**, **Compatibility**, **Launch
-options** (with suggestions for Proton's options as you type), **Activity** and **Logs**.
+**A library that looks like a shelf.** A wall of covers. A game without artwork gets a
+poster of its own: its title set large on one of ten colour pairs. Search, filters, tags,
+favourites and sorting sit on one line under the top bar.
 
-**Compatibility layers kept up to date.** Proton and the Steam Linux Runtime are downloaded,
-checked and updated through umu, with game fixes from the umu database.
+**A page for every game.** Its cover with thirty days of play under it, and an **Overview**
+that says what the game is: the engine it was made with (Unity, Unreal, Godot, Ren'Py and
+more), who made it, and whether it uses anti-cheat or Steam DRM, which often stop games
+under Proton. Then **Protection**, **Compatibility**, **Launch options** (with suggestions
+for Proton's options as you type), **Activity** and **Logs**.
 
-**Installers work too.** A `setup.exe` runs inside the game's sandbox, then Zaun asks
-which of the programs it installed is the game.
+**Your Steam games too, if you want them.** Turn on *Show my Steam games* and they appear
+in the library with their play time and update state. Play hands over to Steam, and a Steam
+game's **Launch options** tab edits Steam's own setting, with a switch for MangoHud.
 
-**Your Steam games, if you want them.** With *Show my Steam games* turned on, games installed
-with Steam appear in the library with their play time and update state. Play hands over to
-Steam. A Steam game's **Launch options** tab edits Steam's own setting (while Steam is
-closed, with a backup) and has a switch for the MangoHud performance overlay.
+**Installers, statistics, the terminal.** A `setup.exe` runs inside the game's sandbox, then
+Zaun asks which installed program is the game. Proton and the Steam Linux Runtime are
+downloaded and kept up to date through umu. Play time by day, month and year is computed on
+your computer. Everything also works from a terminal: `zaun open`, `launch`, `stop`,
+`status`, `list`, `add`, `doctor` and more, with `--json`, a man page and shell completions.
 
-**Statistics.** Play time by day, month and year, your most played games and recent
-sessions. Everything is computed on your computer.
+**Fast.** An optional background service keeps Zaun loaded, so a game opened from your file
+manager starts in about 20 ms. Running games don't care whether Zaun's window is open.
 
-**Chat with friends.** Chat is optional and end-to-end encrypted, with no account. Turn it on
-and add friends, talk one to one or in groups, and see who is playing what. See
-[Chat](#chat).
+Sandboxing Windows software reduces risk; it isn't a guarantee. Only run games you would run
+anyway. Zaun makes it much harder for one of them to reach the rest of your files.
 
-**Fast, and stays out of the way.** An optional background service keeps Zaun loaded
-without a window, so a game opened from the file manager starts in about 20 ms. Running
-games are not affected when Zaun closes.
+## Friends
 
-**Everything from a terminal as well.** `zaun open`, `launch`, `stop`, `status`,
-`list`, `add`, `edit`, `remove`, `doctor` and more, with `--json` output, a man page and
-shell completions.
+Chat is **off until you turn it on** (the Chat page, or Settings → Chat).
 
-**Made to be comfortable.** It has dark, light and high-contrast themes and four accent
-colours. The interface can be scaled from 80 to 150 %, and *Reduce motion* turns every
-movement into a short fade. It is fully keyboard-driven and works with screen readers. The
-interface is available in English and Arabic.
+**Add friends without an account.** No username, no phone number, no email. You become
+friends by passing a one-time link, shown as a QR code or copied with one button. Your
+friends can use Zaun, or the SimpleX Chat app on their phone or computer.
 
-Sandboxing Windows software reduces risk; it is not a guarantee. Only run games you would
-run anyway. Zaun makes it harder for one of them to reach the rest of your files.
+**Talk.** One-to-one and group conversations with replies, reactions, edits, `@mentions`,
+simple formatting (bold, italic, code, quotes, lists, spoilers), emoji with `:` autocomplete,
+files, pictures, GIFs and profile pictures. Times read like they should ("Today at 13:59"),
+with the full date when you point at one. Press ↑ in an empty box to edit your last message.
+
+**See who's playing what.** Your friends list shows what each friend is playing right now.
+
+**Voice calls.** Call a friend with one click. Mute, deafen, noise suppression, and your
+choice of microphone and speakers, with a *Let's check* test that plays your voice back.
+Calls go through a relay by default, so a friend never learns your IP address.
+
+**Share your game.** Stream one game's window to a friend: never your whole screen, only
+the window you pick. It's encoded on your graphics card when it can be (NVIDIA NVENC, AMD
+and Intel VA-API) at 720p, 1080p, 1440p or the game's own size, 30 or 60 frames a second,
+changeable while you share. Game sound in streams is still to come.
+
+### The in-game overlay
+
+Press a key in a fullscreen game and your chats come up over it: recent conversations, the
+open conversation, a reply box and the call's buttons. Close it and it's out of the way:
+new messages slide in as small notes in the corner you choose, and people in a call show as
+a column of pills that light up when they speak. The overlay is a separate window drawn on
+top by your desktop: nothing is injected into the game, and it takes no input while it's
+closed.
+
+It needs a desktop with layer-shell surfaces: niri, KDE Plasma, Sway or Hyprland. Wayland
+gives programs no global hotkeys, so you bind the key in your desktop:
+
+| Desktop | Binding |
+|---|---|
+| niri | `binds { Shift+F1 { spawn "zaun" "overlay" "toggle"; } }` |
+| Sway | `bindsym Shift+F1 exec zaun overlay toggle` |
+| Hyprland | `bind = SHIFT, F1, exec, zaun overlay toggle` |
+| KDE Plasma | System Settings → Keyboard → Shortcuts → Add Command: `zaun overlay toggle` |
+
+GNOME can't show overlays; there, messages and calls arrive as notifications instead.
+
+## How Chat stays private
+
+Zaun's chat runs on the [SimpleX](https://simplex.chat) messaging protocol and its open-source
+engine, the same one the SimpleX Chat apps use. What that means for you:
+
+- **No identifiers at all.** SimpleX has no user IDs: not a phone number, not a username,
+  not even a random number. Each conversation uses its own one-way message queues on the
+  relays, with different addresses for sending and receiving, so there is nothing that ties
+  your conversations together or to you.
+- **End-to-end encryption, with a post-quantum layer.** Messages use the double-ratchet
+  algorithm (forward secrecy and recovery after a compromise), with a post-quantum key
+  exchange in one-to-one conversations. Only you and your friends can read them.
+- **Relays that know very little.** Messages pass through relays (by default the public
+  `simplex.im` and `simplexonflux.com` servers, or ones you run yourself). A relay sees an IP
+  address and the timing of encrypted packets. It can't read them, can't see who they're
+  for, and keeps them only until they're delivered. An extra encryption layer between the
+  relay and the recipient means traffic going in and out of a relay can't be matched up.
+- **Calls that hide your address.** Voice and game streams are WebRTC with DTLS-SRTP,
+  end to end, with keys checked through the encrypted chat. When both apps support it, each
+  voice frame is also sealed with AES-256-GCM under a key the two sides agree on privately.
+  Calls go through a TURN relay by default, so your friend sees the relay's address, never
+  yours.
+- **Verify, don't trust.** Compare a security code with a friend, in person or over another
+  channel, to make sure nobody is sitting in between.
+
+And on your computer:
+
+- **The chat engine has a sandbox of its own.** It runs as a separate process inside
+  bubblewrap, with exactly one writable folder: its own. No home folder, no library, no game
+  prefixes. Zaun talks to it over a pipe, not a network port another program could find.
+- **Games can't reach your chats.** The chat database is encrypted, and its folder (and every
+  folder above it) can never be shared with a game, even in Developer Mode.
+- **Links stay links.** Zaun never fetches a link you receive. If you turn on *Check links
+  before opening*, it asks Google Safe Browsing about the site's name only, never the full
+  link.
+- **GIFs without being watched.** GIF search goes to [GIPHY](https://giphy.com) through
+  Signal's content proxy, so GIPHY never sees your address. Only your search words are sent,
+  and you send the GIF itself as a file, so your friends' apps never contact anyone.
+- **Notifications show who wrote**, and the message text only if you choose to. Mute a
+  conversation, or block someone; they aren't told.
+
+## Privacy
+
+Zaun has no telemetry and no accounts, and makes no network request you haven't asked for:
+
+| When | Who it contacts | What it sends |
+|---|---|---|
+| Downloading and updating compatibility layers | GitHub and Valve, through umu | What any download sends |
+| Online artwork (off by default) | Steam's image servers | The game's Steam app number |
+| Chat (off by default) | The relays you use | Encrypted messages; relays see your IP address and timing |
+| Calls and game streams (with Chat) | The call relay, by default `turn.simplex.im` | Encrypted media; the relay sees both ends' relay addresses and the amount of traffic |
+| GIF search in Chat | GIPHY, through Signal's content proxy | The words you search for; the proxy sees only the host name |
+| *Check links before opening* (off by default) | Google Safe Browsing | The name of the site you are opening |
+
+Games are a different matter: a game set to *Online* talks to whatever it wants, as it
+would anywhere.
 
 ## Requirements
 
@@ -106,7 +197,7 @@ terminal.
 
 ## Install
 
-Download links are on the [releases page](https://github.com/zaun/zaun/releases).
+Download links are on the [releases page](https://github.com/abdulrahman1s/zaun/releases).
 Every release has a `SHA256SUMS` file.
 
 ### Arch Linux and derivatives
@@ -150,7 +241,7 @@ package already brings `bubblewrap` and `umu-launcher`.
 ```nix
 # flake.nix
 {
-  inputs.zaun.url = "github:zaun/zaun";
+  inputs.zaun.url = "github:abdulrahman1s/zaun";
   # Optional: build against your own nixpkgs.
   # inputs.zaun.inputs.nixpkgs.follows = "nixpkgs";
 
@@ -196,8 +287,8 @@ also enables 32-bit graphics.
 }
 ```
 
-Without modules: `nix run github:zaun/zaun`, or
-`nix profile install github:zaun/zaun`.
+Without modules: `nix run github:abdulrahman1s/zaun`, or
+`nix profile install github:abdulrahman1s/zaun`.
 
 ### Any distribution: the tarball
 
@@ -247,56 +338,6 @@ From a terminal, `zaun --help` lists everything, for example `zaun open Game.exe
 `zaun list`, `zaun launch <game>`, `zaun status`, `zaun doctor` and
 `zaun steam scan`. See also `man zaun`.
 
-## Chat
-
-Chat lets you talk with friends inside Zaun. It is **off until you turn it on**: open
-the Chat page, or Settings → Chat.
-
-- **No account, no username, no phone number.** You become friends by passing a one-time
-  link, shown as a QR code or copied with one button. Everything known about your friends
-  is stored on your computer.
-- **End-to-end encrypted.** Messages pass through relays: by default the public servers at
-  `simplex.im` and `simplexonflux.com`, or relays you list in Settings. The relays see your
-  IP address and when messages pass, never what they say. The page tells you this before
-  you turn Chat on.
-- **Conversations and groups**, with replies, emoji reactions, edits, `@mentions` in
-  groups, simple formatting (bold, italic, code, quotes, lists, spoilers) and emoji you can
-  pick from a list or autocomplete by typing `:`. Press ↑ in an empty message box to edit
-  your last message.
-- **GIFs** come from [GIPHY](https://giphy.com), reached through Signal's content proxy
-  (`contentproxy.signal.org`), so GIPHY never sees your address and the proxy sees only which
-  site you are reaching. Only the words you type in the GIF search are sent. You send the GIF
-  itself as a file, so your friends' apps never contact GIPHY or the proxy. The key and the
-  proxy are Signal's public ones by default; you can change both in Settings → Chat.
-- **Links stay links.** Zaun never fetches a link you receive. If you turn on *Check
-  links before opening*, it first asks Google Safe Browsing whether the site is known to be
-  harmful. Only the site's name is sent, never the full link.
-- **Notifications** show who wrote to you when Zaun is in the background. They show the
-  message text only if you choose to. You can mute a conversation, block someone (they are
-  not told), and compare security codes with a friend to make sure nobody is in between.
-- Chat's database is encrypted and kept in Zaun's data folder, which no game's sandbox
-  can reach. The chat engine runs in a sandbox of its own and talks to Zaun over a pipe,
-  not a network port that games could find.
-
-Voice calls, watching a friend's game and an in-game overlay are planned but not yet
-available.
-
-## Privacy
-
-Zaun has no telemetry and no accounts, and it makes no network requests you have not
-asked for:
-
-| When | Who it contacts | What it sends |
-|---|---|---|
-| Downloading and updating compatibility layers | GitHub and Valve, through umu | What any download sends |
-| Online artwork (off by default) | Steam's image servers | The game's Steam app number |
-| Chat (off by default) | The relays you use | Encrypted messages; relays see your IP address and timing |
-| GIF search in Chat | GIPHY, through Signal's content proxy | The words you type in the GIF search; the proxy sees only the host name |
-| *Check links before opening* (off by default) | Google Safe Browsing | The name of the site you are opening |
-
-Games are a different matter: a game set to *Online* talks to whatever it wants, as it
-would anywhere.
-
 ## Troubleshooting
 
 Start with the **Doctor** (Settings → Advanced → *Check my system*, or `zaun doctor`).
@@ -312,8 +353,10 @@ the fix for each problem.
 | A game has no sound | Make sure PipeWire is running; games get sound through PipeWire only. |
 | A game needs a file outside its folder | The game's page → **Protection** → *Share another folder…*. |
 | A game needs the microphone | The game's page → **Protection** → turn on *Microphone*. It is off for every game until you allow it. |
+| The in-game overlay does not open | Bind a key in your compositor to `zaun overlay toggle` (see [the overlay](#the-in-game-overlay)), and turn it on in Settings → Chat → Overlay. GNOME cannot show it; you still get notifications. |
+| A call connects but nobody hears anything | Check the microphone and speakers in Settings → Chat → Voice and video (*Let's check* plays your voice back). If calls never connect, add your own TURN relay under *Advanced*, or turn off *Send calls through a relay*. |
 | The Chat page says "not included in this build" | Your package was built without the chat engine. Everything else works as usual. |
-| Something else | Settings → Advanced → *Create a report…*, or run `zaun -v` from a terminal, and attach the result to an [issue](https://github.com/zaun/zaun/issues). |
+| Something else | Settings → Advanced → *Create a report…*, or run `zaun -v` from a terminal, and attach the result to an [issue](https://github.com/abdulrahman1s/zaun/issues). |
 
 Security problems: please report them privately, as described in [SECURITY.md](SECURITY.md).
 
@@ -323,7 +366,7 @@ You need Rust 1.95 or newer with the `x86_64-unknown-linux-musl` target (for the
 static helper that runs inside each sandbox), a C compiler, and `pkg-config`.
 
 ```sh
-git clone https://github.com/zaun/zaun && cd zaun
+git clone https://github.com/abdulrahman1s/zaun && cd zaun
 scripts/build-release.sh --prefix /usr/local --destdir staging   # build, check, stage
 sudo cp -a staging/usr/local/. /usr/local/
 ```
@@ -336,8 +379,8 @@ Chat needs the SimpleX chat engine (`libsimplex.so`). The Nix package includes i
 builds, see the packager notes in [CHANGELOG.md](CHANGELOG.md). Without it, Zaun builds
 and runs normally, and the Chat page says it is not included.
 
-To try the interface with sample games and friends, without touching your own library, run
-`zaun --preview`.
+To try the interface with sample games, friends, calls and streams, without touching your
+own library or contacting anyone, run `zaun --preview`.
 
 ### Where to read more
 
