@@ -797,7 +797,7 @@ impl ZaunApp {
             UiEvent::HostChanged | UiEvent::RuntimesChanged | UiEvent::DiagnosticsChanged => {}
             // The Chat page reads the snapshot each frame; its conversation view-model
             // takes the messages (ADR-0033).
-            UiEvent::ChatChanged => {}
+            UiEvent::ChatChanged | UiEvent::UpdatesChanged => {}
             UiEvent::ChatMessages { messages, updated } => {
                 s.chat.on_messages(&messages, updated);
             }

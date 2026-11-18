@@ -1,0 +1,11 @@
+---
+source: crates/zaun/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Check for updates once a day (asks github.com; your IP address and the time are all it learns)
+
+Usage: zaun update on [OPTIONS]
+
+Options:
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+  -h, --help        Print help

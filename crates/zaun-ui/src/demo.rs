@@ -1432,6 +1432,8 @@ struct DemoState {
     started: zaun_core::clock::SystemClock,
     /// A helper thread runs Chat's timers (ringing, speaking, a viewer joining).
     chat_ticking: bool,
+    /// Updates (ADR-0040).
+    updates: Arc<zaun_core::model::UpdateSnapshot>,
 }
 
 /// A preview backend over the sample library. Edits stay in memory; launches are simulated
@@ -1455,6 +1457,7 @@ impl DemoBackend {
             // The sample Chat runs as Sam (demo_chat).
             p.chat.enabled = true;
             p.chat.name = "Sam".into();
+            p.updates.check = true;
             s.prefs = Arc::new(p);
         }
         b
@@ -1482,6 +1485,7 @@ impl DemoBackend {
                 chat: crate::demo_chat::DemoChat::new(now),
                 started: zaun_core::clock::SystemClock::new(),
                 chat_ticking: false,
+                updates: Arc::new(crate::demo_updates::sample(now)),
             })),
             step: Duration::from_millis(900),
         }
@@ -2242,6 +2246,10 @@ impl DemoBackend {
                     payload: QueryPayload::Failed(e),
                 });
             }
+            UiCommand::Core(Command::Updates(c)) => {
+                s.updates = Arc::new(crate::demo_updates::handle(&s.updates, c, s.now));
+                s.events.push_back(UiEvent::UpdatesChanged);
+            }
             // Service commands the UI never sends.
             UiCommand::Core(_) => {}
         }
@@ -2295,6 +2303,10 @@ impl Backend for DemoBackend {
 
     fn is_preview(&self) -> bool {
         true
+    }
+
+    fn updates(&self) -> Arc<zaun_core::model::UpdateSnapshot> {
+        self.lock().updates.clone()
     }
 
     fn chat(&self) -> Arc<zaun_core::model::ChatSnapshot> {

@@ -106,6 +106,7 @@ fn deps(env: &TestEnv) -> ServiceDeps {
         chat: None,
         overlay: None,
         media: None,
+        updates: None,
     }
 }
 

@@ -202,6 +202,9 @@ impl DenyList {
         ] {
             push(DenyGroup::Zaun, dir.clone());
         }
+        // A tarball install in the home folder replaces its own binaries from here; a game
+        // that could write it would run as Zaun after the next update (ADR-0040).
+        push(DenyGroup::Zaun, home.join(".local/libexec/zaun"));
         for p in CONTAINERS {
             push(DenyGroup::Containers, PathBuf::from(p));
         }

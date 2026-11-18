@@ -115,6 +115,7 @@ fn deps(env: &TestEnv, engine: &FakeEngine, prefs: Preferences) -> ServiceDeps {
         chat: Some(Arc::new(engine.clone())),
         overlay: None,
         media: None,
+        updates: None,
     }
 }
 

@@ -122,6 +122,7 @@ fn deps(env: &TestEnv, engine: &FakeEngine, media: Arc<dyn MediaFactory>) -> Ser
         chat: Some(Arc::new(engine.clone())),
         overlay: None,
         media: Some(media),
+        updates: None,
     }
 }
 

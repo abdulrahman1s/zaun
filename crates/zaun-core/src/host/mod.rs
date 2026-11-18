@@ -33,7 +33,9 @@ pub use facts::{
     UmuWrapper, WaylandSocket, X11Display, is_capture_node,
 };
 pub use probe::{HostProbe, LiveHostProbe, ProbeDeps, Revalidation, StaticHostFacts, probe_all};
-pub use runner::{CommandOutput, CommandRunner, CommandSpec, RealRunner, RunError};
+pub use runner::{
+    CommandOutput, CommandRunner, CommandSpec, RealRunner, RunError, replace_process,
+};
 pub use wayland::{CompositorProbe, LiveCompositor, NoCompositor};
 
 use crate::error::{Error, ErrorCode};

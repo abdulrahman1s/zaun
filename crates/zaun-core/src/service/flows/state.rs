@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use super::diagnostics::maintenance;
-use super::{chat, steam};
+use super::{chat, steam, updates};
 use crate::error::Result;
 use crate::ids::{GameId, LaunchId, QueryId, SessionId};
 use crate::library::prefix_ops::ResetReport;
@@ -45,6 +45,8 @@ pub(crate) enum FlowDone {
     ChatServices(chat::ServicesDone),
     /// The in-game overlay reported, or one of its timers is due (ADR-0037).
     Overlay(chat::OverlayDone),
+    /// A check, a download or the daily timer (ADR-0040).
+    Updates(updates::UpdatesDone),
 }
 
 #[derive(Default)]
@@ -57,4 +59,5 @@ pub(crate) struct FlowState {
     pub chat: chat::ChatState,
     pub services: chat::ServicesState,
     pub overlay: chat::OverlayState,
+    pub updates: updates::UpdatesState,
 }

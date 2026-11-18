@@ -119,6 +119,7 @@ fn deps(env: &TestEnv, engine: &FakeEngine, media: Option<&FakeMedia>) -> Servic
         chat: Some(Arc::new(engine.clone())),
         overlay: None,
         media: media.map(|m| Arc::new(m.clone()) as Arc<dyn zaun_core::chat::media::MediaFactory>),
+        updates: None,
     }
 }
 

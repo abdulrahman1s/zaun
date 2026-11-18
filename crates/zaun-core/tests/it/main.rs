@@ -42,3 +42,4 @@ mod storage_m2;
 mod storage_repos;
 mod umu_contract;
 mod umu_log_corpus;
+mod update;

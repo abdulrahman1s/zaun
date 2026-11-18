@@ -19,11 +19,11 @@ pub(crate) enum DesktopDone {
 }
 
 impl AppService {
-    pub(super) fn desktop(&self) -> Option<Arc<DesktopServices>> {
+    pub(crate) fn desktop(&self) -> Option<Arc<DesktopServices>> {
         self.deps.desktop.clone()
     }
 
-    pub(super) fn desktop_job(
+    pub(crate) fn desktop_job(
         &self,
         label: &'static str,
         f: impl FnOnce(&DesktopServices) -> DesktopDone + Send + 'static,

@@ -4,6 +4,7 @@
 //! ```text
 //! supervise, generate-assets           → run, never touch the instance socket
 //! service                               → the resident service (waits while a GUI runs)
+//! update                                → headless (`apply` refuses while a GUI runs)
 //! read-only verbs (list, show, status, sandbox print, doctor, runtimes, export)
 //!                                       → headless against the database
 //! GUI running (socket answers ping in 300 ms)
@@ -24,7 +25,9 @@ use zaun_core::paths::{AppPaths, PathEnv};
 use zaun_core::{Error, ErrorCode, err};
 
 use crate::cli::{Cli, Command, LaunchArgs, exit};
-use crate::{gen_assets, headless, library_verbs, run_gui, run_service, run_supervisor};
+use crate::{
+    gen_assets, headless, library_verbs, run_gui, run_service, run_supervisor, update_start,
+};
 
 /// Where a command line goes.
 #[derive(Debug, PartialEq, Eq)]
@@ -67,10 +70,12 @@ pub fn decide(cli: &Cli, gui_running: bool) -> Route {
     match &cli.command {
         Some(Command::Supervise { .. }) => Route::Supervise,
         Some(Command::GenerateAssets { .. }) => Route::Generate,
-        Some(Command::Service) => Route::Service,
+        Some(Command::Service { .. }) => Route::Service,
         Some(c) if read_only(c) => Route::Headless,
         // Steam requests go to Steam, not through the running window (ADR-0031).
         Some(Command::Steam { .. }) => Route::Headless,
+        // Updates never go through the running window (ADR-0040).
+        Some(Command::Update { .. }) => Route::Headless,
         Some(Command::Import { .. } | Command::Remove { .. }) => Route::Headless,
         _ if gui_running => Route::Forward,
         None => Route::Gui {
@@ -110,12 +115,28 @@ pub fn run(cli: Cli) -> Result<u8, Error> {
             Some(Command::GenerateAssets { out }) => gen_assets::run(out),
             _ => Ok(exit::USAGE),
         },
-        Route::Service => run_service::run(),
+        Route::Service => {
+            let open_window = matches!(cli.command, Some(Command::Service { open_window: true }));
+            let code = run_service::run(open_window)?;
+            // "Restart now": the service stopped for it; start the new one with a window.
+            if let Ok(paths) = AppPaths::resolve(&env) {
+                let args = ["service", "--open-window"].map(std::ffi::OsString::from);
+                update_start::restart_if_requested(&env, &paths, args.to_vec());
+            }
+            Ok(code)
+        }
         Route::Headless => match &cli.command {
             Some(c) => headless::run(c),
             None => Ok(exit::USAGE),
         },
-        Route::Gui { open, add } => run_gui::run(open, add, cli.preview),
+        Route::Gui { open, add } => {
+            let code = run_gui::run(open, add, cli.preview)?;
+            // "Restart now": the window closed for it; start the new version's window.
+            if let Ok(paths) = AppPaths::resolve(&env) {
+                update_start::restart_if_requested(&env, &paths, Vec::new());
+            }
+            Ok(code)
+        }
         Route::Forward => match transport {
             Some(t) => forward(&cli, &env, &t),
             None => Err(Error::new(ErrorCode::DskInstanceUnresponsive)),
@@ -318,6 +339,9 @@ mod tests {
                 Route::Supervise,
             ),
             (&["service"], Route::Service, Route::Service),
+            (&["update", "check"], Route::Headless, Route::Headless),
+            (&["update", "apply"], Route::Headless, Route::Headless),
+            (&["update", "on"], Route::Headless, Route::Headless),
             (
                 &["generate-assets", "--out", "/o"],
                 Route::Generate,

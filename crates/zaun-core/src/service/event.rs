@@ -101,6 +101,8 @@ pub enum Notice {
     },
     /// A Steam game's launch options were written to Steam's settings (ADR-0031 §6a).
     SteamLaunchOptionsSaved { game: GameId },
+    /// A newer verified version exists (ADR-0040); said once per version.
+    UpdateAvailable { version: String },
     /// The damaged library was resolved (repaired, restored or replaced).
     LibraryRecovered {
         how: RecoveredHow,
@@ -233,6 +235,8 @@ pub enum Event {
     DiagnosticsChanged,
     /// A new Chat snapshot is in the hub (ADR-0033).
     ChatChanged,
+    /// A new updates snapshot is in the hub (ADR-0040).
+    UpdatesChanged,
     /// A launch advanced.
     LaunchProgress {
         game: GameId,

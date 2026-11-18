@@ -406,6 +406,7 @@ impl World {
             chat: None,
             overlay: None,
             media: None,
+            updates: None,
         };
         let (mut svc, events) = AppService::open_headless(deps).unwrap();
         let handoff = Arc::new(RecordingHandoff::default());

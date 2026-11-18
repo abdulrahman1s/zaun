@@ -40,6 +40,7 @@ pub mod shortcuts;
 pub mod stats;
 pub mod steam;
 pub mod tags;
+pub mod updates;
 
 /// The application name.
 pub const APP_NAME: &str = "Zaun";

@@ -350,6 +350,10 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
         Instance::Primary(s, l) => (Some(s), Some(l)),
         Instance::Alone => (None, None),
     };
+    // An update staged earlier is installed now, before the library opens (ADR-0040).
+    if let (Some(p), false) = (&paths, preview) {
+        crate::update_start::at_start(&env, p);
+    }
     // Before the service starts: the event loop exists once per process, so the windowing
     // backend is chosen from what can be loaded (V-301 covers the renderer only).
     let display = display_libs::choose(&env, display_libs::Loadable::probe())?;
@@ -415,9 +419,14 @@ pub fn run(open: Vec<PathBuf>, add: bool, preview: bool) -> Result<u8, Error> {
         d.activations = Some(rx);
         d.focus = Some(Arc::clone(&focus));
         let w = Arc::clone(&waker);
+        let confirm = (!preview).then(|| env.clone());
         d.on_waker = Some(Box::new(move |f| {
             // Called once the renderer is up: a later panic is not a graphics failure.
             crate::panic::set_phase(CrashPhase::Running);
+            // The window is drawn: an updated version works (ADR-0040).
+            if let Some(env) = &confirm {
+                crate::update_start::confirm(env);
+            }
             *w.lock().unwrap_or_else(PoisonError::into_inner) = Some(f);
         }));
         d.display = display;

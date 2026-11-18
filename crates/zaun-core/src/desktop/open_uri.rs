@@ -74,8 +74,8 @@ impl Link {
     /// The URL (always `https`).
     pub const fn url(self) -> &'static str {
         match self {
-            Link::Homepage => "https://github.com/zaun/zaun",
-            Link::Help => "https://github.com/zaun/zaun#readme",
+            Link::Homepage => crate::consts::REPO_URL,
+            Link::Help => concat!(crate::consts::repo_url!(), "#readme"),
         }
     }
 }
@@ -169,7 +169,11 @@ impl Opener {
     /// `https` link without spaces or control characters reaches here
     /// ([`crate::linkcheck::WebLink`]), so `xdg-open` never takes it for an option or a file.
     pub fn open_web(&self, link: &crate::linkcheck::WebLink) -> Result<(), Error> {
-        debug_assert!(link.url().get(..4).is_some_and(|s| s.eq_ignore_ascii_case("http")));
+        debug_assert!(
+            link.url()
+                .get(..4)
+                .is_some_and(|s| s.eq_ignore_ascii_case("http"))
+        );
         self.run(link.url().as_ref())
     }
 }

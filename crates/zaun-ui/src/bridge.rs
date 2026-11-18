@@ -645,6 +645,8 @@ pub enum UiEvent {
     DiagnosticsChanged,
     /// A new Chat snapshot (ADR-0033).
     ChatChanged,
+    /// A new updates snapshot (ADR-0040).
+    UpdatesChanged,
     /// A message's link was not opened: Google Safe Browsing flagged its site, or the check
     /// got no answer (`unchecked`). The page asks (`ChatDialog::UnsafeLink`).
     ChatUnsafeLink {
@@ -753,6 +755,10 @@ pub trait Backend: Send {
     fn overlay(&self) -> zaun_core::service::OverlayStatus {
         zaun_core::service::OverlayStatus::Idle
     }
+    /// Updates (ADR-0040).
+    fn updates(&self) -> Arc<zaun_core::model::UpdateSnapshot> {
+        Arc::new(zaun_core::model::UpdateSnapshot::default())
+    }
 }
 
 /// A backend shared by several windows in turn (the resident service opens one window after
@@ -806,6 +812,9 @@ impl<B: Backend + Sync + ?Sized> Backend for Arc<B> {
     fn frames(&self) -> Option<zaun_core::service::FrameSlot> {
         (**self).frames()
     }
+    fn updates(&self) -> Arc<zaun_core::model::UpdateSnapshot> {
+        (**self).updates()
+    }
 }
 
 /// Maximum events drained per frame (ARCHITECTURE §5.1).
@@ -820,6 +829,7 @@ pub struct UiBridge {
     runtimes: Arc<RuntimesView>,
     diagnostics: Arc<Diagnostics>,
     chat: Arc<zaun_core::model::ChatSnapshot>,
+    updates: Arc<zaun_core::model::UpdateSnapshot>,
     /// The watched stream's picture (the backend's one slot, taken once).
     frames: Option<zaun_core::service::FrameSlot>,
     next_query: std::cell::Cell<u128>,
@@ -835,6 +845,7 @@ impl UiBridge {
             runtimes: backend.runtimes(),
             diagnostics: backend.diagnostics(),
             chat: backend.chat(),
+            updates: backend.updates(),
             frames: backend.frames(),
             backend,
             next_query: std::cell::Cell::new(1),
@@ -875,6 +886,7 @@ impl UiBridge {
                     self.host = self.backend.host();
                 }
                 UiEvent::ChatChanged => self.chat = self.backend.chat(),
+                UiEvent::UpdatesChanged => self.updates = self.backend.updates(),
                 _ => {}
             }
             out.push(ev);
@@ -920,6 +932,11 @@ impl UiBridge {
     /// Chat of this frame (ADR-0033).
     pub fn chat(&self) -> &Arc<zaun_core::model::ChatSnapshot> {
         &self.chat
+    }
+
+    /// Updates of this frame (ADR-0040).
+    pub fn updates(&self) -> &Arc<zaun_core::model::UpdateSnapshot> {
+        &self.updates
     }
 
     /// The watched stream's latest picture, outside the snapshot (ADR-0036).
@@ -969,6 +986,7 @@ struct FakeState {
     diagnostics: Arc<Diagnostics>,
     assess: Option<PolicyAssessment>,
     overlay: zaun_core::service::OverlayStatus,
+    updates: Arc<zaun_core::model::UpdateSnapshot>,
 }
 
 /// A test backend: records commands; tests publish snapshots and events. `assess` uses the
@@ -998,6 +1016,10 @@ impl FakeBackend {
                 diagnostics: Arc::new(Diagnostics::default()),
                 assess: None,
                 overlay: zaun_core::service::OverlayStatus::Idle,
+                updates: Arc::new(zaun_core::model::UpdateSnapshot {
+                    current: zaun_core::consts::APP_VERSION.to_owned(),
+                    ..Default::default()
+                }),
             })),
         }
     }
@@ -1062,6 +1084,13 @@ impl FakeBackend {
         s.events.push_back(UiEvent::DiagnosticsChanged);
     }
 
+    /// Publish updates and announce them.
+    pub fn publish_updates(&self, u: zaun_core::model::UpdateSnapshot) {
+        let mut s = self.lock();
+        s.updates = Arc::new(u);
+        s.events.push_back(UiEvent::UpdatesChanged);
+    }
+
     /// Use a fixed assessment instead of the demo explainer.
     pub fn set_assessment(&self, a: PolicyAssessment) {
         self.lock().assess = Some(a);
@@ -1113,6 +1142,9 @@ impl Backend for FakeBackend {
     }
     fn overlay(&self) -> zaun_core::service::OverlayStatus {
         self.lock().overlay
+    }
+    fn updates(&self) -> Arc<zaun_core::model::UpdateSnapshot> {
+        self.lock().updates.clone()
     }
 }
 

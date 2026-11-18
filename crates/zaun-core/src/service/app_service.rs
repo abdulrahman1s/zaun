@@ -150,6 +150,8 @@ pub struct ServiceDeps {
     pub overlay: Option<Arc<dyn crate::chat::overlay::OverlayFactory>>,
     /// Starts calls' media (ADR-0035); `None` = this build has none (calls stay off).
     pub media: Option<Arc<dyn crate::chat::media::MediaFactory>>,
+    /// Update checks and self-update (ADR-0040); `None` = the preview and most tests.
+    pub updates: Option<crate::update::UpdateDeps>,
 }
 
 /// Messages into the loop: commands and job completions.
@@ -525,6 +527,7 @@ impl AppService {
         self.load_crash();
         self.steam_start();
         self.chat_start();
+        self.updates_start();
     }
 
     fn run(&mut self, rx: &Receiver<Msg>) {

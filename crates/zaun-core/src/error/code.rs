@@ -292,6 +292,28 @@ error_codes! {
     /// engine refused it, a group, or a call with the same friend (ADR-0036).
     ChtStreamFailed = "ZN-CHT-017", Warning;
 
+    // ---- Updates — ZN-UPD (ADR-0040) ---------------------------------------------------
+    /// Update checks are off (`updates.check`), so nothing was asked.
+    UpdChecksOff = "ZN-UPD-001", Info;
+    /// This build has no update key, so it never checks for updates.
+    UpdNotConfigured = "ZN-UPD-002", Info;
+    /// The update server could not be reached, or answered something else than the files.
+    UpdUnreachable = "ZN-UPD-003", Warning;
+    /// The release's signature did not verify; nothing was installed.
+    UpdBadSignature = "ZN-UPD-004", Error;
+    /// A downloaded or staged file differs from what the signed release says.
+    UpdBadFile = "ZN-UPD-005", Error;
+    /// The offered version is not newer than this one (no downgrades).
+    UpdNotNewer = "ZN-UPD-006", Warning;
+    /// This copy is updated by Nix, Flatpak, a package manager or by hand, not by itself.
+    UpdManaged = "ZN-UPD-007", Info;
+    /// A game or tool runs, so the update waits.
+    UpdGameRunning = "ZN-UPD-008", Warning;
+    /// The new version could not be put in place; the installed one is unchanged.
+    UpdInstallFailed = "ZN-UPD-009", Error;
+    /// The new version did not start, so the previous one was put back.
+    UpdRolledBack = "ZN-UPD-010", Error;
+
     // ---- Integration and internal — ZN-DSK, ZN-INT ---------------------------------------
     /// Could not change the default application.
     DskDefaultHandlerFailed = "ZN-DSK-001", Error;

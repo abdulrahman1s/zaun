@@ -26,6 +26,7 @@ use zaun_core::runtime::{LocalRuntimeService, MemCatalogStore, RuntimeSettings, 
 use zaun_core::service::flows::runtime::CatalogUmuDb;
 use zaun_core::service::{LaunchEnv, ServiceDeps};
 use zaun_core::session::{FlockLocks, RealLauncher};
+use zaun_core::update::{Install, UpdateDeps};
 
 use crate::game_source::{group_name, init_binary};
 
@@ -250,7 +251,7 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
         launch_env,
         prefs,
         desktop,
-        http: Some(http),
+        http: Some(Arc::clone(&http)),
         app_id_file: Arc::new(FsAppIdFile::new(Arc::clone(&fs))),
         art_index: Arc::clone(&art_index),
         shared,
@@ -259,6 +260,7 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
         chat: chat_factory(&env, &*fs, &paths, over.bwrap.clone()),
         overlay: overlay_factory(&env, &*fs, &paths, over.bwrap.clone()),
         media: Some(media_factory()),
+        updates: Some(update_deps(&http, &*fs, env.uid(), &clock)),
     };
     Ok(Wiring {
         deps: Some(deps),
@@ -268,6 +270,30 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
         codec,
         art_index,
     })
+}
+
+/// Updates (ADR-0040): how this copy was installed, from the resolved path of the running
+/// binary.
+fn update_deps(http: &HttpClient, fs: &dyn Fs, uid: u32, clock: &Arc<dyn Clock>) -> UpdateDeps {
+    UpdateDeps::new(
+        http,
+        installed(fs, uid),
+        Arc::new(RealRunner::new(Arc::clone(clock))),
+    )
+}
+
+/// How the running binary was installed (`Other` when its path cannot be resolved).
+pub(crate) fn installed(fs: &dyn Fs, uid: u32) -> Install {
+    let exe = std::env::current_exe()
+        .ok()
+        .and_then(|p| fs.canonicalize(&p).ok());
+    match exe {
+        Some(p) => zaun_core::update::detect(fs, &p, uid),
+        None => Install {
+            channel: zaun_core::model::InstallChannel::Other,
+            prefix: None,
+        },
+    }
 }
 
 /// Calls' media (ADR-0035): WebRTC through str0m on its own threads, sound through the

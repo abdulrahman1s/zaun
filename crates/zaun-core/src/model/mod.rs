@@ -22,6 +22,7 @@ mod session;
 mod stats;
 mod steam;
 mod tag;
+mod update;
 
 pub use artwork::{ArtOrigin, ArtSlot, ArtworkRef};
 pub use chat::{
@@ -65,6 +66,7 @@ pub use steam::{
     SteamInstallKind, SteamRequest, SteamUpdate,
 };
 pub use tag::{Tag, TagColor};
+pub use update::{InstallChannel, UpdateDownload, UpdateOffer, UpdateSnapshot};
 
 use crate::error::{Error, ErrorCode};
 

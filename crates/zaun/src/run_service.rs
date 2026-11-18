@@ -235,12 +235,14 @@ impl Resident {
 }
 
 /// Run the resident service until the application service stops.
-pub fn run() -> Result<u8, Error> {
+pub fn run(open_window: bool) -> Result<u8, Error> {
     let env = PathEnv::from_process();
     let paths = AppPaths::resolve(&env)
         .map_err(|e| Error::new(ErrorCode::IntTaskFailed).with("paths", e))?;
     let late = Arc::new(LateHandler::default());
     let _server = claim(&paths, env.uid(), &late)?;
+    // An update staged earlier is installed now, before the library opens (ADR-0040).
+    crate::update_start::at_start(&env, &paths);
     // PERSISTENCE §6: shared for the service's lifetime, as for the GUI.
     RealFs::new().create_dir_all(&paths.data_dir, 0o700)?;
     let _lock =
@@ -281,6 +283,10 @@ pub fn run() -> Result<u8, Error> {
     backend.handle().set_waker(Arc::clone(&poke));
     crate::panic::set_phase(CrashPhase::Running);
     tracing::info!("service ready");
+    crate::update_start::confirm(&env);
+    if open_window {
+        windows.raise(None, false);
+    }
 
     let mut r = Resident {
         system: SystemRelay::start(Arc::clone(&waker)),
@@ -317,6 +323,11 @@ pub fn run() -> Result<u8, Error> {
         r.focus.store(false, Ordering::Relaxed);
         match shown {
             Ok(Shown::Closed { onboarding }) => {
+                // "Restart now" closed the window: stop, the caller starts the new version.
+                if crate::update_start::restart_requested(&r.env) {
+                    tracing::info!("service ends for the update");
+                    return Ok(exit::OK);
+                }
                 // Finished onboarding in its own compact window: the library opens next.
                 if onboarding && r.onboarding_saved() {
                     r.windows.raise(None, false);

@@ -12,6 +12,7 @@ pub mod settings;
 mod state;
 pub mod stats;
 pub mod steam;
+pub mod updates;
 
 pub use launch::not_installed;
 pub(crate) use state::{FlowDone, FlowState};

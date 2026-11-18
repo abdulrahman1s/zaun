@@ -16,7 +16,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/zaun/zaun"
+repository = "https://github.com/abdulrahman1s/zaun"
 authors = ["Abdulrahman <mail@abdulrahman.dev>"]
 publish = false
 
@@ -99,6 +99,8 @@ smallvec = { version = "1.15", features = ["serde", "union"] }
 base64 = "0.23"
 # The official apps' call descriptions are LZ-String-compressed JSON (ADR-0035 §3).
 lz-str = "0.2"
+# Ed25519 signatures of release manifests (ADR-0040); already compiled in through rustls.
+ring = { version = "0.17", default-features = false }
 # The diagnostics report archive (`diagnostics::report`); already in the tree through `png`.
 flate2 = "1.1"
 crossbeam-channel = "0.5.15"

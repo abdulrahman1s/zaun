@@ -8108,6 +8108,7 @@ dependencies = [
  "parking_lot 0.13.0",
  "pelite",
  "proptest",
+ "ring",
  "rustix 1.1.6",
  "seccompiler",
  "serde",

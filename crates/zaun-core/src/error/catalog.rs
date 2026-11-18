@@ -640,6 +640,58 @@ pub const fn entry(code: ErrorCode) -> Entry {
             &[A::CopyDetails],
         ),
 
+        // ---- Updates ----
+        C::UpdChecksOff => e(
+            "Update checks are off",
+            "Turn on “Check for updates” in Settings › About, or run “zaun update on”, to let Zaun ask for a newer version.",
+            &[A::OpenSettings(SettingsTab::About)],
+        ),
+        C::UpdNotConfigured => e(
+            "This copy does not check for updates",
+            "It was built without the key that proves an update comes from Zaun's developers. Update it the way it was installed.",
+            &[A::Dismiss],
+        ),
+        C::UpdUnreachable => e(
+            "Couldn't check for updates",
+            "The update server could not be reached. Check the internet connection and try again later.",
+            &[A::Retry],
+        ),
+        C::UpdBadSignature => e(
+            "The update could not be verified",
+            "Its signature does not match Zaun's key, so nothing was installed. The details say why.",
+            &[A::CopyDetails],
+        ),
+        C::UpdBadFile => e(
+            "The update was damaged",
+            "A downloaded file differs from the signed release, so nothing was installed. Try again later.",
+            &[A::Retry, A::CopyDetails],
+        ),
+        C::UpdNotNewer => e(
+            "No newer version",
+            "The release offered is not newer than this copy, so it was not installed.",
+            &[A::Dismiss],
+        ),
+        C::UpdManaged => e(
+            "Update Zaun where you installed it",
+            "This copy is managed by your system or was installed by hand, so Zaun does not replace itself. Settings › About says how to update it.",
+            &[A::OpenSettings(SettingsTab::About)],
+        ),
+        C::UpdGameRunning => e(
+            "A game is running",
+            "The update is installed when nothing runs. Close your games, then restart Zaun.",
+            &[A::ShowRunningGame],
+        ),
+        C::UpdInstallFailed => e(
+            "The update could not be installed",
+            "The installed version is unchanged. The details say why.",
+            &[A::CopyDetails],
+        ),
+        C::UpdRolledBack => e(
+            "The new version did not start",
+            "Zaun went back to the version you had before. Your library and settings are unchanged.",
+            &[A::CopyDetails],
+        ),
+
         // ---- Integration and internal ----
         C::DskDefaultHandlerFailed => e(
             "Could not change the default application",

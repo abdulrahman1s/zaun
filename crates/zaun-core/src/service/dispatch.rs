@@ -113,6 +113,7 @@ impl AppService {
                 self.overlay_action(a);
                 Ok(())
             }
+            Command::Updates(c) => self.update_command(c),
             Command::Shutdown => {
                 self.stopping = true;
                 Ok(())
@@ -185,6 +186,7 @@ impl AppService {
             FlowDone::Chat(d) => self.on_chat_done(d),
             FlowDone::ChatServices(d) => self.on_services_done(d),
             FlowDone::Overlay(d) => self.on_overlay_done(d),
+            FlowDone::Updates(d) => self.on_updates_done(d),
         }
     }
 
@@ -239,6 +241,8 @@ impl AppService {
                 | Command::SaveReport { .. }
                 | Command::DismissCrash
                 | Command::ResolveDatabase(_)
+                // Updating may be the way out (a library written by a newer Zaun).
+                | Command::Updates(_)
                 | Command::Shutdown
         );
         if allowed {

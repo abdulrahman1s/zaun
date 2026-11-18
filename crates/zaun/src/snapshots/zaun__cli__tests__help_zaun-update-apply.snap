@@ -1,0 +1,11 @@
+---
+source: crates/zaun/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Download, verify and install the newest version (a tarball installed by you only; Zaun must be closed and no game running)
+
+Usage: zaun update apply [OPTIONS]
+
+Options:
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+  -h, --help        Print help

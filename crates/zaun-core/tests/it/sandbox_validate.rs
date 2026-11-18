@@ -654,6 +654,28 @@ fn issue_codes_are_unique_and_stable() {
 /// game: not the folder, nothing in it, and no folder above it (`~/.local/share`, the home
 /// folder) can be granted, and no Developer Mode exception lifts it.
 #[test]
+fn deny_the_home_install_folder_that_updates_itself() {
+    let w = SandboxWorld::worked_example();
+    let d = deny(&w);
+    let dir = w.ctx().home.join(".local/libexec/zaun");
+    for p in [
+        dir.clone(),
+        dir.join("zaun"),
+        dir.join(".update/staged/zaun"),
+    ] {
+        let hits = d.check(&p);
+        assert!(
+            hits.iter().any(|h| h.group == DenyGroup::Zaun),
+            "{} is not denied",
+            p.display()
+        );
+        assert!(hits.iter().all(|h| !h.group.bypassable()));
+    }
+    assert!(d.is_denied(&w.ctx().home.join(".local/libexec")));
+    assert!(!d.is_denied(&w.ctx().home.join("Games")));
+}
+
+#[test]
 fn deny_chat_folder_and_everything_above_it() {
     let w = SandboxWorld::worked_example();
     let d = deny(&w);

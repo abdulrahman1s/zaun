@@ -22,6 +22,8 @@ pub mod exit {
     pub const HOST: u8 = 4;
     /// A library migration is pending (start the GUI once).
     pub const MIGRATION: u8 = 5;
+    /// `update check`: a newer version is available.
+    pub const UPDATE_AVAILABLE: u8 = 10;
 }
 
 /// Run Windows games through umu-run inside a per-game Bubblewrap sandbox.
@@ -178,11 +180,22 @@ pub enum Command {
         #[arg(value_enum, default_value_t = OverlayArg::Toggle)]
         action: OverlayArg,
     },
+    /// Check for a newer version of Zaun, or install it (asks github.com; only while
+    /// "Check for updates" is on).
+    Update {
+        /// What to do.
+        #[command(subcommand)]
+        command: UpdateVerb,
+    },
     /// Keep Zaun running in the background so opened programs start at once.
     ///
     /// Usually started at login by the `zaun.service` systemd user unit. Waits while an
     /// Zaun window started on its own is open.
-    Service,
+    Service {
+        /// Open a window once ready (the restart after an update).
+        #[arg(long, hide = true)]
+        open_window: bool,
+    },
     /// Supervise one session (internal; started by Zaun itself).
     #[command(hide = true)]
     Supervise {
@@ -297,6 +310,26 @@ pub enum SteamVerb {
         #[arg(long, value_enum)]
         mangohud: Option<SwitchArg>,
     },
+}
+
+/// `update` subcommands (ADR-0040).
+#[derive(Debug, Subcommand, PartialEq, Eq)]
+pub enum UpdateVerb {
+    /// Ask github.com for the newest release: exit 0 when up to date, 10 when a newer
+    /// version is available.
+    Check {
+        /// Machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Download, verify and install the newest version (a tarball installed by you only;
+    /// Zaun must be closed and no game running).
+    Apply,
+    /// Check for updates once a day (asks github.com; your IP address and the time are all
+    /// it learns).
+    On,
+    /// Never check for updates.
+    Off,
 }
 
 /// `overlay`.

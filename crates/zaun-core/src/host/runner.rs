@@ -226,6 +226,14 @@ impl RealRunner {
     }
 }
 
+/// Replace this process with `program` and `args`, keeping its ID and environment: the
+/// restart into an updated or restored binary (ADR-0040 §5). Returns only on failure.
+#[allow(clippy::disallowed_methods)] // host::runner is one of the two places that spawn.
+pub fn replace_process(program: &Path, args: &[OsString]) -> std::io::Error {
+    use std::os::unix::process::CommandExt as _;
+    std::process::Command::new(program).args(args).exec()
+}
+
 impl CommandRunner for RealRunner {
     #[allow(clippy::disallowed_methods)] // host::runner is one of the two places that spawn.
     fn run(&self, cmd: &CommandSpec) -> Result<CommandOutput, RunError> {

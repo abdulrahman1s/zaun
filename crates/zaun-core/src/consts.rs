@@ -20,6 +20,18 @@ pub const SANDBOX_HOSTNAME: &str = "zaun";
 /// Version of this build (the workspace version).
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The project's repository, written once: links, release notes and updates derive from it
+/// (ADR-0040).
+macro_rules! repo_url {
+    () => {
+        "https://github.com/abdulrahman1s/zaun"
+    };
+}
+pub(crate) use repo_url;
+
+/// The project's repository (see `repo_url!`).
+pub const REPO_URL: &str = repo_url!();
+
 /// Directory holding `zaun-init`, compiled in at build time from `ZAUN_LIBEXEC_DIR`
 /// (RELEASE_STRATEGY §2.1). Default `/usr/libexec/zaun`.
 pub const LIBEXEC_DIR: &str = match option_env!("ZAUN_LIBEXEC_DIR") {

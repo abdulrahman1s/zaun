@@ -19,6 +19,7 @@ impl AppService {
         self.steam_preference_changed();
         self.chat_preference_changed();
         self.overlay_sync();
+        self.updates_preference_changed();
         Ok(())
     }
 }

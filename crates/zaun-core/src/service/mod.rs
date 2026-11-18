@@ -38,7 +38,7 @@ pub use app_service::{
 pub use command::{
     AfterCreate, ChatCommand, ClipKind, Command, DatabaseChoice, FolderRequest, GameEdit,
     InspectTarget, LaunchOrigin, LogFile, OpenOrigin, OverlayAction, ShareHeight, SteamCommand,
-    StopMode,
+    StopMode, UpdateCommand,
 };
 pub use event::{
     ChatPage, Event, LogChunk, Notice, QueryResult, RecoveredHow, SetupContext, SteamDetail,

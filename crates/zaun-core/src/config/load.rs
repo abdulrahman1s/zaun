@@ -17,7 +17,7 @@ use super::reader::Reader;
 use super::schema::{
     AdvancedPrefs, Appearance, ArtworkPrefs, ChatPrefs, General, IntegrationPrefs, LaunchPrefs,
     LoggingPrefs, OnboardingPrefs, PathPrefs, PreferencePatch, Preferences, Protection,
-    RuntimePrefs, StatisticsPrefs, SteamPrefs, UnknownKeys,
+    RuntimePrefs, StatisticsPrefs, SteamPrefs, UnknownKeys, UpdatePrefs,
 };
 use crate::clock::Timestamp;
 use crate::consts::CONFIG_SCHEMA_VERSION;
@@ -51,6 +51,7 @@ const SECTIONS: &[&str] = &[
     "integration",
     "advanced",
     "paths",
+    "updates",
     "onboarding",
 ];
 
@@ -241,6 +242,7 @@ pub fn from_table(
     let logging = LoggingPrefs::read(&mut r, &mut root);
     let integration = IntegrationPrefs::read(&mut r, &mut root);
     let paths = PathPrefs::read(&mut r, &mut root);
+    let updates = UpdatePrefs::read(&mut r, &mut root);
     let onboarding = OnboardingPrefs::read(&mut r, &mut root);
 
     // Unknown top-level keys and sections.
@@ -262,6 +264,7 @@ pub fn from_table(
         integration,
         advanced,
         paths,
+        updates,
         onboarding,
         unknown: UnknownKeys(unknown),
     };

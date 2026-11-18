@@ -225,7 +225,7 @@ pub fn try_show(game: &str, json: bool) -> Result<Option<u8>, Error> {
     Ok(Some(exit::OK))
 }
 
-fn gui_running(paths: &AppPaths) -> bool {
+pub(crate) fn gui_running(paths: &AppPaths) -> bool {
     zaun_core::desktop::instance::SocketTransport::new(paths.instance_socket.clone()).ping()
 }
 

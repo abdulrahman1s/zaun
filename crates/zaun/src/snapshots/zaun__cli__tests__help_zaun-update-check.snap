@@ -1,0 +1,12 @@
+---
+source: crates/zaun/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Ask github.com for the newest release: exit 0 when up to date, 10 when a newer version is available
+
+Usage: zaun update check [OPTIONS]
+
+Options:
+      --json        Machine-readable output
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+  -h, --help        Print help

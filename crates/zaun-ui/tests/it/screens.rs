@@ -5,7 +5,7 @@
 
 use crate::common;
 
-use common::{Rig, now, rig_with, settle, settled_library};
+use common::{Rig, now, rig_on, rig_with, settle, settled_library};
 use egui::accesskit::Role;
 use egui::{Key, Vec2};
 use egui_kittest::kittest::{NodeT, Queryable};
@@ -420,7 +420,7 @@ fn onboarding(host: zaun_ui::bridge::HostView, choice: ThemeChoice, size: Vec2) 
     }
     fake.publish_prefs(prefs);
     fake.publish_host(host);
-    let mut r = common::rig_on(fake, Route::Library, size, choice);
+    let mut r = rig_on(fake, Route::Library, size, choice);
     r.h.run();
     r
 }
@@ -522,4 +522,137 @@ fn snapshot_onboarding_handler_compact() {
     r.h.state_mut().state.onboarding.step = zaun_ui::vm::screens::OnboardingStep::Handler;
     r.h.run_steps(4);
     r.h.snapshot("onboarding_handler_dark_640x480");
+}
+
+// ---- Settings › About › Updates (ADR-0040) -------------------------------------------------
+
+fn update_snapshot(
+    channel: zaun_core::model::InstallChannel,
+    download: zaun_core::model::UpdateDownload,
+) -> zaun_core::model::UpdateSnapshot {
+    zaun_core::model::UpdateSnapshot {
+        configured: true,
+        channel,
+        current: "0.1.0".into(),
+        last_checked: Some(now()),
+        checking: false,
+        available: Some(zaun_core::model::UpdateOffer {
+            version: "0.2.0".into(),
+            date: "2026-12-01".into(),
+            notes: "Game streams in friends' calls, a quieter library and faster starts.".into(),
+            has_notes: true,
+        }),
+        download,
+        failure: None,
+        rolled_back: None,
+    }
+}
+
+/// About with checks on and `u` published.
+fn about_with(u: zaun_core::model::UpdateSnapshot) -> Rig {
+    let fake = FakeBackend::new(settled_library());
+    let mut prefs = demo::preferences();
+    prefs.updates.check = true;
+    fake.publish_prefs(prefs);
+    fake.publish_updates(u);
+    let mut r = rig_on(
+        fake,
+        Route::Settings(SettingsTab::About),
+        Vec2::new(1280.0, 900.0),
+        ThemeChoice::Dark,
+    );
+    settle(&mut r);
+    r
+}
+
+fn sent_update(r: &Rig) -> Vec<zaun_core::service::UpdateCommand> {
+    r.fake
+        .sent()
+        .into_iter()
+        .filter_map(|c| match c {
+            UiCommand::Core(Command::Updates(u)) => Some(u),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn an_owned_install_downloads_the_newer_version() {
+    use zaun_core::model::{InstallChannel, UpdateDownload};
+    use zaun_core::service::UpdateCommand;
+    let mut r = about_with(update_snapshot(
+        InstallChannel::Tarball { owned: true },
+        UpdateDownload::Idle,
+    ));
+    r.h.run_steps(4);
+    r.h.snapshot("settings_about_update_available_dark_1280x900");
+    r.h.get_by_label("Download").click();
+    r.h.run();
+    r.h.get_by_label("What's new").click();
+    r.h.run();
+    r.h.get_by_label("Check now").click();
+    r.h.run();
+    assert_eq!(
+        sent_update(&r),
+        vec![
+            UpdateCommand::Download,
+            UpdateCommand::OpenNotes,
+            UpdateCommand::Check
+        ]
+    );
+}
+
+#[test]
+fn a_downloaded_version_offers_restart_now() {
+    use zaun_core::model::{InstallChannel, UpdateDownload};
+    use zaun_core::service::UpdateCommand;
+    let mut r = about_with(update_snapshot(
+        InstallChannel::Tarball { owned: true },
+        UpdateDownload::Staged {
+            version: "0.2.0".into(),
+        },
+    ));
+    r.h.run_steps(4);
+    r.h.snapshot("settings_about_update_ready_dark_1280x900");
+    r.h.get_by_label("Restart now").click();
+    r.h.run();
+    assert_eq!(sent_update(&r), vec![UpdateCommand::Restart]);
+}
+
+#[test]
+fn a_nix_install_is_told_how_to_update_and_never_downloads() {
+    use zaun_core::model::{InstallChannel, UpdateDownload};
+    let mut r = about_with(update_snapshot(InstallChannel::Nix, UpdateDownload::Idle));
+    r.h.run_steps(4);
+    r.h.snapshot("settings_about_update_nix_dark_1280x900");
+    assert!(r.h.query_by_label("Download").is_none());
+    assert!(r.h.query_by_label("Restart now").is_none());
+}
+
+#[test]
+fn with_checks_off_check_now_is_dimmed() {
+    let fake = FakeBackend::new(settled_library());
+    fake.publish_updates(zaun_core::model::UpdateSnapshot {
+        configured: true,
+        current: "0.1.0".into(),
+        ..Default::default()
+    });
+    let mut r = rig_on(
+        fake,
+        Route::Settings(SettingsTab::About),
+        Vec2::new(1280.0, 900.0),
+        ThemeChoice::Dark,
+    );
+    settle(&mut r);
+    assert!(!demo::preferences().updates.check);
+    assert!(
+        r.h.get_by_role_and_label(Role::Button, "Check now")
+            .accesskit_node()
+            .is_disabled()
+    );
+    assert!(
+        !r.h.get_by_role_and_label(Role::Switch, "Check for updates")
+            .accesskit_node()
+            .is_disabled()
+    );
 }

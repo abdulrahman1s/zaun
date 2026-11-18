@@ -110,6 +110,7 @@ fn deps(env: &TestEnv, launcher: Arc<FakeLauncher>, resolution: Resolution) -> S
         chat: None,
         overlay: None,
         media: None,
+        updates: None,
     }
 }
 

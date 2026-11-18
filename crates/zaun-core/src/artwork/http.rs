@@ -1,6 +1,7 @@
 //! The only HTTP client in the codebase (ADR-0018 §5, THREAT_MODEL T-18). Each client has a
-//! fixed host allow-list: Steam artwork ([`ARTWORK_HOSTS`]), or the Chat services
-//! ([`HttpClient::for_hosts`]: `crate::gifs`, `crate::linkcheck`).
+//! fixed host allow-list: Steam artwork ([`ARTWORK_HOSTS`]), the Chat services
+//! ([`HttpClient::for_hosts`]: `crate::gifs`, `crate::linkcheck`), or the update files
+//! ([`HttpClient::for_downloads`]: `crate::update`, ADR-0040, larger cap and time budget).
 //!
 //! - HTTPS only, certificate validation by rustls with the webpki roots.
 //! - First requests only to [`ARTWORK_REQUEST_HOSTS`]; redirects are followed by this module
@@ -413,6 +414,9 @@ pub struct HttpClient {
     transport: Arc<dyn Transport>,
     clock: Arc<dyn Clock>,
     timeout: Duration,
+    /// The longest `timeout` may be ([`TIMEOUT`], or a download client's budget).
+    ceiling: Duration,
+    max_body: u64,
     gate: Gate,
     hosts: AllowList,
 }
@@ -434,6 +438,8 @@ impl HttpClient {
             transport,
             clock,
             timeout: TIMEOUT,
+            ceiling: TIMEOUT,
+            max_body: MAX_BODY,
             gate: Gate {
                 busy: Mutex::new(0),
                 freed: Condvar::new(),
@@ -449,13 +455,26 @@ impl HttpClient {
         Self {
             transport: Arc::clone(&self.transport),
             clock: Arc::clone(&self.clock),
-            timeout: self.timeout,
+            timeout: self.timeout.min(TIMEOUT),
+            ceiling: TIMEOUT,
+            max_body: MAX_BODY,
             gate: Gate {
                 busy: Mutex::new(0),
                 freed: Condvar::new(),
             },
             hosts,
         }
+    }
+
+    /// A client for large files (the update's binaries, ADR-0040): `hosts` only, bodies up to
+    /// `max_body` and requests up to `timeout` instead of [`MAX_BODY`] and [`TIMEOUT`].
+    #[must_use]
+    pub fn for_downloads(&self, hosts: AllowList, max_body: u64, timeout: Duration) -> Self {
+        let mut c = self.for_hosts(hosts);
+        c.max_body = max_body;
+        c.ceiling = timeout;
+        c.timeout = timeout;
+        c
     }
 
     /// Like [`HttpClient::for_hosts`], but through the CONNECT proxy `proxy` (`None`:
@@ -477,10 +496,10 @@ impl HttpClient {
         self.hosts
     }
 
-    /// Override the time budget (tests; never above [`TIMEOUT`]).
+    /// Override the time budget (never above [`TIMEOUT`], or a download client's budget).
     #[must_use]
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout.min(TIMEOUT);
+        self.timeout = timeout.min(self.ceiling);
         self
     }
 
@@ -489,13 +508,13 @@ impl HttpClient {
         self.get_capped(url, MAX_BODY)
     }
 
-    /// GET with a body cap of `max_body` (at most [`MAX_BODY`]).
+    /// GET with a body cap of `max_body` (at most [`MAX_BODY`], or a download client's cap).
     pub fn get_capped(&self, url: &str, max_body: u64) -> Result<Response, HttpError> {
         let mut cur = HttpsUrl::parse(url)?;
         if !self.hosts.request.contains(&cur.host.as_str()) {
             return Err(HttpError::HostNotAllowed(cur.host));
         }
-        let max_body = max_body.min(MAX_BODY);
+        let max_body = max_body.min(self.max_body);
         let _permit = self.gate.acquire();
         let start = self.clock.mono();
         for _ in 0..=MAX_REDIRECTS {

@@ -163,6 +163,8 @@ pub struct SnapshotHub {
     /// Whether the in-game overlay can be shown (ADR-0037): the hotkey's answer and
     /// Settings' note on desktops without a layer shell.
     pub overlay: Swap<crate::chat::overlay::OverlayStatus>,
+    /// Updates (ADR-0040).
+    pub updates: Swap<crate::model::UpdateSnapshot>,
 }
 
 impl SnapshotHub {
@@ -179,6 +181,7 @@ impl SnapshotHub {
             chat: Swap::default(),
             frames: crate::chat::media::FrameSlot::new(),
             overlay: Swap::default(),
+            updates: Swap::default(),
         }
     }
 }

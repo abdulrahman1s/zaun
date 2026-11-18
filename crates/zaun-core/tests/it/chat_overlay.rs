@@ -106,6 +106,7 @@ fn deps(
         chat: Some(Arc::new(engine.clone())),
         overlay: Some(Arc::new(overlay.clone())),
         media: None,
+        updates: None,
     }
 }
 

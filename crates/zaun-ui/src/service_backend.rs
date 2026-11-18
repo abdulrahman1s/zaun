@@ -182,6 +182,7 @@ impl ServiceBackend {
             Event::PreferencesChanged => UiEvent::PreferencesChanged,
             Event::DiagnosticsChanged => UiEvent::DiagnosticsChanged,
             Event::ChatChanged => UiEvent::ChatChanged,
+            Event::UpdatesChanged => UiEvent::UpdatesChanged,
             Event::Notice(Notice::ChatMessages(messages)) => UiEvent::ChatMessages {
                 messages,
                 updated: false,
@@ -220,9 +221,9 @@ impl ServiceBackend {
                     Notice::ArtworkKeptPlaceholder { .. }
                     | Notice::OnlyFirstPaths { .. }
                     | Notice::ChatGifNotSent => ToastLevel::Warning,
-                    Notice::StopRequested { .. } | Notice::AlreadyInLibrary { .. } => {
-                        ToastLevel::Info
-                    }
+                    Notice::StopRequested { .. }
+                    | Notice::AlreadyInLibrary { .. }
+                    | Notice::UpdateAvailable { .. } => ToastLevel::Info,
                     Notice::LibraryRecovered {
                         how: zaun_core::service::RecoveredHow::StartedEmpty,
                         ..
@@ -332,6 +333,7 @@ fn notice_text(n: &Notice, lib: &LibrarySnapshot) -> String {
         // Mapped to `UiEvent::ChatUnsafeLink` before toasts are made.
         Notice::ChatUnsafeLink { .. } => String::new(),
         Notice::ChatGifNotSent => crate::strings::chat::services::NOT_SENT().to_owned(),
+        Notice::UpdateAvailable { version } => crate::strings::updates::available(version),
         Notice::ChatFileSaved { folder } => crate::strings::chat::conversation::saved_to(folder),
         Notice::AlreadyInLibrary { game } => text::already(&name(game)),
         Notice::FoundMoved { game } => text::found_moved(&name(game)),
@@ -665,6 +667,10 @@ impl Backend for ServiceBackend {
         *self.handle.hub.overlay.load()
     }
 
+    fn updates(&self) -> Arc<zaun_core::model::UpdateSnapshot> {
+        self.handle.hub.updates.load()
+    }
+
     fn host(&self) -> Arc<HostView> {
         let facts = self.handle.hub.host.load();
         let integration = self.handle.hub.integration.load();
@@ -829,6 +835,7 @@ pub fn compact_unattended(queue: VecDeque<UiEvent>) -> (VecDeque<UiEvent>, Unatt
             | UiEvent::RuntimesChanged
             | UiEvent::DiagnosticsChanged
             | UiEvent::ChatChanged
+            | UiEvent::UpdatesChanged
             | UiEvent::ChatMessages { .. }
             | UiEvent::ChatUnsafeLink { .. }
             | UiEvent::QueryResult { .. }

@@ -351,6 +351,13 @@ settings! {
         bwrap: Option<PathBuf> = None => custom(custom::executable),
     }
 
+    /// `[updates]` (ADR-0040).
+    UpdatePrefs "updates" {
+        /// Ask the project's release page once a day whether a newer version exists. While
+        /// off, nothing is requested (also not by "Check now" or `zaun update check`).
+        check: bool = false => bool,
+    }
+
     /// `[onboarding]`.
     OnboardingPrefs "onboarding" {
         completed: bool = false => bool,
@@ -460,6 +467,8 @@ pub struct Preferences {
     pub advanced: AdvancedPrefs,
     /// `[paths]`.
     pub paths: PathPrefs,
+    /// `[updates]`.
+    pub updates: UpdatePrefs,
     /// `[onboarding]`.
     pub onboarding: OnboardingPrefs,
     /// Keys this build does not know.
@@ -484,6 +493,7 @@ impl Default for Preferences {
             integration: IntegrationPrefs::default(),
             advanced: AdvancedPrefs::default(),
             paths: PathPrefs::default(),
+            updates: UpdatePrefs::default(),
             onboarding: OnboardingPrefs::default(),
             unknown: UnknownKeys::default(),
         }

@@ -1,0 +1,18 @@
+---
+source: crates/zaun/src/cli.rs
+expression: cmd.render_help().to_string()
+---
+Check for a newer version of Zaun, or install it (asks github.com; only while "Check for updates" is on)
+
+Usage: zaun update [OPTIONS] <COMMAND>
+
+Commands:
+  check  Ask github.com for the newest release: exit 0 when up to date, 10 when a newer version is available
+  apply  Download, verify and install the newest version (a tarball installed by you only; Zaun must be closed and no game running)
+  on     Check for updates once a day (asks github.com; your IP address and the time are all it learns)
+  off    Never check for updates
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+  -v, --verbose...  Increase log verbosity (-v debug, -vv trace)
+  -h, --help        Print help

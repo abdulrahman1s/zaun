@@ -13,6 +13,7 @@ pub mod app;
 pub mod bridge;
 pub mod demo;
 pub mod demo_chat;
+pub mod demo_updates;
 pub mod i18n;
 pub mod input;
 pub mod route;

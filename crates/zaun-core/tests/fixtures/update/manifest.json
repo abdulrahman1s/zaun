@@ -1,0 +1,30 @@
+{
+  "format": 1,
+  "product": "zaun",
+  "version": "9.9.9",
+  "date": "2026-11-18",
+  "notes": "Fixture release made by scripts/sign-release-manifest.sh with a throwaway test key.",
+  "notes_url": "https://github.com/abdulrahman1s/zaun/releases/tag/v9.9.9",
+  "artifacts": [
+    {
+      "channel": "tarball",
+      "arch": "x86_64",
+      "path": "libexec/zaun/zaun",
+      "url": "https://github.com/abdulrahman1s/zaun/releases/download/v9.9.9/zaun-9.9.9-x86_64-linux.zaun.gz",
+      "size": 46,
+      "sha256": "6d5560da5c15da0e7035e48eb7813eebcea7642e83b1e866d4c0fd0cf80d5120",
+      "unpacked_size": 28,
+      "unpacked_sha256": "71c368150fa47cd9a593a64ae4237b74a35d45cac9a891324dfd313dfd266818"
+    },
+    {
+      "channel": "tarball",
+      "arch": "x86_64",
+      "path": "libexec/zaun/zaun-init",
+      "url": "https://github.com/abdulrahman1s/zaun/releases/download/v9.9.9/zaun-9.9.9-x86_64-linux.zaun-init.gz",
+      "size": 49,
+      "sha256": "86b835f2fdec06bba72db2a84c4a5e3387b1625085954f60d032a09e2ac094ef",
+      "unpacked_size": 31,
+      "unpacked_sha256": "65d1d23de59605c0a193715a842839e6f847fbf572d47f6b856cefb86aa19f0e"
+    }
+  ]
+}

@@ -9,7 +9,7 @@
 //! | 2 | [`jobs`], [`logging`], [`fsx`], [`procfs`] |
 //! | 3 | [`storage`], [`config`], [`host`] |
 //! | 4 | [`identity`], [`sandbox`], [`umu`] |
-//! | 5 | [`runtime`], [`launch`], [`session`], [`library`], [`stats`], [`artwork`], [`desktop`], [`diagnostics`] |
+//! | 5 | [`runtime`], [`launch`], [`session`], [`library`], [`stats`], [`artwork`], [`desktop`], [`diagnostics`], [`update`] |
 //! | 6 | [`service`] |
 //!
 //! `unsafe` is denied crate-wide; only `session::sys` and `sandbox::fd` may allow it
@@ -56,6 +56,7 @@ pub mod linkcheck;
 pub mod runtime;
 pub mod session;
 pub mod stats;
+pub mod update;
 
 // Layer 6 — application façade
 pub mod service;

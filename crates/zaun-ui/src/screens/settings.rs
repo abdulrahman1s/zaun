@@ -36,6 +36,8 @@ use crate::widgets::tabs::Tabs;
 use crate::widgets::text_field::TextField;
 use crate::widgets::toggle::switch;
 
+mod updates;
+
 /// Tabs in order.
 pub const TABS: [SettingsTab; 8] = [
     SettingsTab::General,
@@ -2440,7 +2442,7 @@ fn current_text(prefs: &Preferences, key: &str) -> String {
         .unwrap_or_default()
 }
 
-fn about(ui: &mut Ui, env: &Env<'_>) {
+fn about(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let p = theme::theme(ui.ctx()).palette.clone();
     let w = ui.available_width();
     let g = super::statistics::balanced(ui, s::PRIVACY(), Type::Hero, false, p.t1, w);
@@ -2451,8 +2453,8 @@ fn about(ui: &mut Ui, env: &Env<'_>) {
     let g = Type::Lead.galley(ui, s::PRIVACY_ENDPOINTS(), p.t2, w, usize::MAX);
     let (r, _) = ui.allocate_exact_size(vec2(w, g.size().y), Sense::hover());
     ui.painter().galley(r.min, g, p.t2);
-    ui.add_space(layout::ABOUT_GAP);
-    quiet(ui, &s::version(&env.bridge.host().version), Type::Body);
+    // The version is the first row of Updates (ADR-0040).
+    updates::group(ui, state, env);
     rows::heading(ui, s::LICENCES(), false);
     let cols = [Col::Flex(1.0), Col::Flex(1.0)];
     for (what, licence) in s::LICENCE_ROWS() {
@@ -2538,7 +2540,7 @@ pub fn show(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>, tab: SettingsTa
                                 SettingsTab::CompatibilityLayers => layers(ui, state, env),
                                 SettingsTab::Integration => integration(ui, state, env),
                                 SettingsTab::Advanced => advanced(ui, state, env),
-                                SettingsTab::About => about(ui, env),
+                                SettingsTab::About => about(ui, state, env),
                             }
                         },
                     );

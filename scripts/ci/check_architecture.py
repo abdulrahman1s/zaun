@@ -40,7 +40,7 @@ LAYERS = {
     "storage": 3, "config": 3, "host": 3, "steam": 3,
     "identity": 4, "sandbox": 4, "umu": 4,
     "runtime": 5, "launch": 5, "session": 5, "library": 5, "stats": 5, "artwork": 5,
-    "desktop": 5, "diagnostics": 5, "chat": 5,
+    "desktop": 5, "diagnostics": 5, "chat": 5, "update": 5,
     "service": 6,
 }
 # Allowed imports between layer-5 modules (§4).
@@ -51,6 +51,8 @@ LAYER5_ALLOWED = {
     ("diagnostics", "runtime"),
     # The Chat engine starts its helper through `session::spawn` (ARCH-002, ADR-0033).
     ("chat", "session"),
+    # Updates reach the network only through the one HTTP client (ADR-0018, ADR-0040).
+    ("update", "artwork"),
 }
 # `model` imports nothing but these (§3 rule 3).
 MODEL_ALLOWED = ("ids", "consts", "clock::Timestamp", "error::ErrorCode", "error::Error", "model")

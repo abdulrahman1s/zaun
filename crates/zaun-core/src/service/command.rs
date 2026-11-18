@@ -441,6 +441,19 @@ pub enum SteamCommand {
     Details { id: GameId, reply_to: QueryId },
 }
 
+/// Updates (ADR-0040). Nothing is requested while `updates.check` is off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UpdateCommand {
+    /// "Check now".
+    Check,
+    /// Download and stage the newest version (owned installs only).
+    Download,
+    /// "Restart now": when nothing runs, the window closes and the staged version starts.
+    Restart,
+    /// Open the newest version's release notes in the browser.
+    OpenNotes,
+}
+
 /// What to do with a damaged library (PERSISTENCE §8, the `ZN-DB-001` choices).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DatabaseChoice {
@@ -650,6 +663,9 @@ pub enum Command {
     Chat(ChatCommand),
     /// Open or close the in-game overlay (ADR-0037; the hotkey's `zaun overlay`).
     Overlay(OverlayAction),
+    // ---- updates (ADR-0040)
+    /// An update action.
+    Updates(UpdateCommand),
     // ---- lifecycle
     /// Stop the service: parked flows are cancelled, running games are left alone.
     Shutdown,
