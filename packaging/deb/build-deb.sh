@@ -133,7 +133,7 @@ Installed-Size: $installed_size
 Depends: $depends
 Recommends: umu-launcher, libwayland-client0, libx11-6, libxcursor1, libxi6, libxrandr2, libxkbcommon-x11-0, xdg-desktop-portal, xdg-utils
 Suggests: mangohud, gamescope
-Section: games
+Section: utils
 Priority: optional
 Homepage: https://github.com/abdulrahman1s/zaun
 Description: run Windows games in a per-game sandbox
