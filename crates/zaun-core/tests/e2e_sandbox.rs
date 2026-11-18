@@ -524,8 +524,11 @@ struct Listeners {
 }
 
 fn listeners(w: &World) -> Listeners {
+    // Unique per call: `cargo test` runs these tests as threads of one process.
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let tcp = TcpListener::bind("127.0.0.1:0").unwrap();
-    let name = format!("zaun-e2e-{}", std::process::id());
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let name = format!("zaun-e2e-{}-{n}", std::process::id());
     let abs =
         UnixListener::bind_addr(&SocketAddr::from_abstract_name(name.as_bytes()).unwrap()).unwrap();
     let mut args = vec![
