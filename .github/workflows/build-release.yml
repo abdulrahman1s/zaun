@@ -310,8 +310,12 @@ jobs:
       - name: Lint
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
+      # The UI's integration tests render with wgpu and need a GPU adapter; CI's UI job runs
+      # them on a software one. Here they are left out, as in CI's MSRV job.
       - name: Test
-        run: cargo test --locked --workspace
+        run: |
+          cargo test --locked --workspace --exclude zaun-ui
+          cargo test --locked -p zaun-ui --lib
 
       - name: Release build, checks and tarball
         # scripts/build-release.sh (PKG-001): --locked, no dev-inspection, size budgets of
