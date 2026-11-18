@@ -47,7 +47,11 @@ fn real_host_probe() {
         assert_eq!(facts.layout.kind, LayoutKind::Nix);
         assert!(facts.etc_links.links.values().any(|l| l.via_etc_static));
     }
-    assert!(facts.umu.is_some(), "{:?}", facts.problems);
+    // umu-launcher is on a developer host, not on the CI runner (TESTING_STRATEGY §10.1);
+    // there only the sandbox half of the probe is held to account.
+    if std::env::var_os("CI").is_none() {
+        assert!(facts.umu.is_some(), "{:?}", facts.problems);
+    }
     eprintln!("{}", serde_json::to_string_pretty(&facts).unwrap());
 }
 
