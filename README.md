@@ -4,39 +4,22 @@
 
 <h1 align="center">Zaun</h1>
 
-<p align="center">
-  <b>Your games and your friends, in one app. Built for Linux.</b><br>
-  A game library that runs every Windows game in its own sandbox, with private chat, voice
-  calls, game sharing and an in-game overlay built in. No accounts. No servers of ours. No
-  tracking.
-</p>
+<p align="center"><b>Your Windows games and your friends, together on Linux.</b></p>
 
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#games">Games</a> ·
   <a href="#friends">Friends</a> ·
   <a href="#how-chat-stays-private">Security</a> ·
-  <a href="#privacy">Privacy</a> ·
-  <a href="#troubleshooting">Troubleshooting</a> ·
   <a href="#building-from-source">Build</a>
 </p>
 
 ---
 
-Think of what you'd get if Steam and Discord had a kid that grew up on Linux and cared
-about privacy. The library side is where your games live: double-click a Windows `.exe`,
-name it, press **Play**. It runs through Proton, sealed inside its own sandbox. The friends
-side is where your people are: messages, groups, voice calls, watching a friend's game,
-and a chat panel you can pull up over a fullscreen game with one key.
+Zaun is a game library where every Windows game runs in its own sandbox, with private chat,
+voice calls, game sharing and an in-game overlay built in. No accounts, no tracking.
 
-There's no Zaun account and no Zaun server. Your library, play time and settings never
-leave your computer. Chat is optional, and when it's on it runs on the
-[SimpleX](https://simplex.chat) messaging protocol: no user IDs of any kind, end-to-end
-encryption, and relays that can't tell who is talking to whom.
-
-> **Status:** pre-1.0. Everything works end to end, but expect rough edges and changes
-> between `0.x` releases. Your library is migrated forward automatically; downgrading is not
-> supported.
+> **Status:** pre-1.0. It works end to end; expect rough edges between `0.x` releases.
 
 ## Games
 
