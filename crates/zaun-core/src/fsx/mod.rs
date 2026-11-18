@@ -11,6 +11,7 @@
 
 mod append;
 mod atomic;
+mod legacy_dirs;
 mod mounts;
 mod real;
 mod reflink;
@@ -22,6 +23,7 @@ use std::path::{Path, PathBuf};
 
 pub use append::{AppendFile, rotate_numbered};
 pub use atomic::atomic_write_real;
+pub use legacy_dirs::{LEGACY_DIR_NAME, LegacyMove, adopt_legacy_dirs};
 pub use mounts::{MountInfo, MountTable};
 pub use real::RealFs;
 pub use reflink::reflink_probe;

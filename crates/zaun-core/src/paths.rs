@@ -44,10 +44,24 @@ impl PathEnv {
 
     /// The real process environment and user ID.
     pub fn from_process() -> Self {
-        Self {
-            vars: std::env::vars_os().collect(),
-            uid: rustix::process::getuid().as_raw(),
+        Self::from_vars(std::env::vars_os(), rustix::process::getuid().as_raw())
+    }
+
+    /// Transitional (the rename to Zaun): `EASYPLAY_X` stands in for an unset `ZAUN_X`.
+    /// Remove one release after the rename.
+    fn from_vars(vars: impl Iterator<Item = (OsString, OsString)>, uid: u32) -> Self {
+        let mut vars: BTreeMap<OsString, OsString> = vars.collect();
+        let legacy: Vec<(OsString, OsString)> = vars
+            .iter()
+            .filter_map(|(k, v)| {
+                let name = k.to_str()?.strip_prefix("EASYPLAY_")?;
+                Some((OsString::from(format!("ZAUN_{name}")), v.clone()))
+            })
+            .collect();
+        for (k, v) in legacy {
+            vars.entry(k).or_insert(v);
         }
+        Self { vars, uid }
     }
 
     /// Builder: set a variable.
@@ -565,5 +579,19 @@ mod tests {
         assert_eq!(normalize(Path::new("/a/b/../../..")), Path::new("/"));
         assert_eq!(normalize(Path::new("/a/./b/")), Path::new("/a/b"));
         assert_eq!(normalize(Path::new("//a//b")), Path::new("/a/b"));
+    }
+
+    #[test]
+    fn old_easyplay_variables_stand_in_for_unset_zaun_ones() {
+        let vars = [
+            ("EASYPLAY_DATA_DIR", "/old/data"),
+            ("EASYPLAY_CONFIG_DIR", "/old/config"),
+            ("ZAUN_CONFIG_DIR", "/new/config"),
+            ("HOME", "/home/sam"),
+        ]
+        .map(|(k, v)| (OsString::from(k), OsString::from(v)));
+        let env = PathEnv::from_vars(vars.into_iter(), 1000);
+        assert_eq!(env.get("ZAUN_DATA_DIR"), Some(OsStr::new("/old/data")));
+        assert_eq!(env.get("ZAUN_CONFIG_DIR"), Some(OsStr::new("/new/config")));
     }
 }

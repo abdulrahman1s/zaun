@@ -32,7 +32,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use zaun_core::consts::{ENV_LOG, ENV_LOG_FORMAT};
 use zaun_core::error::catalog::{self, DescribeCtx};
-use zaun_core::fsx::{Fs, RealFs};
+use zaun_core::fsx::{Fs, LegacyMove, RealFs, adopt_legacy_dirs};
 use zaun_core::logging::{self, LogFormat, LogGuard, LogOptions, ProcessRole, Redactor};
 use zaun_core::paths::{AppPaths, PathEnv};
 
@@ -91,6 +91,32 @@ fn init_logging(cli: &Cli, env: &PathEnv) -> (Option<LogGuard>, Redactor) {
     }
 }
 
+/// Before anything opens a directory: the old `easyplay` dirs become `zaun` (ADR-0039).
+fn adopt_legacy_dirs_early(env: &PathEnv) -> Vec<LegacyMove> {
+    AppPaths::resolve(env)
+        .map(|p| adopt_legacy_dirs(&RealFs::new(), env, &p))
+        .unwrap_or_default()
+}
+
+fn log_legacy_dirs(moves: &[LegacyMove]) {
+    for m in moves {
+        match m {
+            LegacyMove::Moved { from, to } => {
+                tracing::info!(from = %from.display(), to = %to.display(), "moved the old directory");
+            }
+            LegacyMove::LinkFailed { from, to, error } => {
+                tracing::warn!(from = %from.display(), to = %to.display(), error, "moved the old directory, but could not link the old path");
+            }
+            LegacyMove::BothExist { from, to } => {
+                tracing::warn!(from = %from.display(), to = %to.display(), "the old and the new directory both exist; nothing was moved");
+            }
+            LegacyMove::Failed { from, to, error } => {
+                tracing::warn!(from = %from.display(), to = %to.display(), error, "could not move the old directory");
+            }
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
@@ -102,7 +128,9 @@ fn main() -> ExitCode {
     };
     panic::install();
     let env = PathEnv::from_process();
+    let legacy = adopt_legacy_dirs_early(&env);
     let (log_guard, redact) = init_logging(&cli, &env);
+    log_legacy_dirs(&legacy);
     // Crash records for the GUI and the CLI; a supervisor's panic goes to its own log.
     if role_of(&cli) != ProcessRole::Supervisor
         && let Ok(p) = AppPaths::resolve(&env)

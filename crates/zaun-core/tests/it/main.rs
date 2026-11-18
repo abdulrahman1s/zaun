@@ -18,6 +18,7 @@ mod hostile_prefix;
 mod identity;
 mod launch_m5;
 mod launch_orchestrator;
+mod legacy_dirs;
 mod library;
 mod runtime_adopt;
 mod runtime_catalog;
