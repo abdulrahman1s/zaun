@@ -64,6 +64,8 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           shared-key: msrv
+          # Only the default branch writes the cache; other branches and pull requests read it.
+          save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
       - name: Build
         run: cargo build --locked --workspace --all-targets
       - name: Test (unit and integration; UI snapshot tests need a GPU adapter)
@@ -85,19 +87,15 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           shared-key: ui
+          # Only the default branch writes the cache; other branches and pull requests read it.
+          save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      # The snapshot images are not in the repository: every screen is rendered (and every UI
+      # test runs) but the pictures are written, not compared. Comparison happens locally.
       - name: UI tests in debug with the UI-thread guard (PERF-002) and idle test (PERF-003)
         env:
           WGPU_BACKEND: vulkan
-        run: scripts/update-snapshots.sh --check
-      - name: Upload snapshot differences
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: snapshot-diffs
-          path: |
-            crates/*/tests/snapshots/*.new.png
-            crates/*/tests/snapshots/*.diff.png
-          if-no-files-found: ignore
+          UPDATE_SNAPSHOTS: "1"
+        run: cargo test -p zaun-ui --tests
 
   e2e:
     name: End to end (real bubblewrap, TEST-010)
@@ -125,6 +123,8 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           shared-key: e2e
+          # Only the default branch writes the cache; other branches and pull requests read it.
+          save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
       # The umu experiments (crates/zaun/tests/e2e_experiments.rs, TEST-020) need a real
       # umu-run, Proton and the Steam Linux Runtime; they run on a developer host
       # (TESTING_STRATEGY §10.1) and skip here.
@@ -153,6 +153,7 @@ jobs:
         with:
           workspaces: fuzz
           shared-key: fuzz
+          save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
       - name: Check every target
         run: cargo check --manifest-path fuzz/Cargo.toml --bins
 
@@ -172,6 +173,8 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           shared-key: bench
+          # Only the default branch writes the cache; other branches and pull requests read it.
+          save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
       - name: Run the benches and the 25 % regression gate
         run: scripts/bench.sh bench-results.jsonl
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
