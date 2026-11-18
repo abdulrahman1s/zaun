@@ -7,7 +7,7 @@ anything that loses or corrupts a user's library or saves.
 ## Reporting
 
 Please report privately, not in a public issue: use **Report a vulnerability** on the
-repository's [Security tab](https://github.com/zaun/zaun/security/advisories/new)
+repository's [Security tab](https://github.com/abdulrahman1s/zaun/security/advisories/new)
 (GitHub private vulnerability reporting). Include the Zaun version (`zaun --version`),
 the distribution, the game's protection settings, and the steps or a test program.
 

@@ -8,7 +8,7 @@ pkgver=0.1.0
 pkgrel=1
 pkgdesc='Run Windows games through umu-launcher in a per-game bubblewrap sandbox'
 arch=('x86_64')
-url='https://github.com/zaun/zaun'
+url='https://github.com/abdulrahman1s/zaun'
 license=('GPL-3.0-or-later' 'OFL-1.1' 'MIT' 'Apache-2.0')
 # Display, input and graphics libraries are loaded with dlopen (RELEASE_STRATEGY §2.1).
 depends=(

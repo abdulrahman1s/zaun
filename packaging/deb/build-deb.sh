@@ -132,7 +132,7 @@ Recommends: umu-launcher, libwayland-client0, libx11-6, libxcursor1, libxi6, lib
 Suggests: mangohud, gamescope
 Section: games
 Priority: optional
-Homepage: https://github.com/zaun/zaun
+Homepage: https://github.com/abdulrahman1s/zaun
 Description: run Windows games in a per-game sandbox
  Zaun runs Windows games on Linux through umu-launcher and Proton. Open
  an .exe from the file manager, answer one question about what the game may

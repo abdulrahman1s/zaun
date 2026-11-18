@@ -27,8 +27,8 @@
     <mediatype>application/x-msdownload</mediatype>
     <mediatype>application/vnd.microsoft.portable-executable</mediatype>
   </provides>
-  <url type="homepage">https://github.com/zaun/zaun</url>
-  <url type="bugtracker">https://github.com/zaun/zaun/issues</url>
+  <url type="homepage">https://github.com/abdulrahman1s/zaun</url>
+  <url type="bugtracker">https://github.com/abdulrahman1s/zaun/issues</url>
   <developer id="io.github.zaun">
     <name>Zaun contributors</name>
   </developer>
@@ -45,7 +45,7 @@
   <screenshots>
     <screenshot type="default">
       <caption>The game library</caption>
-      <image>https://raw.githubusercontent.com/zaun/zaun/main/docs/screenshots/library.png</image>
+      <image>https://raw.githubusercontent.com/abdulrahman1s/zaun/main/docs/screenshots/library.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>

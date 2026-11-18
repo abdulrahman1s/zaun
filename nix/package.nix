@@ -77,7 +77,7 @@ let
 
   meta = {
     description = "Run Windows games through umu-run inside a per-game bubblewrap sandbox";
-    homepage = "https://github.com/zaun/zaun";
+    homepage = "https://github.com/abdulrahman1s/zaun";
     license = lib.licenses.gpl3Plus;
     platforms = lib.platforms.linux;
   };

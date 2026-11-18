@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: zaun
-Upstream-Contact: https://github.com/zaun/zaun/issues
-Source: https://github.com/zaun/zaun
+Upstream-Contact: https://github.com/abdulrahman1s/zaun/issues
+Source: https://github.com/abdulrahman1s/zaun
 
 Files: *
 Copyright: 2026 Abdulrahman and the Zaun contributors

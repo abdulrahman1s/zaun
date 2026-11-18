@@ -160,5 +160,5 @@ confirm the Doctor shows `ZN-HOST-004` with the AppArmor guidance.
 
 ## Reporting problems
 
-Bugs and ideas: [issues](https://github.com/zaun/zaun/issues). Security problems:
+Bugs and ideas: [issues](https://github.com/abdulrahman1s/zaun/issues). Security problems:
 privately, see [SECURITY.md](SECURITY.md).
