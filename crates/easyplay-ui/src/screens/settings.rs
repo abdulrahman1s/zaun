@@ -1249,7 +1249,7 @@ fn relay_servers(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
 /// Settings › Chat › Overlay (notes H): the switch, the key the hints show, toasts, the
 /// call's widget and its corner. Where the desktop cannot show the overlay, one note line
 /// under the heading and every row dims in place (the switch shows off); the rows after
-/// the switch dim while it is off, and the corner while the widget is.
+/// the switch dim while it is off, and the corner while both the toasts and the widget are.
 fn overlay_group(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     use easyplay_core::config::schema::OverlayCorner;
     use easyplay_core::service::OverlayStatus;
@@ -1311,7 +1311,7 @@ fn overlay_group(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
     let current = idx(OverlayCorner::ALL, prefs.chat.overlay_corner);
     let mut i = current;
     let changed = SettingRow::new(cs::CORNER())
-        .enabled(live && prefs.chat.overlay_voice_widget)
+        .enabled(live && (prefs.chat.overlay_toasts || prefs.chat.overlay_voice_widget))
         .show(ui, |ui| {
             band(ui, control::SM, |ui| {
                 select(ui, cs::CORNER(), None, None, &mut i, &labels, false).changed()

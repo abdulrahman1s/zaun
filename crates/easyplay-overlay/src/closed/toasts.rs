@@ -1,6 +1,7 @@
 //! Toasts (`chat-calls.html` §G CLOSED): one per arriving message while the overlay is
-//! closed, 340 wide at the top corner opposite the call widget's side, 24 from the edges,
-//! newest on top, 8 apart, at most three (a fourth pushes the oldest out). Each lives 6 s;
+//! closed, 340 wide in the chosen corner (`chat.overlay_corner`), 24 from the edges, past the
+//! call widget when it shows there, newest nearest the corner, 8 apart, at most three (a
+//! fourth pushes the oldest out). Each lives 6 s;
 //! in from 24 beyond its edge over 300 out, out the mirror over 300 in (alpha only, 90, with
 //! reduced motion). A ringing call is the same toast with the ping ring, "is calling you"
 //! and "… to answer"; it stays while the call rings, at most 20 s.
@@ -11,6 +12,7 @@ use easyplay_core::chat::overlay::snapshot::{MAX_TOASTS, Person};
 use easyplay_ui::theme::Type;
 use egui::{Align2, CornerRadius, Rect, Stroke, StrokeKind, Ui, pos2, vec2};
 
+use crate::closed::widget;
 use crate::look::Look;
 use crate::model::{LiveToast, Model, ToastKey};
 use crate::motion::{self, MOVE, REDUCED};
@@ -20,6 +22,8 @@ use crate::words;
 const WIDTH: f32 = 340.0;
 const EDGE: f32 = 24.0;
 const GAP: f32 = 8.0;
+/// Every toast's height: the padding, the name, the line and the key hint.
+const HEIGHT: f32 = 12.0 + 18.0 + 1.0 + 18.0 + 6.0 + 14.0 + 12.0;
 const LIFE: f64 = 6.0;
 const RING_LIFE: f64 = 20.0;
 
@@ -104,10 +108,16 @@ impl Model {
 
 pub fn draw(ui: &Ui, m: &Model, now: f64, alpha: f32) {
     let screen = ui.clip_rect();
-    // Opposite the widget's side: top left when the widget is on the right.
-    let left = matches!(m.snap.look.corner, Corner::TopRight | Corner::BottomRight);
+    let corner = m.snap.look.corner;
+    let left = matches!(corner, Corner::TopLeft | Corner::BottomLeft);
+    let bottom = matches!(corner, Corner::BottomLeft | Corner::BottomRight);
+    // The call widget holds the corner itself; the toasts line up past it.
+    let widget = match &m.snap.call {
+        Some(call) if m.snap.look.voice_widget => widget::column(call) + GAP,
+        Some(_) | None => 0.0,
+    };
     let len = m.toast_motion();
-    let mut y = screen.top() + EDGE;
+    let mut from_edge = EDGE + widget;
     for t in &m.toasts {
         let (shown, slide) = match t.leaving {
             None => {
@@ -126,6 +136,11 @@ pub fn draw(ui: &Ui, m: &Model, now: f64, alpha: f32) {
             screen.right() - EDGE - WIDTH + slide
         };
         let a = alpha * shown;
+        let y = if bottom {
+            screen.bottom() - from_edge - HEIGHT
+        } else {
+            screen.top() + from_edge
+        };
         let h = match t.key {
             ToastKey::Call => m.snap.ringing.as_ref().map_or(0.0, |r| {
                 toast(
@@ -157,7 +172,7 @@ pub fn draw(ui: &Ui, m: &Model, now: f64, alpha: f32) {
                 )
             }),
         };
-        y += h + GAP;
+        from_edge += h + GAP;
     }
     if let Some(wake) = m.toasts_wake(now) {
         let wait = (wake - now).max(0.0);
@@ -208,8 +223,7 @@ fn toast(
         inner,
         1,
     );
-    let height = 12.0 + 18.0 + 1.0 + 18.0 + 6.0 + 14.0 + 12.0;
-    let rect = Rect::from_min_size(pos2(x, y), vec2(WIDTH, height));
+    let rect = Rect::from_min_size(pos2(x, y), vec2(WIDTH, HEIGHT));
     let p = ui.painter();
     let plate = look
         .raised
@@ -265,7 +279,7 @@ fn toast(
     }
     text::put(ui, &line_g, pos2(tx, top + 19.0), anchor);
     crate::closed::hint::key_line(ui, m, call, pos2(tx, top + 18.0 + 1.0 + 18.0 + 6.0), rtl, a);
-    height
+    HEIGHT
 }
 
 #[cfg(test)]

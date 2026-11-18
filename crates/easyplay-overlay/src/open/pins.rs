@@ -63,7 +63,8 @@ pub fn draw(ctx: &Context, m: &mut Model, anchor: egui::Pos2) {
             y += ROW;
             let widget = switch_row(ui, m, &inner, y, "chat.settings.widget", on_widget, true);
             y += ROW;
-            let corner = corner_row(ctx, ui, m, &inner, y, on_corner, on_widget);
+            // The corner places the toasts and the call widget: dim only with both off.
+            let corner = corner_row(ctx, ui, m, &inner, y, on_corner, toasts || widget);
             if toasts != on_toasts || widget != on_widget || corner != on_corner {
                 m.said.push(FromOverlay::SetLook {
                     toasts,

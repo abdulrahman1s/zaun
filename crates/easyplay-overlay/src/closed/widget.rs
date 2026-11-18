@@ -17,13 +17,18 @@ const PILL_H: f32 = 32.0;
 const GAP: f32 = 4.0;
 const AVATAR: f32 = 24.0;
 
+/// The column's height: one pill per person, and one for "and N more".
+pub fn column(call: &OverlayCall) -> f32 {
+    let count = call.people.len() + usize::from(call.more > 0);
+    count as f32 * PILL_H + count.saturating_sub(1) as f32 * GAP
+}
+
 pub fn draw(ui: &Ui, m: &Model, call: &OverlayCall, alpha: f32) {
     let screen = ui.clip_rect();
     let look = &m.look;
     let right = matches!(m.snap.look.corner, Corner::TopRight | Corner::BottomRight);
     let bottom = matches!(m.snap.look.corner, Corner::BottomLeft | Corner::BottomRight);
-    let count = call.people.len() + usize::from(call.more > 0);
-    let column = count as f32 * PILL_H + count.saturating_sub(1) as f32 * GAP;
+    let column = column(call);
     let mut y = if bottom {
         screen.bottom() - EDGE - column
     } else {

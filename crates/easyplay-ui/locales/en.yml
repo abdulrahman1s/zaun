@@ -2552,7 +2552,7 @@ chat:
     copy: "Copy"
     copied: "Copied"
     toasts: "Show new messages"
-    toasts_help: "A short note at the top of the game for each message."
+    toasts_help: "A short note in the chosen corner for each message."
     widget: "Show people in the call"
     widget_help: "Their pictures in a corner. Whoever speaks lights up."
     corner: "Corner"

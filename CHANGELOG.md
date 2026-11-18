@@ -166,10 +166,11 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   gives the keyboard back when closed. Works on niri, KDE, Sway and Hyprland; GNOME keeps the
   notifications. The overlay never runs inside a game's sandbox and games cannot reach it.
 - The in-game overlay now looks like the design: people in the call as pills with speaking
-  rings in a corner of your choice, message and call toasts in the opposite corner, and,
+  rings and message and call toasts in a corner of your choice, and,
   on the key, a chat panel over the dimmed game with your recent chats, the conversation,
   the call's buttons, a "Show while playing" menu and an answer bar for a call that rings
-  while you play. It speaks your language (Arabic included) and uses your accent.
+  while you play. It speaks your language (Arabic included) and uses your accent. While it
+  runs, the messages and calls it shows are not announced again as desktop notifications.
   `easyplay overlay` now says why the overlay can't open (for example on GNOME).
 
 ### For packagers

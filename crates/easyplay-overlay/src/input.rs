@@ -50,13 +50,8 @@ impl PointerHandler for App {
                     vertical,
                     ..
                 } => {
-                    #[allow(clippy::cast_possible_truncation)]
                     let px = |a: smithay_client_toolkit::seat::pointer::AxisScroll| {
-                        if a.discrete != 0 {
-                            a.discrete as f32 * STEP
-                        } else {
-                            a.absolute as f32
-                        }
+                        wheel_points(a.value120, a.discrete, a.absolute)
                     };
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Point,
@@ -70,6 +65,20 @@ impl PointerHandler for App {
             self.events.push(ev);
             self.dirty = true;
         }
+    }
+}
+
+/// Points to scroll for one axis event. A wheel's steps come as `value120` from current
+/// compositors (niri, wl_pointer 8+) and as `discrete` from older ones; its `absolute` is only
+/// libinput's 15 per step, a third of the app's own wheel. A touchpad sends `absolute` alone.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+fn wheel_points(value120: i32, discrete: i32, absolute: f64) -> f32 {
+    if value120 != 0 {
+        value120 as f32 / 120.0 * STEP
+    } else if discrete != 0 {
+        discrete as f32 * STEP
+    } else {
+        absolute as f32
     }
 }
 
@@ -191,5 +200,22 @@ impl KeyboardHandler for App {
         };
         self.events
             .push(egui::Event::ModifiersChanged(self.modifiers));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_wheel_step_scrolls_as_far_on_every_compositor() {
+        assert_eq!(wheel_points(120, 0, 15.0), STEP, "value120 (niri)");
+        assert_eq!(wheel_points(0, 1, 15.0), STEP, "discrete (older)");
+        assert_eq!(
+            wheel_points(-60, 0, -7.5),
+            -STEP / 2.0,
+            "a high-resolution half step"
+        );
+        assert_eq!(wheel_points(0, 0, 3.5), 3.5, "a touchpad keeps its pixels");
     }
 }
