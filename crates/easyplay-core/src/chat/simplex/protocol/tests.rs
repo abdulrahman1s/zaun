@@ -520,11 +520,12 @@ fn changes_to_who_the_user_talks_to_read_the_list_once_more_at_most() {
 fn a_call_invitation_is_a_call_signal_not_a_message() {
     let mut c = started();
     let out = c.on_line(&event(&fixture("call_invitation")));
-    // Recorded from the spike with the apps' encryption on: another app's call (ADR-0035).
+    // Recorded from the spike with the apps' encryption on: usable, with its key (ADR-0035).
     assert!(matches!(
         &out.events[..],
         [ChatEvent::Call(crate::chat::media::CallSignal::Invited {
-            usable: false,
+            usable: true,
+            key: Some(_),
             ..
         })]
     ));

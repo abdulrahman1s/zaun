@@ -1793,6 +1793,7 @@ dependencies = [
  "jiff",
  "libc",
  "libsqlite3-sys",
+ "lz-str",
  "notify-rust",
  "ormlite",
  "parking_lot 0.13.0",
@@ -1832,12 +1833,15 @@ dependencies = [
 name = "easyplay-media"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "audiopus",
+ "base64 0.23.1",
  "crc32fast",
  "easyplay-core",
  "hmac",
  "libpulse-binding",
  "libpulse-simple-binding",
+ "lz-str",
  "md-5",
  "nnnoiseless",
  "openh264",
@@ -3746,6 +3750,12 @@ name = "log"
 version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
+
+[[package]]
+name = "lz-str"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39f3d72d77227090eed75ea331285a53726e78374a1f357ff5757702c23c70cc"
 
 [[package]]
 name = "mac-notification-sys"

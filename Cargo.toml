@@ -97,6 +97,8 @@ bitflags = "2.9"
 strum = { version = "0.28", default-features = false, features = ["derive"] }
 smallvec = { version = "1.15", features = ["serde", "union"] }
 base64 = "0.23"
+# The official apps' call descriptions are LZ-String-compressed JSON (ADR-0035 §3).
+lz-str = "0.2"
 # The diagnostics report archive (`diagnostics::report`); already in the tree through `png`.
 flate2 = "1.1"
 crossbeam-channel = "0.5.15"

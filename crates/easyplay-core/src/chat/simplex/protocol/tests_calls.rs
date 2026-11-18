@@ -80,20 +80,25 @@ fn a_voice_call_invitation_without_the_apps_encryption_is_usable() {
         out.events,
         vec![ChatEvent::Call(CallSignal::Invited {
             friend: 3,
-            usable: true
+            usable: true,
+            key: None,
         })]
     );
 }
 
 #[test]
-fn an_invitation_with_the_apps_own_encryption_is_another_apps_call() {
+fn an_official_apps_invitation_is_usable_and_brings_the_engines_frame_key() {
     let mut c = started();
     let out = c.on_line(&event(&fixture("call_invitation")));
+    let key =
+        crate::chat::media::CallKey::from_base64url("WeZqqqH86JoKpu_Q92CdAzcRsnMe6kB-6rnwkg7SYC0=");
+    assert!(key.is_some());
     assert_eq!(
         out.events,
         vec![ChatEvent::Call(CallSignal::Invited {
             friend: 3,
-            usable: false
+            usable: true,
+            key,
         })]
     );
 }
@@ -107,6 +112,7 @@ fn offers_answers_extra_candidates_and_the_end_become_signals() {
             friend: 3,
             sdp,
             candidates,
+            key: None,
         }),
     ] = out.events.as_slice()
     else {
@@ -131,42 +137,89 @@ fn offers_answers_extra_candidates_and_the_end_become_signals() {
 }
 
 #[test]
-fn an_offer_that_is_not_plain_sdp_is_unusable() {
+fn an_offer_whose_description_cannot_be_read_is_unusable() {
     let mut c = started();
     let mut offer = fixture("call_offer");
-    offer["result"]["offer"]["rtcSession"] = "N4IgLgFg...lz-compressed".into();
+    offer["result"]["offer"]["rtcSession"] = "N4IgLgFg...not lz-string".into();
     let out = c.on_line(&event(&offer));
     assert_eq!(out.events, vec![ChatEvent::Call(CallSignal::Unusable(3))]);
 }
 
 #[test]
-fn call_requests_render_the_engines_call_commands_with_plain_sdp() {
+fn an_official_apps_offer_reads_its_compressed_description_candidates_and_key() {
+    let mut c = started();
+    let mut offer = fixture("call_offer");
+    let sdp = "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n";
+    let packed = |v: Value| lz_str::compress_to_base64(&v.to_string());
+    offer["result"]["offer"]["rtcSession"] =
+        packed(serde_json::json!({ "type": "offer", "sdp": sdp })).into();
+    offer["result"]["offer"]["rtcIceCandidates"] = packed(serde_json::json!([
+        { "candidate": "candidate:1 1 udp 41885439 203.0.113.5 3478 typ relay", "sdpMid": "0", "sdpMLineIndex": 0 }
+    ]))
+    .into();
+    offer["result"]["sharedKey"] = "WeZqqqH86JoKpu_Q92CdAzcRsnMe6kB-6rnwkg7SYC0=".into();
+    let out = c.on_line(&event(&offer));
+    let [
+        ChatEvent::Call(CallSignal::Offer {
+            friend: 3,
+            sdp: got,
+            candidates,
+            key: Some(_),
+        }),
+    ] = out.events.as_slice()
+    else {
+        panic!("{:?}", out.events)
+    };
+    assert_eq!(got, sdp);
+    assert_eq!(
+        candidates,
+        &["candidate:1 1 udp 41885439 203.0.113.5 3478 typ relay"]
+    );
+}
+
+/// The JSON a `WebRTCSession` field holds, uncompressed.
+fn unpacked(v: &Value) -> Value {
+    let units = lz_str::decompress_from_base64(v.as_str().unwrap_or_default()).unwrap_or_default();
+    serde_json::from_str(&String::from_utf16(&units).unwrap_or_default()).unwrap_or_default()
+}
+
+#[test]
+fn call_requests_render_the_engines_call_commands_in_the_apps_form() {
     let mut c = started();
     let (_, invite) = call(&mut c, CallRequest::Invite(3));
     assert_eq!(
         invite,
-        r#"/_call invite @3 {"capabilities":{"encryption":false},"media":"audio"}"#
+        r#"/_call invite @3 {"capabilities":{"encryption":true},"media":"audio"}"#
     );
+    let sdp = "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:0\r\na=candidate:1 1 udp 1 203.0.113.9 9 typ relay\r\n";
     let (_, offer) = call(
         &mut c,
         CallRequest::Offer {
             friend: 3,
-            sdp: "v=0\r\n".into(),
+            sdp: sdp.into(),
         },
     );
     let json: Value =
         serde_json::from_str(offer.strip_prefix("/_call offer @3 ").unwrap()).unwrap();
-    assert_eq!(json["rtcSession"]["rtcSession"], "v=0\r\n");
-    assert_eq!(json["rtcSession"]["rtcIceCandidates"], "[]");
-    assert_eq!(json["callType"]["capabilities"]["encryption"], false);
+    assert_eq!(
+        unpacked(&json["rtcSession"]["rtcSession"]),
+        serde_json::json!({ "type": "offer", "sdp": sdp })
+    );
+    assert_eq!(
+        unpacked(&json["rtcSession"]["rtcIceCandidates"]),
+        serde_json::json!([{ "candidate": "candidate:1 1 udp 1 203.0.113.9 9 typ relay", "sdpMid": "0", "sdpMLineIndex": 0 }])
+    );
+    assert_eq!(json["callType"]["capabilities"]["encryption"], true);
     let (_, answer) = call(
         &mut c,
         CallRequest::Answer {
             friend: 3,
-            sdp: "v=0\r\n".into(),
+            sdp: sdp.into(),
         },
     );
-    assert!(answer.starts_with(r#"/_call answer @3 {"rtcIceCandidates":"[]","rtcSession":"v=0"#));
+    let json: Value =
+        serde_json::from_str(answer.strip_prefix("/_call answer @3 ").unwrap()).unwrap();
+    assert_eq!(unpacked(&json["rtcSession"])["type"], "answer");
     let (_, extra) = call(
         &mut c,
         CallRequest::Extra {
@@ -174,9 +227,11 @@ fn call_requests_render_the_engines_call_commands_with_plain_sdp() {
             candidates: vec!["candidate:x".into()],
         },
     );
+    let json: Value =
+        serde_json::from_str(extra.strip_prefix("/_call extra @3 ").unwrap()).unwrap();
     assert_eq!(
-        extra,
-        r#"/_call extra @3 {"rtcIceCandidates":"[\"candidate:x\"]"}"#
+        unpacked(&json["rtcIceCandidates"]),
+        serde_json::json!([{ "candidate": "candidate:x", "sdpMLineIndex": 0 }])
     );
     assert_eq!(
         call(&mut c, CallRequest::Connected(3)).1,

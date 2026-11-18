@@ -172,7 +172,7 @@ fn two_engines_place_a_call_and_hear_each_others_tone() {
     // Alice calls; Bob's side writes the offer; Alice's side answers it.
     a.engine.request(Request::Call(CallRequest::Invite(a_bob)));
     b.signal("the invitation", |s| {
-        matches!(s, CallSignal::Invited { friend, usable: true } if *friend == b_alice)
+        matches!(s, CallSignal::Invited { friend, usable: true, .. } if *friend == b_alice)
             .then_some(())
     });
     let mb: Side = start(&fb, Negotiation::Offer, relay_only, ice.clone());

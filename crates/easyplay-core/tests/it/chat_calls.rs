@@ -242,6 +242,7 @@ impl World {
             friend: MIRA,
             sdp: "v=0 offer".into(),
             candidates: Vec::new(),
+            key: None,
         });
         self.media_says(MediaEvent::Connected);
         self.calls();
@@ -266,6 +267,7 @@ fn calling_a_friend_rings_them_then_their_offer_is_answered_and_the_call_counts_
         friend: MIRA,
         sdp: "v=0 offer".into(),
         candidates: vec!["candidate:1 1 udp 1 10.0.0.2 4000 typ host".into()],
+        key: None,
     });
     let start = w.media.starts().pop().expect("media started");
     assert_eq!(start.negotiation, Negotiation::Answer("v=0 offer".into()));
@@ -298,6 +300,7 @@ fn an_incoming_call_rings_and_answering_sends_the_medias_offer_then_takes_the_an
     w.signal(CallSignal::Invited {
         friend: MIRA,
         usable: true,
+        key: None,
     });
     let ringing = w.live().ringing.expect("the incoming card");
     assert_eq!(ringing.name, "Mira Okafor");
@@ -331,6 +334,7 @@ fn ringing_unanswered_for_twenty_seconds_lets_the_call_go_as_missed_both_ways() 
     w.signal(CallSignal::Invited {
         friend: MIRA,
         usable: true,
+        key: None,
     });
     w.wait_timers();
     assert!(w.live().ringing.is_none());
@@ -353,6 +357,7 @@ fn an_answered_call_whose_sound_never_gets_through_fails_to_connect() {
     w.signal(CallSignal::Invited {
         friend: MIRA,
         usable: true,
+        key: None,
     });
     // Only the connect timeout is short (the ring timeout must not end the call first).
     w.media.set_short_waits(true);
@@ -372,6 +377,7 @@ fn declining_ends_the_call_for_the_caller_too() {
     w.signal(CallSignal::Invited {
         friend: MIRA,
         usable: true,
+        key: None,
     });
     w.cmd(ChatCommand::Decline);
     assert!(w.live().ringing.is_none());
@@ -424,6 +430,7 @@ fn blocking_a_friend_ends_a_call_with_them_and_a_ringing_one_silently() {
     w.signal(CallSignal::Invited {
         friend: DEV,
         usable: true,
+        key: None,
     });
     w.cmd(ChatCommand::SetBlocked {
         friend: DEV,
@@ -440,6 +447,7 @@ fn a_second_call_while_in_one_is_let_go_as_missed() {
     w.signal(CallSignal::Invited {
         friend: DEV,
         usable: true,
+        key: None,
     });
     assert_eq!(w.calls(), vec![CallRequest::End(DEV)]);
     let live = w.live();
@@ -475,6 +483,7 @@ fn signals_and_timers_of_a_call_that_is_over_are_ignored() {
         friend: MIRA,
         sdp: "v=0".into(),
         candidates: Vec::new(),
+        key: None,
     });
     w.signal(CallSignal::Ended(MIRA));
     assert!(w.media.starts().is_empty() && w.media.answers().is_empty());
@@ -487,6 +496,7 @@ fn a_call_from_another_app_is_let_go_as_missed_without_ringing() {
     w.signal(CallSignal::Invited {
         friend: MIRA,
         usable: false,
+        key: None,
     });
     assert!(w.live().ringing.is_none());
     assert_eq!(w.calls(), vec![CallRequest::End(MIRA)]);
@@ -499,6 +509,7 @@ fn no_microphone_ends_the_call_being_answered_and_says_why() {
     w.signal(CallSignal::Invited {
         friend: MIRA,
         usable: true,
+        key: None,
     });
     w.drain();
     w.cmd(ChatCommand::Answer);
@@ -577,6 +588,7 @@ fn without_call_media_calls_are_off_and_an_incoming_call_is_let_go() {
     w.signal(CallSignal::Invited {
         friend: MIRA,
         usable: true,
+        key: None,
     });
     assert!(w.live().ringing.is_none());
     assert_eq!(w.calls(), vec![CallRequest::End(MIRA)]);
@@ -646,6 +658,7 @@ fn starting_a_call_stops_the_mic_test_and_none_starts_during_a_call() {
     w.signal(CallSignal::Invited {
         friend: DEV,
         usable: true,
+        key: None,
     });
     assert!(!w.media.mic_test_running());
 }

@@ -1,20 +1,13 @@
-//! Call requests become the engine's `/_call …` commands (ADR-0035). The session strings
-//! carry plain SDP with the candidates inside it, so `rtcIceCandidates` is an empty JSON
-//! list; the official apps put compressed JSON there instead, which is how a call from one
-//! of them is told apart.
+//! Call requests become the engine's `/_call …` commands (ADR-0035). Descriptions and
+//! candidates go in the apps' form (`webrtc`), so a call works with the official apps too.
+use super::webrtc;
 use super::*;
 use crate::chat::media::CallRequest;
 
-/// What EasyPlay calls with: voice, without the apps' own media encryption (the media is
-/// DTLS-SRTP end to end; the apps' extra key exchange is theirs). An invitation that asks
-/// for it comes from another app.
+/// What EasyPlay calls with: voice, with the apps' frame encryption. The engine agrees a key
+/// when the friend's app asks for it too (`sharedKey`), and the media then uses it.
 fn call_type() -> Value {
-    serde_json::json!({ "media": "audio", "capabilities": { "encryption": false } })
-}
-
-/// A `WebRTCSession`: the SDP and an empty candidate list.
-fn session(sdp: &str) -> Value {
-    serde_json::json!({ "rtcSession": sdp, "rtcIceCandidates": "[]" })
+    serde_json::json!({ "media": "audio", "capabilities": { "encryption": true } })
 }
 
 impl Codec {
@@ -27,17 +20,22 @@ impl Codec {
                 (f, false, format!("/_call invite @{f} {}", call_type()))
             }
             CallRequest::Offer { friend, sdp } => {
-                let offer =
-                    serde_json::json!({ "callType": call_type(), "rtcSession": session(&sdp) });
+                let offer = serde_json::json!({
+                    "callType": call_type(),
+                    "rtcSession": webrtc::session(&sdp, "offer"),
+                });
                 (friend, false, format!("/_call offer @{friend} {offer}"))
             }
             CallRequest::Answer { friend, sdp } => (
                 friend,
                 false,
-                format!("/_call answer @{friend} {}", session(&sdp)),
+                format!(
+                    "/_call answer @{friend} {}",
+                    webrtc::session(&sdp, "answer")
+                ),
             ),
             CallRequest::Extra { friend, candidates } => {
-                let list = Value::from(candidates).to_string();
+                let list = webrtc::extra_candidates(&candidates);
                 let extra = serde_json::json!({ "rtcIceCandidates": list });
                 (friend, true, format!("/_call extra @{friend} {extra}"))
             }

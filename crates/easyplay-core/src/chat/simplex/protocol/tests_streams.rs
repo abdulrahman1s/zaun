@@ -135,7 +135,8 @@ fn a_voice_call_with_the_friend_takes_the_place_of_their_stream() {
             ChatEvent::Stream(StreamSignal::Ended(3)),
             ChatEvent::Call(CallSignal::Invited {
                 friend: 3,
-                usable: true
+                usable: true,
+                key: None,
             }),
         ]
     );

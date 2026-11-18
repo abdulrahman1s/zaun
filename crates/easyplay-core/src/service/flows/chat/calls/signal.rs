@@ -1,19 +1,24 @@
 //! What the friend's side sends about the call (ADR-0035). A signal about a call that is not
 //! the current one (an older call, another friend) is ignored.
 use super::state::Phase;
-use crate::chat::media::{CONNECT_TIMEOUT, CallRequest, CallSignal, Negotiation};
+use crate::chat::media::{CONNECT_TIMEOUT, CallKey, CallRequest, CallSignal, Negotiation};
 use crate::model::CallLink;
 use crate::service::prelude::*;
 
 impl AppService {
     pub(crate) fn on_call_signal(&mut self, signal: CallSignal) -> Result<()> {
         match signal {
-            CallSignal::Invited { friend, usable } => self.on_call_invited(friend, usable),
+            CallSignal::Invited {
+                friend,
+                usable,
+                key,
+            } => self.on_call_invited(friend, usable, key),
             CallSignal::Offer {
                 friend,
                 sdp,
                 candidates,
-            } => return self.on_call_offer(friend, sdp, candidates),
+                key,
+            } => return self.on_call_offer(friend, sdp, candidates, key),
             CallSignal::Answer {
                 friend,
                 sdp,
@@ -48,7 +53,7 @@ impl AppService {
                     self.call_close(Some(CallRequest::End));
                     bail!(
                         ChtCallFailed,
-                        detail = "the friend's app sent a call EasyPlay cannot use"
+                        detail = "the friend's app sent a call description EasyPlay cannot read"
                     );
                 }
             }
@@ -63,7 +68,13 @@ impl AppService {
     }
 
     /// The friend answered the user's call with an offer: the media answers it.
-    fn on_call_offer(&mut self, friend: i64, sdp: String, candidates: Vec<String>) -> Result<()> {
+    fn on_call_offer(
+        &mut self,
+        friend: i64,
+        sdp: String,
+        candidates: Vec<String>,
+        key: Option<CallKey>,
+    ) -> Result<()> {
         let Some(c) = self
             .call_with(friend)
             .filter(|c| c.phase == Phase::RingingOut)
@@ -71,6 +82,7 @@ impl AppService {
             tracing::info!(friend, "call: an offer for no call of ours");
             return Ok(());
         };
+        c.key = key;
         let number = c.number;
         let media = self
             .call_media(number, Negotiation::Answer(sdp))

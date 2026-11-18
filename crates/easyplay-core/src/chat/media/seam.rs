@@ -29,7 +29,7 @@ pub enum Negotiation {
     /// Write an offer ([`MediaEvent::Description`]); the answer comes through
     /// [`CallMedia::answer`].
     Offer,
-    /// Answer this offer (plain SDP).
+    /// Answer this offer (SDP).
     Answer(String),
 }
 
@@ -67,6 +67,9 @@ pub struct MediaConfig {
     /// `chat.relay_calls`: only relay candidates, so the friend never learns the address.
     pub relay_only: bool,
     pub audio: AudioSettings,
+    /// Encrypt each voice frame with this key, and decrypt the friend's (the apps' frame
+    /// encryption, ADR-0035 §4).
+    pub key: Option<super::CallKey>,
 }
 
 /// What a call's media reports, on its own thread.
@@ -99,7 +102,7 @@ pub type MediaSink = Arc<dyn Fn(MediaEvent) + Send + Sync>;
 /// One running call's media. Dropping it hangs up: sockets, relay allocations and the sound
 /// devices are released.
 pub trait CallMedia: Send {
-    /// The friend's answer to our offer (plain SDP).
+    /// The friend's answer to our offer (SDP).
     fn answer(&self, sdp: String);
     /// More of the friend's ICE candidates (`candidate:…` lines).
     fn candidates(&self, candidates: Vec<String>);

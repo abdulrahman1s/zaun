@@ -50,6 +50,7 @@ fn start_full(
             noise_suppression,
             ..AudioSettings::default()
         },
+        key: None,
     };
     Side {
         media: f.start(config, sink).unwrap(),

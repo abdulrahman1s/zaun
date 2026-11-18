@@ -1,9 +1,10 @@
 //! The engine's call events become [`CallSignal`]s (ADR-0035), and the call's line in the
 //! conversation is shown once the call is over.
 //!
-//! - An invitation is usable when it is a voice call without the apps' own encryption and
-//!   without a shared key; anything else is another app's call and is let go as missed.
-//! - An offer or answer whose session is not plain SDP is [`CallSignal::Unusable`].
+//! - An invitation is usable when it is a voice or video call (a video call is taken as
+//!   voice; an EasyPlay game stream is `respond_streams`'). Its `sharedKey`, when the friend's
+//!   app asked for frame encryption, goes with it; an offer's goes with the offer.
+//! - An offer or answer whose description cannot be read is [`CallSignal::Unusable`].
 //! - A blocked friend's call is ended at once and never reported.
 //! - A call item is shown only when the call is over (missed, declined, ended): while it
 //!   rings or runs it is the call card's, not a line. Its first final state arrives as an
@@ -18,8 +19,9 @@
 use std::collections::{HashSet, VecDeque};
 
 use super::respond::Answer;
+use super::webrtc;
 use super::*;
-use crate::chat::media::{CallRequest, CallSignal};
+use crate::chat::media::{CallKey, CallRequest, CallSignal};
 
 /// Call items reported as new lately (an item is final once, but the engine may say so more
 /// than once): at most this many are remembered.
@@ -91,15 +93,16 @@ impl Codec {
             "callInvitation" => CallSignal::Invited {
                 friend,
                 usable: inv.is_some_and(usable_invitation),
+                key: inv.and_then(shared_key),
             },
             "callOffer" => {
                 self.shown_calls.settled(friend);
-                session_signal(friend, r.get("offer"), true)
+                session_signal(friend, r.get("offer"), Some(shared_key(r)))
             }
-            "callAnswer" => session_signal(friend, r.get("answer"), false),
+            "callAnswer" => session_signal(friend, r.get("answer"), None),
             "callExtraInfo" => CallSignal::Extra {
                 friend,
-                candidates: candidates(r.get("extraInfo")),
+                candidates: webrtc::candidates(r.get("extraInfo")),
             },
             "callEnded" if self.shown_calls.ringing.contains(&friend) => {
                 self.shown_calls.declined(friend);
@@ -154,59 +157,39 @@ pub(super) fn is_call_item(r: &Value) -> bool {
 }
 
 fn usable_invitation(inv: &Value) -> bool {
-    let ct = inv.get("callType");
-    let audio = ct.and_then(|c| c.get("media")).and_then(Value::as_str) == Some("audio");
-    let encrypted = ct
-        .and_then(|c| c.get("capabilities"))
-        .and_then(|c| c.get("encryption"))
-        .and_then(Value::as_bool)
-        != Some(false);
-    let keyed = inv.get("sharedKey").is_some_and(|k| !k.is_null());
-    audio && !encrypted && !keyed
+    let media = str_at(inv, &["callType", "media"]);
+    matches!(media, Some("audio" | "video"))
 }
 
-/// An offer or answer (`WebRTCSession`).
-fn session_signal(friend: i64, s: Option<&Value>, offer: bool) -> CallSignal {
-    let sdp = s
-        .and_then(|s| s.get("rtcSession"))
-        .and_then(Value::as_str)
-        .filter(|t| t.starts_with("v=0"));
-    let Some(sdp) = sdp else {
+/// The engine's `sharedKey` on an invitation or offer event: set when both apps asked for
+/// frame encryption. One that does not read as 32 bytes is left out (the call goes on
+/// without it, and the friend's app hears noise: logged).
+fn shared_key(v: &Value) -> Option<CallKey> {
+    let text = v.get("sharedKey")?.as_str()?;
+    let key = CallKey::from_base64url(text);
+    if key.is_none() {
+        tracing::warn!("chat: a call's shared key was not 32 bytes of base64url");
+    }
+    key
+}
+
+/// An offer (with its key, `Some(_)`) or an answer (`None`).
+fn session_signal(friend: i64, s: Option<&Value>, offer: Option<Option<CallKey>>) -> CallSignal {
+    let Some(sdp) = webrtc::description(s) else {
         return CallSignal::Unusable(friend);
     };
-    let sdp = sdp.to_owned();
-    let candidates = candidates(s);
-    if offer {
-        CallSignal::Offer {
+    let candidates = webrtc::candidates(s);
+    match offer {
+        Some(key) => CallSignal::Offer {
             friend,
             sdp,
             candidates,
-        }
-    } else {
-        CallSignal::Answer {
+            key,
+        },
+        None => CallSignal::Answer {
             friend,
             sdp,
             candidates,
-        }
+        },
     }
-}
-
-/// `rtcIceCandidates`: a JSON list (as text) of `candidate:…` strings, or of objects with a
-/// `candidate` field. Anything else (the apps' compressed form) gives none.
-pub(super) fn candidates(s: Option<&Value>) -> Vec<String> {
-    let Some(text) = s
-        .and_then(|s| s.get("rtcIceCandidates"))
-        .and_then(Value::as_str)
-    else {
-        return Vec::new();
-    };
-    let Ok(Value::Array(list)) = serde_json::from_str::<Value>(text) else {
-        return Vec::new();
-    };
-    list.iter()
-        .filter_map(|c| c.as_str().or_else(|| c.get("candidate")?.as_str()))
-        .map(|c| c.strip_prefix("a=").unwrap_or(c))
-        .filter(|c| c.starts_with("candidate:"))
-        .map(str::to_owned)
-        .collect()
 }

@@ -92,3 +92,16 @@ fn relay_only_calls_go_through_a_turn_server_over_udp_tcp_and_tls() {
         eprintln!("{name}: relayed call ok ({strength:.2})");
     }
 }
+
+/// The default path of every real call: the apps' public TURN server over TLS gives a relay
+/// address. Contacts `turn.simplex.im:443`, so it runs only on request.
+#[test]
+#[ignore = "contacts the public turn.simplex.im"]
+fn the_public_default_relay_gives_a_relay_address() {
+    let ice = easyplay_core::chat::media::ice_servers(&[]);
+    let f = RtcMedia::new(Arc::new(ToneAudio::new(440.0)));
+    let a = start(&f, Negotiation::Offer, true, ice);
+    let offer = description(&a);
+    assert!(offer.contains("typ relay"), "{offer}");
+    assert!(!offer.contains("typ host"), "relay only");
+}

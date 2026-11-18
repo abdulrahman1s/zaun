@@ -2,8 +2,8 @@
 //! (ADR-0035).
 use crate::chat::Request;
 use crate::chat::media::{
-    AudioSettings, CallMedia, CallRequest, MediaConfig, MediaEvent, MediaSink, Negotiation,
-    TrackKind, ice_servers,
+    AudioSettings, CallKey, CallMedia, CallRequest, MediaConfig, MediaEvent, MediaSink,
+    Negotiation, TrackKind, ice_servers,
 };
 use crate::clock::Timestamp;
 use crate::model::{Call, CallLevels, CallLink, CallQuality, Ringing};
@@ -45,6 +45,8 @@ pub(crate) struct CallFlow {
     pub(super) link: CallLink,
     pub(super) levels: CallLevels,
     pub(super) quality: Option<CallQuality>,
+    /// The engine's key for the media's frame encryption (from the invitation or the offer).
+    pub(super) key: Option<CallKey>,
 }
 
 /// What a call's timers and media send back.
@@ -96,6 +98,7 @@ impl AppService {
             link: CallLink::Ringing,
             levels: CallLevels::default(),
             quality: None,
+            key: None,
         });
         number
     }
@@ -134,6 +137,13 @@ impl AppService {
         let Some(factory) = self.deps.media.clone() else {
             bail!(ChtMediaFailed, detail = "this build has no call media");
         };
+        let key = self
+            .flow
+            .chat
+            .call
+            .as_ref()
+            .filter(|c| c.number == number)
+            .and_then(|c| c.key);
         let p = &self.prefs.chat;
         let config = MediaConfig {
             negotiation,
@@ -141,6 +151,7 @@ impl AppService {
             ice: ice_servers(&p.ice_servers),
             relay_only: p.relay_calls,
             audio: self.audio_settings(),
+            key,
         };
         let post = self.poster();
         let sink: MediaSink = Arc::new(move |event| {

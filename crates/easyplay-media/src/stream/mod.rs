@@ -36,5 +36,7 @@ fn media_config(negotiation: Negotiation, ice: Vec<IceServer>, relay_only: bool)
         ice,
         relay_only,
         audio: Default::default(),
+        // Streams are EasyPlay's own; the apps' frame encryption is for calls.
+        key: None,
     }
 }

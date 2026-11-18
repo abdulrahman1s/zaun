@@ -1,6 +1,6 @@
 //! Call signalling through the chat engine (ADR-0035), in protocol-neutral words: what the
-//! call flow asks the engine to send, and what arrives from the friend. The session strings
-//! are plain SDP; candidates are `candidate:…` lines.
+//! call flow asks the engine to send, and what arrives from the friend. Descriptions are
+//! SDP and candidates `candidate:…` lines here; the codec writes and reads the apps' forms.
 
 /// A call request for the engine (`chat::Request::Call`). `friend` is a contact number.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,15 +34,19 @@ pub enum CallSignal {
     /// The friend calls.
     Invited {
         friend: i64,
-        /// A voice call this app can take part in. `false` for a call from another app
-        /// (one that encrypts its media itself, or a video call): it is let go as missed.
+        /// A call this app can take part in (voice, or a video call taken as voice).
         usable: bool,
+        /// The key both sides' media encrypt their frames with, when the friend's app asks
+        /// for it.
+        key: Option<super::CallKey>,
     },
     /// The friend accepted the user's call with this offer.
     Offer {
         friend: i64,
         sdp: String,
         candidates: Vec<String>,
+        /// As for [`Self::Invited`]: when both apps asked for it.
+        key: Option<super::CallKey>,
     },
     /// The friend answered the user's offer.
     Answer {
@@ -55,7 +59,7 @@ pub enum CallSignal {
         friend: i64,
         candidates: Vec<String>,
     },
-    /// An offer or answer this app cannot use (not plain SDP: another app's).
+    /// An offer or answer this app cannot read.
     Unusable(i64),
     /// The friend hung up (or stopped calling).
     Ended(i64),

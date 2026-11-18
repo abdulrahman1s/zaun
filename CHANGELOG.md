@@ -94,8 +94,9 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   (`turn.simplex.im`), or the servers you list in `chat.ice_servers`; it is encrypted end to
   end and the relay cannot hear it. Mute, deafen, noise suppression, and your choice of
   microphone and speakers (PulseAudio or PipeWire). Blocking a friend ends a call with them.
-  A desktop notification announces an incoming call (`chat.notify_calls`). A call from the
-  official SimpleX apps cannot be answered and shows as missed. New errors `EP-CHT-010`
+  A desktop notification announces an incoming call (`chat.notify_calls`). Calls work with
+  friends on the official SimpleX apps too (phone or desktop), both ways, with the apps'
+  extra frame encryption; their video calls are taken as voice. New errors `EP-CHT-010`
   (no microphone), `EP-CHT-011` (the call's sound stopped), `EP-CHT-012` (the call could not
   connect). Group voice and watching a friend play are still to come.
 - The interface is available in Arabic (Settings → General → Language: *Same as system*, *English*, *العربية*). Text is set right to left; the layout of columns and bars is not mirrored yet. Texts that come from outside the interface (some error messages and system-check results) stay in English.

@@ -22,7 +22,9 @@ use str0m::media::{Direction, Frequency, MediaKind, MediaTime, Mid};
 use str0m::net::{Protocol, Receive};
 use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc, RtcConfig};
 
+use super::frame_crypto::FrameCrypto;
 use super::inbox::Inbox;
+use super::mids::Renames;
 use super::relay::Relay;
 use crate::audio::backend::{AudioBackend, FRAME};
 use crate::audio::{capture, level, playback};
@@ -91,7 +93,13 @@ pub(crate) struct Session {
     /// Requests that came while gathering, handled after the description.
     pub early: Vec<Inbox>,
     pending: Option<SdpPendingOffer>,
+    /// Our offer's mids as the friend's app knows them (`mids`); empty when answering.
+    renames: Renames,
+    /// The voice's mid: the first audio line (the apps' microphone; their second is a
+    /// screen's sound, which a call does not play).
     mid: Option<Mid>,
+    /// The apps' frame encryption, with the engine's key.
+    crypto: Option<FrameCrypto>,
     rtp: u64,
     decoder: Decoder,
     speaker: Option<SyncSender<Vec<i16>>>,
@@ -164,10 +172,13 @@ impl Session {
         }
         let decoder = Decoder::new(SampleRate::Hz48000, Channels::Mono).map_err(Fail::media)?;
         let t = now();
+        // A call answers the apps' camera and screen lines too (their answer handler reads
+        // all four), with VP8 that is never sent and whose data is dropped.
         let rtc = RtcConfig::new()
             .clear_codecs()
             .enable_opus(audio, false)
             .enable_h264(video)
+            .enable_vp8(audio && !video)
             .set_stats_interval(audio.then_some(QUALITY_EVERY))
             .build(t);
         Ok(Self {
@@ -185,7 +196,9 @@ impl Session {
             described: false,
             early: Vec::new(),
             pending: None,
+            renames: Renames::default(),
             mid: None,
+            crypto: config.key.as_ref().map(FrameCrypto::new),
             rtp: 0,
             decoder,
             speaker: audio.then_some(speaker),
@@ -283,9 +296,10 @@ impl Session {
                     ));
                 }
                 // A stream's offer comes from the side that watches (ADR-0036).
-                let mut video = None;
-                if config.tracks.contains(&TrackKind::Video) {
-                    video = Some(change.add_media(
+                let video = config.tracks.contains(&TrackKind::Video);
+                let mut video_mid = None;
+                if video {
+                    video_mid = Some(change.add_media(
                         MediaKind::Video,
                         Direction::RecvOnly,
                         None,
@@ -298,11 +312,18 @@ impl Session {
                     .apply()
                     .ok_or_else(|| Fail::media("nothing to offer"))?;
                 self.mid = mid;
-                if let Some(v) = video {
+                if let Some(v) = video_mid {
                     self.video_added(v);
                 }
                 self.pending = Some(pending);
-                offer.to_sdp_string()
+                let sdp = offer.to_sdp_string();
+                if video {
+                    sdp
+                } else {
+                    let (sdp, renames) = Renames::number(&sdp);
+                    self.renames = renames;
+                    sdp
+                }
             }
             Negotiation::Answer(remote) => {
                 self.note_peers(remote);
@@ -344,6 +365,7 @@ impl Session {
                     return Ok(());
                 };
                 self.note_peers(&sdp);
+                let sdp = self.renames.restore(&sdp);
                 let answer = SdpAnswer::from_sdp_string(&sdp).map_err(Fail::call)?;
                 self.rtc
                     .sdp_api()
@@ -434,6 +456,13 @@ impl Session {
         else {
             return Ok(());
         };
+        let packet = match &self.crypto {
+            Some(c) => match c.seal(&packet) {
+                Some(p) => p,
+                None => return Ok(()),
+            },
+            None => packet,
+        };
         let time = MediaTime::new(rtp, Frequency::FORTY_EIGHT_KHZ);
         writer.write(pt, t, time, packet).map_err(Fail::media)?;
         Ok(())
@@ -494,9 +523,12 @@ impl Session {
                 }
             }
             Event::MediaAdded(m) if m.kind == MediaKind::Video => self.video_added(m.mid),
-            Event::MediaAdded(m) => self.mid = Some(m.mid),
+            Event::MediaAdded(m) => {
+                self.mid.get_or_insert(m.mid);
+            }
             Event::MediaData(d) if self.is_video(d.mid) => self.video_data(&d),
-            Event::MediaData(d) => self.play(&d.data),
+            Event::MediaData(d) if Some(d.mid) == self.mid => self.play(&d.data),
+            Event::MediaData(_) => {}
             Event::KeyframeRequest(_) => self.keyframe_wanted(),
             Event::ChannelOpen(id, label) => self.channel_open(id, &label),
             Event::ChannelData(d) => self.channel_data(&d),
@@ -518,6 +550,18 @@ impl Session {
 
     /// Decode one packet from the friend and hand it to the speakers.
     fn play(&mut self, data: &[u8]) {
+        let opened;
+        let data = match &self.crypto {
+            Some(c) => {
+                let Some(d) = c.open(data) else {
+                    tracing::trace!("call: a frame did not decrypt");
+                    return;
+                };
+                opened = d;
+                &opened[..]
+            }
+            None => data,
+        };
         let mut pcm = vec![0i16; FRAME * 6];
         let n = match Packet::try_from(data)
             .and_then(|p| MutSignals::try_from(&mut pcm).map(|s| (p, s)))
