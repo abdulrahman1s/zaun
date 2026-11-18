@@ -56,7 +56,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libudev-dev libxkbcommon-dev libwayland-dev libgl-dev
+            pkg-config libudev-dev libxkbcommon-dev libwayland-dev libgl-dev \
+            libpipewire-0.3-dev libspa-0.2-dev clang libclang-dev libopus-dev libpulse-dev \
+            libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev \
+            libswresample-dev libswscale-dev
       - name: Install Rust 1.95 (rust-version of the workspace)
         run: |
           rustup toolchain install 1.95 --profile minimal
@@ -106,18 +109,29 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config bubblewrap libudev-dev libxkbcommon-dev libwayland-dev libgl-dev
+            pkg-config bubblewrap libudev-dev libxkbcommon-dev libwayland-dev libgl-dev xvfb xauth \
+            libpipewire-0.3-dev libspa-0.2-dev clang libclang-dev libopus-dev libpulse-dev \
+            libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev \
+            libswresample-dev libswscale-dev
       # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor; bubblewrap
       # is not setuid there. The runner is a throw-away VM, so the restriction is lifted
       # for the job (users get an AppArmor profile instead, PKG-006).
+      # Ubuntu also ships `bwrap-userns-restrict`, which lets bwrap make a namespace but
+      # forbids everything inside it from making another, which is what Proton's container
+      # needs (P-22). It is unloaded too.
       - name: Allow unprivileged user namespaces
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0 || true
           sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
-      - name: Probe bwrap --unshare-user
+          if [ -e /etc/apparmor.d/bwrap-userns-restrict ]; then
+            sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict || true
+          fi
+      - name: Probe bwrap --unshare-user, and a namespace inside it
         run: |
           bwrap --version
           bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc --dev /dev -- true
+          bwrap --unshare-user --ro-bind / / --proc /proc --dev /dev -- unshare --user --map-root-user true
       - name: Install Rust (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
@@ -128,19 +142,20 @@ jobs:
       # The umu experiments (crates/zaun/tests/e2e_experiments.rs, TEST-020) need a real
       # umu-run, Proton and the Steam Linux Runtime; they run on a developer host
       # (TESTING_STRATEGY §10.1) and skip here.
+      # A game is only planned with a display to open its window on: an X server stands in.
       - name: e2e_sandbox, init shim, host probe, lifecycle, e2e_cli
         env:
           ZAUN_E2E: "1"
         run: |
           cargo test --locked -p zaun-init
-          cargo test --locked -p zaun-core --test e2e_sandbox --test host_e2e \
+          xvfb-run -a cargo test --locked -p zaun-core --test e2e_sandbox --test host_e2e \
             --test session_lifecycle
-          cargo test --locked -p zaun --test e2e_cli -- --nocapture
+          xvfb-run -a cargo test --locked -p zaun --test e2e_cli -- --nocapture
       # The job pool has clamp(cores - 1, 2, 6) workers. On two CPUs both can be inside a
       # job that waits for another job of the pool (host probe, runtime rescan), which once
       # stalled every command; the runner's four CPUs never show that.
       - name: e2e_cli as a two-CPU machine runs it (smallest job pool)
-        run: taskset -c 0,1 cargo test --locked -p zaun --test e2e_cli
+        run: xvfb-run -a taskset -c 0,1 cargo test --locked -p zaun --test e2e_cli
 
   fuzz:
     name: Fuzz targets compile (SEC-004)
@@ -196,7 +211,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config libudev-dev libxkbcommon-dev libwayland-dev libgl-dev \
-            mesa-vulkan-drivers libvulkan1
+            mesa-vulkan-drivers libvulkan1 \
+            libpipewire-0.3-dev libspa-0.2-dev clang libclang-dev libopus-dev libpulse-dev \
+            libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev \
+            libswresample-dev libswscale-dev
       - name: Install Rust (rust-toolchain.toml)
         run: |
           rustup show active-toolchain || rustup toolchain install

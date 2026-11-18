@@ -264,7 +264,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config musl-tools bubblewrap zstd binutils desktop-file-utils appstream \
-            libudev-dev libxkbcommon-dev libwayland-dev libgl-dev
+            libudev-dev libxkbcommon-dev libwayland-dev libgl-dev \
+            libpipewire-0.3-dev libspa-0.2-dev clang libclang-dev libopus-dev libpulse-dev \
+            libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev \
+            libswresample-dev libswscale-dev
 
       - name: Install Rust (rust-toolchain.toml)
         run: |
