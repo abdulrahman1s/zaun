@@ -277,6 +277,15 @@ jobs:
           echo "BINDGEN_EXTRA_CLANG_ARGS=-I$(clang -print-resource-dir)/include" >> "$GITHUB_ENV"
           ls -d /usr/lib/llvm-*/lib/libclang.so* 2>/dev/null || true
 
+      # As in CI's end-to-end job: the e2e tests need a namespace inside the sandbox, which
+      # Ubuntu's AppArmor restriction and its bwrap-userns-restrict profile forbid.
+      - name: Allow unprivileged user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0 || true
+          if [ -e /etc/apparmor.d/bwrap-userns-restrict ]; then
+            sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict || true
+          fi
       - name: Install Rust (rust-toolchain.toml)
         run: |
           rustup show active-toolchain || rustup toolchain install
