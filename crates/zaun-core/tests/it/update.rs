@@ -17,7 +17,7 @@ use std::time::Duration;
 use base64::Engine as _;
 use ring::signature::{Ed25519KeyPair, KeyPair as _};
 use zaun_core::artwork::http::{
-    HopLimits, HttpClient, HttpError, HttpsUrl, RawResponse, Transport,
+    HopLimits, HttpClient, HttpError, HttpsUrl, RawResponse, Transport, UreqTransport,
 };
 use zaun_core::artwork::steam::FsAppIdFile;
 use zaun_core::artwork::{ArtIndex, NoIcons};
@@ -46,7 +46,7 @@ use zaun_core::update::{
     Install, Release, Store, UpdateDeps, UpdateError, UpdateState, Version, apply, detect, stage,
     verify,
 };
-use zaun_testkit::TestEnv;
+use zaun_testkit::{FakeHttpServer, Reply, TestEnv};
 use zaun_testkit::fakes::{CannedOutput, FakeClock, FakeLauncher, MemFs, ScriptedRunner};
 use zaun_testkit::fixtures::{games, hosts};
 
@@ -408,6 +408,34 @@ fn a_download_fills_a_version_folder_and_shares_the_engine() {
         1,
         "the engine is not downloaded twice"
     );
+}
+
+#[test]
+fn the_real_transport_downloads_files_of_exactly_their_signed_size() {
+    // ureq 3.5.1 failed a body of exactly its limit, and every file is capped at its size.
+    let server = FakeHttpServer::start().unwrap();
+    let path = |url: &str| url.strip_prefix("https:/").unwrap().to_owned();
+    server
+        .route(&path(MANIFEST_URL), Reply::ok(fixture("bundle.json")))
+        .route(&path(SIGNATURE_URL), Reply::ok(fixture("bundle.json.sig")));
+    for f in FILES {
+        server.route(&path(&download_url(f)), Reply::ok(fixture(f)));
+    }
+    let base = HttpClient::new(
+        Arc::new(UreqTransport::plaintext_loopback(server.addr())),
+        Arc::new(SystemClock::new()),
+    );
+    let release = fetch_release(&UpdateDeps::check_client(&base), &[test_key()]).unwrap();
+    let (fs, store) = empty_store();
+    stage::download(
+        &UpdateDeps::files_client(&base),
+        &fs,
+        &store,
+        &release,
+        "x86_64",
+    )
+    .unwrap();
+    assert_eq!(linked(&fs, &store.staged()).as_deref(), Some("9.9.9"));
 }
 
 #[test]

@@ -344,12 +344,17 @@ impl Transport for UreqTransport {
         {
             return Err(HttpError::TooLarge);
         }
+        // One byte over the cap: ureq 3.5.1 fails a body of exactly its limit, and an update
+        // file is capped at exactly its signed size (ADR-0040 §5).
         let body = resp
             .body_mut()
             .with_config()
-            .limit(limits.max_body)
+            .limit(limits.max_body.saturating_add(1))
             .read_to_vec()
             .map_err(map_ureq)?;
+        if body.len() as u64 > limits.max_body {
+            return Err(HttpError::TooLarge);
+        }
         Ok(RawResponse {
             status,
             location,
