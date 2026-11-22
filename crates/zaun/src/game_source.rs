@@ -275,19 +275,21 @@ pub(crate) fn group_name(fs: &dyn Fs, gid: u32, fallback: &str) -> String {
         .unwrap_or_else(|| fallback.to_owned())
 }
 
-/// Locate `zaun-init` (INIT-002, DESKTOP_INTEGRATION §10): `ZAUN_INIT`; the path
-/// compiled in at build time (`<prefix>/libexec/zaun/zaun-init`); next to the
-/// running binary (development builds). `None` when no candidate is an executable file
-/// (`ZN-HOST-006`).
+/// Locate `zaun-init` (INIT-002, DESKTOP_INTEGRATION §10): `ZAUN_INIT`; next to the
+/// running binary (the tarball, the bundle store, development builds); the path compiled in
+/// at build time (`<prefix>/libexec/zaun/zaun-init`). `None` when no candidate is an
+/// executable file (`ZN-HOST-006`).
 pub fn locate_init(over: Option<&Path>, exe_dir: Option<&Path>, fs: &dyn Fs) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(p) = over {
         candidates.push(p.to_path_buf());
     }
-    candidates.push(PathBuf::from(LIBEXEC_DIR).join(INIT_BIN_NAME));
+    // Beside the program first: a version of the bundle store (ADR-0041) must use its own
+    // shim, not an older package's in LIBEXEC_DIR.
     if let Some(dir) = exe_dir {
         candidates.push(dir.join(INIT_BIN_NAME));
     }
+    candidates.push(PathBuf::from(LIBEXEC_DIR).join(INIT_BIN_NAME));
     candidates.into_iter().find(|c| {
         fs.metadata_follow(c)
             .is_ok_and(|m| m.is_file() && m.mode & 0o111 != 0)

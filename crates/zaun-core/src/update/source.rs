@@ -11,18 +11,23 @@ pub const MANIFEST_NAME: &str = "manifest.json";
 /// Its detached signature: base64 of 64 Ed25519 bytes over the manifest's exact bytes.
 pub const SIGNATURE_NAME: &str = "manifest.json.sig";
 
-/// The newest stable release's manifest.
-pub const MANIFEST_URL: &str = concat!(repo_url!(), "/releases/latest/download/manifest.json");
+/// The manifest of the self-contained bundle (format 2, ADR-0041). `manifest.json`
+/// (format 1) stays for copies from before it, which update their tarball in place.
+pub const BUNDLE_MANIFEST_NAME: &str = "bundle.json";
 /// Its signature.
-pub const SIGNATURE_URL: &str = concat!(repo_url!(), "/releases/latest/download/manifest.json.sig");
+pub const BUNDLE_SIGNATURE_NAME: &str = "bundle.json.sig";
+
+/// The newest stable release's bundle manifest.
+pub const MANIFEST_URL: &str = concat!(repo_url!(), "/releases/latest/download/bundle.json");
+/// Its signature.
+pub const SIGNATURE_URL: &str = concat!(repo_url!(), "/releases/latest/download/bundle.json.sig");
 /// Every file a manifest names must be below this.
 pub const DOWNLOAD_PREFIX: &str = concat!(repo_url!(), "/releases/download/");
 /// A `notes_url` is kept only below this.
 pub const NOTES_PREFIX: &str = concat!(repo_url!(), "/");
 
 /// First requests to the repository's host only; GitHub serves release files from its
-/// asset hosts by redirect. [Unverified: no release existed when this was written; check the
-/// first release's redirects against it.]
+/// asset hosts by redirect (`release-assets.githubusercontent.com`, seen for v0.2.6).
 pub const UPDATE_HOSTS: AllowList = AllowList {
     request: &["github.com"],
     redirect: &[
@@ -44,8 +49,12 @@ const RELEASE_KEY: [u8; 32] = [
 
 /// Largest manifest or signature read.
 pub const MAX_MANIFEST: u64 = 64 * 1024;
-/// Largest file of a release, downloaded or unpacked.
+/// Largest file of a release, downloaded or unpacked (one file of a folder, too).
 pub const MAX_FILE: u64 = 128 * 1024 * 1024;
+/// Largest unpacked folder (the Chat engine is about 240 MB).
+pub const MAX_FOLDER: u64 = 1024 * 1024 * 1024;
+/// Most files in one folder.
+pub const MAX_FOLDER_FILES: usize = 1024;
 /// Time budget of the manifest and its signature.
 pub const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 /// Time budget of one file.
@@ -55,8 +64,13 @@ pub const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 /// The staged binary must answer `--version` within this.
 pub const SMOKE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The release channel of an owned install.
-pub const TARBALL_CHANNEL: &str = "tarball";
-/// The files of the tarball channel, relative to the install prefix, in the order they are
-/// replaced (the shim before the binary that uses it).
-pub const TARBALL_FILES: [&str; 2] = ["libexec/zaun/zaun-init", "libexec/zaun/zaun"];
+/// The channel of `bundle.json` (format 2): one version folder of the bundle store.
+/// `manifest.json` (format 1, channel `tarball`) is still published for copies from before
+/// ADR-0041 and is never read by this one.
+pub const BUNDLE_CHANNEL: &str = "bundle";
+/// The bundle's files and folders, relative to a version folder. A path ending in `/` is a
+/// folder, shipped as a gzip-compressed tar of plain files; it is shared by every version
+/// whose copy has the same hash (`store::Store::component`).
+pub const BUNDLE_FILES: [&str; 5] = ["zaun", "zaun-init", "zaun-overlay", "zaun-chat", "simplex/"];
+/// The program a version folder starts with.
+pub const BUNDLE_BINARY: &str = "zaun";

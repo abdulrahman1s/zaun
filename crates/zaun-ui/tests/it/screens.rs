@@ -577,11 +577,11 @@ fn sent_update(r: &Rig) -> Vec<zaun_core::service::UpdateCommand> {
 }
 
 #[test]
-fn an_owned_install_downloads_the_newer_version() {
+fn a_copy_that_updates_itself_downloads_the_newer_version() {
     use zaun_core::model::{InstallChannel, UpdateDownload};
     use zaun_core::service::UpdateCommand;
     let mut r = about_with(update_snapshot(
-        InstallChannel::Tarball { owned: true },
+        InstallChannel::Tarball,
         UpdateDownload::Idle,
     ));
     r.h.run_steps(4);
@@ -607,7 +607,7 @@ fn a_downloaded_version_offers_restart_now() {
     use zaun_core::model::{InstallChannel, UpdateDownload};
     use zaun_core::service::UpdateCommand;
     let mut r = about_with(update_snapshot(
-        InstallChannel::Tarball { owned: true },
+        InstallChannel::Tarball,
         UpdateDownload::Staged {
             version: "0.2.0".into(),
         },
@@ -620,9 +620,12 @@ fn a_downloaded_version_offers_restart_now() {
 }
 
 #[test]
-fn a_nix_install_is_told_how_to_update_and_never_downloads() {
+fn a_nix_install_without_nix_ld_is_told_how_to_update_and_never_downloads() {
     use zaun_core::model::{InstallChannel, UpdateDownload};
-    let mut r = about_with(update_snapshot(InstallChannel::Nix, UpdateDownload::Idle));
+    let mut r = about_with(update_snapshot(
+        InstallChannel::Nix { bundles: false },
+        UpdateDownload::Idle,
+    ));
     r.h.run_steps(4);
     r.h.snapshot("settings_about_update_nix_dark_1280x900");
     assert!(r.h.query_by_label("Download").is_none());

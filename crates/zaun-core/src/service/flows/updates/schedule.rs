@@ -13,13 +13,12 @@ impl AppService {
         self.flow.updates.file = crate::update::UpdateState::load(&*self.deps.fs, &path);
         self.flow.updates.enabled = self.prefs.updates.check;
         if let Some(u) = &self.deps.updates
-            && let Some(layout) = u.install.layout()
+            && let Some(store) = u.install.store()
         {
-            self.flow.updates.staged = match apply::staged_release(&*self.deps.fs, &layout, &u.keys)
-            {
+            self.flow.updates.staged = match apply::staged_release(&*self.deps.fs, store, &u.keys) {
                 Ok(r) => r
-                    .filter(|r| r.version > running())
-                    .map(|r| r.version.to_string()),
+                    .filter(|(r, _)| r.version > running())
+                    .map(|(r, _)| r.version.to_string()),
                 Err(e) => {
                     tracing::warn!(error = %e, "the staged update is not valid");
                     None

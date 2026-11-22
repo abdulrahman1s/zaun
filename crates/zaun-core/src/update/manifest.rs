@@ -1,11 +1,14 @@
-//! The release manifest: its signature, its shape, and the files of one channel (ADR-0040 §2).
+//! The release manifest: its signature, its shape, and the bundle's files (ADR-0040 §2,
+//! ADR-0041 §3).
 
 use base64::Engine as _;
 use ring::signature::{ED25519, UnparsedPublicKey};
 use serde::Deserialize;
 
 use super::UpdateError;
-use super::source::{DOWNLOAD_PREFIX, MAX_FILE, MAX_MANIFEST, NOTES_PREFIX, TARBALL_FILES};
+use super::source::{
+    BUNDLE_CHANNEL, BUNDLE_FILES, DOWNLOAD_PREFIX, MAX_FILE, MAX_FOLDER, MAX_MANIFEST, NOTES_PREFIX,
+};
 use super::version::Version;
 
 /// The longest notes text kept.
@@ -26,20 +29,32 @@ struct Raw {
     artifacts: Vec<Artifact>,
 }
 
-/// One file of a release, for one channel and architecture.
+/// One file or folder of a release, for one channel and architecture.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct Artifact {
     pub channel: String,
     pub arch: String,
-    /// Where it goes, relative to the install prefix (one of the tarball's files).
+    /// Where it goes in a version folder (one of `BUNDLE_FILES`; a folder ends in `/`).
     pub path: String,
     pub url: String,
     /// Bytes downloaded (gzip).
     pub size: u64,
     pub sha256: String,
-    /// Bytes once unpacked.
+    /// Bytes once unpacked (a folder: of its tar stream).
     pub unpacked_size: u64,
     pub unpacked_sha256: String,
+}
+
+impl Artifact {
+    /// A folder, shipped as a tar of plain files.
+    pub fn is_folder(&self) -> bool {
+        self.path.ends_with('/')
+    }
+
+    /// The name in a version folder (`simplex/` → `simplex`).
+    pub fn name(&self) -> &str {
+        self.path.trim_end_matches('/')
+    }
 }
 
 /// A manifest whose signature verified.
@@ -83,7 +98,7 @@ pub fn verify(
     let raw: Raw =
         serde_json::from_slice(manifest).map_err(|e| UpdateError::BadManifest(e.to_string()))?;
     let bad = |why: &str| UpdateError::BadManifest(why.to_owned());
-    if raw.format != 1 {
+    if raw.format != 2 {
         return Err(bad("unknown format"));
     }
     if raw.product != crate::consts::BIN_NAME {
@@ -106,7 +121,7 @@ pub fn verify(
 
 fn check_artifact(a: &Artifact) -> Result<(), UpdateError> {
     let bad = |why: &str| UpdateError::BadManifest(format!("{}: {why}", a.path));
-    if !TARBALL_FILES.contains(&a.path.as_str()) {
+    if !BUNDLE_FILES.contains(&a.path.as_str()) {
         return Err(bad("unknown path"));
     }
     if !safe_url(&a.url, DOWNLOAD_PREFIX) {
@@ -115,7 +130,8 @@ fn check_artifact(a: &Artifact) -> Result<(), UpdateError> {
     if !is_sha256(&a.sha256) || !is_sha256(&a.unpacked_sha256) {
         return Err(bad("sha256"));
     }
-    if a.size == 0 || a.size > MAX_FILE || a.unpacked_size == 0 || a.unpacked_size > MAX_FILE {
+    let max_unpacked = if a.is_folder() { MAX_FOLDER } else { MAX_FILE };
+    if a.size == 0 || a.size > MAX_FILE || a.unpacked_size == 0 || a.unpacked_size > max_unpacked {
         return Err(bad("size"));
     }
     Ok(())
@@ -145,21 +161,20 @@ fn clean(s: &str, max: usize) -> String {
 }
 
 impl Release {
-    /// The files of `channel` for `arch`, in replacement order; every tarball file must be
-    /// there exactly once.
-    pub fn files(&self, channel: &str, arch: &str) -> Result<Vec<&Artifact>, UpdateError> {
-        TARBALL_FILES
+    /// The bundle's files for `arch`; each of `BUNDLE_FILES` must be there exactly once.
+    pub fn files(&self, arch: &str) -> Result<Vec<&Artifact>, UpdateError> {
+        BUNDLE_FILES
             .iter()
             .map(|path| {
                 let mut found = self
                     .artifacts
                     .iter()
-                    .filter(|a| a.channel == channel && a.arch == arch && a.path == *path);
+                    .filter(|a| a.channel == BUNDLE_CHANNEL && a.arch == arch && a.path == *path);
                 match (found.next(), found.next()) {
                     (Some(a), None) => Ok(a),
                     _ => Err(UpdateError::bad_file(
                         path,
-                        format!("no single file for {channel} on {arch}"),
+                        format!("no single file for {arch}"),
                     )),
                 }
             })

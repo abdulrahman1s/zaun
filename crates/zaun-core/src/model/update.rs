@@ -7,27 +7,30 @@ use crate::error::ErrorCode;
 /// How this copy of Zaun was installed, which decides who updates it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum InstallChannel {
-    /// From the Nix store: the flake input is updated and the system rebuilt.
-    Nix,
+    /// From the Nix store. `bundles` when the system can run the self-contained bundle
+    /// (nix-ld, `programs.zaun.selfUpdate`); otherwise the flake input is updated.
+    Nix { bundles: bool },
     /// A Flatpak: `flatpak update`.
     Flatpak,
-    /// A distribution package (under `/usr`): the package manager.
+    /// A distribution package (under `/usr`).
     Package,
-    /// The release tarball's `install.sh`; `owned` when it belongs to this user, so Zaun
-    /// updates itself.
-    Tarball {
-        /// The install folder belongs to this user.
-        owned: bool,
-    },
+    /// The release tarball's `install.sh`.
+    Tarball,
+    /// A version from the bundle store, started by the installed copy (ADR-0041).
+    Bundle,
     /// Anything else (a development build, an unpacked tree): announce only.
     #[default]
     Other,
 }
 
 impl InstallChannel {
-    /// Whether Zaun replaces its own files.
+    /// Whether Zaun downloads new versions into its bundle store and starts them.
     pub fn self_updates(self) -> bool {
-        matches!(self, InstallChannel::Tarball { owned: true })
+        match self {
+            InstallChannel::Package | InstallChannel::Tarball | InstallChannel::Bundle => true,
+            InstallChannel::Nix { bundles } => bundles,
+            InstallChannel::Flatpak | InstallChannel::Other => false,
+        }
     }
 }
 
@@ -43,13 +46,13 @@ pub struct UpdateOffer {
     pub has_notes: bool,
 }
 
-/// The download of an owned install.
+/// The download of a copy that updates itself.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum UpdateDownload {
     #[default]
     Idle,
     Downloading,
-    /// Verified and waiting next to the binary; installed on restart.
+    /// Verified and waiting in the bundle store; started on restart.
     Staged {
         version: String,
     },

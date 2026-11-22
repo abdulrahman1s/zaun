@@ -304,6 +304,12 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
 
+      # The portable build's Debian 12 tools are too old for these files (ADR-0041).
+      - name: Validate the desktop entry and AppStream metadata
+        run: |
+          desktop-file-validate assets/share/applications/*.desktop
+          appstreamcli validate --no-net --explain assets/share/metainfo/*.metainfo.xml
+
       - name: Check
         run: cargo check --locked --workspace --all-targets
 
@@ -317,30 +323,85 @@ jobs:
           cargo test --locked --workspace --exclude zaun-ui
           cargo test --locked -p zaun-ui --lib
 
-      - name: Release build, checks and tarball
-        # scripts/build-release.sh (PKG-001): --locked, no dev-inspection, size budgets of
-        # PERFORMANCE §1, static shim, desktop/AppStream validation, staged tarball (PKG-007).
+  portable:
+    # The release binaries (ADR-0041): built in Debian 12 so they start on any distribution
+    # with glibc 2.35 or newer, with FFmpeg built in, the helpers and the Chat engine. The
+    # tarball, every package and the self-update bundle come from this job.
+    name: Portable build (Debian 12)
+    needs:
+      - prepare-release
+    if: ${{ always() && (needs.prepare-release.result == 'success' || (needs.prepare-release.result == 'skipped' && github.event_name != 'workflow_run')) }}
+    runs-on: ubuntu-latest
+    container: docker.io/library/debian:12
+    env:
+      ZAUN_PORTABLE_WORK: /work
+      CARGO_HOME: /github/home/.cargo
+      RUSTUP_HOME: /github/home/.rustup
+      CARGO_TARGET_DIR: /work/target
+
+    steps:
+      - name: Install git
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends git ca-certificates zstd >/dev/null
+          mkdir -p /work
+
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare-release.outputs.sha || github.sha }}
+
+      - name: Cache FFmpeg and the pinned downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            /work/ffmpeg
+            /work/src
+          key: portable-sources-${{ hashFiles('packaging/portable/sources.sh', 'packaging/portable/build-ffmpeg.sh') }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: portable
+          workspaces: ". -> /work/target"
+          cache-on-failure: true
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Build, check and stage the tarball
+        # packaging/portable/build.sh installs the build packages and the toolchain, builds
+        # FFmpeg and takes the Chat engine from its pinned release, then runs
+        # scripts/build-release.sh --tarball (PKG-001): --locked, no dev-inspection, size
+        # budgets, static shim, desktop/AppStream validation.
         id: tarball
         env:
           ZAUN_COMMIT: ${{ needs.prepare-release.outputs.sha || github.sha }}
         run: |
           set -euo pipefail
-          ZAUN_COMMIT="${ZAUN_COMMIT:0:12}" scripts/build-release.sh --tarball
+          ZAUN_COMMIT="${ZAUN_COMMIT:0:12}" packaging/portable/build.sh
           version="$(cat dist/zaun-*-x86_64-linux/VERSION)"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
-      - name: Update files of the tarball channel (ADR-0040)
-        # The binary and its shim, each gzip-compressed, for installs that update themselves;
-        # the release job lists and signs them in manifest.json.
+      - name: Start with an empty environment
+        # As the session supervisor does; a library missing from Debian 12 fails here.
+        run: env -i dist/zaun-*-x86_64-linux/libexec/zaun/zaun --version
+
+      - name: Files of the self-update bundle (ADR-0041)
+        # Each binary gzip-compressed, and the Chat engine as a GNU tar of plain files; the
+        # release job lists and signs them in bundle.json (and zaun, zaun-init in the
+        # manifest.json of older copies).
         if: ${{ startsWith(github.ref, 'refs/tags/v') || needs.prepare-release.outputs.released == 'true' }}
         env:
           VERSION: ${{ steps.tarball.outputs.version }}
         run: |
           set -euo pipefail
+          . packaging/portable/sources.sh
           tree="dist/zaun-${VERSION}-x86_64-linux"
-          for name in zaun zaun-init; do
+          for name in zaun zaun-init zaun-overlay zaun-chat; do
             gzip -9 -n -c "${tree}/libexec/zaun/${name}" > "dist/zaun-${VERSION}-x86_64-linux.${name}.gz"
           done
+          tar --format=gnu --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 \
+            -C "${tree}/libexec/zaun/simplex" -cf - . \
+            | gzip -9 -n > "dist/zaun-simplex-${SIMPLEX_VERSION}-x86_64.tar.gz"
 
       - name: Vendored crates for offline source builds (RPM/COPR)
         if: ${{ startsWith(github.ref, 'refs/tags/v') || needs.prepare-release.outputs.released == 'true' }}
@@ -349,6 +410,7 @@ jobs:
           COMMIT: ${{ needs.prepare-release.outputs.sha || github.sha }}
         run: |
           set -euo pipefail
+          export PATH="${CARGO_HOME}/bin:${PATH}"
           cargo vendor --locked vendor > /dev/null
           echo "${COMMIT:0:12}" > vendor/COMMIT
           tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf - vendor \
@@ -362,8 +424,8 @@ jobs:
           name: release-tarball
           path: |
             dist/zaun-${{ steps.tarball.outputs.version }}-x86_64-linux.tar.zst
-            dist/zaun-${{ steps.tarball.outputs.version }}-x86_64-linux.zaun.gz
-            dist/zaun-${{ steps.tarball.outputs.version }}-x86_64-linux.zaun-init.gz
+            dist/zaun-${{ steps.tarball.outputs.version }}-x86_64-linux.*.gz
+            dist/zaun-simplex-*-x86_64.tar.gz
             dist/zaun-${{ steps.tarball.outputs.version }}-vendor.tar.zst
           if-no-files-found: error
 
@@ -374,7 +436,8 @@ jobs:
     needs:
       - prepare-release
       - build
-    if: ${{ always() && needs.build.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || needs.prepare-release.outputs.released == 'true') }}
+      - portable
+    if: ${{ always() && needs.build.result == 'success' && needs.portable.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || needs.prepare-release.outputs.released == 'true') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -382,9 +445,8 @@ jobs:
         include:
           - format: deb
             container: ""
-          # No RPM for now: current Fedora ships FFmpeg 9 (libavcodec.so.63) and Zaun's GPU
-          # encoder is built against FFmpeg 8, so the binary cannot start there. It returns
-          # with the self-contained bundle, which carries its own FFmpeg.
+          - format: rpm
+            container: registry.fedoraproject.org/fedora:latest
           - format: arch
             container: archlinux:base-devel
     container: ${{ matrix.container || null }}
@@ -392,7 +454,10 @@ jobs:
     steps:
       - name: Install packaging tools (Fedora)
         if: ${{ matrix.format == 'rpm' }}
-        run: dnf -y install git rpm-build rpmlint binutils zstd tar desktop-file-utils libappstream-glib
+        # The libraries %check's `zaun --version` loads.
+        run: |
+          dnf -y install git rpm-build rpmlint binutils zstd tar desktop-file-utils libappstream-glib \
+            libva pipewire-libs pulseaudio-libs opus systemd-libs libstdc++ libxkbcommon
 
       - name: Install packaging tools (Arch)
         if: ${{ matrix.format == 'arch' }}
@@ -447,7 +512,8 @@ jobs:
             --define "_sourcedir ${PWD}/dist" --define "_rpmdir ${PWD}/out" \
             --define "_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm" \
             packaging/rpm/zaun.spec
-          rpmlint -r packaging/rpm/rpmlintrc.toml packaging/rpm/zaun.spec out/*.rpm
+          # -c: the TOML file is configuration (its Filters); -r would read it as an rpmlintrc.
+          rpmlint -c packaging/rpm/rpmlintrc.toml packaging/rpm/zaun.spec out/*.rpm
 
       - name: Build Arch package (zaun-bin)
         if: ${{ matrix.format == 'arch' }}
@@ -515,10 +581,11 @@ jobs:
 
   release:
     name: GitHub release
-    if: ${{ always() && needs.build.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || needs.prepare-release.outputs.released == 'true') }}
+    if: ${{ always() && needs.build.result == 'success' && needs.portable.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || needs.prepare-release.outputs.released == 'true') }}
     needs:
       - prepare-release
       - build
+      - portable
       - packages
     runs-on: ubuntu-latest
     permissions:
@@ -538,10 +605,11 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Signed update manifest (ADR-0040)
-        # manifest.json lists the update files with their sizes and SHA-256 sums and is signed
-        # with the release key; the app trusts only the public key compiled into it. The key
-        # reaches this step only, through the ZAUN_UPDATE_SIGNING_KEY secret.
+      - name: Signed update manifests (ADR-0040, ADR-0041)
+        # bundle.json (and manifest.json for older copies) list the update files with their
+        # sizes and SHA-256 sums and are signed with the release key; the app trusts only the
+        # public key compiled into it. The key reaches this step only, through the
+        # ZAUN_UPDATE_SIGNING_KEY secret.
         env:
           ZAUN_RELEASE_KEY_PEM: ${{ secrets.ZAUN_UPDATE_SIGNING_KEY }}
           TAG: ${{ needs.prepare-release.outputs.tag || github.ref_name }}

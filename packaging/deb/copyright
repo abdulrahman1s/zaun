@@ -44,6 +44,28 @@ Comment: Rust crates compiled into the binary. Most are dual-licensed Expat (MIT
  Apache-2.0; a few use other permissive licences. The list with each crate's licence is
  /usr/share/licenses/zaun/THIRD-PARTY.txt. SQLite (bundled) is in the public domain.
 
+Files: crates/zaun-chat/*
+Copyright: 2026 Abdulrahman and the Zaun contributors
+License: AGPL-3.0-only
+Comment: The Chat helper, /usr/libexec/zaun/zaun-chat. It loads the SimpleX library
+ into its process, so it is distributed under the AGPL; Zaun talks to it over pipes.
+
+Files: usr/libexec/zaun/simplex/*
+Copyright: SimpleX Chat Ltd and contributors
+License: AGPL-3.0-only
+Comment: The SimpleX Chat core (libsimplex.so) and the Haskell, libffi and OpenSSL
+ libraries it is linked against, unchanged from the official desktop release; the
+ version is in /usr/libexec/zaun/simplex/SOURCE. Source code:
+ https://github.com/simplex-chat/simplex-chat. libgmp.so.10 is GNU MP (LGPL-3.0-or-later
+ or GPL-2.0-or-later), from Debian.
+
+License: AGPL-3.0-only
+ This program is free software: you can redistribute it and/or modify it under the terms
+ of the GNU Affero General Public License as published by the Free Software Foundation,
+ version 3.
+ .
+ The complete text is in /usr/share/licenses/zaun/AGPL-3.0.txt.
+
 License: GPL-3.0-or-later
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by

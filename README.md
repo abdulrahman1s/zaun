@@ -166,7 +166,7 @@ would anywhere.
 
 | | |
 |---|---|
-| System | 64-bit (x86_64) Linux with glibc: Arch, Fedora, Debian, Ubuntu, NixOS, SteamOS desktop mode (best effort) |
+| System | 64-bit (x86_64) Linux with glibc 2.35 or newer: Arch, Fedora, Debian 12+, Ubuntu 22.04+, NixOS, SteamOS desktop mode (best effort) |
 | Kernel | Unprivileged user namespaces enabled (the default almost everywhere) |
 | bubblewrap | 0.8 or newer (`bwrap`) |
 | umu-launcher | 1.4 or newer (`umu-run`) |
@@ -251,6 +251,7 @@ package already brings `bubblewrap` and `umu-launcher`.
 | `programs.zaun.associateWindowsExecutables` | `true` | Adds Zaun to "Open With" for `.exe`/`.msi` (`xdg.mime.addedAssociations`). Never sets it as the default. |
 | `programs.zaun.allowUnprivilegedUsernsClone` | `false` | Sets `kernel.unprivileged_userns_clone = 1`. Only for hardened kernels that disable unprivileged user namespaces. |
 | `programs.zaun.backgroundService.enable` | `false` | Keeps Zaun loaded in the background, so games and windows open instantly. |
+| `programs.zaun.selfUpdate` | `false` | Lets Zaun update itself without a rebuild (see [Updates](#updates)). Turns on `programs.nix-ld` with the libraries Zaun's release builds use. |
 
 Evaluation fails if `security.allowUserNamespaces = false` or `user.max_user_namespaces` is
 0, because bubblewrap cannot work without user namespaces.
@@ -291,6 +292,21 @@ Install `bubblewrap` and `umu-launcher` with your package manager. To remove Zau
 
 Uninstalling removes exactly the files the installer added and keeps your games, settings
 and downloaded runtimes.
+
+### Updates
+
+Turn on **Check for updates** in Settings › About (it is off until you do). Zaun then asks
+GitHub once a day for a newer release. It downloads one in the background, checks its
+signature, and switches to it the next time Zaun starts. It never switches while a game runs.
+
+This works the way Steam and Discord update. The copy you installed (package, tarball or Nix)
+stays as it is and starts the newest version kept in `~/.local/share/zaun/versions`. When the
+installed copy is newer, for example after a package upgrade, it runs itself. A new version
+that fails to start three times is removed, and the one before comes back. To always run
+the installed copy, set `ZAUN_NO_HANDOFF=1`.
+
+On NixOS this needs `programs.zaun.selfUpdate = true`. Without it, Zaun only tells you that a
+new version exists, and you update the flake input and rebuild as usual.
 
 ### The background service (optional)
 

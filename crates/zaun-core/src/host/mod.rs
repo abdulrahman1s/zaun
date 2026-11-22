@@ -35,6 +35,7 @@ pub use facts::{
 pub use probe::{HostProbe, LiveHostProbe, ProbeDeps, Revalidation, StaticHostFacts, probe_all};
 pub use runner::{
     CommandOutput, CommandRunner, CommandSpec, RealRunner, RunError, replace_process,
+    replace_process_with,
 };
 pub use wayland::{CompositorProbe, LiveCompositor, NoCompositor};
 

@@ -2,8 +2,8 @@
 #
 # Installs the package, offers it as a handler for Windows executables without changing any
 # default application (DESKTOP_INTEGRATION §4), turns on 32-bit graphics drivers for games,
-# checks that unprivileged user namespaces, which bubblewrap needs, are available, and can run
-# Zaun's background service (ADR-0022).
+# checks that unprivileged user namespaces, which bubblewrap needs, are available, can run
+# Zaun's background service (ADR-0022) and can let Zaun update itself (ADR-0041).
 self:
 {
   config,
@@ -97,6 +97,16 @@ in
       restarts. After upgrading the package, `systemctl --user restart zaun` runs the
       new version'';
 
+    selfUpdate = mkEnableOption ''
+      updates without a rebuild, the way Steam and Discord update themselves (ADR-0041).
+      With "Check for updates" on in Zaun, a new release is downloaded into
+      ~/.local/share/zaun/versions, its signature checked, and started the next time Zaun
+      starts; a version that does not start is rolled back. Those builds are made for any
+      Linux distribution, so this enables nix-ld (`programs.nix-ld`) with the libraries they
+      use. Without it Zaun only says that a new version exists, and the flake input is
+      updated and the system rebuilt as usual. The installed package stays the fallback: when
+      it is newer than the downloaded version, it runs itself'';
+
     allowUnprivilegedUsernsClone = mkOption {
       type = types.bool;
       default = false;
@@ -177,6 +187,13 @@ in
           # Games run in the service's cgroup; stopping the service must not end them.
           KillMode = "process";
         };
+      };
+    })
+
+    (mkIf cfg.selfUpdate {
+      programs.nix-ld = {
+        enable = true;
+        libraries = cfg.package.passthru.bundleLibs or [ ];
       };
     })
 

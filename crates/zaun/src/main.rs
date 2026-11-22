@@ -9,6 +9,7 @@ mod dispatch;
 mod display_libs;
 mod game_source;
 mod gen_assets;
+mod handoff;
 mod headless;
 mod host_verbs;
 mod instance_gui;
@@ -123,7 +124,12 @@ fn log_legacy_dirs(moves: &[LegacyMove]) {
 }
 
 fn main() -> ExitCode {
-    let cli = match Cli::try_parse() {
+    let parsed = Cli::try_parse();
+    let env = PathEnv::from_process();
+    // First: the newest version may be another program (ADR-0041 §4). A command line this
+    // copy cannot parse may belong to that newer version, so it is handed off too.
+    handoff::run(&env, parsed.as_ref().ok().map(role_of));
+    let cli = match parsed {
         Ok(cli) => cli,
         Err(e) => {
             // `--help` and `--version` print and exit 0; usage errors exit 2.
@@ -132,7 +138,6 @@ fn main() -> ExitCode {
         }
     };
     panic::install();
-    let env = PathEnv::from_process();
     let legacy = adopt_legacy_dirs_early(&env);
     let (log_guard, redact) = init_logging(&cli, &env);
     log_legacy_dirs(&legacy);

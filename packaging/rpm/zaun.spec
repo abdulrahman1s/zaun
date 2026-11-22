@@ -28,13 +28,18 @@ Version:        %{lua: print((string.gsub(rpm.expand("%{upstream_version}"), "-"
 Release:        1%{?dist}
 Summary:        Run Windows games in a per-game sandbox
 
-License:        GPL-3.0-or-later AND OFL-1.1 AND MIT AND Apache-2.0 AND (MIT OR Apache-2.0) AND Unicode-3.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND Zlib AND CDLA-Permissive-2.0
+License:        GPL-3.0-or-later AND AGPL-3.0-only AND OFL-1.1 AND MIT AND Apache-2.0 AND (MIT OR Apache-2.0) AND Unicode-3.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND Zlib AND CDLA-Permissive-2.0
 URL:            https://github.com/abdulrahman1s/zaun
 Source0:        %{url}/archive/v%{upstream_version}/%{name}-%{upstream_version}.tar.gz
 Source1:        %{url}/releases/download/v%{upstream_version}/%{name}-%{upstream_version}-vendor.tar.zst
 Source2:        %{url}/releases/download/v%{upstream_version}/%{name}-%{upstream_version}-x86_64-linux.tar.zst
 
 ExclusiveArch:  x86_64
+
+# The Chat engine's prebuilt libraries (ADR-0033) are private to the Chat helper: they
+# neither provide nor require anything for the rest of the system.
+%global __provides_exclude_from ^%{_libexecdir}/%{name}/simplex/.*$
+%global __requires_exclude_from ^%{_libexecdir}/%{name}/simplex/.*$
 
 %if %{without prebuilt}
 BuildRequires:  cargo >= 1.95
@@ -49,7 +54,8 @@ BuildRequires:  desktop-file-utils
 BuildRequires:  libappstream-glib
 
 Requires:       bubblewrap >= 0.8.0
-Requires:       umu-launcher
+# Not packaged by every Fedora release; the Doctor explains how to install it.
+Recommends:     umu-launcher
 Requires:       hicolor-icon-theme
 # Loaded with dlopen at run time (RELEASE_STRATEGY §2.1), so not found by the dependency
 # generator.
@@ -110,7 +116,11 @@ scripts/build-release.sh --build-only --offline --prefix %{_prefix} \
 %if %{with prebuilt}
 # The release binary has /usr/libexec/zaun compiled in as the shim's location.
 install -Dm755 libexec/zaun/zaun %{buildroot}%{_bindir}/zaun
-install -Dm755 libexec/zaun/zaun-init %{buildroot}%{_libexecdir}/%{name}/zaun-init
+for f in zaun-init zaun-overlay zaun-chat; do
+    install -Dm755 libexec/zaun/$f %{buildroot}%{_libexecdir}/%{name}/$f
+done
+install -d %{buildroot}%{_libexecdir}/%{name}/simplex
+install -m644 libexec/zaun/simplex/* %{buildroot}%{_libexecdir}/%{name}/simplex/
 mkdir -p %{buildroot}%{_datadir}
 cp -R share/. %{buildroot}%{_datadir}/
 %else
@@ -135,6 +145,11 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/%{appid}.metai
 %{_bindir}/zaun
 %dir %{_libexecdir}/%{name}
 %{_libexecdir}/%{name}/zaun-init
+%{_libexecdir}/%{name}/zaun-overlay
+%{_libexecdir}/%{name}/zaun-chat
+%if %{with prebuilt}
+%{_libexecdir}/%{name}/simplex/
+%endif
 %{_datadir}/applications/%{appid}.desktop
 %{_metainfodir}/%{appid}.metainfo.xml
 %{_datadir}/icons/hicolor/*/apps/%{appid}.png

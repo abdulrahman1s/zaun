@@ -10,7 +10,7 @@ impl AppService {
     pub(crate) fn download_update(&mut self) -> Result<()> {
         self.ensure_update_consent()?;
         let u = self.update_deps()?;
-        let layout = u.install.layout().ok_or_else(|| err!(UpdManaged))?;
+        let store = u.install.store().cloned().ok_or_else(|| err!(UpdManaged))?;
         if self.flow.updates.downloading {
             return Ok(());
         }
@@ -29,7 +29,7 @@ impl AppService {
                 let result = (|| -> Result<String, UpdateError> {
                     let release = fetch_release(&check, &keys)?;
                     release.ensure_newer(&running())?;
-                    stage::download(&files, &*fs, &layout, &release, &arch)?;
+                    stage::download(&files, &*fs, &store, &release, &arch)?;
                     Ok(release.version.to_string())
                 })();
                 post(Internal::Flow(Box::new(FlowDone::Updates(

@@ -1,7 +1,8 @@
-//! Updates (ADR-0040): signatures, the manifest's rules, downloads that differ from what was
-//! signed, no downgrades, how a copy was installed, the daily throttle, staging, apply and
-//! rollback on `MemFs`, and the service's flows (consent, the announcement, nothing while a
-//! game runs). No test reaches the network: a fake transport serves a release made by
+//! Updates (ADR-0040, ADR-0041): signatures, the manifest's rules, downloads that differ from
+//! what was signed, no downgrades, how a copy was installed, the daily throttle, the bundle
+//! store (staging, switching, the installed copy's choice, trials and rollback) on `MemFs`,
+//! and the service's flows (consent, the announcement and the background download, nothing
+//! while a game runs). No test reaches the network: a fake transport serves a release made by
 //! `scripts/sign-release-manifest.sh` with a throwaway test key.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::disallowed_methods)]
@@ -38,19 +39,28 @@ use zaun_core::service::{
 };
 use zaun_core::storage::{Db, GameRepo, SessionRepo};
 use zaun_core::update::check::fetch_release;
+use zaun_core::update::install::GENERIC_LOADER;
 use zaun_core::update::source::{MANIFEST_URL, SIGNATURE_URL};
-use zaun_core::update::trial::{self, TrialStart};
+use zaun_core::update::trial::{self, Choice};
 use zaun_core::update::{
-    Install, Layout, UpdateDeps, UpdateError, UpdateState, Version, apply, detect, stage, verify,
+    Install, Release, Store, UpdateDeps, UpdateError, UpdateState, Version, apply, detect, stage,
+    verify,
 };
 use zaun_testkit::TestEnv;
 use zaun_testkit::fakes::{CannedOutput, FakeClock, FakeLauncher, MemFs, ScriptedRunner};
 use zaun_testkit::fixtures::{games, hosts};
 
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/update");
-const PREFIX: &str = "/home/sam/.local";
+const DATA: &str = "/home/sam/.local/share/zaun";
 const GZ_ZAUN: &str = "zaun-9.9.9-x86_64-linux.zaun.gz";
-const GZ_INIT: &str = "zaun-9.9.9-x86_64-linux.zaun-init.gz";
+const FILES: [&str; 5] = [
+    "zaun-9.9.9-x86_64-linux.zaun.gz",
+    "zaun-9.9.9-x86_64-linux.zaun-init.gz",
+    "zaun-9.9.9-x86_64-linux.zaun-overlay.gz",
+    "zaun-9.9.9-x86_64-linux.zaun-chat.gz",
+    "zaun-simplex-7.0.3-x86_64.tar.gz",
+];
+const ENGINE: &str = "zaun-simplex-7.0.3-x86_64.tar.gz";
 
 fn fixture(name: &str) -> Vec<u8> {
     std::fs::read(Path::new(FIXTURE).join(name)).unwrap()
@@ -75,15 +85,17 @@ fn download_url(file: &str) -> String {
 struct Net {
     files: Mutex<HashMap<String, Vec<u8>>>,
     calls: AtomicUsize,
+    asked: Mutex<Vec<String>>,
 }
 
 impl Net {
     fn release() -> Arc<Self> {
         let n = Arc::new(Self::default());
-        n.serve(MANIFEST_URL, fixture("manifest.json"));
-        n.serve(SIGNATURE_URL, fixture("manifest.json.sig"));
-        n.serve(&download_url(GZ_ZAUN), fixture(GZ_ZAUN));
-        n.serve(&download_url(GZ_INIT), fixture(GZ_INIT));
+        n.serve(MANIFEST_URL, fixture("bundle.json"));
+        n.serve(SIGNATURE_URL, fixture("bundle.json.sig"));
+        for f in FILES {
+            n.serve(&download_url(f), fixture(f));
+        }
         n
     }
 
@@ -94,11 +106,22 @@ impl Net {
     fn calls(&self) -> usize {
         self.calls.load(Ordering::SeqCst)
     }
+
+    fn asked_for(&self, file: &str) -> usize {
+        let url = download_url(file);
+        self.asked
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|u| **u == url)
+            .count()
+    }
 }
 
 impl Transport for Net {
     fn get(&self, url: &HttpsUrl, limits: HopLimits) -> Result<RawResponse, HttpError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        self.asked.lock().unwrap().push(url.to_string());
         let files = self.files.lock().unwrap();
         let Some(body) = files.get(&url.to_string()) else {
             return Ok(RawResponse {
@@ -129,37 +152,67 @@ fn running() -> Version {
     Version::parse(zaun_core::consts::APP_VERSION).unwrap()
 }
 
-/// A tarball install under `/home/sam/.local`, as `install.sh` leaves it.
-fn owned_install() -> (MemFs, Layout) {
-    let fs = MemFs::new();
-    fs.file(format!("{PREFIX}/libexec/zaun/zaun"), b"old zaun")
-        .file(format!("{PREFIX}/libexec/zaun/zaun-init"), b"old init")
-        .file(
-            format!("{PREFIX}/libexec/zaun/install-manifest"),
-            b"f bin/zaun\n",
-        );
-    (
-        fs,
-        Layout {
-            prefix: PathBuf::from(PREFIX),
-        },
-    )
+fn v(s: &str) -> Version {
+    Version::parse(s).unwrap()
 }
 
-fn smoke_ok(layout: &Layout) -> ScriptedRunner {
-    let staged = layout.staged().join("zaun");
+fn store() -> Store {
+    Store {
+        versions: Path::new(DATA).join("versions"),
+        components: Path::new(DATA).join("components"),
+    }
+}
+
+/// A home with a data folder and nothing in the store yet.
+fn empty_store() -> (MemFs, Store) {
+    let fs = MemFs::new();
+    fs.dir(DATA);
+    (fs, store())
+}
+
+fn smoke_ok(store: &Store) -> ScriptedRunner {
+    let bin = store.versions.join("9.9.9/zaun");
     ScriptedRunner::new().expect(
-        &[staged.as_os_str(), "--version".as_ref()],
+        &[bin.as_os_str(), "--version".as_ref()],
         CannedOutput::ok("zaun 9.9.9 (0123456789ab)\n"),
     )
 }
 
-fn installed(fs: &MemFs, layout: &Layout) -> (Vec<u8>, Vec<u8>) {
-    (
-        fs.contents(layout.target("libexec/zaun/zaun")).unwrap(),
-        fs.contents(layout.target("libexec/zaun/zaun-init"))
-            .unwrap(),
+fn release(net: &Arc<Net>) -> Release {
+    fetch_release(&UpdateDeps::check_client(&base(net)), &[test_key()]).unwrap()
+}
+
+fn staged_store() -> (MemFs, Store, Arc<Net>) {
+    let net = Net::release();
+    let (fs, store) = empty_store();
+    stage::download(
+        &UpdateDeps::files_client(&base(&net)),
+        &fs,
+        &store,
+        &release(&net),
+        "x86_64",
     )
+    .unwrap();
+    (fs, store, net)
+}
+
+/// An older version, current already, with its own copy of the engine.
+fn with_current(fs: &MemFs, store: &Store, version: &str) {
+    let dir = store.versions.join(version);
+    fs.file(dir.join("zaun"), format!("zaun {version}\n"));
+    fs.file(
+        store.components.join("simplex-old/libsimplex.so"),
+        b"old engine",
+    );
+    fs.link(dir.join("simplex"), "../../components/simplex-old");
+    fs.link(store.current(), version);
+    fs.set_mode(&dir.join("zaun"), 0o755).unwrap();
+}
+
+fn linked(fs: &MemFs, link: &Path) -> Option<String> {
+    fs.read_link(link)
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 /// Sign `json` with a key made from `seed` (tests only): (manifest, signature, public key).
@@ -173,22 +226,30 @@ fn signed(json: &str, seed: u8) -> (Vec<u8>, Vec<u8>, [u8; 32]) {
 fn manifest_json(product: &str, url: &str, notes_url: &str) -> String {
     let sha = "a".repeat(64);
     format!(
-        r#"{{"format":1,"product":"{product}","version":"9.9.9","date":"2026-11-18","notes":"Line one\nline\u0007two","notes_url":"{notes_url}","artifacts":[{{"channel":"tarball","arch":"x86_64","path":"libexec/zaun/zaun","url":"{url}","size":1,"sha256":"{sha}","unpacked_size":1,"unpacked_sha256":"{sha}"}}]}}"#
+        r#"{{"format":2,"product":"{product}","version":"9.9.9","date":"2026-11-18","notes":"Line one\nline\u0007two","notes_url":"{notes_url}","artifacts":[{{"channel":"bundle","arch":"x86_64","path":"zaun","url":"{url}","size":1,"sha256":"{sha}","unpacked_size":1,"unpacked_sha256":"{sha}"}}]}}"#
     )
 }
 
 // ---- signatures and the manifest ---------------------------------------------------------
 
 #[test]
-fn a_manifest_signed_by_the_release_script_verifies() {
+fn a_bundle_manifest_signed_by_the_release_script_verifies() {
     let r = verify(
-        &fixture("manifest.json"),
-        &fixture("manifest.json.sig"),
+        &fixture("bundle.json"),
+        &fixture("bundle.json.sig"),
         &[test_key()],
     )
     .unwrap();
     assert_eq!(r.version.to_string(), "9.9.9");
-    assert_eq!(r.files("tarball", "x86_64").unwrap().len(), 2);
+    let files = r.files("x86_64").unwrap();
+    assert_eq!(
+        files.iter().map(|a| a.path.as_str()).collect::<Vec<_>>(),
+        ["zaun", "zaun-init", "zaun-overlay", "zaun-chat", "simplex/"]
+    );
+    assert!(
+        r.files("aarch64").is_err(),
+        "no bundle for another architecture"
+    );
     assert_eq!(
         r.notes_url.as_deref(),
         Some("https://github.com/abdulrahman1s/zaun/releases/tag/v9.9.9")
@@ -196,22 +257,32 @@ fn a_manifest_signed_by_the_release_script_verifies() {
 }
 
 #[test]
+fn the_format_1_manifest_of_older_copies_is_not_read() {
+    let r = verify(
+        &fixture("manifest.json"),
+        &fixture("manifest.json.sig"),
+        &[test_key()],
+    );
+    assert!(matches!(r, Err(UpdateError::BadManifest(_))), "{r:?}");
+}
+
+#[test]
 fn a_changed_manifest_a_bad_signature_or_another_key_is_refused() {
-    let mut changed = fixture("manifest.json");
+    let mut changed = fixture("bundle.json");
     let at = changed.iter().position(|b| *b == b'9').unwrap();
     changed[at] = b'8';
-    let sig = fixture("manifest.json.sig");
+    let sig = fixture("bundle.json.sig");
     let bad = |r: Result<_, UpdateError>| matches!(r, Err(UpdateError::BadSignature));
     assert!(bad(verify(&changed, &sig, &[test_key()])));
     assert!(bad(verify(
-        &fixture("manifest.json"),
+        &fixture("bundle.json"),
         b"not base64!",
         &[test_key()]
     )));
-    assert!(bad(verify(&fixture("manifest.json"), &sig, &[[7; 32]])));
+    assert!(bad(verify(&fixture("bundle.json"), &sig, &[[7; 32]])));
     // The compiled-in release key did not sign the test release.
     assert!(bad(verify(
-        &fixture("manifest.json"),
+        &fixture("bundle.json"),
         &sig,
         zaun_core::update::TRUSTED_KEYS
     )));
@@ -257,11 +328,11 @@ fn signed_manifests_still_follow_the_rules() {
         ""
     )));
     assert!(refused(
-        manifest_json("zaun", &ok_url, "").replace("libexec/zaun/zaun\"", "bin/sh\"")
+        manifest_json("zaun", &ok_url, "").replace("\"path\":\"zaun\"", "\"path\":\"../bin/sh\"")
     ));
 }
 
-// ---- download, stage, apply, roll back ---------------------------------------------------
+// ---- download and stage ------------------------------------------------------------------
 
 #[test]
 fn a_download_that_differs_from_its_sha256_is_refused_and_nothing_is_staged() {
@@ -270,206 +341,277 @@ fn a_download_that_differs_from_its_sha256_is_refused_and_nothing_is_staged() {
     let last = gz.len() - 1;
     gz[last] ^= 1;
     net.serve(&download_url(GZ_ZAUN), gz);
-    let release = fetch_release(&UpdateDeps::check_client(&base(&net)), &[test_key()]).unwrap();
-    let (fs, layout) = owned_install();
+    let (fs, store) = empty_store();
     let r = stage::download(
         &UpdateDeps::files_client(&base(&net)),
         &fs,
-        &layout,
-        &release,
+        &store,
+        &release(&net),
         "x86_64",
     );
     assert!(matches!(r, Err(UpdateError::BadFile { .. })), "{r:?}");
-    assert!(!fs.exists(&layout.staged()));
-    assert_eq!(
-        installed(&fs, &layout),
-        (b"old zaun".to_vec(), b"old init".to_vec())
-    );
+    assert!(!fs.exists(&store.staged()));
+    assert!(!fs.exists(&store.versions.join("9.9.9")));
 }
 
 #[test]
 fn a_file_larger_than_signed_is_never_read_whole() {
     let net = Net::release();
     net.serve(&download_url(GZ_ZAUN), vec![0; 4096]);
-    let release = fetch_release(&UpdateDeps::check_client(&base(&net)), &[test_key()]).unwrap();
-    let (fs, layout) = owned_install();
+    let (fs, store) = empty_store();
     let r = stage::download(
         &UpdateDeps::files_client(&base(&net)),
         &fs,
-        &layout,
-        &release,
+        &store,
+        &release(&net),
         "x86_64",
     );
     assert!(matches!(r, Err(UpdateError::BadFile { .. })), "{r:?}");
 }
 
-fn staged_install() -> (MemFs, Layout) {
-    let net = Net::release();
-    let release = fetch_release(&UpdateDeps::check_client(&base(&net)), &[test_key()]).unwrap();
-    let (fs, layout) = owned_install();
+#[test]
+fn a_download_fills_a_version_folder_and_shares_the_engine() {
+    let (fs, store, net) = staged_store();
+    let dir = store.versions.join("9.9.9");
+    assert_eq!(linked(&fs, &store.staged()).as_deref(), Some("9.9.9"));
+    assert_eq!(
+        fs.contents(dir.join("zaun")).unwrap(),
+        b"zaun 9.9.9 (fixture binary)\n"
+    );
+    for f in [
+        "zaun-init",
+        "zaun-overlay",
+        "zaun-chat",
+        "bundle.json",
+        "bundle.json.sig",
+    ] {
+        assert!(fs.exists(&dir.join(f)), "{f}");
+    }
+    let engine = linked(&fs, &dir.join("simplex")).unwrap();
+    assert!(engine.starts_with("../../components/simplex-"), "{engine}");
+    let real = fs.canonicalize(&dir.join("simplex/libsimplex.so")).unwrap();
+    assert!(real.starts_with(&store.components), "{}", real.display());
+    assert_eq!(fs.contents(&real).unwrap(), b"simplex fixture\n");
+    assert_eq!(net.asked_for(ENGINE), 1);
+
+    // Downloading again (a retry, or the next version with the same engine) reuses it.
     stage::download(
         &UpdateDeps::files_client(&base(&net)),
         &fs,
-        &layout,
-        &release,
+        &store,
+        &release(&net),
         "x86_64",
     )
     .unwrap();
-    (fs, layout)
+    assert_eq!(
+        net.asked_for(ENGINE),
+        1,
+        "the engine is not downloaded twice"
+    );
 }
 
 #[test]
-fn apply_replaces_both_files_keeps_the_previous_and_starts_a_trial() {
-    let (fs, layout) = staged_install();
-    assert!(fs.exists(&layout.staged().join("manifest.json")));
-    let runner = smoke_ok(&layout);
-    let v = apply::apply(&fs, &runner, &layout, &[test_key()], &running(), "x86_64").unwrap();
-    assert_eq!(v.map(|v| v.to_string()).as_deref(), Some("9.9.9"));
-    assert_eq!(
-        installed(&fs, &layout),
-        (
-            b"zaun 9.9.9 (fixture binary)\n".to_vec(),
-            b"zaun-init 9.9.9 (fixture shim)\n".to_vec()
-        )
+fn the_running_version_is_never_downloaded_over() {
+    let net = Net::release();
+    let (fs, store) = empty_store();
+    with_current(&fs, &store, "9.9.9");
+    let r = stage::download(
+        &UpdateDeps::files_client(&base(&net)),
+        &fs,
+        &store,
+        &release(&net),
+        "x86_64",
     );
+    assert!(matches!(r, Err(UpdateError::Install(_))), "{r:?}");
     assert_eq!(
-        fs.contents(layout.previous().join("zaun")).unwrap(),
-        b"old zaun"
+        fs.contents(store.versions.join("9.9.9/zaun")).unwrap(),
+        b"zaun 9.9.9\n"
     );
-    assert_eq!(
-        fs.contents(layout.previous().join("zaun-init")).unwrap(),
-        b"old init"
-    );
-    assert!(fs.exists(&layout.trial_file()));
-    assert!(!fs.exists(&layout.staged()));
+}
+
+// ---- switch, start, confirm, roll back -------------------------------------------------------
+
+#[test]
+fn apply_moves_the_links_and_starts_a_trial() {
+    let (fs, store, _) = staged_store();
+    with_current(&fs, &store, "9.9.8");
+    let runner = smoke_ok(&store);
+    let got = apply::apply(&fs, &runner, &store, &[test_key()], &running(), "x86_64").unwrap();
+    assert_eq!(got, Some(v("9.9.9")));
+    assert_eq!(linked(&fs, &store.current()).as_deref(), Some("9.9.9"));
+    assert_eq!(linked(&fs, &store.previous()).as_deref(), Some("9.9.8"));
+    assert!(!fs.exists(&store.staged()));
+    assert!(fs.exists(&store.trial_file()));
     assert!(
         runner.unused().is_empty(),
-        "the staged binary was smoke-tested"
+        "the new version was smoke-tested"
     );
 }
 
 #[test]
-fn an_older_or_equal_release_is_never_installed() {
-    let (fs, layout) = staged_install();
-    let same = Version::parse("9.9.9").unwrap();
+fn an_older_or_equal_release_is_never_switched_to() {
+    let (fs, store, _) = staged_store();
     let r = apply::apply(
         &fs,
-        &smoke_ok(&layout),
-        &layout,
+        &smoke_ok(&store),
+        &store,
         &[test_key()],
-        &same,
+        &v("9.9.9"),
         "x86_64",
     );
     assert!(matches!(r, Err(UpdateError::NotNewer { .. })), "{r:?}");
-    assert_eq!(
-        installed(&fs, &layout),
-        (b"old zaun".to_vec(), b"old init".to_vec())
+    assert!(!fs.exists(&store.current()));
+    assert!(!fs.exists(&store.staged()), "a refused version is dropped");
+
+    let (fs, store, _) = staged_store();
+    with_current(&fs, &store, "10.0.0");
+    let r = apply::apply(
+        &fs,
+        &smoke_ok(&store),
+        &store,
+        &[test_key()],
+        &running(),
+        "x86_64",
     );
-    assert!(!fs.exists(&layout.staged()), "a refused update is dropped");
+    assert!(matches!(r, Err(UpdateError::NotNewer { .. })), "{r:?}");
+    assert_eq!(linked(&fs, &store.current()).as_deref(), Some("10.0.0"));
 }
 
 #[test]
 fn a_staged_file_changed_after_the_download_is_refused() {
-    let (fs, layout) = staged_install();
-    fs.file(layout.staged().join("zaun"), b"something else");
+    let (fs, store, _) = staged_store();
+    fs.file(store.versions.join("9.9.9/zaun-init"), b"something else");
     let r = apply::apply(
         &fs,
-        &smoke_ok(&layout),
-        &layout,
+        &smoke_ok(&store),
+        &store,
         &[test_key()],
         &running(),
         "x86_64",
     );
     assert!(matches!(r, Err(UpdateError::BadFile { .. })), "{r:?}");
-    assert_eq!(
-        installed(&fs, &layout),
-        (b"old zaun".to_vec(), b"old init".to_vec())
-    );
+    assert!(!fs.exists(&store.current()));
 }
 
 #[test]
-fn a_staged_binary_that_does_not_run_installs_nothing() {
-    let (fs, layout) = staged_install();
-    let staged = layout.staged().join("zaun");
+fn a_new_version_that_does_not_run_here_switches_nothing() {
+    let (fs, store, _) = staged_store();
+    with_current(&fs, &store, "9.9.8");
+    let bin = store.versions.join("9.9.9/zaun");
+    // NixOS without nix-ld: no program interpreter.
     let runner = ScriptedRunner::new().expect(
-        &[staged.as_os_str(), "--version".as_ref()],
-        CannedOutput::fail(127, "cannot execute"),
+        &[bin.as_os_str(), "--version".as_ref()],
+        CannedOutput::fail(127, "cannot execute: required file not found"),
     );
-    let r = apply::apply(&fs, &runner, &layout, &[test_key()], &running(), "x86_64");
+    let r = apply::apply(&fs, &runner, &store, &[test_key()], &running(), "x86_64");
     assert!(matches!(r, Err(UpdateError::Install(_))), "{r:?}");
-    assert_eq!(
-        installed(&fs, &layout),
-        (b"old zaun".to_vec(), b"old init".to_vec())
-    );
+    assert_eq!(linked(&fs, &store.current()).as_deref(), Some("9.9.8"));
+    assert!(!fs.exists(&store.trial_file()));
 }
 
-#[test]
-fn the_third_start_without_a_confirmation_rolls_back() {
-    let (fs, layout) = staged_install();
+fn switched() -> (MemFs, Store) {
+    let (fs, store, _) = staged_store();
+    with_current(&fs, &store, "9.9.8");
     apply::apply(
         &fs,
-        &smoke_ok(&layout),
-        &layout,
+        &smoke_ok(&store),
+        &store,
         &[test_key()],
         &running(),
         "x86_64",
     )
     .unwrap();
-    let new = Version::parse("9.9.9").unwrap();
+    (fs, store)
+}
+
+#[test]
+fn the_installed_copy_starts_current_only_when_it_is_newer() {
+    let (fs, store) = switched();
+    let bin = store.versions.join("9.9.9/zaun");
+    let start = |installed: &str| trial::choose(&fs, &store, &v(installed), false).unwrap();
+    assert_eq!(start("0.3.0").start, Some(bin));
+    assert_eq!(start("9.9.9").start, None, "the installed copy is as new");
     assert_eq!(
-        trial::on_start(&fs, &layout, &new).unwrap(),
-        TrialStart::Counting
+        start("10.0.0").start,
+        None,
+        "a package manager installed a newer one"
     );
+    let (fs, store) = empty_store();
     assert_eq!(
-        trial::on_start(&fs, &layout, &new).unwrap(),
-        TrialStart::Counting
-    );
-    assert_eq!(
-        trial::on_start(&fs, &layout, &new).unwrap(),
-        TrialStart::RolledBack {
-            failed: "9.9.9".into()
-        }
-    );
-    assert_eq!(
-        installed(&fs, &layout),
-        (b"old zaun".to_vec(), b"old init".to_vec())
-    );
-    assert!(!fs.exists(&layout.trial_file()));
-    // The restored version starts without a trial.
-    assert_eq!(
-        trial::on_start(&fs, &layout, &running()).unwrap(),
-        TrialStart::None
+        trial::choose(&fs, &store, &v("0.3.0"), true).unwrap(),
+        Choice::default()
     );
 }
 
 #[test]
-fn a_confirmed_version_drops_the_previous_one() {
-    let (fs, layout) = staged_install();
-    apply::apply(
-        &fs,
-        &smoke_ok(&layout),
-        &layout,
-        &[test_key()],
-        &running(),
-        "x86_64",
-    )
-    .unwrap();
-    let new = Version::parse("9.9.9").unwrap();
-    assert_eq!(
-        trial::on_start(&fs, &layout, &new).unwrap(),
-        TrialStart::Counting
-    );
-    assert!(trial::confirm(&fs, &layout, &new).unwrap());
-    assert!(!fs.exists(&layout.previous()));
-    assert!(!fs.exists(&layout.trial_file()));
+fn the_third_counted_start_without_a_confirmation_rolls_back() {
+    let (fs, store) = switched();
+    let installed = v("0.3.0");
+    let new = store.versions.join("9.9.9/zaun");
+    for _ in 0..5 {
+        // CLI verbs neither count nor confirm.
+        trial::choose(&fs, &store, &installed, false).unwrap();
+    }
+    for _ in 0..2 {
+        let c = trial::choose(&fs, &store, &installed, true).unwrap();
+        assert_eq!(c.start.as_ref(), Some(&new));
+        assert_eq!(c.rolled_back, None);
+    }
+    let c = trial::choose(&fs, &store, &installed, true).unwrap();
+    assert_eq!(c.rolled_back, Some(v("9.9.9")));
+    assert_eq!(c.start, Some(store.versions.join("9.9.8/zaun")));
+    assert_eq!(linked(&fs, &store.current()).as_deref(), Some("9.9.8"));
+    assert!(!fs.exists(&store.previous()));
+    assert!(!fs.exists(&store.trial_file()));
     assert!(
-        !fs.exists(&layout.update_dir()),
-        "nothing is left for uninstall.sh"
+        !fs.exists(&store.versions.join("9.9.9")),
+        "the failed version is removed"
     );
-    assert_eq!(
-        trial::on_start(&fs, &layout, &new).unwrap(),
-        TrialStart::None
+}
+
+#[test]
+fn a_first_version_that_fails_hands_back_to_the_installed_copy() {
+    let (fs, store, _) = staged_store();
+    apply::apply(
+        &fs,
+        &smoke_ok(&store),
+        &store,
+        &[test_key()],
+        &running(),
+        "x86_64",
+    )
+    .unwrap();
+    let installed = v("0.3.0");
+    for _ in 0..2 {
+        trial::choose(&fs, &store, &installed, true).unwrap();
+    }
+    let c = trial::choose(&fs, &store, &installed, true).unwrap();
+    assert_eq!(c.rolled_back, Some(v("9.9.9")));
+    assert_eq!(c.start, None);
+    assert!(!fs.exists(&store.current()));
+}
+
+#[test]
+fn a_confirmed_version_keeps_only_itself() {
+    let (fs, store) = switched();
+    trial::choose(&fs, &store, &v("0.3.0"), true).unwrap();
+    assert!(
+        !trial::confirm(&fs, &store, &v("9.9.8")).unwrap(),
+        "not the version on trial"
     );
+    assert!(trial::confirm(&fs, &store, &v("9.9.9")).unwrap());
+    assert!(!fs.exists(&store.previous()));
+    assert!(!fs.exists(&store.trial_file()));
+    assert!(!fs.exists(&store.versions.join("9.9.8")));
+    assert!(
+        !fs.exists(&store.components.join("simplex-old")),
+        "its engine was unused"
+    );
+    assert!(fs.exists(&store.versions.join("9.9.9/simplex/libsimplex.so")));
+    // Later starts count nothing.
+    let c = trial::choose(&fs, &store, &v("0.3.0"), true).unwrap();
+    assert_eq!(c.rolled_back, None);
+    assert!(!fs.exists(&store.trial_file()));
 }
 
 // ---- how the copy was installed, the throttle ----------------------------------------------
@@ -482,14 +624,13 @@ fn the_channel_follows_where_the_binary_lives() {
         .file("/usr/local/libexec/zaun/zaun", b"")
         .file("/usr/local/libexec/zaun/install-manifest", b"")
         .file("/home/sam/unpacked/libexec/zaun/zaun", b"")
-        .file(format!("{PREFIX}/libexec/zaun/zaun"), b"")
-        .file(format!("{PREFIX}/libexec/zaun/install-manifest"), b"");
-    fs.chown("/usr/local/libexec/zaun", 0, 0)
-        .chown("/usr/local/libexec/zaun/zaun", 0, 0);
-    let channel = |p: &str| detect(&fs, Path::new(p), 1000).channel;
-    assert_eq!(
-        channel("/nix/store/abc-zaun-0.1.0/bin/.zaun-wrapped"),
-        InstallChannel::Nix
+        .file(format!("{DATA}/versions/0.3.0/zaun"), b"");
+    let channel = |p: &str| detect(&fs, Path::new(p), store()).channel;
+    let nix = "/nix/store/abc-zaun-0.1.0/bin/.zaun-wrapped";
+    assert_eq!(channel(nix), InstallChannel::Nix { bundles: false });
+    assert!(
+        !channel(nix).self_updates(),
+        "no loader for the bundle: announce only"
     );
     assert_eq!(channel("/usr/bin/zaun"), InstallChannel::Package);
     assert_eq!(
@@ -503,17 +644,25 @@ fn the_channel_follows_where_the_binary_lives() {
     );
     assert_eq!(
         channel("/usr/local/libexec/zaun/zaun"),
-        InstallChannel::Tarball { owned: false }
+        InstallChannel::Tarball
     );
-    let own = detect(&fs, &Path::new(PREFIX).join("libexec/zaun/zaun"), 1000);
-    assert_eq!(own.channel, InstallChannel::Tarball { owned: true });
     assert_eq!(
-        own.layout(),
-        Some(Layout {
-            prefix: PathBuf::from(PREFIX)
-        })
+        channel(&format!("{DATA}/versions/0.3.0/zaun")),
+        InstallChannel::Bundle
     );
-    assert_eq!(detect(&fs, Path::new("/usr/bin/zaun"), 1000).layout(), None);
+    assert!(
+        detect(&fs, Path::new("/usr/bin/zaun"), store())
+            .store()
+            .is_some()
+    );
+    assert!(
+        detect(&fs, Path::new("/opt/zaun/target/debug/zaun"), store())
+            .store()
+            .is_none()
+    );
+    // nix-ld (programs.zaun.selfUpdate) puts the generic loader in place.
+    fs.file(GENERIC_LOADER, b"");
+    assert_eq!(channel(nix), InstallChannel::Nix { bundles: true });
     fs.file("/.flatpak-info", b"");
     assert_eq!(channel("/app/bin/zaun"), InstallChannel::Flatpak);
 }
@@ -557,40 +706,32 @@ struct World {
     svc: AppService,
     events: Receiver<Event>,
     net: Arc<Net>,
-    layout: Layout,
+    store: Store,
 }
 
 impl World {
     fn new(check: bool) -> Self {
-        let env = TestEnv::new().unwrap();
+        Self::in_env(TestEnv::new().unwrap(), check)
+    }
+
+    fn in_env(env: TestEnv, check: bool) -> Self {
         let net = Net::release();
-        let prefix = env.home().join(".local");
-        for (f, body) in [
-            ("zaun", "old zaun"),
-            ("zaun-init", "old init"),
-            ("install-manifest", ""),
-        ] {
-            let p = prefix.join("libexec/zaun").join(f);
-            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-            std::fs::write(p, body).unwrap();
-        }
-        let layout = Layout {
-            prefix: prefix.clone(),
-        };
+        let store = Store::new(&env.paths());
+        std::fs::create_dir_all(&env.paths().data_dir).unwrap();
         let fs: Arc<dyn Fs> = Arc::new(RealFs::new());
         let clock: Arc<dyn Clock> = Arc::new(SystemClock::new());
         let jobs = Arc::new(JobPool::new(JobPoolConfig::default(), Arc::clone(&clock)).unwrap());
         let mut prefs = Preferences::default();
         prefs.updates.check = check;
         let b = base(&net);
-        let staged = layout.staged().join("zaun");
+        let staged = store.versions.join("9.9.9/zaun");
         let updates = UpdateDeps {
             check: Arc::new(UpdateDeps::check_client(&b)),
             files: Arc::new(UpdateDeps::files_client(&b)),
             keys: vec![test_key()],
             install: Install {
-                channel: InstallChannel::Tarball { owned: true },
-                prefix: Some(prefix),
+                channel: InstallChannel::Tarball,
+                store: store.clone(),
             },
             runner: Arc::new(ScriptedRunner::new().expect(
                 &[staged.as_os_str(), "--version".as_ref()],
@@ -644,7 +785,7 @@ impl World {
             svc,
             events,
             net,
-            layout,
+            store,
         };
         w.settle();
         w
@@ -700,7 +841,9 @@ fn a_newer_version_is_found_at_start_and_announced_once() {
     let mut w = World::new(true);
     let evs = w.drain();
     assert_eq!(World::announced(&evs), vec!["9.9.9".to_owned()]);
-    assert_eq!(w.net.calls(), 2, "the manifest and its signature");
+    // The check, then the background download: the manifest and its signature again, and the
+    // bundle's five files.
+    assert_eq!(w.net.calls(), 2 + 2 + 5);
     let u = w.svc.hub().updates.load();
     assert_eq!(
         u.available.as_ref().map(|a| a.version.as_str()),
@@ -721,6 +864,43 @@ fn a_newer_version_is_found_at_start_and_announced_once() {
 }
 
 #[test]
+fn a_newer_version_is_downloaded_in_the_background() {
+    let w = World::new(true);
+    w.drain();
+    assert_eq!(
+        w.svc.hub().updates.load().download,
+        UpdateDownload::Staged {
+            version: "9.9.9".into()
+        }
+    );
+    assert!(w.store.staged().join("zaun").exists());
+    assert!(
+        !w.store.current().exists(),
+        "switched to at the next start only"
+    );
+}
+
+#[test]
+fn a_version_that_was_rolled_back_is_not_downloaded_again_by_itself() {
+    let env = TestEnv::new().unwrap();
+    let path = zaun_core::update::state::state_file(&env.paths());
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let st = UpdateState {
+        rolled_back: Some("9.9.9".into()),
+        ..UpdateState::default()
+    };
+    st.save(&RealFs::new(), &path).unwrap();
+    let mut w = World::in_env(env, true);
+    w.drain();
+    assert_eq!(w.svc.hub().updates.load().download, UpdateDownload::Idle);
+    assert_eq!(w.net.calls(), 2, "only the check");
+    // Asked for, it is downloaded.
+    let evs = w.send(UpdateCommand::Download);
+    assert_eq!(World::failure(&evs), None);
+    assert!(w.store.staged().exists());
+}
+
+#[test]
 fn download_stages_and_restart_waits_while_a_game_runs() {
     let mut w = World::new(true);
     w.drain();
@@ -732,7 +912,7 @@ fn download_stages_and_restart_waits_while_a_game_runs() {
             version: "9.9.9".into()
         }
     );
-    assert!(w.layout.staged().join("zaun").exists());
+    assert!(w.store.staged().join("zaun").exists());
 
     // A running game: a session row whose supervisor is this test process.
     let id = {
@@ -759,12 +939,9 @@ fn download_stages_and_restart_waits_while_a_game_runs() {
     w.drain();
     let evs = w.send(UpdateCommand::Restart);
     assert_eq!(World::failure(&evs), Some(ErrorCode::UpdGameRunning));
-    assert!(!w.layout.restart_file().exists());
+    assert!(!w.store.restart_file().exists());
     assert!(!evs.iter().any(|e| matches!(e, Event::QuitRequested)));
-    assert_eq!(
-        std::fs::read(w.layout.target("libexec/zaun/zaun")).unwrap(),
-        b"old zaun"
-    );
+    assert!(!w.store.current().exists());
 
     // The game ended: restart leaves the note for the process and closes the window.
     let mut db = Db::open_rw(&w.env.paths().db_file).unwrap();
@@ -774,6 +951,6 @@ fn download_stages_and_restart_waits_while_a_game_runs() {
     w.settle();
     let evs = w.send(UpdateCommand::Restart);
     assert_eq!(World::failure(&evs), None);
-    assert!(w.layout.restart_file().exists());
+    assert!(w.store.restart_file().exists());
     assert!(evs.iter().any(|e| matches!(e, Event::QuitRequested)));
 }

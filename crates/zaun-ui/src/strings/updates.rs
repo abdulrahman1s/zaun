@@ -22,11 +22,11 @@ texts! {
     NOT_CONFIGURED = "updates.not_configured";
     /// The release notes button.
     NOTES = "updates.notes";
-    /// The download button of an owned install.
+    /// The download button of a copy that updates itself.
     DOWNLOAD = "updates.download";
     /// The download button while it runs.
     DOWNLOADING = "updates.downloading";
-    /// Under the available version of an owned install.
+    /// Under the available version of a copy that updates itself.
     DOWNLOAD_HELP = "updates.download_help";
     /// The button that installs a downloaded version.
     RESTART = "updates.restart";
@@ -69,11 +69,12 @@ pub fn rolled_back(version: &str) -> String {
 /// How a copy installed this way is updated (shown under an available version).
 pub fn how_to_update(c: InstallChannel) -> &'static str {
     crate::i18n::text(match c {
-        InstallChannel::Nix => "updates.how.nix",
+        c if c.self_updates() => "updates.how.self",
+        InstallChannel::Nix { .. } => "updates.how.nix",
         InstallChannel::Flatpak => "updates.how.flatpak",
-        InstallChannel::Package => "updates.how.package",
-        InstallChannel::Tarball { owned: true } => "updates.how.self",
-        InstallChannel::Tarball { owned: false } => "updates.how.tarball_system",
+        InstallChannel::Package | InstallChannel::Tarball | InstallChannel::Bundle => {
+            "updates.how.self"
+        }
         InstallChannel::Other => "updates.how.elsewhere",
     })
 }

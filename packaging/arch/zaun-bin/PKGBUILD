@@ -12,7 +12,7 @@ pkgrel=1
 pkgdesc='Run Windows games through umu-launcher in a per-game bubblewrap sandbox (release binary)'
 arch=('x86_64')
 url='https://github.com/abdulrahman1s/zaun'
-license=('GPL-3.0-or-later' 'OFL-1.1' 'MIT' 'Apache-2.0')
+license=('GPL-3.0-or-later' 'AGPL-3.0-only' 'OFL-1.1' 'MIT' 'Apache-2.0')
 depends=(
   'bubblewrap'
   'umu-launcher'
@@ -20,6 +20,10 @@ depends=(
   'glibc'
   'hicolor-icon-theme'
   'libxkbcommon'
+  'libva'
+  'libpipewire'
+  'libpulse'
+  'opus'
   'systemd-libs'
   'vulkan-icd-loader'
   'wayland'
@@ -43,9 +47,13 @@ sha256sums=('SKIP')
 
 package() {
   cd "$_pkgname-$_upstreamver-x86_64-linux"
-  # The release binary finds its shim next to itself, wherever the pair is installed.
-  install -Dm755 libexec/zaun/zaun "$pkgdir/usr/lib/zaun/zaun"
-  install -Dm755 libexec/zaun/zaun-init "$pkgdir/usr/lib/zaun/zaun-init"
+  # The release binary finds its shim, helpers and Chat engine next to itself.
+  local f
+  for f in zaun zaun-init zaun-overlay zaun-chat; do
+    install -Dm755 "libexec/zaun/$f" "$pkgdir/usr/lib/zaun/$f"
+  done
+  install -d "$pkgdir/usr/lib/zaun/simplex"
+  install -m644 libexec/zaun/simplex/* "$pkgdir/usr/lib/zaun/simplex/"
   install -d "$pkgdir/usr/bin"
   ln -s ../lib/zaun/zaun "$pkgdir/usr/bin/zaun"
   cp -R --no-preserve=ownership share "$pkgdir/usr/"

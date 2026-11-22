@@ -1,93 +1,131 @@
-//! Put a staged update in place, and take it back (ADR-0040 §5). The caller makes sure no
-//! game or tool session is open.
+//! Switch to a staged version, and back (ADR-0041 §4). The caller makes sure no game or
+//! tool session is open. Switching moves links only: the running program and every version
+//! folder stay as they are.
 
 use serde::{Deserialize, Serialize};
 
 use super::UpdateError;
-use super::install::{Layout, file_name};
 use super::manifest::{Release, verify};
 use super::source::{
-    MANIFEST_NAME, MAX_FILE, MAX_MANIFEST, SIGNATURE_NAME, SMOKE_TIMEOUT, TARBALL_CHANNEL,
-    TARBALL_FILES,
+    BUNDLE_MANIFEST_NAME, BUNDLE_SIGNATURE_NAME, MAX_FILE, MAX_MANIFEST, SMOKE_TIMEOUT,
 };
-use super::stage::{clear_dir, sha256_hex};
+use super::stage::sha256_hex;
+use super::store::{Store, clear_dir, remove_if_present};
 use super::version::Version;
 use crate::fsx::{Fs, FsErrorKind};
 use crate::host::{CommandRunner, CommandSpec};
 
-/// The new version's trial: started this many times without being confirmed.
+/// The trial of a newly switched-to version: started this many times without a
+/// confirmation. `previous` is `None` when the installed copy came before it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Trial {
     pub version: String,
-    pub previous: String,
+    pub previous: Option<String>,
     pub starts: u32,
 }
 
-/// The staged release, verified again from disk; `None` when nothing is staged.
+/// The staged release and its folder, verified again from disk; `None` when nothing is
+/// staged.
 pub fn staged_release(
     fs: &dyn Fs,
-    layout: &Layout,
+    store: &Store,
     keys: &[[u8; 32]],
-) -> Result<Option<Release>, UpdateError> {
-    let dir = layout.staged();
-    let manifest = match fs.read(&dir.join(MANIFEST_NAME), MAX_MANIFEST) {
+) -> Result<Option<(Release, std::path::PathBuf)>, UpdateError> {
+    let Some((v, dir)) = store.linked(fs, &store.staged()) else {
+        return Ok(None);
+    };
+    let manifest = match fs.read(&dir.join(BUNDLE_MANIFEST_NAME), MAX_MANIFEST) {
         Ok(b) => b,
         Err(e) if e.kind == FsErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.into()),
     };
-    let signature = fs.read(&dir.join(SIGNATURE_NAME), MAX_MANIFEST)?;
-    verify(&manifest, &signature, keys).map(Some)
+    let signature = fs.read(&dir.join(BUNDLE_SIGNATURE_NAME), MAX_MANIFEST)?;
+    let release = verify(&manifest, &signature, keys)?;
+    if release.version != v {
+        return Err(UpdateError::Install(format!(
+            "the folder of {v} holds {}",
+            release.version
+        )));
+    }
+    Ok(Some((release, dir)))
 }
 
-/// Apply the staged update: verify, smoke-test, keep the current files, replace them, start
-/// the trial. Returns the new version; `None` when nothing is staged.
+/// Switch to the staged version: verify, smoke-test, start its trial, move the links.
+/// Returns the new version; `None` when nothing is staged.
 pub fn apply(
     fs: &dyn Fs,
     runner: &dyn CommandRunner,
-    layout: &Layout,
+    store: &Store,
     keys: &[[u8; 32]],
     running: &Version,
     arch: &str,
 ) -> Result<Option<Version>, UpdateError> {
-    let Some(release) = staged_release(fs, layout, keys)? else {
+    let Some((release, dir)) = staged_release(fs, store, keys)? else {
         return Ok(None);
     };
-    let staged = layout.staged();
-    let checked = release.ensure_newer(running).and_then(|()| {
-        for a in release.files(TARBALL_CHANNEL, arch)? {
-            let name = file_name(&a.path);
-            let data = fs.read(&staged.join(name), MAX_FILE)?;
-            if sha256_hex(&data) != a.unpacked_sha256 {
-                return Err(UpdateError::bad_file(name, "staged file was changed"));
-            }
-        }
-        smoke_test(
-            runner,
-            &staged.join(file_name(TARBALL_FILES[1])),
-            &release.version,
-        )
-    });
+    let current = store.linked(fs, &store.current()).map(|(v, _)| v);
+    let checked = release
+        .ensure_newer(running)
+        .and_then(|()| match &current {
+            Some(c) => release.ensure_newer(c),
+            None => Ok(()),
+        })
+        .and_then(|()| check_folder(fs, &release, &dir, arch))
+        .and_then(|()| smoke_test(runner, &Store::binary(&dir), &release.version));
     if let Err(e) = checked {
-        // A staged update that cannot be applied is dropped, so it is not tried at every start.
-        let _ = clear_dir(fs, &staged); // best effort: the error below is what matters
+        // A staged version that cannot be used is dropped, so it is not tried at every start.
+        let _ = remove_if_present(fs, &store.staged()); // best effort: `e` is what matters
+        let _ = clear_dir(fs, &dir); // as above
         return Err(e);
     }
-    // The trial first: a new binary must never be in place without one (a stale trial is
-    // dropped by the next start, whose version does not match it).
+    // The trial first: a new version must never be current without one.
     let trial = Trial {
         version: release.version.to_string(),
-        previous: running.to_string(),
+        previous: current.as_ref().map(Version::to_string),
         starts: 0,
     };
-    write_trial(fs, layout, &trial)?;
-    if let Err(e) = swap(fs, layout) {
-        let _ = remove_if_present(fs, &layout.trial_file()); // best effort; `e` is what matters
+    write_trial(fs, store, &trial)?;
+    let switched = match &current {
+        Some(c) => store.set_link(fs, &store.previous(), c),
+        None => remove_if_present(fs, &store.previous()),
+    }
+    .and_then(|()| store.set_link(fs, &store.current(), &release.version));
+    if let Err(e) = switched {
+        let _ = remove_if_present(fs, &store.trial_file()); // best effort; `e` is what matters
         return Err(e);
     }
-    clear_dir(fs, &staged)?;
+    remove_if_present(fs, &store.staged())?;
     Ok(Some(release.version))
 }
 
+/// Every file of the version folder against its signed hash; every folder link resolves.
+fn check_folder(
+    fs: &dyn Fs,
+    release: &Release,
+    dir: &std::path::Path,
+    arch: &str,
+) -> Result<(), UpdateError> {
+    for a in release.files(arch)? {
+        let path = dir.join(a.name());
+        if a.is_folder() {
+            if !fs.metadata_follow(&path).is_ok_and(|m| m.is_dir()) {
+                return Err(UpdateError::bad_file(
+                    a.name(),
+                    "the shared folder is missing",
+                ));
+            }
+            continue;
+        }
+        let data = fs.read(&path, MAX_FILE)?;
+        if sha256_hex(&data) != a.unpacked_sha256 {
+            return Err(UpdateError::bad_file(a.name(), "staged file was changed"));
+        }
+    }
+    Ok(())
+}
+
+/// `zaun --version` with an empty environment (`CommandRunner` clears it), as the session
+/// supervisor runs: a missing program interpreter or library fails here, not at a start.
 fn smoke_test(
     runner: &dyn CommandRunner,
     bin: &std::path::Path,
@@ -108,60 +146,29 @@ fn smoke_test(
     }
 }
 
-/// Keep each current file in `previous/`, then rename each staged file over it. A failure
-/// half-way puts the files already replaced back.
-fn swap(fs: &dyn Fs, layout: &Layout) -> Result<(), UpdateError> {
-    let previous = layout.previous();
-    clear_dir(fs, &previous)?;
-    fs.create_dir_all(&previous, 0o755)?;
-    for rel in TARBALL_FILES {
-        fs.copy_file(&layout.target(rel), &previous.join(file_name(rel)), 0o755)?;
-    }
-    let mut done: Vec<&str> = Vec::new();
-    for rel in TARBALL_FILES {
-        if let Err(e) = fs.rename(&layout.staged().join(file_name(rel)), &layout.target(rel)) {
-            for back in done {
-                // Best effort: the error below is what the user sees.
-                let _ = fs.rename(&previous.join(file_name(back)), &layout.target(back));
-            }
-            return Err(e.into());
-        }
-        done.push(rel);
-    }
-    Ok(())
+pub(super) fn read_trial(fs: &dyn Fs, store: &Store) -> Option<Trial> {
+    let b = fs.read(&store.trial_file(), 4096).ok()?;
+    serde_json::from_slice(&b).ok()
 }
 
-pub(super) fn write_trial(fs: &dyn Fs, layout: &Layout, t: &Trial) -> Result<(), UpdateError> {
+pub(super) fn write_trial(fs: &dyn Fs, store: &Store, t: &Trial) -> Result<(), UpdateError> {
     let bytes = serde_json::to_vec(t).map_err(|e| UpdateError::Install(e.to_string()))?;
-    fs.atomic_write(&layout.trial_file(), &bytes, 0o644)?;
+    fs.atomic_write(&store.trial_file(), &bytes, 0o644)?;
     Ok(())
 }
 
-/// Put `previous/` back over the installed files and end the trial.
-pub fn rollback(fs: &dyn Fs, layout: &Layout) -> Result<(), UpdateError> {
-    let previous = layout.previous();
-    for rel in TARBALL_FILES {
-        let kept = previous.join(file_name(rel));
-        if fs.exists(&kept) {
-            fs.rename(&kept, &layout.target(rel))?;
-        }
+/// Go back to the version before `current` (or to the installed copy) and end the trial.
+/// Returns the version that failed.
+pub fn rollback(fs: &dyn Fs, store: &Store) -> Result<Option<Version>, UpdateError> {
+    let failed = store.linked(fs, &store.current()).map(|(v, _)| v);
+    match store.linked(fs, &store.previous()) {
+        Some((p, _)) => store.set_link(fs, &store.current(), &p)?,
+        None => remove_if_present(fs, &store.current())?,
     }
-    clear_dir(fs, &previous)?;
-    remove_if_present(fs, &layout.trial_file())?;
-    remove_update_dir_if_empty(fs, layout);
-    Ok(())
-}
-
-/// Remove `.update/` once nothing is left in it, so uninstalling leaves no folder behind.
-pub(super) fn remove_update_dir_if_empty(fs: &dyn Fs, layout: &Layout) {
-    // Fails while something is staged: that is the point.
-    let _ = fs.remove_dir(&layout.update_dir());
-}
-
-pub(super) fn remove_if_present(fs: &dyn Fs, path: &std::path::Path) -> Result<(), UpdateError> {
-    match fs.remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind == FsErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e.into()),
+    remove_if_present(fs, &store.previous())?;
+    remove_if_present(fs, &store.trial_file())?;
+    if let Some(v) = &failed {
+        let _ = clear_dir(fs, &store.version_dir(v)); // best effort; pruned later otherwise
     }
+    Ok(failed)
 }

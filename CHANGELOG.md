@@ -11,15 +11,21 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 
 ### For users
 
-- Updates: Settings › About › Updates has a "Check for updates" switch (off until you turn
-  it on; it says that Zaun then asks github.com once a day and that GitHub learns only your
-  IP address and the time), the installed version with "Check now", and a newer version with
-  "What's new". A copy installed from the release tarball into your home folder downloads
-  the new version, checks its signature and installs it on "Restart now" or the next start,
-  never while a game runs, and goes back to the previous version if the new one does not
-  start. Copies from Nix, Flatpak or a distribution package say how to update them instead.
-  A quiet message announces each new version once. `zaun update check|apply|on|off` does the
-  same from a terminal (`check` exits with 10 when a newer version is available).
+- Updates, the way Steam and Discord do them: Settings › About › Updates has a "Check for
+  updates" switch. It is off until you turn it on, and it says that Zaun then asks github.com
+  once a day and that GitHub learns only your IP address and the time. With it on, a new
+  version is downloaded in the background into `~/.local/share/zaun/versions` and its
+  signature checked. Zaun switches to it on "Restart now" or at the next start, never while
+  a game runs. A version that fails to start three times is removed and the previous one comes
+  back. This works for the tarball, the .deb, the .rpm, the Arch package and, with
+  `programs.zaun.selfUpdate`, NixOS. The installed copy stays as it is and runs itself
+  whenever it is the newer one. The Chat engine is downloaded only when it changes. Flatpak,
+  and Nix without that option, say how to update instead. `zaun update check|apply|on|off`
+  does the same from a terminal (`check` exits with 10 when a newer version is available).
+- Release builds start on any x86_64 distribution with glibc 2.35 or newer (Ubuntu 22.04 and
+  Debian 12 onwards, Fedora, Arch), whatever FFmpeg the system has: FFmpeg is built in. The
+  release tarball and every package now carry the in-game overlay and Chat, with its SimpleX
+  engine.
 - The app is now called Zaun (binary `zaun`, app ID `io.github.zaun.Zaun`, errors `ZN-…`, settings
   `ZAUN_*`). On first start your library, settings, chat and caches move from `…/easyplay` to
   `…/zaun`, and a link stays at the old path; nothing is deleted. Shortcuts made by the old
@@ -189,13 +195,24 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 
 ### For packagers
 
-- Releases built by the workflow now also carry `zaun-V-x86_64-linux.zaun.gz`,
-  `zaun-V-x86_64-linux.zaun-init.gz`, `manifest.json` and `manifest.json.sig` (the update
-  files of tarball installs, ADR-0040). The release job needs the Actions secret
-  `ZAUN_UPDATE_SIGNING_KEY`; tags with a pre-release suffix are published as pre-releases.
-  Third-party actions are pinned by commit.
-- New preference `[updates] check` (default `false`). Distribution packages never update
-  themselves; with checks on they only announce a newer release.
+- Release binaries come from `packaging/portable/build.sh` in a Debian 12 container (ADR-0041).
+  It builds a minimal static FFmpeg with only the NVENC and VA-API H.264 encoders, links
+  libva, PipeWire, PulseAudio, Opus and udev from the system, and needs glibc 2.35. It takes
+  the Chat engine from SimpleX's pinned desktop AppImage. `scripts/build-release.sh` now
+  also builds `zaun-overlay` and `zaun-chat`, and `--simplex DIR` ships the engine in
+  `LIBEXEC_DIR/simplex`. The .deb, .rpm (back again) and Arch package carry both helpers
+  and the engine; their dependencies list the libraries above.
+- Releases carry the self-update bundle: `zaun-V-x86_64-linux.{zaun,zaun-init,zaun-overlay,zaun-chat}.gz`
+  and `zaun-simplex-S-x86_64.tar.gz`, listed in the signed `bundle.json`. `manifest.json`
+  (format 1) is still published for copies from before. The release job needs the Actions
+  secret `ZAUN_UPDATE_SIGNING_KEY`; tags with a pre-release suffix are published as
+  pre-releases. Third-party actions are pinned by commit.
+- New preference `[updates] check` (default `false`). With checks on, every copy except
+  Flatpak and Nix without `programs.zaun.selfUpdate` downloads new versions into the user's
+  data folder and starts them. The package's own files are never changed;
+  `ZAUN_NO_HANDOFF=1` always runs the installed copy.
+- `zaun-init`, `zaun-chat`, `zaun-overlay` and the engine are looked up beside the running
+  program first, then in the compiled-in libexec folder.
 - Game streams (ADR-0036) compile Cisco's OpenH264 from source into `zaun-media`
   (the `openh264` crate, BSD-2-Clause; a C++ compiler is needed, no system library). Cisco's
   H.264 patent licence covers only Cisco's own binaries, not a build from source: check

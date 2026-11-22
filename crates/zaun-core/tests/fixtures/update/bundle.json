@@ -1,0 +1,60 @@
+{
+  "format": 2,
+  "product": "zaun",
+  "version": "9.9.9",
+  "date": "2026-11-18",
+  "notes": "Fixture release.",
+  "notes_url": "https://github.com/abdulrahman1s/zaun/releases/tag/v9.9.9",
+  "artifacts": [
+    {
+      "channel": "bundle",
+      "arch": "x86_64",
+      "path": "zaun",
+      "url": "https://github.com/abdulrahman1s/zaun/releases/download/v9.9.9/zaun-9.9.9-x86_64-linux.zaun.gz",
+      "size": 46,
+      "sha256": "6d5560da5c15da0e7035e48eb7813eebcea7642e83b1e866d4c0fd0cf80d5120",
+      "unpacked_size": 28,
+      "unpacked_sha256": "71c368150fa47cd9a593a64ae4237b74a35d45cac9a891324dfd313dfd266818"
+    },
+    {
+      "channel": "bundle",
+      "arch": "x86_64",
+      "path": "zaun-init",
+      "url": "https://github.com/abdulrahman1s/zaun/releases/download/v9.9.9/zaun-9.9.9-x86_64-linux.zaun-init.gz",
+      "size": 49,
+      "sha256": "86b835f2fdec06bba72db2a84c4a5e3387b1625085954f60d032a09e2ac094ef",
+      "unpacked_size": 31,
+      "unpacked_sha256": "65d1d23de59605c0a193715a842839e6f847fbf572d47f6b856cefb86aa19f0e"
+    },
+    {
+      "channel": "bundle",
+      "arch": "x86_64",
+      "path": "zaun-overlay",
+      "url": "https://github.com/abdulrahman1s/zaun/releases/download/v9.9.9/zaun-9.9.9-x86_64-linux.zaun-overlay.gz",
+      "size": 47,
+      "sha256": "616b518fa0079cb10c8a5bd0eec990fd75810fb13b7d871bffc3b30f99ea871e",
+      "unpacked_size": 29,
+      "unpacked_sha256": "d241796af4c3d47b3e3da8933d1dc99ae26360545b450defc343459592c29eb9"
+    },
+    {
+      "channel": "bundle",
+      "arch": "x86_64",
+      "path": "zaun-chat",
+      "url": "https://github.com/abdulrahman1s/zaun/releases/download/v9.9.9/zaun-9.9.9-x86_64-linux.zaun-chat.gz",
+      "size": 44,
+      "sha256": "19b4e4011034fbe5a45cd496d01bcc6fc8e8682f3b86d6787264991991ecd9bb",
+      "unpacked_size": 26,
+      "unpacked_sha256": "1f684908268e4a7bdcb61a5f6b883e13e91ef4b0c630f869d612cf7062afe96e"
+    },
+    {
+      "channel": "bundle",
+      "arch": "x86_64",
+      "path": "simplex/",
+      "url": "https://github.com/abdulrahman1s/zaun/releases/download/v9.9.9/zaun-simplex-7.0.3-x86_64.tar.gz",
+      "size": 258,
+      "sha256": "6eb74ca49df84b50e179bfe034ce799614070f93df9b4e5f0ef6114c6c45b11f",
+      "unpacked_size": 10240,
+      "unpacked_sha256": "e8bb75ab2ef5bde13303630b4d0cf62b05bd0692edc7004a13060b1f958d47d6"
+    }
+  ]
+}

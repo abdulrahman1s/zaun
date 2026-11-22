@@ -45,7 +45,10 @@ impl AppService {
     ) -> Result<()> {
         self.flow.updates.checking = false;
         match result {
-            Ok(r) => self.remember_release(&r),
+            Ok(r) => {
+                self.remember_release(&r);
+                self.download_in_background(&r);
+            }
             Err(e) => {
                 tracing::info!(manual, error = %e, "update check failed");
                 self.flow.updates.failure = Some(e.code());
@@ -59,6 +62,25 @@ impl AppService {
             self.updates_after(CHECK_EVERY);
         }
         Ok(())
+    }
+
+    /// A copy that updates itself fetches a newer version at once, as Discord and Steam do;
+    /// it is switched to at the next start. Never a version that already failed to start.
+    fn download_in_background(&mut self, r: &Release) {
+        let u = &self.flow.updates;
+        let version = r.version.to_string();
+        let wanted = r.version > running()
+            && !u.downloading
+            && u.staged.as_deref() != Some(version.as_str())
+            && u.file.rolled_back.as_deref() != Some(version.as_str())
+            && self
+                .deps
+                .updates
+                .as_ref()
+                .is_some_and(|d| d.install.channel.self_updates());
+        if wanted && let Err(e) = self.download_update() {
+            tracing::info!(error = %e, "update not downloaded");
+        }
     }
 
     fn remember_release(&mut self, r: &Release) {

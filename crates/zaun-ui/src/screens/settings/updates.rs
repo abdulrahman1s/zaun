@@ -3,7 +3,7 @@
 //! "Download", then "Restart now". Other installs are told how to update instead.
 
 use egui::Ui;
-use zaun_core::model::{Activity, InstallChannel, UpdateDownload, UpdateSnapshot};
+use zaun_core::model::{Activity, UpdateDownload, UpdateSnapshot};
 use zaun_core::service::UpdateCommand;
 
 use super::{Env, band, button_row, quiet, switch_row};
@@ -103,9 +103,7 @@ fn offer(ui: &mut Ui, u: &UpdateSnapshot, env: &mut Env<'_>) {
             }
             .to_owned(),
         ),
-        (None, InstallChannel::Tarball { owned: true }) => {
-            (t::available(&version), t::DOWNLOAD_HELP().to_owned())
-        }
+        (None, c) if c.self_updates() => (t::available(&version), t::DOWNLOAD_HELP().to_owned()),
         (None, c) => (t::available(&version), t::how_to_update(c).to_owned()),
     };
     let notes = u

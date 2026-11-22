@@ -260,7 +260,7 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
         chat: chat_factory(&env, &*fs, &paths, over.bwrap.clone()),
         overlay: overlay_factory(&env, &*fs, &paths, over.bwrap.clone()),
         media: Some(media_factory()),
-        updates: Some(update_deps(&http, &*fs, env.uid(), &clock)),
+        updates: Some(update_deps(&http, &*fs, &paths, &clock)),
     };
     Ok(Wiring {
         deps: Some(deps),
@@ -272,26 +272,32 @@ pub fn build_with(supervisor: Option<PathBuf>) -> Result<Wiring, Error> {
     })
 }
 
-/// Updates (ADR-0040): how this copy was installed, from the resolved path of the running
-/// binary.
-fn update_deps(http: &HttpClient, fs: &dyn Fs, uid: u32, clock: &Arc<dyn Clock>) -> UpdateDeps {
+/// Updates (ADR-0040, ADR-0041): how this copy was installed, from the resolved path of the
+/// running binary.
+fn update_deps(
+    http: &HttpClient,
+    fs: &dyn Fs,
+    paths: &AppPaths,
+    clock: &Arc<dyn Clock>,
+) -> UpdateDeps {
     UpdateDeps::new(
         http,
-        installed(fs, uid),
+        installed(fs, paths),
         Arc::new(RealRunner::new(Arc::clone(clock))),
     )
 }
 
 /// How the running binary was installed (`Other` when its path cannot be resolved).
-pub(crate) fn installed(fs: &dyn Fs, uid: u32) -> Install {
+pub(crate) fn installed(fs: &dyn Fs, paths: &AppPaths) -> Install {
+    let store = zaun_core::update::Store::new(paths);
     let exe = std::env::current_exe()
         .ok()
         .and_then(|p| fs.canonicalize(&p).ok());
     match exe {
-        Some(p) => zaun_core::update::detect(fs, &p, uid),
+        Some(p) => zaun_core::update::detect(fs, &p, store),
         None => Install {
             channel: zaun_core::model::InstallChannel::Other,
-            prefix: None,
+            store,
         },
     }
 }
@@ -305,9 +311,10 @@ fn media_factory() -> Arc<dyn zaun_core::chat::media::MediaFactory> {
 
 /// The Chat engine (ADR-0033), when this build has one: `zaun-chat` beside
 /// this program or in the libexec folder, and `libsimplex.so` from `ZAUN_SIMPLEX_LIB`
-/// (packages set it) or `<libexec>/simplex/libsimplex.so`. `ZAUN_SIMPLEX_LIBRARY_PATH`
-/// is passed to the helper as `LD_LIBRARY_PATH`. `None` when either is missing: the
-/// Chat page then says this build does not include it.
+/// (the Nix package sets it), `simplex/` beside this program (the tarball and the bundle,
+/// ADR-0041) or `<libexec>/simplex/`. `ZAUN_SIMPLEX_LIBRARY_PATH` is passed to the helper as
+/// `LD_LIBRARY_PATH`. `None` when either is missing: the Chat page then says this build
+/// does not include it.
 fn chat_factory(
     env: &PathEnv,
     fs: &dyn Fs,
@@ -324,18 +331,22 @@ fn chat_factory(
             .is_ok_and(|m| m.is_file() && m.mode & 0o111 != 0)
     };
     let helper = exe_dir
+        .iter()
         .map(|d| d.join(HELPER))
-        .into_iter()
         .chain([PathBuf::from(LIBEXEC_DIR).join(HELPER)])
         .find(|p| executable(p))?;
-    let library = env
-        .get("ZAUN_SIMPLEX_LIB")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(LIBEXEC_DIR)
-                .join("simplex")
-                .join("libsimplex.so")
-        });
+    let library = match env.get("ZAUN_SIMPLEX_LIB") {
+        Some(p) => PathBuf::from(p),
+        None => exe_dir
+            .iter()
+            .chain([&PathBuf::from(LIBEXEC_DIR)])
+            .map(|d| d.join("simplex").join("libsimplex.so"))
+            .find(|p| fs.metadata_follow(p).is_ok_and(|m| m.is_file()))
+            .unwrap_or_else(|| PathBuf::from(LIBEXEC_DIR).join("simplex/libsimplex.so")),
+    };
+    // The bundle's `simplex` is a link to a shared folder: the helper's sandbox binds the
+    // real one.
+    let library = fs.canonicalize(&library).unwrap_or(library);
     let bwrap = bwrap.or_else(|| zaun_core::host::bwrap_probe::locate_bwrap(fs, env.get("PATH")));
     Some(Arc::new(zaun_core::chat::SimplexFactory {
         helper,

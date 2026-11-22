@@ -227,11 +227,30 @@ impl RealRunner {
 }
 
 /// Replace this process with `program` and `args`, keeping its ID and environment: the
-/// restart into an updated or restored binary (ADR-0040 §5). Returns only on failure.
-#[allow(clippy::disallowed_methods)] // host::runner is one of the two places that spawn.
+/// restart into a new or restored version (ADR-0041 §4). Returns only on failure.
 pub fn replace_process(program: &Path, args: &[OsString]) -> std::io::Error {
+    replace_process_with(program, args, &[], &[])
+}
+
+/// [`replace_process`] with `set` added to the environment and `remove` taken out of it: the
+/// installed copy starting a version from the bundle store.
+#[allow(clippy::disallowed_methods)] // host::runner is one of the two places that spawn.
+pub fn replace_process_with(
+    program: &Path,
+    args: &[OsString],
+    set: &[(&str, &OsStr)],
+    remove: &[&str],
+) -> std::io::Error {
     use std::os::unix::process::CommandExt as _;
-    std::process::Command::new(program).args(args).exec()
+    let mut c = std::process::Command::new(program);
+    c.args(args);
+    for k in remove {
+        c.env_remove(k);
+    }
+    for (k, v) in set {
+        c.env(k, v);
+    }
+    c.exec()
 }
 
 impl CommandRunner for RealRunner {

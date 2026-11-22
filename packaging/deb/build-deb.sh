@@ -52,7 +52,13 @@ if [[ -n "$tarball" ]]; then
     # FHS layout: the binary in /usr/bin, the shim at its compiled-in path.
     stage="$work/stage"
     install -Dm755 "$tarball/libexec/zaun/zaun" "$stage/usr/bin/zaun"
-    install -Dm755 "$tarball/libexec/zaun/zaun-init" "$stage/usr/libexec/zaun/zaun-init"
+    for f in zaun-init zaun-overlay zaun-chat; do
+        install -Dm755 "$tarball/libexec/zaun/$f" "$stage/usr/libexec/zaun/$f"
+    done
+    if [[ -d "$tarball/libexec/zaun/simplex" ]]; then
+        install -d "$stage/usr/libexec/zaun/simplex"
+        install -m644 "$tarball/libexec/zaun/simplex"/* "$stage/usr/libexec/zaun/simplex/"
+    fi
     cp -R "$tarball/share" "$stage/usr/"
 fi
 [[ -n "$stage" ]] || die "--stage or --from-tarball is required"
@@ -85,6 +91,9 @@ cp -a "$stage/." "$pkg/"
 # Debian wants no symbol tables at all (lintian: unstripped-binary-or-object); cargo's
 # `strip = "symbols"` leaves sections a full strip removes.
 strip --strip-all "$pkg/usr/bin/zaun" "$pkg/usr/libexec/zaun/zaun-init"
+for f in zaun-overlay zaun-chat; do
+    [[ -e "$pkg/usr/libexec/zaun/$f" ]] && strip --strip-all "$pkg/usr/libexec/zaun/$f"
+done
 install -Dm644 "$ROOT/packaging/apparmor/zaun" "$pkg/etc/apparmor.d/zaun"
 
 doc="$pkg/usr/share/doc/zaun"
@@ -104,6 +113,15 @@ install -Dm644 /dev/stdin "$pkg/usr/share/lintian/overrides/zaun" <<'EOF'
 # The in-sandbox init shim is static on purpose (ARCHITECTURE §12): it is bind-mounted into
 # every sandbox and must not depend on the sandbox's libraries.
 zaun: statically-linked-binary [usr/libexec/zaun/zaun-init]
+# FFmpeg's two hardware H.264 encoders are built in, so Zaun runs with any system FFmpeg
+# (ADR-0041).
+zaun: embedded-library libavutil [usr/bin/zaun]
+# The Chat engine (ADR-0033): SimpleX's prebuilt libraries, shipped as SimpleX builds them
+# and loaded only by the Chat helper from this private folder.
+zaun: unstripped-binary-or-object [usr/libexec/zaun/simplex/*]
+zaun: embedded-library *[usr/libexec/zaun/simplex/*]
+zaun: hardening-no-fortify-functions [usr/libexec/zaun/simplex/*]
+zaun: custom-library-search-path *[usr/libexec/zaun/simplex/*]
 EOF
 
 # libc6: the newest GLIBC_ symbol version the binary references.
@@ -120,7 +138,9 @@ if command -v readelf >/dev/null && readelf -dW "$pkg/usr/bin/zaun" | grep -q 'l
     depends="$depends, libgcc-s1"
 fi
 # Display, input and graphics libraries are loaded with dlopen (RELEASE_STRATEGY §2.1).
-depends="$depends, bubblewrap (>= 0.8.0), libxkbcommon0, libwayland-client0 | libx11-6, libvulkan1 | libgl1, libudev1"
+# Linked (FFmpeg is built in, ADR-0041), then loaded at run time.
+depends="$depends, libstdc++6, libva2, libva-drm2, libpipewire-0.3-0, libpulse0, libopus0, libudev1"
+depends="$depends, bubblewrap (>= 0.8.0), libxkbcommon0, libwayland-client0 | libx11-6, libvulkan1 | libgl1"
 
 install -d "$pkg/DEBIAN"
 installed_size="$(du -sk --exclude=DEBIAN "$pkg" | cut -f1)"

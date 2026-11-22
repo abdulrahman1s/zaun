@@ -11,7 +11,7 @@ use zaun_core::service::UpdateCommand;
 pub fn sample(now: Timestamp) -> UpdateSnapshot {
     UpdateSnapshot {
         configured: true,
-        channel: InstallChannel::Tarball { owned: true },
+        channel: InstallChannel::Tarball,
         current: zaun_core::consts::APP_VERSION.to_owned(),
         last_checked: Some(now.saturating_sub(Duration::from_secs(2 * 3600))),
         checking: false,

@@ -1,4 +1,4 @@
-//! `zaun update check|apply|on|off` (ADR-0040, CONFIGURATION §6). Nothing is requested while
+//! `zaun update check|apply|on|off` (ADR-0040, ADR-0041, CONFIGURATION §6). Nothing is requested while
 //! `updates.check` is off.
 
 use std::sync::Arc;
@@ -23,16 +23,15 @@ use crate::wiring;
 /// What the user does to update a copy installed this way.
 pub fn instruction(c: InstallChannel) -> &'static str {
     match c {
-        InstallChannel::Nix => {
-            "Update the flake input that provides Zaun (`nix flake update zaun`), then rebuild (`nixos-rebuild switch` or `home-manager switch`)."
+        c if c.self_updates() => {
+            "Run `zaun update apply`, or restart Zaun once it has downloaded it."
+        }
+        InstallChannel::Nix { .. } => {
+            "Turn on `programs.zaun.selfUpdate` in your NixOS configuration so Zaun updates itself, or update the flake input that provides Zaun (`nix flake update zaun`) and rebuild."
         }
         InstallChannel::Flatpak => "Run `flatpak update`.",
-        InstallChannel::Package => "Update Zaun with your system's package manager.",
-        InstallChannel::Tarball { owned: true } => {
-            "Run `zaun update apply`, or use Settings › About in Zaun."
-        }
-        InstallChannel::Tarball { owned: false } => {
-            "Run install.sh from the new release tarball again, as the user who installed Zaun."
+        InstallChannel::Package | InstallChannel::Tarball | InstallChannel::Bundle => {
+            "Run `zaun update apply`."
         }
         InstallChannel::Other => "Install the new release the way you installed this copy.",
     }
@@ -40,11 +39,11 @@ pub fn instruction(c: InstallChannel) -> &'static str {
 
 fn channel_name(c: InstallChannel) -> &'static str {
     match c {
-        InstallChannel::Nix => "nix",
+        InstallChannel::Nix { .. } => "nix",
         InstallChannel::Flatpak => "flatpak",
         InstallChannel::Package => "package",
-        InstallChannel::Tarball { owned: true } => "tarball",
-        InstallChannel::Tarball { owned: false } => "tarball-system",
+        InstallChannel::Tarball => "tarball",
+        InstallChannel::Bundle => "bundle",
         InstallChannel::Other => "other",
     }
 }
@@ -67,7 +66,7 @@ impl Ctx {
         let paths = AppPaths::resolve(&env)
             .map_err(|e| Error::new(ErrorCode::IntTaskFailed).with("paths", e))?;
         let fs = RealFs::new();
-        let install = wiring::installed(&fs, env.uid());
+        let install = wiring::installed(&fs, &paths);
         Ok(Self {
             paths,
             fs,
@@ -151,9 +150,9 @@ fn check(ctx: &Ctx, json: bool) -> Result<u8, Error> {
 
 #[allow(clippy::print_stdout)]
 fn apply_now(ctx: &Ctx) -> Result<u8, Error> {
-    let layout = ctx
+    let store = ctx
         .install
-        .layout()
+        .store()
         .ok_or_else(|| err!(UpdManaged, detail = instruction(ctx.install.channel)))?;
     if gui_running(&ctx.paths) {
         bail!(
@@ -169,7 +168,7 @@ fn apply_now(ctx: &Ctx) -> Result<u8, Error> {
         bail!(UpdGameRunning);
     }
     let current = running()?;
-    if !ctx.fs.exists(&layout.staged()) {
+    if !ctx.fs.exists(&store.staged()) {
         let release = ctx.fetch()?;
         if release.version <= current {
             println!("Zaun is up to date.");
@@ -177,19 +176,19 @@ fn apply_now(ctx: &Ctx) -> Result<u8, Error> {
         }
         println!("Downloading Zaun {}…", release.version);
         let files = UpdateDeps::files_client(&ctx.base());
-        stage::download(&files, &ctx.fs, &layout, &release, std::env::consts::ARCH)?;
+        stage::download(&files, &ctx.fs, store, &release, std::env::consts::ARCH)?;
     }
     let runner = RealRunner::new(Arc::clone(&ctx.clock));
     match apply::apply(
         &ctx.fs,
         &runner,
-        &layout,
+        store,
         TRUSTED_KEYS,
         &current,
         std::env::consts::ARCH,
     )? {
-        Some(v) => println!("Zaun {v} is installed. It runs the next time you start Zaun."),
-        None => println!("Nothing to install."),
+        Some(v) => println!("Zaun {v} is ready. It runs the next time you start Zaun."),
+        None => println!("Nothing to switch to."),
     }
     Ok(exit::OK)
 }

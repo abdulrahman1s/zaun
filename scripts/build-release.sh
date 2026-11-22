@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Release build of Zaun (PKG-001, RELEASE_STRATEGY §2.1).
 #
-# Builds `zaun` (glibc, dynamic) and `zaun-init` (static), checks them, and stages
-# the install tree of DESKTOP_INTEGRATION §10. Every package format starts from this script:
+# Builds `zaun` (glibc, dynamic), its helpers `zaun-overlay` and `zaun-chat` (ADR-0037,
+# ADR-0033) and `zaun-init` (static), checks them, and stages the install tree of
+# DESKTOP_INTEGRATION §10. Every package format starts from this script:
 #
 #   scripts/build-release.sh --prefix /usr --destdir pkgroot        # distribution packages
 #   scripts/build-release.sh --tarball                              # zaun-<v>-x86_64-linux.tar.zst
@@ -16,7 +17,8 @@
 # - Refuses the `dev-inspection` feature (it would ship egui's inspection UI).
 # - Embedded build metadata is the version and the commit only; source paths are remapped
 #   and the tarball has fixed owners, order and mtimes (SOURCE_DATE_EPOCH = commit time).
-# - Binary sizes within PERFORMANCE §1: zaun <= 35 MB, zaun-init <= 1 MB.
+# - Binary sizes within PERFORMANCE §1: zaun <= 64 MB, zaun-overlay <= 32 MB, zaun-chat
+#   <= 4 MB, zaun-init <= 1 MB.
 # - zaun-init is static (no program interpreter, no DT_NEEDED).
 set -euo pipefail
 
@@ -31,6 +33,8 @@ Layout
                        --tarball; Arch uses /usr/lib/zaun)
   --destdir DIR        Stage into DIR/PREFIX (default dist/stage)
   --tarball            Build the relocatable tarball in dist/ instead of a staged tree
+  --simplex DIR        Ship the Chat engine: the libraries in DIR (packaging/portable/
+                       simplex.sh) go to LIBEXEC_DIR/simplex
 
 Build
   --target TRIPLE      Target of zaun (default <arch>-unknown-linux-gnu)
@@ -60,6 +64,7 @@ prefix=""
 libexec_dir=""
 destdir=""
 tarball=0
+simplex=""
 target="${ARCH}-unknown-linux-gnu"
 init_target="${ARCH}-unknown-linux-musl"
 features=""
@@ -75,6 +80,7 @@ while (($#)); do
         --libexec-dir) libexec_dir="${2:?}"; shift ;;
         --destdir) destdir="${2:?}"; shift ;;
         --tarball) tarball=1 ;;
+        --simplex) simplex="${2:?}"; shift ;;
         --target) target="${2:?}"; shift ;;
         --init-target) init_target="${2:?}"; shift ;;
         --features) features="${2?}"; shift ;;
@@ -144,12 +150,20 @@ export SOURCE_DATE_EPOCH
 target_dir="${CARGO_TARGET_DIR:-$ROOT/target}"
 zaun_bin="$target_dir/$target/release/zaun"
 init_bin="$target_dir/$init_target/init-release/zaun-init"
+overlay_bin="$target_dir/$target/release/zaun-overlay"
+chat_bin="$target_dir/$target/release/zaun-chat"
+if [[ -n "$simplex" ]]; then
+    simplex="$(cd "$simplex" && pwd)"
+    [[ -f "$simplex/libsimplex.so" ]] || die "--simplex $simplex has no libsimplex.so"
+fi
 
 # Budgets of PERFORMANCE §1 (decimal megabytes).
 # 64 MB since calls and game streams (ADR-0035/0036): WebRTC and its crypto, OpenH264, the
 # FFmpeg bindings and the noise-suppression model took a stripped, fat-LTO zaun to 56 MB.
 max_zaun=$((64 * 1000 * 1000))
 max_init=$((1000 * 1000))
+max_overlay=$((32 * 1000 * 1000))
+max_chat=$((4 * 1000 * 1000))
 
 cargo_common=(--locked)
 ((offline)) && cargo_common+=(--offline)
@@ -190,6 +204,10 @@ build() {
     note "zaun $version ($ZAUN_COMMIT) for $target, shim in $libexec_dir"
     CARGO_ENCODED_RUSTFLAGS="$(join_flags "${base[@]}" "${remap[@]}")" \
         cargo build "${cargo_common[@]}" --release -p zaun --target "$target" "${feature_args[@]}"
+    # The helpers have no features of their own; zaun starts them from its libexec folder.
+    note "zaun-overlay and zaun-chat"
+    CARGO_ENCODED_RUSTFLAGS="$(join_flags "${base[@]}" "${remap[@]}")" \
+        cargo build "${cargo_common[@]}" --release -p zaun-overlay -p zaun-chat --target "$target"
 
     local -a init_flags=("${remap[@]}")
     if [[ "$init_target" == *-gnu ]]; then
@@ -229,7 +247,11 @@ check_static() {
 check() {
     [[ -x "$zaun_bin" ]] || die "missing $zaun_bin (run without --stage-only first)"
     [[ -x "$init_bin" ]] || die "missing $init_bin (run without --stage-only first)"
+    [[ -x "$overlay_bin" ]] || die "missing $overlay_bin (run without --stage-only first)"
+    [[ -x "$chat_bin" ]] || die "missing $chat_bin (run without --stage-only first)"
     check_size "$zaun_bin" "$max_zaun"
+    check_size "$overlay_bin" "$max_overlay"
+    check_size "$chat_bin" "$max_chat"
     check_size "$init_bin" "$max_init"
     check_static "$init_bin"
 
@@ -262,7 +284,7 @@ stage_share() {
     (
         cd "$ROOT"
         printf 'Rust crates compiled into zaun %s (name version licence):\n\n' "$version"
-        cargo tree "${cargo_common[@]}" -p zaun -p zaun-init --target "$target" \
+        cargo tree "${cargo_common[@]}" -p zaun -p zaun-init -p zaun-overlay -p zaun-chat --target "$target" \
             -e normal,build --prefix none --format '{p} {l}' "${feature_args[@]}" 2>/dev/null |
             sed -e 's/ (\*)$//' -e 's/ (proc-macro)//' -e 's| (/[^)]*)||' |
             grep -v -e '^zaun' -e '^$' | LC_ALL=C sort -u
@@ -292,12 +314,24 @@ validate_metadata() {
     fi
 }
 
-# Distribution layout: DESTDIR/PREFIX/bin/zaun, DESTDIR/LIBEXEC_DIR/zaun-init.
+# The shim, the helpers and the Chat engine into the libexec folder $1.
+stage_libexec() {
+    local dir="$1"
+    install -Dm755 "$init_bin" "$dir/zaun-init"
+    install -Dm755 "$overlay_bin" "$dir/zaun-overlay"
+    install -Dm755 "$chat_bin" "$dir/zaun-chat"
+    if [[ -n "$simplex" ]]; then
+        install -d "$dir/simplex"
+        install -m644 "$simplex"/* "$dir/simplex/"
+    fi
+}
+
+# Distribution layout: DESTDIR/PREFIX/bin/zaun, DESTDIR/LIBEXEC_DIR/zaun-init and helpers.
 stage_fhs() {
     local root="${destdir:-$ROOT/dist/stage}"
     local out="$root$prefix"
     install -Dm755 "$zaun_bin" "$out/bin/zaun"
-    install -Dm755 "$init_bin" "$root$libexec_dir/zaun-init"
+    stage_libexec "$root$libexec_dir"
     stage_share "$out"
     validate_metadata "$out"
     note "staged into $root (prefix $prefix)"
@@ -312,7 +346,7 @@ stage_tarball() {
     out="$dist/$name"
     rm -rf "$out"
     install -Dm755 "$zaun_bin" "$out/libexec/zaun/zaun"
-    install -Dm755 "$init_bin" "$out/libexec/zaun/zaun-init"
+    stage_libexec "$out/libexec/zaun"
     install -d "$out/bin"
     ln -s ../libexec/zaun/zaun "$out/bin/zaun"
     stage_share "$out"

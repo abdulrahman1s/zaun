@@ -95,13 +95,13 @@ pub fn doctor(as_json: bool) -> Result<(), Error> {
         compositor: Arc::new(LiveCompositor),
     });
     let facts = probe.refresh();
-    let mut init_candidates = vec![PathBuf::from(LIBEXEC_DIR).join(INIT_BIN_NAME)];
-    if let Some(dir) = std::env::current_exe()
+    // In `locate_init`'s order: beside the program, then the compiled-in folder.
+    let mut init_candidates: Vec<PathBuf> = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(PathBuf::from))
-    {
-        init_candidates.push(dir.join(INIT_BIN_NAME));
-    }
+        .and_then(|p| p.parent().map(|d| d.join(INIT_BIN_NAME)))
+        .into_iter()
+        .collect();
+    init_candidates.push(PathBuf::from(LIBEXEC_DIR).join(INIT_BIN_NAME));
     let dctx = DoctorContext {
         fs: &*c.fs,
         paths: &c.paths,

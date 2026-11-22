@@ -29,6 +29,7 @@
   libpulseaudio,
   pipewire,
   ffmpeg_8-headless,
+  libva,
   aws-lc,
   appimageTools,
   runCommand,
@@ -66,6 +67,16 @@ let
     # Game streams' hardware H.264 (ADR-0036): NVENC and VA-API through libavcodec (FFmpeg 8,
     # GPL build; the NVIDIA and VA-API drivers are loaded at run time).
     ffmpeg_8-headless
+  ];
+
+  # What the self-contained bundle (ADR-0041) loads from the system: its binaries link
+  # libstdc++, libva (FFmpeg is built in), PipeWire, PulseAudio, Opus and udev, and load the
+  # graphics libraries at run time. On NixOS, nix-ld provides them (`programs.zaun.selfUpdate`).
+  bundleLibs = lib.filter (p: p != ffmpeg_8-headless) runtimeLibs ++ [
+    stdenv.cc.cc.lib
+    libva
+    zlib
+    gmp
   ];
 
   # Host tools Zaun executes (RELEASE_STRATEGY §2: bubblewrap and umu-launcher on PATH).
@@ -336,6 +347,7 @@ rustPlatform.buildRustPackage {
     inherit
       zaun-init
       runtimeLibs
+      bundleLibs
       hostTools
       simplexLib
       ;
