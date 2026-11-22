@@ -1190,6 +1190,12 @@ fn launcher_starts_a_detached_supervisor_and_stops_it() {
     let log =
         std::fs::read_to_string(w.paths.session_dir(h.session_id).join("supervisor.log")).unwrap();
     assert!(log.contains("session ended"), "{log}");
+    // The supervisor records the end, then exits: wait for the exit.
+    let t = std::time::Instant::now();
+    while proc.entry(h.supervisor.pid).unwrap().is_some() {
+        assert!(t.elapsed() < Duration::from_secs(5), "the supervisor did not exit");
+        std::thread::sleep(Duration::from_millis(50));
+    }
     // Stopping again is idempotent.
     assert_eq!(
         l.request_stop(&s, StopMode::Force).unwrap(),
