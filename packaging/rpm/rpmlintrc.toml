@@ -10,6 +10,8 @@ Filters = [
     "missing-call-to-setgroups-before-setuid .*/libexec/zaun/simplex/",
     "missing-call-to-chdir-with-chroot .*/libexec/zaun/simplex/",
     "no-soname .*/libexec/zaun/simplex/",
+    # FFmpeg's licence text as FFmpeg ships it, with the FSF's old postal address.
+    "incorrect-fsf-address .*/licenses/zaun/LGPL-2.1-FFmpeg.txt",
     # Names, not misspellings.
     "spelling-error .*'(umu|exe|bubblewrap)'",
     # Loaded with dlopen, so the dependency is listed by hand.
