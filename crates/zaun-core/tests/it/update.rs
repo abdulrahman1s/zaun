@@ -46,9 +46,9 @@ use zaun_core::update::{
     Install, Release, Store, UpdateDeps, UpdateError, UpdateState, Version, apply, detect, stage,
     verify,
 };
-use zaun_testkit::{FakeHttpServer, Reply, TestEnv};
 use zaun_testkit::fakes::{CannedOutput, FakeClock, FakeLauncher, MemFs, ScriptedRunner};
 use zaun_testkit::fixtures::{games, hosts};
+use zaun_testkit::{FakeHttpServer, Reply, TestEnv};
 
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/update");
 const DATA: &str = "/home/sam/.local/share/zaun";
