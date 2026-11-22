@@ -45,6 +45,16 @@ fi
 "$ROOT/packaging/portable/build-ffmpeg.sh" "$work/ffmpeg" "$work/src"
 "$ROOT/packaging/portable/simplex.sh" "$work/simplex" "$work/src"
 
+# Notices of what is built in or shipped beside Zaun, for share/licenses/zaun.
+mkdir -p "$work/licenses"
+cp "$work/ffmpeg/share/licenses/LGPL-2.1-FFmpeg.txt" "$work/licenses/"
+{
+    printf 'GNU MP (libgmp.so.10, from Debian 12), shipped with the Chat engine in\n'
+    printf 'libexec/zaun/simplex, under the GNU Lesser General Public License 3 (or the GNU GPL 2).\n'
+    printf 'Source: https://sources.debian.org/src/gmp/\n\n'
+    cat /usr/share/common-licenses/LGPL-3
+} >"$work/licenses/LGPL-3.0-GMP.txt"
+
 export FFMPEG_PKG_CONFIG_PATH="$work/ffmpeg/lib/pkgconfig" FFMPEG_LINK_MODE=static
 llvm="$(clang -dumpversion | cut -d. -f1)"
 export LIBCLANG_PATH="/usr/lib/llvm-$llvm/lib"
@@ -53,4 +63,4 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$work/target}"
 # A checkout mounted from the host belongs to another user.
 git config --global --add safe.directory "$ROOT" 2>/dev/null || true
 
-"$ROOT/scripts/build-release.sh" --tarball --simplex "$work/simplex" "$@"
+"$ROOT/scripts/build-release.sh" --tarball --simplex "$work/simplex" --licenses "$work/licenses" "$@"

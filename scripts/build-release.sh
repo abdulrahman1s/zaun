@@ -35,6 +35,8 @@ Layout
   --tarball            Build the relocatable tarball in dist/ instead of a staged tree
   --simplex DIR        Ship the Chat engine: the libraries in DIR (packaging/portable/
                        simplex.sh) go to LIBEXEC_DIR/simplex
+  --licenses DIR       Also ship DIR/*.txt in share/licenses/zaun (notices of what the
+                       portable build links in, e.g. FFmpeg)
 
 Build
   --target TRIPLE      Target of zaun (default <arch>-unknown-linux-gnu)
@@ -65,6 +67,7 @@ libexec_dir=""
 destdir=""
 tarball=0
 simplex=""
+extra_licenses=""
 target="${ARCH}-unknown-linux-gnu"
 init_target="${ARCH}-unknown-linux-musl"
 features=""
@@ -81,6 +84,7 @@ while (($#)); do
         --destdir) destdir="${2:?}"; shift ;;
         --tarball) tarball=1 ;;
         --simplex) simplex="${2:?}"; shift ;;
+        --licenses) extra_licenses="${2:?}"; shift ;;
         --target) target="${2:?}"; shift ;;
         --init-target) init_target="${2:?}"; shift ;;
         --features) features="${2?}"; shift ;;
@@ -280,6 +284,9 @@ stage_share() {
     local lic="$out/share/licenses/zaun"
     install -Dm644 "$ROOT/LICENSE" "$lic/LICENSE"
     install -Dm644 -t "$lic" "$ROOT"/assets/licenses/*.txt
+    if [[ -n "$extra_licenses" ]]; then
+        install -Dm644 -t "$lic" "$extra_licenses"/*.txt
+    fi
     # Third-party crates and their licences (RELEASE_STRATEGY §8), from the lock file.
     (
         cd "$ROOT"

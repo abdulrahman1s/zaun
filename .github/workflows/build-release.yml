@@ -333,6 +333,10 @@ jobs:
     if: ${{ always() && (needs.prepare-release.result == 'success' || (needs.prepare-release.result == 'skipped' && github.event_name != 'workflow_run')) }}
     runs-on: ubuntu-latest
     container: docker.io/library/debian:12
+    # Debian's `sh` is dash, which has no `pipefail` and no `${x:0:12}`.
+    defaults:
+      run:
+        shell: bash
     env:
       ZAUN_PORTABLE_WORK: /work
       CARGO_HOME: /github/home/.cargo
@@ -340,16 +344,24 @@ jobs:
       CARGO_TARGET_DIR: /work/target
 
     steps:
-      - name: Install git
+      - name: Install git and curl
         run: |
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends git ca-certificates zstd >/dev/null
+          apt-get install -y -qq --no-install-recommends git ca-certificates curl zstd >/dev/null
           mkdir -p /work
 
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.prepare-release.outputs.sha || github.sha }}
+
+      # Before the cargo cache, whose key names the compiler.
+      - name: Install Rust (rust-toolchain.toml)
+        run: |
+          curl -sSf https://sh.rustup.rs | sh -s -- -y -q --no-modify-path --profile minimal --default-toolchain none
+          echo "${CARGO_HOME}/bin" >> "${GITHUB_PATH}"
+          "${CARGO_HOME}/bin/rustup" toolchain install
+          "${CARGO_HOME}/bin/rustc" --version
 
       - name: Cache FFmpeg and the pinned downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6

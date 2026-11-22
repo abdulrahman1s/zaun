@@ -28,7 +28,7 @@ Version:        %{lua: print((string.gsub(rpm.expand("%{upstream_version}"), "-"
 Release:        1%{?dist}
 Summary:        Run Windows games in a per-game sandbox
 
-License:        GPL-3.0-or-later AND AGPL-3.0-only AND OFL-1.1 AND MIT AND Apache-2.0 AND (MIT OR Apache-2.0) AND Unicode-3.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND Zlib AND CDLA-Permissive-2.0
+License:        GPL-3.0-or-later AND AGPL-3.0-only AND LGPL-2.1-or-later AND LGPL-3.0-or-later AND OFL-1.1 AND MIT AND Apache-2.0 AND (MIT OR Apache-2.0) AND Unicode-3.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND Zlib AND CDLA-Permissive-2.0
 URL:            https://github.com/abdulrahman1s/zaun
 Source0:        %{url}/archive/v%{upstream_version}/%{name}-%{upstream_version}.tar.gz
 Source1:        %{url}/releases/download/v%{upstream_version}/%{name}-%{upstream_version}-vendor.tar.zst

@@ -18,7 +18,7 @@ use zaun_core::host::{RealRunner, replace_process};
 use zaun_core::paths::{AppPaths, PathEnv};
 use zaun_core::storage::{Db, SessionRepo};
 use zaun_core::update::source::TRUSTED_KEYS;
-use zaun_core::update::{Store, Version, apply, trial};
+use zaun_core::update::{Store, UpdateError, UpdateState, Version, apply, state, trial};
 
 fn running() -> Option<Version> {
     Version::parse(zaun_core::consts::APP_VERSION)
@@ -109,6 +109,7 @@ fn switch_staged(
     if !fs.exists(&store.staged()) || sessions_open(fs, paths) {
         return false;
     }
+    let staged = store.linked(fs, &store.staged()).map(|(v, _)| v);
     let runner = RealRunner::new(Arc::new(SystemClock::new()));
     match apply::apply(
         fs,
@@ -126,6 +127,16 @@ fn switch_staged(
         Ok(None) => false,
         Err(e) => {
             tracing::warn!(code = e.code().as_str(), error = %e, "update not switched to");
+            // Not downloaded again by itself (a version that does not run here would be
+            // fetched every day); Settings says it did not start.
+            if let (Some(v), UpdateError::Install(_)) = (&staged, &e) {
+                let path = state::state_file(paths);
+                let mut st = UpdateState::load(fs, &path);
+                st.rolled_back = Some(v.to_string());
+                if let Err(e) = st.save(fs, &path) {
+                    tracing::warn!(error = %e, "update state not saved");
+                }
+            }
             false
         }
     }

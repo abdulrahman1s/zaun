@@ -15,7 +15,9 @@ prefix="${1:?usage: build-ffmpeg.sh PREFIX [WORKDIR]}"
 work="${2:-$(mktemp -d)}"
 mkdir -p "$work" "$prefix"
 
-if [[ -f "$prefix/.ffmpeg-$FFMPEG_VERSION-$NVCODEC_VERSION" ]]; then
+# The marker names the sources and this recipe's revision (r2: the licence notice).
+marker="$prefix/.ffmpeg-$FFMPEG_VERSION-$NVCODEC_VERSION-r2"
+if [[ -f "$marker" ]]; then
     echo "build-ffmpeg: $prefix is up to date"
     exit 0
 fi
@@ -47,5 +49,13 @@ cd "$work/ffmpeg"
 # Compiler warnings from FFmpeg's own code are not ours to fix; the log keeps them.
 make -j"$(nproc)" >"$work/ffmpeg-make.log" 2>&1 || { tail -60 "$work/ffmpeg-make.log"; exit 1; }
 make install >/dev/null
-touch "$prefix/.ffmpeg-$FFMPEG_VERSION-$NVCODEC_VERSION"
+# Built without --enable-gpl: LGPL-2.1-or-later. The notice ships in share/licenses.
+mkdir -p "$prefix/share/licenses"
+{
+    printf 'FFmpeg %s, built into zaun (libavcodec, libavutil: the h264_nvenc and h264_vaapi\n' "$FFMPEG_VERSION"
+    printf 'encoders only), under the GNU Lesser General Public License 2.1 or later.\n'
+    printf 'Source: %s\nBuilt by packaging/portable/build-ffmpeg.sh in the Zaun repository.\n\n' "$FFMPEG_URL"
+    cat COPYING.LGPLv2.1
+} >"$prefix/share/licenses/LGPL-2.1-FFmpeg.txt"
+touch "$marker"
 echo "build-ffmpeg: FFmpeg $FFMPEG_VERSION in $prefix"
