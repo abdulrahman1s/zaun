@@ -55,7 +55,10 @@ cp "$work/ffmpeg/share/licenses/LGPL-2.1-FFmpeg.txt" "$work/licenses/"
     cat /usr/share/common-licenses/LGPL-3
 } >"$work/licenses/LGPL-3.0-GMP.txt"
 
+# Its own headers, whatever FFMPEG_INCLUDE_DIR the caller has (CI sets the system's for
+# its Ubuntu jobs).
 export FFMPEG_PKG_CONFIG_PATH="$work/ffmpeg/lib/pkgconfig" FFMPEG_LINK_MODE=static
+export FFMPEG_INCLUDE_DIR="$work/ffmpeg/include"
 llvm="$(clang -dumpversion | cut -d. -f1)"
 export LIBCLANG_PATH="/usr/lib/llvm-$llvm/lib"
 export BINDGEN_EXTRA_CLANG_ARGS="-I$(clang -print-resource-dir)/include"
