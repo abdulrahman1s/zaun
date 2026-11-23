@@ -101,7 +101,7 @@ impl AgentClient {
 }
 
 /// `CRInvitationUri` of our queue and X3DH keys; `sender_id` comes from IDS, or from the corrId for a short link.
-fn invitation_uri(rec: &ConnRecord, sender_id: Vec<u8>) -> Result<ConnectionRequestUri> {
+pub(super) fn invitation_uri(rec: &ConnRecord, sender_id: Vec<u8>) -> Result<ConnectionRequestUri> {
     let rq = rec.rcv.as_ref().ok_or(AgentError::Prohibited("no queue"))?;
     let x3dh = rec
         .x3dh

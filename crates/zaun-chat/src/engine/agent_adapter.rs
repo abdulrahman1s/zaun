@@ -113,6 +113,39 @@ impl AgentPort for NativeAgent {
             .map_err(failed)
     }
 
+    fn create_address(
+        &mut self,
+        store: &mut Store,
+        short: bool,
+        user_data: Vec<u8>,
+    ) -> Result<ConnId, AgentFailure> {
+        let id = self
+            .client
+            .create_address(store, short, user_data)
+            .map_err(failed)?;
+        Ok(conn_id(id))
+    }
+
+    fn accept_request(
+        &mut self,
+        store: &mut Store,
+        invitation: &[u8],
+        conn_info: Vec<u8>,
+        pq: bool,
+    ) -> Result<ConnId, AgentFailure> {
+        let id = self
+            .client
+            .accept_contact(store, invitation, conn_info, pq)
+            .map_err(failed)?;
+        Ok(conn_id(id))
+    }
+
+    fn reject_request(&mut self, store: &mut Store, invitation: &[u8]) -> Result<(), AgentFailure> {
+        self.client
+            .reject_contact(store, invitation)
+            .map_err(failed)
+    }
+
     fn delete(&mut self, store: &mut Store, conn: &ConnId) -> Result<(), AgentFailure> {
         self.client.delete(store, native_conn(conn)).map_err(failed)
     }
@@ -135,6 +168,14 @@ impl AgentPort for NativeAgent {
 
     fn close(&mut self) {
         self.client.close();
+    }
+
+    fn ratchet_ad(&mut self, _: &mut Store, conn: &ConnId) -> Result<Vec<u8>, AgentFailure> {
+        let c = self.client.conn(native_conn(conn)).map_err(failed)?;
+        let ratchet = c.ratchet.as_ref();
+        ratchet
+            .map(|r| r.associated_data().to_vec())
+            .ok_or_else(|| AgentFailure::Other("the connection has no ratchet yet".into()))
     }
 
     fn drain_events(&mut self) -> Vec<AgentEvent> {

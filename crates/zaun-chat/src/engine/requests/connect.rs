@@ -1,7 +1,9 @@
-//! Connect: join a friend's invitation link. A bad link never reaches the network; the user's own
-//! link connects nothing, and a link already joined only reads the list again (codec `on_plan`).
+//! Connect: join a friend's invitation link or address. A bad link never reaches the network; the
+//! user's own link connects nothing, and a link already joined only reads the list again (codec `on_plan`).
 
 use crate::agent::links::{ConnShortLink, ConnectionLink, ConnectionRequestUri, ContactConnType};
+use crate::crypto::random_vec;
+use crate::engine::address::contact_conn_info;
 use crate::engine::agent_port::{AgentFailure, AgentPort};
 use crate::engine::error::{Code, EngineError, Result, fail};
 use crate::engine::machine::Engine;
@@ -22,20 +24,41 @@ fn parse(text: &str) -> Option<ConnectionLink> {
     ConnectionLink::parse(text).ok().map(canonical)
 }
 
-/// Only invitations for now; addresses and group links answer as a refused link does.
-fn check_kind(link: &ConnectionLink) -> Result<()> {
-    let what = match link {
+/// What a link joins: a friend's one-time invitation (we send `x.info`) or an address (we send `x.contact`).
+enum Kind {
+    Invitation,
+    Address,
+}
+
+/// A contact link whose client data names a group is a group link (`CRDataGroup`).
+fn is_group_data(client_data: Option<&str>) -> bool {
+    client_data
+        .and_then(|d| serde_json::from_str::<serde_json::Value>(d).ok())
+        .is_some_and(|v| v.get("groupLinkId").is_some())
+}
+
+/// Group links stay refused as links, like any link that is not one of ours to join.
+fn kind_of(link: &ConnectionLink) -> Result<Kind> {
+    let group = || Err(fail(Code::BadLink, "not yet: a group link"));
+    match link {
         ConnectionLink::Full(ConnectionRequestUri::Invitation { .. })
-        | ConnectionLink::Short(ConnShortLink::Invitation { .. }) => return Ok(()),
-        ConnectionLink::Full(ConnectionRequestUri::Contact { .. }) => "an address or group link",
-        ConnectionLink::Short(ConnShortLink::Contact { contact_type, .. }) => match contact_type {
-            ContactConnType::Contact => "an address",
-            ContactConnType::Group | ContactConnType::Channel | ContactConnType::Relay => {
-                "a group link"
+        | ConnectionLink::Short(ConnShortLink::Invitation { .. }) => Ok(Kind::Invitation),
+        ConnectionLink::Full(ConnectionRequestUri::Contact { data, .. }) => {
+            if is_group_data(data.client_data.as_deref()) {
+                group()
+            } else {
+                Ok(Kind::Address)
             }
+        }
+        ConnectionLink::Short(ConnShortLink::Contact { contact_type, .. }) => match contact_type {
+            ContactConnType::Contact => Ok(Kind::Address),
+            ContactConnType::Group | ContactConnType::Channel | ContactConnType::Relay => group(),
         },
-    };
-    Err(fail(Code::BadLink, format!("not yet: {what}")))
+    }
+}
+
+fn request_id() -> Result<Vec<u8>> {
+    random_vec(16).map_err(|_| fail(Code::RequestFailed, "no randomness"))
 }
 
 fn connect_error(e: AgentFailure) -> EngineError {
@@ -52,7 +75,7 @@ impl<A: AgentPort> Engine<A> {
             return Err(fail(Code::BadLink, "empty or contains spaces"));
         }
         let link = parse(text).ok_or_else(|| fail(Code::BadLink, "not a link"))?;
-        check_kind(&link)?;
+        let kind = kind_of(&link)?;
         if self.is_own(&link) {
             return Err(fail(Code::BadLink, "the user's own link"));
         }
@@ -66,7 +89,10 @@ impl<A: AgentPort> Engine<A> {
             self.state.chats_dirty = true;
             return Ok(());
         }
-        let info = conn_info(&self.state.user)?;
+        let info = match kind {
+            Kind::Invitation => conn_info(&self.state.user)?,
+            Kind::Address => contact_conn_info(&self.state.user, request_id()?)?,
+        };
         let conn = self
             .agent
             .join(&mut self.store, &link, info, PQ)
@@ -83,7 +109,7 @@ impl<A: AgentPort> Engine<A> {
         Ok(())
     }
 
-    /// One of our invitations, answered or not.
+    /// One of our invitations, answered or not, or our address.
     fn is_own(&self, link: &ConnectionLink) -> bool {
         let same = |own: &String| parse(own).as_ref() == Some(link);
         let open = self.state.conns.values().any(|c| match &c.kind {
@@ -92,10 +118,17 @@ impl<A: AgentPort> Engine<A> {
             }
             ConnKind::Friend { .. } => false,
         });
-        open || self
+        let address = self
             .state
-            .friends
-            .values()
-            .any(|f| f.invited_with.iter().any(same))
+            .address
+            .record
+            .iter()
+            .any(|a| same(&a.full) || a.short.as_ref().is_some_and(same));
+        open || address
+            || self
+                .state
+                .friends
+                .values()
+                .any(|f| f.invited_with.iter().any(same))
     }
 }

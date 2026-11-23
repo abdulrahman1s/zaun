@@ -3,15 +3,25 @@ use crate::crypto::PublicKey;
 use crate::encoding::{Decode, DecodeError, Decoder, Tail};
 use crate::smp::QueueLinkData;
 
+/// A short link NEW asks the server to keep: an address names its link id, an invitation does not.
+pub struct NewLink {
+    pub link_id: Option<Vec<u8>>,
+    pub sender_id: Vec<u8>,
+    pub data: QueueLinkData,
+}
+
 pub enum Cmd {
     New {
         rcv_auth: PublicKey,
         rcv_dh: PublicKey,
-        link: Option<(Vec<u8>, QueueLinkData)>,
+        /// `QRContact`: an address, which senders do not secure.
+        contact: bool,
+        link: Option<NewLink>,
     },
     Sub,
     Skey(PublicKey),
     Lkey(PublicKey),
+    Lget,
     Send(Vec<u8>),
     Ack(Vec<u8>),
     Del,
@@ -27,6 +37,7 @@ pub fn parse(v: u16, bytes: &[u8]) -> Result<Cmd, DecodeError> {
         b"SUB" => Cmd::Sub,
         b"SKEY" | b"KEY" => Cmd::Skey(PublicKey::decode(&mut d)?),
         b"LKEY" => Cmd::Lkey(PublicKey::decode(&mut d)?),
+        b"LGET" => Cmd::Lget,
         b"SEND" => {
             let _notification = bool::decode(&mut d)?;
             if d.byte()? != b' ' {
@@ -45,16 +56,34 @@ fn parse_new(_v: u16, d: &mut Decoder<'_>) -> Result<Cmd, DecodeError> {
     let (rcv_auth, rcv_dh) = <(PublicKey, PublicKey)>::decode(d)?;
     let _basic_auth = Option::<String>::decode(d)?;
     let _sub_mode = d.byte()?;
-    let link = match d.byte()? {
+    let (contact, link) = match d.byte()? {
         b'1' => match d.byte()? {
-            b'M' => Option::<(Vec<u8>, QueueLinkData)>::decode(d)?,
+            b'M' => {
+                let link = Option::<(Vec<u8>, QueueLinkData)>::decode(d)?;
+                let link = link.map(|(sender_id, data)| NewLink {
+                    link_id: None,
+                    sender_id,
+                    data,
+                });
+                (false, link)
+            }
+            b'C' => {
+                let link = Option::<(Vec<u8>, Vec<u8>, QueueLinkData)>::decode(d)?;
+                let link = link.map(|(id, sender_id, data)| NewLink {
+                    link_id: Some(id),
+                    sender_id,
+                    data,
+                });
+                (true, link)
+            }
             _ => return Err(DecodeError::Invalid("queue request data")),
         },
-        _ => None,
+        _ => (false, None),
     };
     Ok(Cmd::New {
         rcv_auth,
         rcv_dh,
+        contact,
         link,
     })
 }

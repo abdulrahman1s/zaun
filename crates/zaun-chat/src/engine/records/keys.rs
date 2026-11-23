@@ -6,12 +6,22 @@ pub const USER: &[u8] = b"user";
 pub const SETTINGS: &[u8] = b"settings";
 pub const FRIEND_PREFIX: &[u8] = b"friend/";
 pub const CONN_PREFIX: &[u8] = b"conn/";
+/// The user's address.
+pub const ADDRESS: &[u8] = b"address";
+pub const REQUEST_PREFIX: &[u8] = b"req/";
 /// The `seq` counter that numbers friends.
 pub const FRIEND_SEQ: &str = "friend";
+/// The `seq` counter that numbers requests to the address.
+pub const REQUEST_SEQ: &str = "request";
 
 #[must_use]
 pub fn friend(id: i64) -> Vec<u8> {
     format!("friend/{id}").into_bytes()
+}
+
+#[must_use]
+pub fn request(id: i64) -> Vec<u8> {
+    format!("req/{id}").into_bytes()
 }
 
 #[must_use]
@@ -45,6 +55,20 @@ pub fn shared_prefix(friend: i64) -> Vec<u8> {
 pub fn member_blocked(group: i64, member: i64) -> Vec<u8> {
     format!("mblock/{group}/{member}").into_bytes()
 }
+
+/// A file item's record. Eviction: with its friend (`file_prefix`).
+#[must_use]
+pub fn file(friend: i64, item: i64) -> Vec<u8> {
+    format!("file/{friend}/{item}").into_bytes()
+}
+
+#[must_use]
+pub fn file_prefix(friend: i64) -> Vec<u8> {
+    format!("file/{friend}/").into_bytes()
+}
+
+/// Every file record, for the start's sweep of transfers a restart cut short.
+pub const FILE_PREFIX: &[u8] = b"file/";
 
 /// The items table's chat of a direct conversation.
 #[must_use]

@@ -4,8 +4,8 @@ use crate::encoding::{Decode, DecodeError, Decoder, Encode, EncodeError, Large};
 
 use super::conn::{Chain, ConnRecord, NewLink};
 
-/// A new record's first byte; a new layout gets a new one.
-const FORMAT: u8 = 1;
+/// A new record's first byte; a new layout gets a new one. Format 1 had no `request`.
+const FORMAT: u8 = 2;
 
 fn big(b: &[u8]) -> Large {
     Large(b.to_vec())
@@ -64,14 +64,14 @@ impl Encode for ConnRecord {
             self.e2e_reply.as_deref().map(big),
         );
         (info, link, &self.lkey, e2e).encode(out)?;
-        (&self.peer_reply, &self.new_link).encode(out)
+        (&self.peer_reply, &self.new_link, &self.request).encode(out)
     }
 }
 
 impl Decode for ConnRecord {
     fn decode(d: &mut Decoder<'_>) -> Result<Self, DecodeError> {
         let format = u8::decode(d)?;
-        if format != FORMAT {
+        if !(1..=FORMAT).contains(&format) {
             return Err(DecodeError::BadTag("connection record", format));
         }
         let (id, status, agent_version, pq) = <_>::decode(d)?;
@@ -87,6 +87,11 @@ impl Decode for ConnRecord {
             .transpose()?;
         let (conn_info, e2e_reply) = (conn_info.map(|l| l.0), e2e_reply.map(|l| l.0));
         let (peer_reply, new_link) = <_>::decode(d)?;
+        let request = if format >= 2 {
+            Option::decode(d)?
+        } else {
+            None
+        };
         Ok(Self {
             id,
             status,
@@ -103,6 +108,7 @@ impl Decode for ConnRecord {
             e2e_reply,
             peer_reply,
             new_link,
+            request,
         })
     }
 }
@@ -110,9 +116,10 @@ impl Decode for ConnRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::SmpQueueInfo;
     use crate::agent::client::{AgentMsgId, ConnId};
     use crate::agent::integrity::{MsgErrorType, MsgIntegrity};
-    use crate::agent::records::{ConnStatus, PendingSend, SendKind, Unacked};
+    use crate::agent::records::{ConnStatus, ContactRequest, PendingSend, SendKind, Unacked};
     use crate::crypto::{Alg, KeyPair};
     use crate::encoding::Version;
 
@@ -136,10 +143,28 @@ mod tests {
             user: vec![3; 13808],
             link_key: vec![4; 32],
         });
+        rec.request = Some(ContactRequest {
+            queue: SmpQueueInfo::parse(
+                "smp://AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=@fake.test/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA#/?v=1-4&dh=MCowBQYDK2VuAyEAQWIOFJ7ZTMqTFfTsHuyRYNDwszkpHQfRxObZXAWAIRU%3D&q=c",
+            )
+            .unwrap(),
+            agent_version: Version(8),
+            ratchet_key_id: Some(vec![8; 16]),
+            body: Some(vec![9; 15904]),
+        });
         assert_eq!(
             ConnRecord::from_bytes(&rec.to_bytes().unwrap()).unwrap(),
             rec
         );
+    }
+
+    #[test]
+    fn a_record_stored_before_requests_existed_still_reads() {
+        let rec = ConnRecord::new(ConnId(3), ConnStatus::Active, Version(8), false);
+        let mut bytes = rec.to_bytes().unwrap();
+        bytes[0] = 1; // format 1 had no trailing `request`
+        bytes.pop(); // the absent `Option` is one '0' byte
+        assert_eq!(ConnRecord::from_bytes(&bytes).unwrap(), rec);
     }
 
     #[test]

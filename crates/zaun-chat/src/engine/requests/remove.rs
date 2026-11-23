@@ -27,12 +27,18 @@ impl<A: AgentPort> Engine<A> {
             }
         }
         self.forget_conn(&f.conn)?;
+        self.forget_files(id)?;
         self.forget_items(id)?;
         let mut ops = vec![Op::Delete {
             ns: NS,
             key: keys::friend(id),
         }];
-        for prefix in [keys::shared_prefix(id), keys::sent_prefix(&f.conn)] {
+        let prefixes = [
+            keys::shared_prefix(id),
+            keys::sent_prefix(&f.conn),
+            keys::file_prefix(id),
+        ];
+        for prefix in prefixes {
             for key in self.store.keys_with_prefix(NS, &prefix)? {
                 ops.push(Op::Delete { ns: NS, key });
             }

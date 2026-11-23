@@ -93,8 +93,13 @@ pub enum AgentEvent {
         conn: ConnId,
         err: AgentError,
     },
-    /// Reserved for contact addresses (Phase 3): a request to connect, answered with `accept_contact`.
-    // TODO(phase 3): emitted for `AgentInvitation`/`AgentContactRequest` on a contact queue.
+    /// `create_address` is done: the links to give out.
+    Address {
+        conn: ConnId,
+        full: String,
+        short: Option<String>,
+    },
+    /// Someone used the address `conn`: answer with `accept_contact` or `reject_contact` on `inv_id`.
     Req {
         conn: ConnId,
         inv_id: Vec<u8>,

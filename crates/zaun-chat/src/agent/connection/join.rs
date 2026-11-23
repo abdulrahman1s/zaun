@@ -28,7 +28,12 @@ impl AgentClient {
         let mut rec = ConnRecord::new(id, ConnStatus::Resolving, CURRENT_AGENT, pq);
         rec.conn_info = Some(conn_info);
         let ratchet = match link {
-            ConnectionLink::Full(req) => Some(self.prepare_join(&mut rec, req, None)?),
+            ConnectionLink::Full(req @ ConnectionRequestUri::Invitation { .. }) => {
+                Some(self.prepare_join(&mut rec, req, None)?)
+            }
+            ConnectionLink::Full(req @ ConnectionRequestUri::Contact { .. }) => {
+                self.begin_request(&mut rec, req)?
+            }
             ConnectionLink::Short(l @ ConnShortLink::Invitation { .. }) => {
                 let l = restore_short_link(&self.cfg.presets, l.clone());
                 rec.link = Some(l.to_uri());
@@ -36,9 +41,11 @@ impl AgentClient {
                 rec.lkey = Some(KeyPair::generate(Alg::X25519)?.private);
                 None
             }
-            // TODO(phase 3): contact addresses, `AgentInvitation` to the address queue.
-            ConnectionLink::Short(ConnShortLink::Contact { .. }) => {
-                return Err(AgentError::Unsupported("contact addresses"));
+            // An address is read with LGET, which secures nothing: no key is made.
+            ConnectionLink::Short(l @ ConnShortLink::Contact { .. }) => {
+                let l = restore_short_link(&self.cfg.presets, l.clone());
+                rec.link = Some(l.to_uri());
+                None
             }
         };
         self.save(store, rec, ratchet, Batch::default())?;
@@ -54,8 +61,7 @@ impl AgentClient {
         lkey: Option<PrivateKey>,
     ) -> Result<Ratchet> {
         let ConnectionRequestUri::Invitation { data, e2e } = req else {
-            // TODO(phase 3): joining a contact address.
-            return Err(AgentError::Unsupported("contact addresses"));
+            return Err(AgentError::Prohibited("not an invitation"));
         };
         let agent_v = data
             .agent_v_range

@@ -14,6 +14,7 @@ pub(crate) fn apply_profile(f: &mut FriendRecord, p: &Profile) {
     f.name.clone_from(&p.display_name);
     f.about = p.short_descr.clone().unwrap_or_default();
     f.image = p.image.as_ref().map(|i| i.0.clone());
+    f.prefs.clone_from(&p.preferences);
 }
 
 fn unknown() -> EngineError {
@@ -48,6 +49,10 @@ impl<A: AgentPort> Engine<A> {
 
     /// Someone joined our invitation: they become a friend, and we answer with our profile.
     pub(crate) fn on_conf(&mut self, conn: &ConnId, info: &[u8]) -> Result<()> {
+        // A connection we made for a request to an address: the owner accepted it.
+        if let Some(friend) = self.state.friend_of(conn) {
+            return self.on_owner_conf(friend, conn, info);
+        }
         let rec = self.state.conns.get(conn).ok_or_else(unknown)?;
         let ConnKind::Invitation { full, short, .. } = &rec.kind else {
             return Err(unknown());
@@ -101,6 +106,9 @@ impl<A: AgentPort> Engine<A> {
     /// The agent retries what it can, so an error ends nothing here: an invitation being made
     /// or a link being joined is reported as failed, and the user may ask again or remove it.
     pub(crate) fn on_conn_error(&mut self, conn: &ConnId, err: &AgentFailure) -> Result<()> {
+        if let Some(r) = self.on_address_error(conn, err) {
+            return r;
+        }
         let e = EngineError::from(err.clone());
         if self.state.inviting.as_ref() == Some(conn) {
             self.state.inviting = None;

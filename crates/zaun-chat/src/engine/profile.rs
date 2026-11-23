@@ -53,9 +53,26 @@ fn data_uri(p: &Picture) -> ImageData {
     ))
 }
 
+/// `maxProfileImageSize` (Commands.hs): the longest `data:` URI the user's own profile carries.
+pub const MAX_PICTURE_URI: usize = 12_500;
+/// The longest URI read from a friend's profile; a real one travels in one message, so far shorter.
+const MAX_PICTURE_URI_IN: usize = 32 * 1024;
+
+/// Whether the user's picture is one a profile can carry; its length is checked with the profile.
+pub fn checked_picture(p: &Picture) -> std::result::Result<(), &'static str> {
+    let magic = |m: &[u8]| p.bytes.starts_with(m);
+    if !(magic(b"\xff\xd8\xff") || magic(b"\x89PNG\r\n\x1a\n")) {
+        return Err("not a JPEG or PNG");
+    }
+    Ok(())
+}
+
 /// A received `data:` URI as a picture; anything but a JPEG or PNG is dropped.
 #[must_use]
 pub fn picture_of(uri: &str) -> Option<Picture> {
+    if uri.len() > MAX_PICTURE_URI_IN {
+        return None;
+    }
     let image = ImageData(uri.to_owned());
     let safe = image.safe();
     let (head, b64) = safe.split_once(";base64,")?;

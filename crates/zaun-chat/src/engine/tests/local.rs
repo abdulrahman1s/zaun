@@ -108,17 +108,12 @@ fn removing_a_friend_tells_them_then_deletes_the_connection_and_the_conversation
 fn requests_not_carried_yet_answer_failed_with_their_kind() {
     let mut t = T::started();
     let cases = [
-        (Request::CreateAddress, RequestKind::Address, "ZN-CHT-006"),
         (
             Request::NewGroup("g".into()),
             RequestKind::Group,
             "ZN-CHT-006",
         ),
-        (
-            Request::Call(zaun_chat_wire::model::CallRequest::Invite(1)),
-            RequestKind::Call,
-            "ZN-CHT-012",
-        ),
+        (Request::Members(1), RequestKind::Members, "ZN-CHT-006"),
     ];
     for (r, kind, code) in cases {
         let out = t.req(r);

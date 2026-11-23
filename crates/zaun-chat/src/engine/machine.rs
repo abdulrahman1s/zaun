@@ -7,6 +7,8 @@ use zaun_chat_wire::Event;
 
 use super::agent_port::AgentPort;
 use super::clock::Clock;
+use super::files::Files;
+use super::jobs::Jobs;
 use super::log::Log;
 use super::state::State;
 use crate::store::Store;
@@ -27,6 +29,8 @@ pub struct Engine<A: AgentPort> {
     pub(crate) clock: Box<dyn Clock>,
     pub(crate) state: State,
     pub(crate) log: Log,
+    pub(crate) files: Files,
+    pub(crate) jobs: Jobs,
     out: VecDeque<Event>,
 }
 
@@ -38,6 +42,8 @@ impl<A: AgentPort> Engine<A> {
             clock,
             state: State::default(),
             log,
+            files: Files::default(),
+            jobs: Jobs::default(),
             out: VecDeque::new(),
         }
     }
@@ -83,6 +89,12 @@ impl<A: AgentPort> Engine<A> {
         }
     }
 
+    /// Where job results arrive; the run loop waits on it with the rest.
+    #[must_use]
+    pub fn job_results(&self) -> crossbeam_channel::Receiver<super::jobs::JobDone> {
+        self.jobs.rx.clone()
+    }
+
     pub fn on_smp(&mut self, event: A::Smp) {
         self.agent.on_smp(&mut self.store, event);
         self.pump();
@@ -91,7 +103,8 @@ impl<A: AgentPort> Engine<A> {
     /// How long the loop may sleep before the agent has timers to run, at most `IDLE`.
     #[must_use]
     pub fn sleep_for(&self) -> Duration {
-        let Some(at) = self.agent.next_wake() else {
+        let wake = [self.agent.next_wake(), self.next_call_wake()];
+        let Some(at) = wake.into_iter().flatten().min() else {
             return IDLE;
         };
         let due = u64::try_from(at - self.clock.wall_ms()).unwrap_or(0);
@@ -101,6 +114,7 @@ impl<A: AgentPort> Engine<A> {
     pub fn tick(&mut self) {
         let now = self.clock.wall_ms();
         self.agent.on_tick(&mut self.store, now);
+        self.expire_calls(now);
         self.pump();
     }
 }

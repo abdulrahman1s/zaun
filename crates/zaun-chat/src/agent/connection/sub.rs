@@ -9,7 +9,13 @@ use crate::agent::records::ConnStatus;
 impl AgentClient {
     pub(super) fn drive_sub(&mut self, id: ConnId) {
         let Ok(c) = self.conn(id) else { return };
-        let creating = matches!(c.rec.status, ConnStatus::Creating | ConnStatus::Replying);
+        let creating = matches!(
+            c.rec.status,
+            ConnStatus::Creating
+                | ConnStatus::Replying
+                | ConnStatus::Addressing
+                | ConnStatus::Applying
+        );
         let Some(rq) = c
             .rec
             .rcv

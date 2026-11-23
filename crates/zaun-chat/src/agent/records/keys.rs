@@ -6,6 +6,7 @@ use crate::store::{Op, Store};
 use super::conn::ConnRecord;
 use super::pending::PendingSend;
 use super::received::{SentMsg, Unacked};
+use super::request::StoredInvitation;
 use crate::agent::client::{AgentMsgId, ConnId};
 use crate::agent::error::Result;
 
@@ -44,14 +45,20 @@ pub fn sent_key(c: ConnId, snd_msg_id: i64) -> Vec<u8> {
     key(b'h', c, Some(snd_msg_id))
 }
 
+/// A request received on address `c`; `n` is its number from the `agent.inv` counter.
+pub fn invitation_key(c: ConnId, n: i64) -> Vec<u8> {
+    key(b'i', c, Some(n))
+}
+
 /// The prefixes of everything stored for one connection.
-pub fn conn_prefixes(c: ConnId) -> [Vec<u8>; 5] {
+pub fn conn_prefixes(c: ConnId) -> [Vec<u8>; 6] {
     [
         conn_key(c),
         ratchet_key(c),
         unacked_key(c),
         [key(b's', c, None), b"/".to_vec()].concat(),
         [key(b'h', c, None), b"/".to_vec()].concat(),
+        [key(b'i', c, None), b"/".to_vec()].concat(),
     ]
 }
 
@@ -93,6 +100,10 @@ impl Batch {
     pub fn sent(&mut self, c: ConnId, snd_msg_id: i64, s: &SentMsg) -> Result<&mut Self> {
         self.put(sent_key(c, snd_msg_id), s)?;
         Ok(self.delete(sent_key(c, snd_msg_id - RECEIPT_WINDOW)))
+    }
+
+    pub fn invitation(&mut self, c: ConnId, n: i64, i: &StoredInvitation) -> Result<&mut Self> {
+        self.put(invitation_key(c, n), i)
     }
 
     pub fn apply(self, store: &mut Store) -> Result<()> {

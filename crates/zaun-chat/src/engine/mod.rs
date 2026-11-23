@@ -1,14 +1,18 @@
 //! The native chat engine (ADR-0042): one thread owning state, store and agent, ported from
 //! simplex-chat's `Library/Commands.hs` and `Library/Subscriber.hs` (AGPL-3.0-only).
 
+mod address;
 pub mod agent_adapter;
 mod agent_map;
 pub mod agent_port;
+mod calls;
 mod chats;
 pub mod clock;
 pub mod error;
+mod files;
 mod inbound;
 mod items;
+pub mod jobs;
 mod load;
 pub mod log;
 pub mod machine;

@@ -35,12 +35,18 @@ impl AgentClient {
             .clone()
             .ok_or(AgentError::Prohibited("no e2e key"))?;
         match rec.status {
-            ConnStatus::Invited => self.joiner_confirmed(store, rec, opened.version, sender, conf),
+            ConnStatus::Invited => {
+                self.joiner_confirmed(store, rec, ratchet, opened.version, sender, conf)
+            }
             ConnStatus::Joined => {
                 let ratchet = ratchet.ok_or(AgentError::Prohibited("no ratchet"))?;
                 self.inviter_confirmed(store, rec, ratchet, opened.version, sender, conf)
             }
             ConnStatus::Creating
+            | ConnStatus::Addressing
+            | ConnStatus::Address
+            | ConnStatus::Applying
+            | ConnStatus::Requesting
             | ConnStatus::Confirmed
             | ConnStatus::Allowing
             | ConnStatus::Accepting
@@ -64,10 +70,14 @@ impl AgentClient {
         &mut self,
         store: &mut Store,
         mut rec: ConnRecord,
+        request_ratchet: Option<Ratchet>,
         v: Version,
         sender: PublicKey,
         conf: Confirmation,
     ) -> Result<()> {
+        if rec.x3dh.is_none() {
+            return self.answer_confirmed(store, rec, request_ratchet, v, sender, conf);
+        }
         let wire = conf.e2e.ok_or(AgentError::Prohibited(
             "confirmation without ratchet params",
         ))?;
@@ -82,6 +92,39 @@ impl AgentClient {
         let pq = PqSupport(rec.pq && snd.kem.is_some());
         let init = pq_x3dh_rcv(&x3dh, &snd)?;
         let mut ratchet = Ratchet::init_rcv(RatchetVersions::new(snd.version), x3dh.pk2, init, pq);
+        let plain = ratchet.decrypt(&conf.enc_conn_info)?;
+        let AgentMessage::ConnInfoReply { queues, conn_info } = AgentMessage::from_bytes(&plain)?
+        else {
+            return Err(AgentError::Prohibited("expected AgentConnInfoReply"));
+        };
+        accept_chain(&mut rec, v, sender, conf.agent_version, &plain)?;
+        rec.peer_reply = queues.into_iter().next();
+        rec.status = ConnStatus::Confirmed;
+        let id = rec.id;
+        self.save(store, rec, Some(ratchet), Batch::default())?;
+        self.emit(AgentEvent::Conf {
+            conn: id,
+            conn_info,
+        });
+        Ok(())
+    }
+
+    /// The owner's answer to a request that was ratchet-encrypted: it continues that ratchet, so it brings no params.
+    fn answer_confirmed(
+        &mut self,
+        store: &mut Store,
+        mut rec: ConnRecord,
+        ratchet: Option<Ratchet>,
+        v: Version,
+        sender: PublicKey,
+        conf: Confirmation,
+    ) -> Result<()> {
+        let mut ratchet = ratchet.ok_or(AgentError::Prohibited("no ratchet"))?;
+        if conf.e2e.is_some() {
+            return Err(AgentError::Prohibited(
+                "ratchet params in the owner's answer",
+            ));
+        }
         let plain = ratchet.decrypt(&conf.enc_conn_info)?;
         let AgentMessage::ConnInfoReply { queues, conn_info } = AgentMessage::from_bytes(&plain)?
         else {

@@ -22,10 +22,18 @@ pub enum ConnStatus {
     /// Joiner: our confirmation is queued or sent; waiting for the inviter's.
     Joined,
     Active,
+    /// Address: NEW of the contact queue is outstanding.
+    Addressing,
+    /// Address: requests come in; it stays this way until deleted.
+    Address,
+    /// Requester: NEW of the queue the owner will answer on is outstanding.
+    Applying,
+    /// Requester: SEND of our request to the address queue is outstanding.
+    Requesting,
 }
 
 impl ConnStatus {
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 14] = [
         Self::Creating,
         Self::Invited,
         Self::Confirmed,
@@ -36,6 +44,10 @@ impl ConnStatus {
         Self::Replying,
         Self::Joined,
         Self::Active,
+        Self::Addressing,
+        Self::Address,
+        Self::Applying,
+        Self::Requesting,
     ];
 
     const fn code(self) -> u8 {
@@ -50,6 +62,10 @@ impl ConnStatus {
             Self::Replying => b'y',
             Self::Joined => b'j',
             Self::Active => b'a',
+            Self::Addressing => b'd',
+            Self::Address => b'e',
+            Self::Applying => b'n',
+            Self::Requesting => b'q',
         }
     }
 }

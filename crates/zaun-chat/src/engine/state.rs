@@ -4,7 +4,9 @@ use std::collections::{BTreeMap, HashMap};
 
 use zaun_chat_wire::model::ChatMessage;
 
+use super::address::AddressState;
 use super::agent_port::ConnId;
+use super::calls::CallState;
 use super::records::{ConnRecord, FriendRecord, SettingsRecord, UserRecord};
 
 #[derive(Debug, Default)]
@@ -24,6 +26,8 @@ pub struct State {
     pub inviting: Option<ConnId>,
     /// The chat list changed and is due out; at most one is pending.
     pub chats_dirty: bool,
+    pub address: AddressState,
+    pub calls: CallState,
 }
 
 impl State {

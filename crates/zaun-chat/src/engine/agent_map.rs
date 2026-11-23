@@ -117,8 +117,22 @@ pub(super) fn event(e: Native, log: &Log) -> Option<AgentEvent> {
             ));
             return None;
         }
-        // TODO(phase 3): contact addresses; the engine does not answer requests yet.
-        Native::Req { .. } => return None,
+        Native::Address { conn, full, short } => AgentEvent::Address {
+            conn: conn_id(conn),
+            full,
+            short,
+        },
+        // Every request to an address of ours is the plain form, which assumes post-quantum support.
+        Native::Req {
+            conn,
+            inv_id,
+            conn_info,
+        } => AgentEvent::Req {
+            conn: conn_id(conn),
+            invitation: inv_id,
+            conn_info,
+            pq: true,
+        },
     })
 }
 

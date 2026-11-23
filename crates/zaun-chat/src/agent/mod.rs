@@ -26,7 +26,7 @@ pub mod short_link;
 #[cfg(test)]
 mod testing;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub mod version;
 
 pub use crate::smp::SmpServer;

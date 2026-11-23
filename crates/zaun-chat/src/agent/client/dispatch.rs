@@ -121,7 +121,7 @@ impl AgentClient {
             return;
         }
         let r = match op.kind {
-            OpKind::NewQueue | OpKind::Lkey | OpKind::Skey => {
+            OpKind::NewQueue | OpKind::Lkey | OpKind::Lget | OpKind::Skey | OpKind::Request => {
                 self.on_step_answer(store, id, op.kind, answer)
             }
             OpKind::Sub => {

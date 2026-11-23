@@ -32,7 +32,8 @@ impl AgentClient {
         for c in self.conns.values() {
             used.extend(c.rec.rcv.iter().map(|q| q.server.clone()));
             used.extend(c.rec.snd.iter().map(|q| q.server.clone()));
-            if let Ok((s, _)) = super::steps::short_invitation(&c.rec) {
+            used.extend(c.rec.request.iter().map(|r| r.queue.address.server.clone()));
+            if let Ok((s, _)) = super::steps::short_target(&c.rec) {
                 used.insert(s);
             }
         }

@@ -4,6 +4,7 @@ use crate::encoding::Version;
 use crate::ratchet::PrivParams;
 
 use super::queues::{RcvQueue, SndQueue};
+use super::request::ContactRequest;
 use super::status::ConnStatus;
 use crate::agent::client::ConnId;
 use crate::agent::queue_info::SmpQueueInfo;
@@ -53,6 +54,8 @@ pub struct ConnRecord {
     /// Inviter: the joiner's reply queue, from its confirmation until `allow`.
     pub peer_reply: Option<SmpQueueInfo>,
     pub new_link: Option<NewLink>,
+    /// Requester: the request to an address, until the address has taken it.
+    pub request: Option<ContactRequest>,
 }
 
 impl ConnRecord {
@@ -74,6 +77,7 @@ impl ConnRecord {
             e2e_reply: None,
             peer_reply: None,
             new_link: None,
+            request: None,
         }
     }
 }

@@ -84,6 +84,20 @@ pub enum AgentEvent {
         conn: ConnId,
         err: AgentFailure,
     },
+    /// The links of a `create_address`: the full one and the short one when the relay stores it.
+    Address {
+        conn: ConnId,
+        full: String,
+        short: Option<String>,
+    },
+    /// `REQ`: someone used the address `conn`; `invitation` names the request to
+    /// `accept_request`/`reject_request`, `conn_info` is their `x.contact`.
+    Req {
+        conn: ConnId,
+        invitation: Vec<u8>,
+        conn_info: Vec<u8>,
+        pq: bool,
+    },
 }
 
 /// The agent as the engine drives it: owned by the engine thread, never blocking. Every call
@@ -139,4 +153,28 @@ pub trait AgentPort {
     /// Closes the network; what the agent stored stays.
     fn close(&mut self);
     fn drain_events(&mut self) -> Vec<AgentEvent>;
+
+    /// A contact address (`createConnection … SCMContact`); answered by `AgentEvent::Address`.
+    fn create_address(
+        &mut self,
+        store: &mut Store,
+        short: bool,
+        user_data: Vec<u8>,
+    ) -> Result<ConnId, AgentFailure>;
+
+    /// `acceptContact`: a new connection that answers the request, our `x.info` in `conn_info`.
+    fn accept_request(
+        &mut self,
+        store: &mut Store,
+        invitation: &[u8],
+        conn_info: Vec<u8>,
+        pq: bool,
+    ) -> Result<ConnId, AgentFailure>;
+
+    /// `rejectContact`: the request is forgotten; nothing is sent.
+    fn reject_request(&mut self, store: &mut Store, invitation: &[u8]) -> Result<(), AgentFailure>;
+
+    /// The ratchet's associated data of `conn` (`getConnectionRatchetAdHash` hashes it):
+    /// what the security code is made from.
+    fn ratchet_ad(&mut self, store: &mut Store, conn: &ConnId) -> Result<Vec<u8>, AgentFailure>;
 }

@@ -13,6 +13,8 @@ pub struct Queue {
     pub server_dh: KeyPair,
     pub sender_key: Option<PublicKey>,
     pub link: Option<(Vec<u8>, QueueLinkData)>,
+    /// An address's queue: senders use it unsigned and it is never secured.
+    pub contact: bool,
     /// `None` is the queue-drained notice after QUOTA.
     pub msgs: VecDeque<(Vec<u8>, Option<Vec<u8>>)>,
     pub delivered: Option<Vec<u8>>,
@@ -109,6 +111,7 @@ pub fn new_queue(rcv_auth: PublicKey, rcv_dh: PublicKey, snd_id: Vec<u8>) -> Que
         server_dh: KeyPair::generate(Alg::X25519).unwrap(),
         sender_key: None,
         link: None,
+        contact: false,
         msgs: VecDeque::new(),
         delivered: None,
         subscriber: None,

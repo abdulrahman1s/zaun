@@ -27,7 +27,9 @@ impl AgentClient {
             Ok(r) => match kind {
                 OpKind::NewQueue => self.on_queue_created(store, id, r),
                 OpKind::Lkey => self.on_link_resolved(store, id, r),
+                OpKind::Lget => self.on_contact_resolved(store, id, r),
                 OpKind::Skey => self.on_secured(store, id),
+                OpKind::Request => self.on_request_sent(store, id),
                 OpKind::Sub | OpKind::Ack | OpKind::Send(_) | OpKind::Del => Ok(()),
             },
         };
@@ -46,7 +48,11 @@ impl AgentClient {
         match self.conn(id)?.rec.status {
             ConnStatus::Creating => self.on_invitation_created(store, id, ids),
             ConnStatus::Replying => self.on_reply_created(store, id, ids),
+            ConnStatus::Addressing => self.on_address_created(store, id, ids),
+            ConnStatus::Applying => self.on_request_queue_created(store, id, ids),
             ConnStatus::Invited
+            | ConnStatus::Address
+            | ConnStatus::Requesting
             | ConnStatus::Confirmed
             | ConnStatus::Allowing
             | ConnStatus::Accepting
@@ -62,6 +68,10 @@ impl AgentClient {
             ConnStatus::Securing => self.on_inviter_secured(store, id),
             ConnStatus::Allowing => self.on_reply_secured(store, id),
             ConnStatus::Creating
+            | ConnStatus::Addressing
+            | ConnStatus::Address
+            | ConnStatus::Applying
+            | ConnStatus::Requesting
             | ConnStatus::Invited
             | ConnStatus::Confirmed
             | ConnStatus::Accepting

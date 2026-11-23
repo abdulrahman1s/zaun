@@ -78,13 +78,23 @@ impl AgentClient {
             } if opened.sender_e2e.is_none() => {
                 self.on_agent_message(store, id, smp_msg_id, ts.0, &enc_agent_message)
             }
-            // TODO(phase 3): requests to a contact address (`REQ`).
-            AgentMsgEnvelope::Invitation { .. } | AgentMsgEnvelope::ContactRequest { .. } => {
-                Err(AgentError::Unsupported("contact requests"))
+            AgentMsgEnvelope::Invitation {
+                conn_req,
+                conn_info,
+                ..
+            } if opened.sender_e2e.is_some() => {
+                self.on_contact_request(store, id, &conn_req, conn_info)?;
+                Ok(Handled::Ack)
+            }
+            // Our addresses publish no ratchet keys, so no request can name one (`unknown ratchetKeyId`).
+            AgentMsgEnvelope::ContactRequest { .. } => {
+                Err(AgentError::Prohibited("request with unknown ratchet keys"))
             }
             // TODO(phase 5): ratchet re-synchronisation (`EREADY`).
             AgentMsgEnvelope::RatchetKey { .. } => Err(AgentError::Unsupported("ratchet re-sync")),
-            AgentMsgEnvelope::Confirmation { .. } | AgentMsgEnvelope::Message { .. } => {
+            AgentMsgEnvelope::Confirmation { .. }
+            | AgentMsgEnvelope::Message { .. }
+            | AgentMsgEnvelope::Invitation { .. } => {
                 Err(AgentError::Prohibited("envelope does not match its header"))
             }
         }

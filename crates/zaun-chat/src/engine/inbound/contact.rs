@@ -11,7 +11,7 @@ use crate::engine::machine::Engine;
 use crate::engine::records::ItemRecord;
 
 impl<A: AgentPort> Engine<A> {
-    fn notice(&mut self, friend: i64, notice: ChatNotice) -> Result<()> {
+    pub(crate) fn notice(&mut self, friend: i64, notice: ChatNotice) -> Result<()> {
         let item = ItemRecord::new(
             MessageAuthor::Friend,
             MessageBody::Notice(notice),

@@ -23,6 +23,25 @@ impl<A: AgentPort> Engine<A> {
     fn route(&mut self, request: Request) -> Result<()> {
         match request {
             Request::SetProfile(p) => self.set_profile(&p),
+            Request::SetPicture(p) => self.set_picture(p),
+            Request::Accept(id) => self.accept_request(id),
+            Request::Reject(id) => self.reject_request(id),
+            Request::CreateAddress => self.create_address(),
+            Request::DeleteAddress => self.delete_address(),
+            Request::SendFile {
+                chat,
+                path,
+                kind,
+                preview,
+                duration,
+                text,
+            } => self.send_file(chat, &path, kind, preview.as_deref(), duration, &text),
+            Request::ReceiveFile { chat, item } => self.receive_file(chat, item),
+            Request::CancelFile { chat, item } => self.cancel_file(chat, item),
+            Request::OpenFile { chat, item } => self.open_file(chat, item),
+            Request::LocateFile { chat, item, tag } => self.locate_file(chat, item, tag),
+            Request::ShowCode(friend) => self.show_code(friend),
+            Request::Verify { friend, code } => self.verify(friend, &code),
             Request::CreateInvite => self.create_invite(),
             Request::Connect(link) => self.connect(&link),
             Request::RemoveFriend(id) => self.remove_friend(id),
@@ -48,26 +67,19 @@ impl<A: AgentPort> Engine<A> {
             Request::SetMemberBlocked { group, member, on } => {
                 self.set_member_blocked(group, member, on)
             }
-            Request::Call(_) => Err(not_yet(Code::CallFailed)),
-            Request::Stream(_) => Err(not_yet(Code::StreamFailed)),
-            Request::SetPicture(_)
-            | Request::SetGroupPicture { .. }
-            | Request::Accept(_)
-            | Request::Reject(_)
-            | Request::CreateAddress
-            | Request::DeleteAddress
-            | Request::SendFile { .. }
-            | Request::ReceiveFile { .. }
-            | Request::CancelFile { .. }
-            | Request::OpenFile { .. }
-            | Request::LocateFile { .. }
+            Request::Edit { chat, item, text } => self.edit(chat, item, &text),
+            Request::Delete { chat, item } => self.delete(chat, item),
+            Request::React {
+                chat,
+                item,
+                emoji,
+                on,
+            } => self.react(chat, item, &emoji, on),
+            Request::Call(r) => self.call(r),
+            Request::Stream(r) => self.stream(r),
+            Request::SetGroupPicture { .. }
             | Request::CreateGroupLink(_)
             | Request::DeleteGroupLink(_)
-            | Request::Edit { .. }
-            | Request::Delete { .. }
-            | Request::React { .. }
-            | Request::ShowCode(_)
-            | Request::Verify { .. }
             | Request::Members(_)
             | Request::NewGroup(_)
             | Request::AddMember { .. }

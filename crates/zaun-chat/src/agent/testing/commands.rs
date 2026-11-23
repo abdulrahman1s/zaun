@@ -1,9 +1,9 @@
 //! What the in-memory server does with each command, after checking its authorisation as a real server would.
-use super::parse::{Cmd, parse};
+use super::parse::{Cmd, NewLink, parse};
 use super::queues::{Push, deliver, new_queue};
 use super::server::Inner;
 use crate::crypto::{Alg, CbNonce, PublicKey, Signature, cb_verify, random_vec};
-use crate::smp::{ErrorType, Incoming, QueueIds, QueueLinkData, QueueMode, Response, authorized};
+use crate::smp::{ErrorType, Incoming, QueueIds, QueueMode, Response, authorized};
 
 /// The command's authorisation by `key`: an Ed25519 signature, or the X25519 box under the server key.
 struct Auth<'a> {
@@ -45,13 +45,14 @@ impl Inner {
             Cmd::New {
                 rcv_auth,
                 rcv_dh,
+                contact,
                 link,
             } => {
                 self.log.push("NEW");
                 if !auth.by(&rcv_auth) {
                     return Response::Err(ErrorType::Auth);
                 }
-                self.create(sid, rcv_auth, rcv_dh, link)
+                self.create(sid, (rcv_auth, rcv_dh), contact, link)
             }
             Cmd::Skey(k) => {
                 self.log.push("SKEY");
@@ -67,6 +68,10 @@ impl Inner {
                 }
                 self.lkey(e, k)
             }
+            Cmd::Lget => {
+                self.log.push("LGET");
+                self.lget(e)
+            }
             Cmd::Send(body) => {
                 self.log.push("SEND");
                 let q = self
@@ -74,9 +79,13 @@ impl Inner {
                     .by_snd
                     .get(e)
                     .and_then(|r| self.queues.by_rcv.get(r));
-                if q.and_then(|q| q.sender_key.as_ref())
-                    .is_none_or(|k| !auth.by(k))
-                {
+                // An address takes unsigned messages; any other queue only those from its sender key.
+                let allowed = match q {
+                    Some(q) if q.contact => t.auth.is_empty(),
+                    Some(q) => q.sender_key.as_ref().is_some_and(|k| auth.by(k)),
+                    None => false,
+                };
+                if !allowed {
                     return Response::Err(ErrorType::Auth);
                 }
                 self.queues.send(e, body, pushes)
@@ -95,25 +104,32 @@ impl Inner {
     fn create(
         &mut self,
         sid: u64,
-        rcv_auth: PublicKey,
-        rcv_dh: PublicKey,
-        link: Option<(Vec<u8>, QueueLinkData)>,
+        (rcv_auth, rcv_dh): (PublicKey, PublicKey),
+        contact: bool,
+        link: Option<NewLink>,
     ) -> Response {
         let snd_id = link
             .as_ref()
-            .map_or_else(|| random_vec(24).unwrap(), |l| l.0.clone());
+            .map_or_else(|| random_vec(24).unwrap(), |l| l.sender_id.clone());
         let mut q = new_queue(rcv_auth, rcv_dh, snd_id.clone());
         q.subscriber = Some(sid);
-        let link_id = link.as_ref().map(|_| random_vec(24).unwrap());
-        if let (Some(id), Some((_, data))) = (&link_id, link) {
-            q.link = Some((id.clone(), data));
+        q.contact = contact;
+        let link_id = link
+            .as_ref()
+            .map(|l| l.link_id.clone().unwrap_or_else(|| random_vec(24).unwrap()));
+        if let (Some(id), Some(l)) = (&link_id, link) {
+            q.link = Some((id.clone(), l.data));
             self.queues.by_link.insert(id.clone(), q.rcv_id.clone());
         }
         let ids = QueueIds {
             rcv_id: q.rcv_id.clone(),
             snd_id: snd_id.clone(),
             rcv_dh_key: q.server_dh.public.clone(),
-            queue_mode: Some(QueueMode::Messaging),
+            queue_mode: Some(if contact {
+                QueueMode::Contact
+            } else {
+                QueueMode::Messaging
+            }),
             link_id,
             service_id: None,
             ntf_creds: None,
@@ -121,6 +137,26 @@ impl Inner {
         self.queues.by_snd.insert(snd_id, q.rcv_id.clone());
         self.queues.by_rcv.insert(q.rcv_id.clone(), q);
         Response::Ids(ids)
+    }
+
+    /// LGET returns an address's link data and secures nothing.
+    fn lget(&self, link_id: &[u8]) -> Response {
+        let q = self
+            .queues
+            .by_link
+            .get(link_id)
+            .and_then(|r| self.queues.by_rcv.get(r));
+        match q {
+            Some(q) if q.contact => {
+                q.link
+                    .clone()
+                    .map_or(Response::Err(ErrorType::Auth), |(_, data)| Response::Lnk {
+                        sender_id: q.snd_id.clone(),
+                        data,
+                    })
+            }
+            _ => Response::Err(ErrorType::Auth),
+        }
     }
 
     /// LKEY secures the queue a one-time link names and returns its data.
@@ -163,12 +199,18 @@ impl Inner {
                 self.log.push("DEL");
                 if let Some(q) = self.queues.by_rcv.remove(rcv_id) {
                     self.queues.by_snd.remove(&q.snd_id);
+                    if let Some((link_id, _)) = &q.link {
+                        self.queues.by_link.remove(link_id);
+                    }
                 }
                 Response::Ok
             }
-            Cmd::New { .. } | Cmd::Skey(_) | Cmd::Lkey(_) | Cmd::Send(_) | Cmd::Ping => {
-                Response::Err(ErrorType::Block)
-            }
+            Cmd::New { .. }
+            | Cmd::Skey(_)
+            | Cmd::Lkey(_)
+            | Cmd::Lget
+            | Cmd::Send(_)
+            | Cmd::Ping => Response::Err(ErrorType::Block),
         }
     }
 }

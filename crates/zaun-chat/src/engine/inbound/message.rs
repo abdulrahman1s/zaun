@@ -72,13 +72,19 @@ impl<A: AgentPort> Engine<A> {
             } => self.on_msg_react(friend, &msg_id.0, &reaction, add),
             ChatEvent::Info { profile, .. } => self.on_x_info(friend, &profile),
             ChatEvent::DirectDel => self.on_direct_del(friend),
-            // Not carried yet, or never acted on in a direct chat (fact sheet §14): ignored.
-            ChatEvent::MsgFileDescr { .. }
-            | ChatEvent::MsgDeleted
+            e @ (ChatEvent::MsgFileDescr { .. }
             | ChatEvent::File(_)
             | ChatEvent::FileAcpt { .. }
             | ChatEvent::FileAcptInv { .. }
             | ChatEvent::FileCancel { .. }
+            | ChatEvent::FileChunk { .. }) => self.on_file_event(friend, shared, e),
+            e @ (ChatEvent::CallInv { .. }
+            | ChatEvent::CallOffer { .. }
+            | ChatEvent::CallAnswer { .. }
+            | ChatEvent::CallExtra { .. }
+            | ChatEvent::CallEnd { .. }) => self.on_call_event(friend, shared, e),
+            // Not carried yet, or never acted on in a direct chat (fact sheet §14): ignored.
+            ChatEvent::MsgDeleted
             | ChatEvent::Contact { .. }
             | ChatEvent::Member { .. }
             | ChatEvent::GrpInv(_)
@@ -106,13 +112,7 @@ impl<A: AgentPort> Engine<A> {
             | ChatEvent::InfoProbe(_)
             | ChatEvent::InfoProbeCheck(_)
             | ChatEvent::InfoProbeOk(_)
-            | ChatEvent::CallInv { .. }
-            | ChatEvent::CallOffer { .. }
-            | ChatEvent::CallAnswer { .. }
-            | ChatEvent::CallExtra { .. }
-            | ChatEvent::CallEnd { .. }
             | ChatEvent::Ok
-            | ChatEvent::FileChunk { .. }
             | ChatEvent::Unknown { .. } => Ok(()),
         }
     }

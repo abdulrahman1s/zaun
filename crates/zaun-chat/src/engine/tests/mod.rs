@@ -1,14 +1,25 @@
 //! Engine rule tests against `FakeAgent` and `FakeClock`, named after the codec tests they port.
 
+mod address;
+mod address_join;
+mod calls;
+mod change;
+mod codes;
 mod contact;
 mod fake_agent;
+mod files;
 mod handshake;
 mod inbound;
+mod live_address;
+mod live_cli;
 mod local;
 mod pipe;
+mod prefs;
+mod profile;
 mod restart;
 mod send;
 mod start;
+mod streams;
 
 use std::path::PathBuf;
 

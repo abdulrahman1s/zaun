@@ -128,12 +128,10 @@ fn the_users_own_link_and_a_known_one_connect_nothing() {
 }
 
 #[test]
-fn addresses_and_group_links_are_refused_as_links_for_now() {
+fn group_links_are_refused_as_links_for_now() {
     let mut t = T::started();
-    for link in [ADDRESS.to_owned(), ADDRESS.replace("/a#", "/g#")] {
-        let out = t.req(Request::Connect(link));
-        assert_eq!(failed(&out), (RequestKind::Connect, "ZN-CHT-005".into()));
-    }
+    let out = t.req(Request::Connect(ADDRESS.replace("/a#", "/g#")));
+    assert_eq!(failed(&out), (RequestKind::Connect, "ZN-CHT-005".into()));
 }
 
 #[test]

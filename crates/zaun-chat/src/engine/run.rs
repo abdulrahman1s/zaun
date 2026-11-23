@@ -25,12 +25,14 @@ fn serve<A: AgentPort>(
     events: &Sender<Event>,
 ) {
     let mut smp = smp;
+    let jobs = engine.job_results();
     loop {
         let mut sel = Select::new();
         // A writer that falls behind stops the requests and the network until it catches up.
         let room = engine.out_len() < OUT_CAP;
         let req = room.then(|| sel.recv(requests));
         let net = room.then(|| sel.recv(&smp));
+        let job = room.then(|| sel.recv(&jobs));
         let out = engine.has_out().then(|| sel.send(events));
         let Ok(op) = sel.select_timeout(engine.sleep_for()) else {
             engine.tick();
@@ -47,6 +49,11 @@ fn serve<A: AgentPort>(
                 Ok(e) => engine.on_smp(e),
                 // Nobody sends any more: wait on the others alone.
                 Err(_) => smp = never(),
+            }
+        } else if Some(i) == job {
+            // The engine holds a sender, so the channel never closes while it runs.
+            if let Ok(d) = op.recv(&jobs) {
+                engine.on_job(d);
             }
         } else if Some(i) == out {
             // `has_out` above means there is one; the selected send must be completed.

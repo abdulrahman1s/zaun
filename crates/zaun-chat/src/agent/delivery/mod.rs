@@ -11,4 +11,4 @@ mod worker;
 
 pub use client_msg::{ClientMessage, ClientMsgEnvelope, PrivHeader};
 pub(crate) use retry::{Retry, RetryMode};
-pub(crate) use seal::{Opened, seal};
+pub(crate) use seal::{Opened, seal, seal_once};

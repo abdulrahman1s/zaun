@@ -1,7 +1,7 @@
 //! The chat list: every friend, and a conversation for each one not blocked (codec `parse_chats`).
 
 use zaun_chat_wire::Event;
-use zaun_chat_wire::model::{ChatPreview, ChatRef, Friend};
+use zaun_chat_wire::model::{ChatPreview, ChatRef, Friend, FriendRequest};
 
 use super::agent_port::AgentPort;
 use super::machine::Engine;
@@ -17,6 +17,7 @@ fn friend(f: &FriendRecord) -> Friend {
         since: Some(f.since),
         blocked: f.blocked,
         muted: f.muted,
+        verified: f.verified.is_some(),
         picture: f.image.as_deref().and_then(picture_of),
         ..Friend::default()
     }
@@ -39,10 +40,20 @@ impl<A: AgentPort> Engine<A> {
                 muted: f.muted,
             })
             .collect();
+        let requests = self
+            .state
+            .address
+            .requests
+            .values()
+            .map(|r| FriendRequest {
+                id: r.id,
+                name: r.name.clone(),
+            })
+            .collect();
         Event::Chats {
             friends,
             groups: Vec::new(),
-            requests: Vec::new(),
+            requests,
             chats,
         }
     }

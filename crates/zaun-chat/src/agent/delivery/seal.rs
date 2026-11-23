@@ -1,8 +1,9 @@
 //! The per-queue crypto_box around agent envelopes, both ways (Agent/Client.hs `agentCbEncrypt`, `agentCbDecrypt`; HANDSHAKE.md §2.8, §3.2).
-use crate::crypto::{CbNonce, PublicKey, cb_decrypt, cb_encrypt, dh};
+use crate::crypto::{Alg, CbNonce, KeyPair, PublicKey, cb_decrypt, cb_encrypt, dh};
 use crate::encoding::{Decode, Encode, Version};
 
 use super::client_msg::{ClientMessage, ClientMsgEnvelope, PrivHeader};
+use crate::agent::SmpQueueInfo;
 use crate::agent::error::{AgentError, Result};
 use crate::agent::limits::{E2E_ENC_CONFIRMATION_LENGTH, E2E_ENC_MESSAGE_LENGTH};
 use crate::agent::records::{RcvQueue, SndQueue};
@@ -57,4 +58,28 @@ pub fn open(rq: &RcvQueue, body: &[u8]) -> Result<Opened> {
         sender_e2e: env.e2e_pub,
         envelope: msg.body,
     })
+}
+
+/// `agentCbEncryptOnce`: a message to a queue we have no secret with (an address): a fresh key pair, the public half in the header.
+pub fn seal_once(queue: &SmpQueueInfo, envelope: &[u8]) -> Result<Vec<u8>> {
+    let ephemeral = KeyPair::generate(Alg::X25519)?;
+    let secret = dh(&queue.address.dh_public_key, &ephemeral.private)?;
+    let nonce = CbNonce::random()?;
+    let msg = ClientMessage {
+        header: PrivHeader::Empty,
+        body: envelope.to_vec(),
+    };
+    let enc_body = cb_encrypt(
+        &secret,
+        &nonce,
+        &msg.to_bytes()?,
+        E2E_ENC_CONFIRMATION_LENGTH,
+    )?;
+    Ok(ClientMsgEnvelope {
+        version: queue.client_version,
+        e2e_pub: Some(ephemeral.public),
+        nonce,
+        enc_body,
+    }
+    .to_bytes()?)
 }

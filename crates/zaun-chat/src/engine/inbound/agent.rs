@@ -36,6 +36,7 @@ impl<A: AgentPort> Engine<A> {
                 Ok(())
             }
             AgentEvent::Err { conn, err } => self.on_conn_error(&conn, &err),
+            e @ (AgentEvent::Address { .. } | AgentEvent::Req { .. }) => self.on_address_event(e),
         };
         if let Err(e) = r {
             self.log

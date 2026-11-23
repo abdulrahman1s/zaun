@@ -7,6 +7,17 @@ use crate::store::Store;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Call {
     CreateInvitation,
+    CreateAddress {
+        short: bool,
+        user_data: Vec<u8>,
+    },
+    AcceptRequest {
+        invitation: Vec<u8>,
+        conn_info: Vec<u8>,
+    },
+    RejectRequest {
+        invitation: Vec<u8>,
+    },
     Join {
         link: String,
         conn_info: Vec<u8>,
@@ -38,6 +49,8 @@ pub struct FakeAgent {
     pub fail_next: Option<AgentFailure>,
     /// Events `subscribe_all` queues.
     pub on_subscribe: Vec<AgentEvent>,
+    /// What `ratchet_ad` answers.
+    pub ratchet_ad: Vec<u8>,
     conns: i64,
     msgs: AgentMsgId,
 }
@@ -75,6 +88,37 @@ impl AgentPort for FakeAgent {
     ) -> Result<ConnId, AgentFailure> {
         self.calls.push(Call::CreateInvitation);
         self.conn()
+    }
+
+    fn create_address(
+        &mut self,
+        _: &mut Store,
+        short: bool,
+        user_data: Vec<u8>,
+    ) -> Result<ConnId, AgentFailure> {
+        self.calls.push(Call::CreateAddress { short, user_data });
+        self.conn()
+    }
+
+    fn accept_request(
+        &mut self,
+        _: &mut Store,
+        invitation: &[u8],
+        conn_info: Vec<u8>,
+        _: bool,
+    ) -> Result<ConnId, AgentFailure> {
+        self.calls.push(Call::AcceptRequest {
+            invitation: invitation.to_vec(),
+            conn_info,
+        });
+        self.conn()
+    }
+
+    fn reject_request(&mut self, _: &mut Store, invitation: &[u8]) -> Result<(), AgentFailure> {
+        self.calls.push(Call::RejectRequest {
+            invitation: invitation.to_vec(),
+        });
+        self.fail_next.take().map_or(Ok(()), Err)
     }
 
     fn join(
@@ -154,6 +198,11 @@ impl AgentPort for FakeAgent {
     }
 
     fn close(&mut self) {}
+
+    fn ratchet_ad(&mut self, _: &mut Store, _: &ConnId) -> Result<Vec<u8>, AgentFailure> {
+        self.fail_next.take().map_or(Ok(()), Err)?;
+        Ok(self.ratchet_ad.clone())
+    }
 
     fn drain_events(&mut self) -> Vec<AgentEvent> {
         std::mem::take(&mut self.queued)

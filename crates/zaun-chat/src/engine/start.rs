@@ -13,6 +13,7 @@ impl<A: AgentPort> Engine<A> {
     pub fn start(&mut self, hello: &Hello) -> Result<(), StoreError> {
         let (state, user) = load(&mut self.store)?;
         self.state = state;
+        self.load_address()?;
         match user {
             Some(u) => self.state.user = u,
             None => self.save_user(UserRecord::named(&hello.name))?,
@@ -22,6 +23,7 @@ impl<A: AgentPort> Engine<A> {
             reactions: Some(REACTION_EMOJI.iter().map(|e| (*e).to_owned()).collect()),
         });
         self.emit(Event::Ready(self.state.user.to_wire()));
+        self.configure_files(hello)?;
         if let Err(e) = self.agent.subscribe_all(&mut self.store) {
             self.log
                 .line(format_args!("subscribing failed: {}", e.detail()));
@@ -31,6 +33,7 @@ impl<A: AgentPort> Engine<A> {
         self.state.chats_dirty = false;
         let chats = self.chats();
         self.emit(chats);
+        self.announce_address();
         Ok(())
     }
 }

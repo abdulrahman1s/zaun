@@ -8262,6 +8262,7 @@ dependencies = [
  "hmac",
  "libc",
  "libloading",
+ "lz-str",
  "ormlite",
  "poly1305",
  "ruzstd",

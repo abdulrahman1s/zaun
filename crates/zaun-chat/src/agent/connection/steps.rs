@@ -7,6 +7,7 @@ use crate::agent::client::{AgentClient, ConnId, OpKind};
 use crate::agent::error::{AgentError, Result};
 use crate::agent::links::{ConnShortLink, ConnectionLink};
 use crate::agent::records::{ConnRecord, ConnStatus};
+use crate::agent::short_link::contact_short_link_kdf;
 
 impl AgentClient {
     /// Sends what the connection waits for: its handshake step, its SUB, the head of its sends.
@@ -41,34 +42,54 @@ impl AgentClient {
     ) -> Result<Option<(OpKind, SmpServer, Request)>> {
         let missing = || AgentError::Prohibited("connection record without its queue");
         Ok(Some(match rec.status {
-            ConnStatus::Creating | ConnStatus::Replying => {
+            ConnStatus::Creating
+            | ConnStatus::Replying
+            | ConnStatus::Addressing
+            | ConnStatus::Applying => {
                 let rq = rec.rcv.as_ref().ok_or_else(missing)?;
-                let link = rec
-                    .new_link
-                    .as_ref()
-                    .filter(|_| rec.status == ConnStatus::Creating);
+                let link = rec.new_link.as_ref().filter(|_| {
+                    matches!(rec.status, ConnStatus::Creating | ConnStatus::Addressing)
+                });
+                let contact = rec.status == ConnStatus::Addressing;
                 let auth = self.basic_auth(&rq.server);
                 (
                     OpKind::NewQueue,
                     rq.server.clone(),
-                    new_request(rq, link, auth)?,
+                    new_request(rq, link, contact, auth)?,
                 )
+            }
+            ConnStatus::Requesting => {
+                let req = rec.request.as_ref().ok_or_else(missing)?;
+                let body = req.body.clone().ok_or_else(missing)?;
+                let cmd = crate::smp::Command::Send {
+                    notification: true,
+                    body,
+                };
+                // An address queue is not secured: the request goes unsigned.
+                let send = Request::new(cmd, req.queue.address.sender_id.clone(), None);
+                (OpKind::Request, req.queue.address.server.clone(), send)
             }
             ConnStatus::Securing | ConnStatus::Allowing => {
                 let sq = rec.snd.as_ref().ok_or_else(missing)?;
                 (OpKind::Skey, sq.server.clone(), skey_request(sq)?)
             }
             ConnStatus::Resolving => {
-                let (server, link_id) = short_invitation(rec)?;
-                let key = rec.lkey.as_ref().ok_or_else(missing)?;
-                let cmd = crate::smp::Command::Lkey(key.public()?);
-                (
-                    OpKind::Lkey,
-                    server,
-                    Request::new(cmd, link_id, Some(key.clone())),
-                )
+                let (server, link_id) = short_target(rec)?;
+                match rec.lkey.as_ref() {
+                    Some(key) => {
+                        let cmd = crate::smp::Command::Lkey(key.public()?);
+                        let request = Request::new(cmd, link_id, Some(key.clone()));
+                        (OpKind::Lkey, server, request)
+                    }
+                    // A contact link is read without securing anything.
+                    None => {
+                        let request = Request::new(crate::smp::Command::Lget, link_id, None);
+                        (OpKind::Lget, server, request)
+                    }
+                }
             }
             ConnStatus::Invited
+            | ConnStatus::Address
             | ConnStatus::Confirmed
             | ConnStatus::Accepting
             | ConnStatus::Joined
@@ -84,7 +105,7 @@ impl AgentClient {
 }
 
 /// The server and link id of a joiner's unresolved short link.
-pub(crate) fn short_invitation(rec: &ConnRecord) -> Result<(SmpServer, Vec<u8>)> {
+pub(crate) fn short_target(rec: &ConnRecord) -> Result<(SmpServer, Vec<u8>)> {
     let link = rec
         .link
         .as_deref()
@@ -93,8 +114,9 @@ pub(crate) fn short_invitation(rec: &ConnRecord) -> Result<(SmpServer, Vec<u8>)>
         ConnectionLink::Short(ConnShortLink::Invitation {
             server, link_id, ..
         }) => Ok((server, link_id)),
-        ConnectionLink::Short(ConnShortLink::Contact { .. }) | ConnectionLink::Full(_) => {
-            Err(AgentError::Prohibited("not an invitation short link"))
-        }
+        ConnectionLink::Short(ConnShortLink::Contact {
+            server, link_key, ..
+        }) => Ok((server, contact_short_link_kdf(&link_key)?.0)),
+        ConnectionLink::Full(_) => Err(AgentError::Prohibited("not a short link")),
     }
 }

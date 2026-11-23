@@ -11,6 +11,7 @@ use crate::engine::error::Result;
 use crate::engine::machine::Engine;
 use crate::engine::quote::shown_quote;
 use crate::engine::records::ItemRecord;
+use crate::engine::records::friend::Feature;
 
 /// The page's form of an emoji: ❤ travels without its variation selector.
 fn display(c: char) -> String {
@@ -61,7 +62,16 @@ impl<A: AgentPort> Engine<A> {
         {
             return Ok(());
         }
-        let body = MessageBody::Text(c.content.text().to_owned());
+        let size = c.file.as_ref().map_or(0, |i| i.file_size);
+        let offer = c
+            .file
+            .as_ref()
+            .map(|inv| crate::engine::files::offer(&c.content, inv))
+            .transpose()?;
+        let body = offer.as_ref().map_or_else(
+            || MessageBody::Text(c.content.text().to_owned()),
+            |(b, _)| b.clone(),
+        );
         let mut item = ItemRecord::new(MessageAuthor::Friend, body, self.clock.wall_ms());
         item.shared_id = shared;
         item.reply = c
@@ -71,7 +81,11 @@ impl<A: AgentPort> Engine<A> {
         let m = self.add_item(friend, &item)?;
         f.unread += 1;
         self.save_friend(f)?;
+        let id = m.id;
         self.emit(Event::Messages(vec![m]));
+        if let Some((_, rec)) = offer {
+            self.on_offered(friend, id, rec, size)?;
+        }
         Ok(())
     }
 
@@ -116,16 +130,24 @@ impl<A: AgentPort> Engine<A> {
     ) -> Result<()> {
         let text = content.text().to_owned();
         self.change_theirs(friend, shared, |i| {
-            i.body = MessageBody::Text(text);
+            crate::engine::files::edit_caption(&mut i.body, text);
             i.edited = true;
         })
     }
 
+    /// Subscriber.hs `messageDelete`: gone for good when the preferences allow their full delete.
     pub(crate) fn on_msg_del(&mut self, friend: i64, shared: &[u8]) -> Result<()> {
-        self.change_theirs(friend, shared, |i| {
-            i.body = MessageBody::Deleted;
-            i.reactions.clear();
-        })
+        let Some((id, item)) = self.item_by_shared(friend, shared)? else {
+            return Ok(());
+        };
+        if item.author != MessageAuthor::Friend || item.body == MessageBody::Deleted {
+            return Ok(());
+        }
+        let full = self
+            .friend(friend)?
+            .enabled(Feature::FullDelete)
+            .for_contact;
+        self.finish_delete(friend, id, item, full)
     }
 
     pub(crate) fn on_msg_react(
@@ -139,6 +161,9 @@ impl<A: AgentPort> Engine<A> {
             MsgReaction::Emoji(c) => display(*c),
             MsgReaction::Unknown(_) => return Ok(()),
         };
+        if !self.friend(friend)?.enabled(Feature::Reactions).for_contact {
+            return Ok(());
+        }
         let Some((id, mut item)) = self.item_by_shared(friend, shared)? else {
             return Ok(());
         };

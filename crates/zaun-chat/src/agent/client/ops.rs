@@ -9,6 +9,10 @@ pub(crate) enum OpKind {
     /// NEW of an invitation queue or of the joiner's reply queue.
     NewQueue,
     Lkey,
+    /// LGET of a contact short link: public, nothing is secured.
+    Lget,
+    /// SEND of our request to an address queue.
+    Request,
     /// SKEY on the peer's queue, by either side.
     Skey,
     Sub,
