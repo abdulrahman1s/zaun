@@ -269,6 +269,8 @@ rustPlatform.buildRustPackage {
   + lib.optionalString (simplexLib != null) ''
     install -Dm755 $out/bin/zaun-chat $out/libexec/zaun/zaun-chat
     rm $out/bin/zaun-chat
+    # The native engine's development binary (ADR-0042) does not ship until the switch.
+    rm -f $out/bin/zaun-chat-native
     remove-references-to -t ${rustToolchain} $out/libexec/zaun/zaun-chat
     mkdir -p $out/libexec/zaun/simplex
     ln -s ${simplexLib}/lib/* $out/libexec/zaun/simplex/
