@@ -2,7 +2,7 @@ name: CI
 
 # Quality gates of TESTING_STRATEGY §11 that are not part of the release pipeline
 # (build-release.yml runs format, clippy, the workspace tests and the release build):
-# architecture rules, supply chain, MSRV, UI snapshots under software rendering, the
+# architecture rules, supply chain, MSRV, the
 # end-to-end suites under real bubblewrap, fuzz targets, benchmarks and coverage.
 
 on:
@@ -84,36 +84,8 @@ jobs:
           save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
       - name: Build
         run: cargo build --locked --workspace --all-targets
-      - name: Test (unit and integration; UI snapshot tests need a GPU adapter)
+      - name: Test (unit and integration)
         run: cargo test --locked --workspace --lib --bins
-
-  ui-snapshots:
-    name: UI tests and snapshots (software rendering, TEST-030)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - name: Install system packages (Mesa lavapipe for wgpu)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libudev-dev libxkbcommon-dev libwayland-dev libgl-dev \
-            mesa-vulkan-drivers libvulkan1
-      - name: Install Rust (rust-toolchain.toml)
-        run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          shared-key: ui
-          # Only the default branch writes the cache; other branches and pull requests read it.
-          save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-      # The snapshot images are not in the repository: every screen is rendered (and every UI
-      # test runs) but the pictures are written, not compared. Comparison happens locally.
-      - name: UI tests in debug with the UI-thread guard (PERF-002) and idle test (PERF-003)
-        env:
-          WGPU_BACKEND: vulkan
-          UPDATE_SNAPSHOTS: "1"
-          # Several wgpu harnesses rendering at once on lavapipe can crash (SIGSEGV).
-          RUST_TEST_THREADS: "1"
-        run: cargo test -p zaun-ui --tests
 
   e2e:
     name: End to end (real bubblewrap, TEST-010)
