@@ -1,0 +1,36 @@
+//! SimpleX chat protocol message layer: JSON chat messages, batches, compression (simplex-chat 7.1.4 Protocol.hs, AGPL-3.0-only).
+pub mod batch;
+mod bin;
+pub mod call;
+pub mod codec;
+pub mod compress;
+pub mod container;
+pub mod content;
+pub mod element;
+pub mod error;
+pub mod event;
+pub mod file;
+pub mod forward;
+pub mod group;
+pub mod group_prefs;
+pub mod group_profile;
+pub mod ids;
+pub mod image;
+mod iso;
+mod json;
+pub mod limits;
+pub mod link_preview;
+pub mod message;
+mod open_enum;
+pub mod preferences;
+pub mod profile;
+pub mod reaction;
+pub mod signed;
+pub mod version;
+pub mod zstd_frame;
+
+pub use codec::{encode_chat_message, parse_chat_elements, parse_chat_messages};
+pub use element::ParsedMsg;
+pub use error::{ChatError, Result};
+pub use event::{ChatEvent, EventKind};
+pub use message::ChatMessage;

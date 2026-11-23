@@ -11,16 +11,50 @@ repository.workspace = true
 authors.workspace = true
 publish.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "zaun-chat"
 path = "src/main.rs"
 
-# No workspace crate (ADR-0033): the helper is a pipe to the engine and nothing else.
+[[bin]]
+name = "zaun-chat-native"
+path = "src/bin/zaun-chat-native.rs"
+
+# Only the wire crate from the workspace (ADR-0042): Zaun's neutral vocabulary on the pipe.
 [dependencies]
+zaun-chat-wire = { path = "../zaun-chat-wire" }
 libloading = "0.8.9"
 serde = { workspace = true }
 serde_json = { workspace = true }
 libc = { workspace = true }
+# The native engine (ADR-0042, replacing libsimplex): crates chosen by the Phase 0 spikes.
+base64 = { workspace = true }
+crossbeam-channel = { workspace = true }
+aes = "0.9.4"
+aes-gcm = "0.11.1"
+chacha20poly1305 = "0.11.0"
+ed25519-dalek = "3.0.0"
+ed448-goldilocks = "=0.14.0-pre.15"
+cipher = "0.5"
+getrandom = "0.3"
+hkdf = "0.13.0"
+hmac = "0.13"
+ormlite = { workspace = true }
+poly1305 = "0.9"
+ruzstd = "0.9.1"
+salsa20 = "0.11.0"
+sha2 = { workspace = true }
+sha3 = "0.12.0"
+sntrup761 = "=0.4.0"
+subtle = "2"
+thiserror = { workspace = true }
+tokio = { workspace = true }
+x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
+x448 = "=0.14.0-pre.12"
+zeroize = "1"
+zstd = { version = "0.13.5", default-features = false }
 
 [lints]
 workspace = true

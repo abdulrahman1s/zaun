@@ -15,6 +15,7 @@ pub mod engine;
 pub mod fake;
 pub mod key;
 pub mod media;
+pub mod native;
 pub mod overlay;
 pub mod picture;
 pub mod simplex;
@@ -22,6 +23,7 @@ pub mod simplex;
 pub use engine::{
     ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, FileKind, Request, RequestKind,
 };
+pub use native::NativeFactory;
 pub use simplex::SimplexFactory;
 
 /// The reactions the chat engine carries, in display form (fully qualified emoji). The

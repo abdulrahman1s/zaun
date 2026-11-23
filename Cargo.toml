@@ -7,6 +7,7 @@ members = [
     "crates/zaun-init",
     "crates/zaun-testkit",
     "crates/zaun-chat",
+    "crates/zaun-chat-wire",
     "crates/zaun-overlay",
     "crates/zaun-media",
 ]

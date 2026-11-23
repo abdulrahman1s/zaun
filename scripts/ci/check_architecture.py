@@ -12,7 +12,7 @@ Fails (exit 1) when, in the workspace at ROOT (default: the repository):
                    imports more than its vocabulary (§3 rule 3, §4);
   init-deps        zaun-init depends on anything but libc (§3 rule 4);
   unsafe           `unsafe` appears outside the allowed files (§3 rule 5);
-  async            an async runtime is used outside `storage` (§3 rule 6);
+  async            an async runtime is used outside `storage` or the Chat helper's `store` (§3 rule 6);
   colour-literal   a colour literal appears in zaun-ui outside `theme/` (§13);
   screen-string    a user-facing sentence is a literal in `zaun-ui/src/screens`
                    instead of `strings` (heuristic, §13).
@@ -117,6 +117,9 @@ UNSAFE_ALLOWED = (
 )
 
 ASYNC_RUNTIMES = ("tokio", "async-std", "smol", "futures-executor")
+# The one module per crate that may drive a private runtime behind a synchronous API
+# (ADR-0017; ADR-0042 for the Chat helper's store).
+ASYNC_ALLOWED = {"zaun-core": "storage", "zaun-chat": "store"}
 
 # ---- Helpers --------------------------------------------------------------------------------
 
@@ -318,16 +321,18 @@ def check_async(root: Path, r: Report) -> None:
             if section.startswith("dev-"):
                 continue
             for n in names:
-                if n in ASYNC_RUNTIMES and crate != "zaun-core":
+                if n in ASYNC_RUNTIMES and crate not in ASYNC_ALLOWED:
                     r.add("async", str(toml.relative_to(root)), n)
-    src = root / "crates/zaun-core/src"
-    if src.exists():
+    for crate, module in ASYNC_ALLOWED.items():
+        src = root / "crates" / crate / "src"
+        if not src.exists():
+            continue
         for f in sorted(src.rglob("*.rs")):
-            if module_of(src, f) == "storage":
+            if module_of(src, f) == module:
                 continue
             for no, line in strip_tests_and_comments(f.read_text()):
                 if re.search(r"\btokio::", line):
-                    r.add("async", f"{f.relative_to(root)}:{no}", "tokio outside storage")
+                    r.add("async", f"{f.relative_to(root)}:{no}", f"tokio outside {module}")
 
 
 def check_colours(root: Path, r: Report) -> None:
