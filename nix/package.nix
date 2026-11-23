@@ -31,6 +31,7 @@
   ffmpeg_8-headless,
   libva,
   aws-lc,
+  zstd,
   appimageTools,
   runCommand,
   simplex-chat-desktop,
@@ -242,9 +243,12 @@ rustPlatform.buildRustPackage {
   # library through pkg-config; when the workspace bundles SQLite this is simply unused.
   # Calls' DTLS (str0m → dimpl → aws-lc-rs, ADR-0035): nixpkgs' cargo hook sets
   # AWS_LC_SYS_USE_SYSTEM, so aws-lc-sys links this instead of building its own copy.
+  # The Chat helper's zstd encoder (ADR-0042): nixpkgs' cargo hook makes zstd-sys link the
+  # system library through pkg-config instead of building its bundled copy.
   buildInputs = runtimeLibs ++ [
     sqlite
     aws-lc
+    zstd
   ];
 
   # Compiled into zaun-core's consts::LIBEXEC_DIR (RELEASE_STRATEGY §2.1).
