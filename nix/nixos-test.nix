@@ -43,9 +43,9 @@ pkgs.testers.runNixOSTest {
         info = machine.succeed(f"file -L {shim}")
         assert "statically linked" in info or "static-pie linked" in info, info
 
-    with subtest("the Chat helper and its engine library are installed in libexec"):
+    with subtest("the Chat helper is installed in libexec, with no engine library beside it"):
         machine.succeed("test -x ${zaun}/libexec/zaun/zaun-chat")
-        machine.succeed("test -f ${zaun}/libexec/zaun/simplex/libsimplex.so")
+        machine.fail("test -e ${zaun}/libexec/zaun/simplex")
 
     with subtest("bubblewrap creates user namespaces as a normal user, also nested"):
         user("${bwrap} --unshare-user --ro-bind / / true")

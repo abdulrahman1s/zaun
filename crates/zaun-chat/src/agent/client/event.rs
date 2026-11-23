@@ -99,6 +99,12 @@ pub enum AgentEvent {
         full: String,
         short: Option<String>,
     },
+    /// `RSYNC`: the connection's ratchet-sync state changed; `Agreed` means a new ratchet, so a
+    /// new security code.
+    RatchetSync {
+        conn: ConnId,
+        state: crate::agent::resync::SyncState,
+    },
     /// Someone used the address `conn`: answer with `accept_contact` or `reject_contact` on `inv_id`.
     Req {
         conn: ConnId,

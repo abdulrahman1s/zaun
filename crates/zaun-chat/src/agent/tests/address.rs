@@ -76,6 +76,34 @@ fn an_address_is_made_with_a_short_link_and_a_full_one() {
 }
 
 #[test]
+fn a_group_address_carries_its_client_data_and_a_g_short_link_a_joiner_can_use() {
+    use crate::agent::links::ConnectionRequestUri;
+    let r = rig();
+    let (mut a, mut b) = (r.node("a"), r.node("b"));
+    let data = r#"{"groupLinkId":"AAAAAAAAAAAAAAAAAAAAAA=="}"#;
+    a.agent
+        .create_address_with(&mut a.store, true, b"group".to_vec(), Some(data.into()))
+        .unwrap();
+    let (full, short) = pump(&mut [&mut a], WAIT, |n| {
+        n[0].take(|e| match e {
+            AgentEvent::Address { full, short, .. } => Some((full.clone(), short.clone())),
+            _ => None,
+        })
+    });
+    let ConnectionLink::Full(ConnectionRequestUri::Contact { data: d, .. }) =
+        ConnectionLink::parse(&full).unwrap()
+    else {
+        panic!("{full}")
+    };
+    assert_eq!(d.client_data.as_deref(), Some(data));
+    let short = short.unwrap();
+    assert!(short.contains("/g#"), "{short}");
+    // The short link resolves to the same request, client data and all.
+    let (_, _, info) = request(&mut a, &mut b, &short, false);
+    assert_eq!(info, b"bob's x.contact");
+}
+
+#[test]
 fn an_address_without_a_short_link_gives_only_the_full_one() {
     let r = rig();
     let mut a = r.node("a");

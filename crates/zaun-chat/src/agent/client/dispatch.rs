@@ -129,6 +129,7 @@ impl AgentClient {
                 Ok(())
             }
             OpKind::Send(msg) => self.on_send_answer(store, id, msg, answer),
+            OpKind::Switch(tag) => self.on_switch_answer(store, id, tag, answer),
             // A lost ACK is answered by the server redelivering the message, which is then acked again.
             OpKind::Ack | OpKind::Del => Ok(()),
         };

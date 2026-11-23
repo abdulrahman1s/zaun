@@ -18,8 +18,6 @@ use zaun_core::update::{UpdateState, Version, trial};
 const INSTALLED_COPY: &str = "ZAUN_INSTALLED_COPY";
 /// Set to anything to always run the installed copy.
 const OFF: &str = "ZAUN_NO_HANDOFF";
-/// What the installed copy's package says about its own files, not the started version's.
-const COPY_ONLY: [&str; 2] = ["ZAUN_SIMPLEX_LIB", "ZAUN_SIMPLEX_LIBRARY_PATH"];
 
 /// The installed copy that started this version, if it is still there.
 pub fn installed_copy() -> Option<PathBuf> {
@@ -66,12 +64,7 @@ pub fn run(env: &PathEnv, role: Option<ProcessRole>) {
         return;
     };
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    let e = replace_process_with(
-        &program,
-        &args,
-        &[(INSTALLED_COPY, me.as_os_str())],
-        &COPY_ONLY,
-    );
+    let e = replace_process_with(&program, &args, &[(INSTALLED_COPY, me.as_os_str())], &[]);
     // No program interpreter (NixOS without nix-ld), a `noexec` home, …
     eprintln!(
         "zaun: could not start {} ({e}); running the installed copy",

@@ -22,6 +22,7 @@ impl AppService {
             }
             ChatDone::Call(d) => self.on_call_done(d)?,
             ChatDone::Stream(d) => self.on_share_done(d)?,
+            ChatDone::OldData(r) => self.on_old_data(r)?,
             ChatDone::Prepared { generation, result } => {
                 if generation == self.flow.chat.generation {
                     self.chat_request(result?);

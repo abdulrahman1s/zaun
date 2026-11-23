@@ -716,6 +716,9 @@ pub struct ChatSnapshot {
     /// The emoji a reaction may use, in display form: `None` = any (the preview),
     /// `Some(list)` = only these (the real engine, `chat::REACTION_EMOJI`).
     pub reaction_emoji: Option<Vec<String>>,
+    /// The bytes of databases the old Chat engine left, which this one cannot read (ADR-0042);
+    /// `None` when there are none. `ChatCommand::ForgetOldData` deletes them.
+    pub old_data: Option<u64>,
 }
 
 impl ChatSnapshot {

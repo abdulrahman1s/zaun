@@ -1,5 +1,7 @@
 //! RemoveFriend: tell them (`x.direct.del`), delete the connection, forget the conversation.
 
+use zaun_chat_wire::model::ChatRef;
+
 use crate::chat::{ChatEvent, ChatMessage, encode_chat_message};
 use crate::engine::agent_port::AgentPort;
 use crate::engine::error::{Code, Result, fail};
@@ -34,7 +36,7 @@ impl<A: AgentPort> Engine<A> {
             key: keys::friend(id),
         }];
         let prefixes = [
-            keys::shared_prefix(id),
+            keys::shared_prefix(ChatRef::Direct(id)),
             keys::sent_prefix(&f.conn),
             keys::file_prefix(id),
         ];
@@ -45,13 +47,13 @@ impl<A: AgentPort> Engine<A> {
         }
         self.store.apply(ops)?;
         self.state.friends.remove(&id);
-        self.state.last.remove(&id);
+        self.state.last.remove(&ChatRef::Direct(id));
         self.state.chats_dirty = true;
         Ok(())
     }
 
     fn forget_items(&mut self, id: i64) -> Result<()> {
-        let chat = keys::direct_chat(id);
+        let chat = keys::chat(ChatRef::Direct(id));
         loop {
             let page = self.store.page(&chat, None, PAGE)?;
             if page.is_empty() {

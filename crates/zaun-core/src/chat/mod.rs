@@ -2,7 +2,7 @@
 //!
 //! - [`engine`]: the seam the service uses ([`Engine`], [`EngineFactory`], [`Request`],
 //!   [`ChatEvent`]), in the protocol-neutral types of `model::chat`.
-//! - [`simplex`]: the one engine, the `zaun-chat` helper over pipes.
+//! - [`native`]: the one engine, the `zaun-chat` helper over pipes (ADR-0042).
 //! - [`key`]: the database key at rest.
 //! - [`picture`]: profile pictures, checked and made (ADR-0038).
 //! - [`fake`]: an engine for tests.
@@ -18,13 +18,11 @@ pub mod media;
 pub mod native;
 pub mod overlay;
 pub mod picture;
-pub mod simplex;
 
 pub use engine::{
     ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, FileKind, Request, RequestKind,
 };
 pub use native::NativeFactory;
-pub use simplex::SimplexFactory;
 
 /// The reactions the chat engine carries, in display form (fully qualified emoji). The
 /// engine refuses every other emoji, so the real service publishes this list as

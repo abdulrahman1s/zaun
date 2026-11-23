@@ -103,7 +103,11 @@ pub(super) fn picture(name: &str, size: u64) -> ChatEvent {
 }
 
 pub(super) fn shared_of(t: &mut T, friend: i64, item: i64) -> Vec<u8> {
-    t.e.item(friend, item).unwrap().unwrap().shared_id.unwrap()
+    t.e.item(ChatRef::Direct(friend), item)
+        .unwrap()
+        .unwrap()
+        .shared_id
+        .unwrap()
 }
 
 pub(super) fn parts(shared: &[u8], text: &str, size: usize) -> Vec<ChatEvent> {
@@ -162,4 +166,14 @@ pub(super) fn failed(out: &[Event], kind: RequestKind) -> bool {
 
 pub(super) fn peer_offers(t: &mut T, conn: &ConnId, event: ChatEvent) -> ChatMessage {
     messages(&t.peer_says(conn, 1, event)).remove(0)
+}
+
+#[test]
+fn a_file_is_refused_when_there_is_no_file_server() {
+    let mut t = T::started();
+    let (bob, _) = t.friend("bob");
+    t.e.files.servers.clear();
+    let out = send_named(&mut t, bob, "a.png", FileKind::Image);
+    assert!(failed(&out, RequestKind::SendFile));
+    assert!(messages(&out).is_empty(), "nothing is offered");
 }

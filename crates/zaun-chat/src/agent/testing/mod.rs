@@ -9,4 +9,5 @@ mod server;
 
 pub use connector::FakeConnector;
 pub use node::{Dir, Node, TestClock, pump};
+pub use queues::new_queue;
 pub use server::FakeSmp;

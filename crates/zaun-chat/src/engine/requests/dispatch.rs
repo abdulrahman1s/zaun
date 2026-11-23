@@ -4,7 +4,7 @@ use zaun_chat_wire::{Event, Request};
 
 use super::kind::kind_of;
 use crate::engine::agent_port::AgentPort;
-use crate::engine::error::{Code, Result, not_yet};
+use crate::engine::error::Result;
 use crate::engine::machine::Engine;
 
 impl<A: AgentPort> Engine<A> {
@@ -77,14 +77,14 @@ impl<A: AgentPort> Engine<A> {
             } => self.react(chat, item, &emoji, on),
             Request::Call(r) => self.call(r),
             Request::Stream(r) => self.stream(r),
-            Request::SetGroupPicture { .. }
-            | Request::CreateGroupLink(_)
-            | Request::DeleteGroupLink(_)
-            | Request::Members(_)
-            | Request::NewGroup(_)
-            | Request::AddMember { .. }
-            | Request::JoinGroup(_)
-            | Request::LeaveGroup(_) => Err(not_yet(Code::RequestFailed)),
+            Request::SetGroupPicture { group, picture } => self.set_group_picture(group, picture),
+            Request::CreateGroupLink(group) => self.create_group_link(group),
+            Request::DeleteGroupLink(group) => self.delete_group_link(group),
+            Request::Members(group) => self.members(group),
+            Request::NewGroup(name) => self.new_group(&name),
+            Request::AddMember { group, friend } => self.add_member(group, friend),
+            Request::JoinGroup(group) => self.join_group(group),
+            Request::LeaveGroup(group) => self.leave_group(group),
         }
     }
 }

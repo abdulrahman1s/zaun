@@ -10,7 +10,8 @@ use crate::engine::records::file::FileRecord;
 use crate::engine::records::{NS, decode, keys};
 
 impl<A: AgentPort> Engine<A> {
-    /// Before the friend's records go: their records stay for the caller to delete.
+    /// Before the friend's records go: their records stay for the caller to delete. A group's
+    /// files go the same way by its `files::owner` number.
     pub(crate) fn forget_files(&mut self, friend: i64) -> Result<()> {
         let running: Vec<_> = self
             .files

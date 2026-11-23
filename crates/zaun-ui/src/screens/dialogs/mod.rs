@@ -244,6 +244,23 @@ fn confirm(
             }
             o != DialogOutcome::Open
         }
+        Confirm::ForgetOldChatData { size } => {
+            use crate::strings::chat as c;
+            let o = choose(
+                ctx,
+                id,
+                Spec::new(c::OLD_DATA_TITLE()).text(&c::old_data_text(size)),
+                &[secondary(d::CANCEL()), danger(c::OLD_DATA_DELETE())],
+                0,
+                |_| {},
+            );
+            if o == DialogOutcome::Chose(1) {
+                env.bridge.send(Command::Chat(
+                    zaun_core::service::ChatCommand::ForgetOldData,
+                ));
+            }
+            o != DialogOutcome::Open
+        }
         Confirm::ClearStatistics | Confirm::ResetGameStatistics(_) => {
             let game = match c {
                 Confirm::ResetGameStatistics(g) => Some(g),

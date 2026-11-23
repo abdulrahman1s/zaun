@@ -1,13 +1,11 @@
-//! Chat end to end (ADR-0033): two real chat engines (`zaun-chat` + libsimplex,
-//! under bwrap) connect through an SMP relay, exchange messages, form a group, and keep
+//! Chat end to end (ADR-0042): two real chat engines (the native `zaun-chat`, under bwrap)
+//! connect through an SMP relay, exchange messages, form a group, and keep
 //! their history across a restart.
 //!
 //! Ignored by default: it needs the engine and a relay. Run it in a network namespace that
 //! has only loopback, with a local `smp-server` listening, so no public relay is touched:
 //!
 //! ```text
-//! ZAUN_SIMPLEX_LIB=/…/libsimplex.so \
-//! ZAUN_SIMPLEX_LIBRARY_PATH=/…/gmp/lib:/…/zlib/lib \
 //! ZAUN_TEST_SMP='smp://<fingerprint>@127.0.0.1:5223' \   # or `preset` (public relays)
 //! ZAUN_TEST_XFTP='xftp://<fingerprint>@127.0.0.1:5443' \ # optional: the file step
 //! cargo test -p zaun-core --test chat_e2e -- --ignored
@@ -29,8 +27,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use zaun_core::chat::{
-    ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, FileKind, Request, RequestKind,
-    SimplexFactory,
+    ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, FileKind, NativeFactory, Request,
+    RequestKind,
 };
 use zaun_core::model::{ChatMessage, ChatRef, FileState, Media, MessageAuthor, MessageBody, Quote};
 
@@ -40,7 +38,7 @@ fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set (see the file's header)"))
 }
 
-fn factory(log: PathBuf) -> SimplexFactory {
+fn factory(log: PathBuf) -> NativeFactory {
     let helper = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/zaun-chat");
     assert!(helper.is_file(), "build it first: cargo build -p zaun-chat");
     // By its full path: the helper's environment has no `PATH` lookup.
@@ -48,12 +46,14 @@ fn factory(log: PathBuf) -> SimplexFactory {
     let bwrap = std::env::split_paths(&path)
         .map(|d| d.join("bwrap"))
         .find(|b| b.is_file());
-    SimplexFactory {
+    assert!(
+        bwrap.is_some(),
+        "the helper runs sandboxed here: put bwrap on PATH"
+    );
+    NativeFactory {
         helper,
-        library: env("ZAUN_SIMPLEX_LIB").into(),
         bwrap,
-        library_path: std::env::var_os("ZAUN_SIMPLEX_LIBRARY_PATH"),
-        log,
+        log: Some(log),
     }
 }
 
@@ -72,7 +72,7 @@ struct Peer {
 }
 
 impl Peer {
-    fn start(f: &SimplexFactory, dir: PathBuf, name: &str, key: &str) -> Peer {
+    fn start(f: &NativeFactory, dir: PathBuf, name: &str, key: &str) -> Peer {
         let (tx, rx) = channel();
         let tx = Mutex::new(tx);
         let log = Arc::new(Mutex::new(Vec::new()));
@@ -173,15 +173,11 @@ impl Peer {
 }
 
 #[test]
-#[ignore = "needs libsimplex and a local SMP relay (see the file's header)"]
+#[ignore = "needs a local SMP relay (see the file's header)"]
 fn two_engines_talk_through_a_relay_and_keep_their_history() {
     let tmp = tempfile::tempdir().unwrap();
-    // Zaun's own log, to see the relay check at work.
-    let app_log = tmp.path().join("zaun.log");
-    let mut opts = zaun_core::logging::LogOptions::new(zaun_core::logging::ProcessRole::Cli);
-    opts.file = Some(app_log.clone());
-    let _log = zaun_core::logging::init(&opts).unwrap();
-    let f = factory(tmp.path().join("engine.log"));
+    let engine_log = tmp.path().join("engine.log");
+    let f = factory(engine_log.clone());
     let (a_dir, b_dir) = (tmp.path().join("alice"), tmp.path().join("bob"));
     for d in [&a_dir, &b_dir] {
         std::fs::create_dir_all(d).unwrap();
@@ -213,13 +209,14 @@ fn two_engines_talk_through_a_relay_and_keep_their_history() {
         "an invitation failed"
     );
     if dead_relay(&env("ZAUN_TEST_SMP")).is_some() {
-        // The check disabled the relay that does not answer (and only that one).
+        // The check disabled the relay that does not answer (and only that one); the engine
+        // says so in its own log.
         let wait_until = std::time::Instant::now() + WAIT;
         loop {
-            let log = std::fs::read_to_string(&app_log).unwrap_or_default();
+            let log = std::fs::read_to_string(&engine_log).unwrap_or_default();
             let disabled: Vec<&str> = log
                 .lines()
-                .filter(|l| l.contains("chat: relay") && l.contains("enabled=false"))
+                .filter(|l| l.contains("is disabled for new queues"))
                 .collect();
             if !disabled.is_empty() {
                 assert!(

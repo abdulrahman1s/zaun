@@ -32,6 +32,22 @@ texts! {
     NOTIFY_PREVIEW = "chat.notify_preview";
     /// Under it.
     NOTIFY_PREVIEW_HELP = "chat.notify_preview_help";
+    /// The row offering to delete what the old engine left (ADR-0042).
+    OLD_DATA = "chat.old_data";
+    /// Its button.
+    OLD_DATA_DELETE = "chat.old_data_delete";
+    /// The confirmation's title.
+    OLD_DATA_TITLE = "chat.old_data_title";
+}
+
+/// Under the old-data row: its size and why it is of no use now.
+pub fn old_data_help(bytes: u64) -> String {
+    rust_i18n::t!("chat.old_data_help", size = super::fmt::bytes(bytes)).into_owned()
+}
+
+/// The confirmation's text: what goes, what stays, and the space freed.
+pub fn old_data_text(bytes: u64) -> String {
+    rust_i18n::t!("chat.old_data_text", size = super::fmt::bytes(bytes)).into_owned()
 }
 
 // ---- The Chat page ----------------------------------------------------------------------

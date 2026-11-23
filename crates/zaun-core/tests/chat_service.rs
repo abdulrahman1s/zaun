@@ -121,7 +121,10 @@ fn deps(env: &TestEnv, engine: &FakeEngine, prefs: Preferences) -> ServiceDeps {
 
 impl World {
     fn new(enabled: bool) -> Self {
-        let env = TestEnv::new().unwrap();
+        World::in_env(TestEnv::new().unwrap(), enabled)
+    }
+
+    fn in_env(env: TestEnv, enabled: bool) -> Self {
         let engine = FakeEngine::new();
         let mut prefs = Preferences::default();
         prefs.chat.enabled = enabled;
@@ -228,6 +231,48 @@ fn off_by_default_nothing_starts_and_no_folder_is_made() {
     assert!(w.engine.starts().is_empty());
     assert_eq!(w.status(), ChatStatus::Off);
     assert!(!w.env.paths().chat_dir.exists());
+}
+
+/// Settles until the snapshot's `old_data` is `want` (the measuring runs on the job pool).
+fn old_data_becomes(w: &mut World, want: Option<u64>) {
+    for _ in 0..100 {
+        w.settle();
+        if w.svc.hub().chat.load().old_data == want {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("old_data is {:?}", w.svc.hub().chat.load().old_data);
+}
+
+#[test]
+fn the_old_engines_databases_are_offered_for_deletion_and_nothing_else_goes() {
+    let env = TestEnv::new().unwrap();
+    let dir = env.paths().chat_dir;
+    std::fs::create_dir_all(dir.join("files")).unwrap();
+    std::fs::create_dir_all(dir.join("tmp")).unwrap();
+    std::fs::write(dir.join("simplex_chat.db"), [0u8; 100]).unwrap();
+    std::fs::write(dir.join("simplex_agent.db-wal"), [0u8; 20]).unwrap();
+    for keep in ["chat.db", "key", "files/photo.png"] {
+        std::fs::write(dir.join(keep), b"x").unwrap();
+    }
+    let mut w = World::in_env(env, false);
+    old_data_becomes(&mut w, Some(120));
+    w.cmd(ChatCommand::ForgetOldData);
+    old_data_becomes(&mut w, None);
+    assert!(!dir.join("simplex_chat.db").exists());
+    assert!(!dir.join("tmp").exists(), "an empty scratch folder goes");
+    for keep in ["chat.db", "key", "files/photo.png"] {
+        assert!(dir.join(keep).exists(), "{keep} stays");
+    }
+}
+
+#[test]
+fn without_old_data_there_is_nothing_to_offer() {
+    let mut w = World::new(true);
+    old_data_becomes(&mut w, None);
+    w.ready();
+    assert_eq!(w.svc.hub().chat.load().old_data, None);
 }
 
 #[test]
@@ -1412,33 +1457,8 @@ fn the_crop_step_gets_the_pictures_size_and_a_smaller_copy() {
     assert_eq!(e.code, ErrorCode::ChtNotAPicture);
 }
 
-/// A codec started as the user (recorded start-up), with nothing answered after.
-fn started_codec() -> zaun_core::chat::simplex::protocol::Codec {
-    let resp = |corr: u64, body: &str| {
-        let body: serde_json::Value = serde_json::from_str(body).unwrap();
-        serde_json::json!({ "t": "resp", "corr": corr, "body": body }).to_string()
-    };
-    let mut c = zaun_core::chat::simplex::protocol::Codec::new(
-        "Rin",
-        Vec::new(),
-        std::path::Path::new("/nonexistent/chat"),
-    );
-    c.on_line(r#"{"t":"ready"}"#);
-    c.on_line(&resp(
-        1,
-        include_str!("../src/chat/simplex/fixtures/active_user_picture.json"),
-    ));
-    c.on_line(&resp(2, r#"{"result":{"type":"cmdOk"}}"#));
-    c.on_line(&resp(
-        3,
-        include_str!("../src/chat/simplex/fixtures/chat_started.json"),
-    ));
-    assert!(c.started());
-    c
-}
-
 #[test]
-fn a_rename_and_a_new_picture_saved_together_send_both_in_the_last_profile() {
+fn a_rename_and_a_new_picture_saved_together_reach_the_engine_rename_first() {
     let mut w = World::new(true);
     ready_with_kai(&mut w);
     // One Save: the name changes at once, the picture follows from the job pool.
@@ -1462,26 +1482,17 @@ fn a_rename_and_a_new_picture_saved_together_send_both_in_the_last_profile() {
         matches!(requests[0], Request::SetProfile(_)),
         "{requests:?}"
     );
-    // Through the real codec, the engine answering neither before the picture is sent.
-    let mut codec = started_codec();
-    let profiles: Vec<String> = requests
-        .into_iter()
-        .flat_map(|r| codec.request(r).lines)
-        .filter_map(|l| {
-            let v: serde_json::Value = serde_json::from_str(&l).unwrap();
-            let cmd = v["cmd"].as_str()?.to_owned();
-            cmd.starts_with("/_profile ").then_some(cmd)
-        })
-        .collect();
-    assert_eq!(profiles.len(), 2, "{profiles:?}");
-    let last = profiles.last().unwrap();
-    let json: serde_json::Value = serde_json::from_str(&last[last.find('{').unwrap()..]).unwrap();
-    assert_eq!(json["displayName"], "Rin Two");
-    assert_eq!(json["shortDescr"], "Co-op only.");
-    assert!(
-        json["image"]
-            .as_str()
-            .is_some_and(|i| i.starts_with("data:image/jpg;base64,")),
-        "{last}"
+    // The engine applies them in order, so the picture goes out in the renamed profile
+    // (zaun-chat's `setting_the_picture_sends_it_in_the_profile_and_keeps_name_and_about`).
+    let Request::SetProfile(p) = &requests[0] else {
+        unreachable!()
+    };
+    assert_eq!(
+        (p.name.as_str(), p.about.as_str()),
+        ("Rin Two", "Co-op only.")
     );
+    let pictures = requests
+        .iter()
+        .filter(|r| matches!(r, Request::SetPicture(Some(_))));
+    assert_eq!(pictures.count(), 1, "{requests:?}");
 }

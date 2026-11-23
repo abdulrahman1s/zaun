@@ -10,5 +10,9 @@ mod seal;
 mod worker;
 
 pub use client_msg::{ClientMessage, ClientMsgEnvelope, PrivHeader};
+pub(crate) use enqueue::agent_envelope;
+pub(crate) use receive::Handled;
 pub(crate) use retry::{Retry, RetryMode};
+#[cfg(test)]
+pub(crate) use seal::open;
 pub(crate) use seal::{Opened, seal, seal_once};

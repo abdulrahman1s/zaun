@@ -1,7 +1,7 @@
 //! A sent message's delivery: Sending, then Sent, then Delivered by receipt, or Failed.
 
 use zaun_chat_wire::Event;
-use zaun_chat_wire::model::Delivery;
+use zaun_chat_wire::model::{ChatRef, Delivery};
 
 use crate::engine::agent_port::{AgentMsgId, AgentPort, ConnId};
 use crate::engine::error::Result;
@@ -25,6 +25,9 @@ impl<A: AgentPort> Engine<A> {
         msg: AgentMsgId,
         to: Delivery,
     ) -> Result<()> {
+        if let Some((group, member)) = self.state.member_of(conn) {
+            return self.on_group_delivery(group, member, conn, msg, to);
+        }
         let Some(friend) = self.state.friend_of(conn) else {
             return Ok(());
         };
@@ -35,14 +38,14 @@ impl<A: AgentPort> Engine<A> {
         if rank(to) == 2 {
             self.store.delete(NS, &key)?;
         }
-        let Some(mut item) = self.item(friend, id)? else {
+        let Some(mut item) = self.item(ChatRef::Direct(friend), id)? else {
             return Ok(());
         };
         if rank(to) <= rank(item.delivery) {
             return Ok(());
         }
         item.delivery = to;
-        let m = self.change_item(friend, id, &item)?;
+        let m = self.change_item(ChatRef::Direct(friend), id, &item)?;
         self.emit(Event::Updated(vec![m]));
         Ok(())
     }

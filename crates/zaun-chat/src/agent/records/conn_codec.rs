@@ -4,8 +4,9 @@ use crate::encoding::{Decode, DecodeError, Decoder, Encode, EncodeError, Large};
 
 use super::conn::{Chain, ConnRecord, NewLink};
 
-/// A new record's first byte; a new layout gets a new one. Format 1 had no `request`.
-const FORMAT: u8 = 2;
+/// A new record's first byte; a new layout gets a new one. Format 1 had no `request`, format 2 no
+/// `client_data`, format 3 no `switch` and `sync`.
+const FORMAT: u8 = 4;
 
 fn big(b: &[u8]) -> Large {
     Large(b.to_vec())
@@ -64,7 +65,12 @@ impl Encode for ConnRecord {
             self.e2e_reply.as_deref().map(big),
         );
         (info, link, &self.lkey, e2e).encode(out)?;
-        (&self.peer_reply, &self.new_link, &self.request).encode(out)
+        (&self.peer_reply, &self.new_link, &self.request).encode(out)?;
+        self.client_data
+            .as_ref()
+            .map(|d| big(d.as_bytes()))
+            .encode(out)?;
+        (&self.switch, &self.sync).encode(out)
     }
 }
 
@@ -92,6 +98,18 @@ impl Decode for ConnRecord {
         } else {
             None
         };
+        let client_data = if format >= 3 {
+            Option::<Large>::decode(d)?
+                .map(|l| String::from_utf8(l.0).map_err(|_| DecodeError::Utf8))
+                .transpose()?
+        } else {
+            None
+        };
+        let (switch, sync) = if format >= 4 {
+            <_>::decode(d)?
+        } else {
+            (None, None)
+        };
         Ok(Self {
             id,
             status,
@@ -109,6 +127,9 @@ impl Decode for ConnRecord {
             peer_reply,
             new_link,
             request,
+            client_data,
+            switch,
+            sync,
         })
     }
 }
@@ -143,6 +164,7 @@ mod tests {
             user: vec![3; 13808],
             link_key: vec![4; 32],
         });
+        rec.client_data = Some(r#"{"groupLinkId":"abc"}"#.into());
         rec.request = Some(ContactRequest {
             queue: SmpQueueInfo::parse(
                 "smp://AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=@fake.test/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA#/?v=1-4&dh=MCowBQYDK2VuAyEAQWIOFJ7ZTMqTFfTsHuyRYNDwszkpHQfRxObZXAWAIRU%3D&q=c",
@@ -162,8 +184,8 @@ mod tests {
     fn a_record_stored_before_requests_existed_still_reads() {
         let rec = ConnRecord::new(ConnId(3), ConnStatus::Active, Version(8), false);
         let mut bytes = rec.to_bytes().unwrap();
-        bytes[0] = 1; // format 1 had no trailing `request`
-        bytes.pop(); // the absent `Option` is one '0' byte
+        bytes[0] = 1; // format 1 had none of `request`, `client_data`, `switch`, `sync`
+        bytes.truncate(bytes.len() - 4); // the absent `Option`s are one '0' byte each
         assert_eq!(ConnRecord::from_bytes(&bytes).unwrap(), rec);
     }
 

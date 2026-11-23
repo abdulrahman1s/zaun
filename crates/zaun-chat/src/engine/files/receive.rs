@@ -18,8 +18,7 @@ fn cap(size: u64) -> u64 {
 
 impl<A: AgentPort> Engine<A> {
     pub(crate) fn receive_file(&mut self, chat: ChatRef, item: i64) -> Result<()> {
-        let friend = Self::friend_of_chat(chat)?;
-        let (it, mut rec) = self.file_of(friend, item)?;
+        let (it, mut rec) = self.file_of(chat, item)?;
         let state = Self::file_state(&it, &rec);
         let may = rec.way == Way::Received
             && !rec.sender_cancelled
@@ -35,11 +34,11 @@ impl<A: AgentPort> Engine<A> {
         }
         rec.accepted = true;
         if !rec.descr_complete {
-            self.save_file(friend, item, &rec)?;
-            return self.show_file(friend, item, &rec, FileState::Receiving { percent: 0 });
+            self.save_file(chat, item, &rec)?;
+            return self.show_file(chat, item, &rec, FileState::Receiving { percent: 0 });
         }
         let size = media_of(&it.body).map_or(0, |m| m.size);
-        self.begin_download(FileKey { friend, item }, rec, size)
+        self.begin_download(FileKey::of(chat, item), rec, size)
     }
 
     /// Starts the fetch of a complete description. A server the user's list does not know
@@ -50,11 +49,11 @@ impl<A: AgentPort> Engine<A> {
         mut rec: FileRecord,
         size: u64,
     ) -> Result<()> {
-        let FileKey { friend, item } = key;
+        let (chat, item) = (key.chat(), key.item);
         let refused = |this: &mut Self, mut rec: FileRecord, why: &str| {
             rec.accepted = false;
-            let _ = this.save_file(friend, item, &rec); // the failure reported is the reason
-            let _ = this.show_file(friend, item, &rec, FileState::Offered); // the same
+            let _ = this.save_file(chat, item, &rec); // the failure reported is the reason
+            let _ = this.show_file(chat, item, &rec, FileState::Offered); // the same
             fail(Code::RequestFailed, why.to_owned())
         };
         let fd = match FileDescription::parse_valid(&rec.descr) {
@@ -72,8 +71,8 @@ impl<A: AgentPort> Engine<A> {
         }
         let (job, cancel) = self.files.start(key);
         rec.active = true;
-        self.save_file(friend, item, &rec)?;
-        self.show_file(friend, item, &rec, FileState::Receiving { percent: 0 })?;
+        self.save_file(chat, item, &rec)?;
+        self.show_file(chat, item, &rec, FileState::Receiving { percent: 0 })?;
         let req = DownloadReq {
             key,
             job,

@@ -2,32 +2,34 @@
 
 use std::fs;
 
-use zaun_chat_wire::Hello;
+use zaun_chat_wire::{Hello, has_file_servers};
 
 use super::real::XftpTransfers;
+use super::transfers::{chat_of, owner};
 use crate::engine::agent_port::AgentPort;
 use crate::engine::machine::Engine;
 use crate::engine::records::file::{FileRecord, Way};
 use crate::engine::records::{NS, decode, keys};
 use crate::store::StoreError;
 use crate::xftp::{XftpServer, preset_servers};
-use zaun_chat_wire::model::FileState;
+use zaun_chat_wire::model::{ChatRef, FileState};
 
-/// The file servers of a Hello: its `xftp://` relays, or the presets when it names none.
+/// The file servers of a Hello: its `xftp://` relays, the presets when it names no relay of
+/// its own, and none when it names own relays only (`has_file_servers`).
 fn servers_of(relays: &[String]) -> Vec<XftpServer> {
     let own: Vec<XftpServer> = relays
         .iter()
         .filter(|r| r.starts_with("xftp://"))
         .filter_map(|r| r.parse().ok())
         .collect();
-    if own.is_empty() {
+    if own.is_empty() && has_file_servers(relays) {
         preset_servers()
     } else {
         own
     }
 }
 
-/// `(friend, item)` of a `file/{friend}/{item}` key.
+/// `(owner, item)` of a `file/{owner}/{item}` key (`transfers::owner`).
 fn ids_of(key: &[u8]) -> Option<(i64, i64)> {
     let rest = std::str::from_utf8(key).ok()?.strip_prefix("file/")?;
     let (friend, item) = rest.split_once('/')?;
@@ -53,7 +55,7 @@ impl<A: AgentPort> Engine<A> {
             };
             let rec: FileRecord = decode(&bytes)?;
             if rec.active {
-                self.end_cut_short(friend, item, rec)?;
+                self.end_cut_short(chat_of(friend), item, rec)?;
             }
         }
         Ok(())
@@ -61,7 +63,7 @@ impl<A: AgentPort> Engine<A> {
 
     fn end_cut_short(
         &mut self,
-        friend: i64,
+        chat: ChatRef,
         item: i64,
         mut rec: FileRecord,
     ) -> Result<(), StoreError> {
@@ -71,11 +73,28 @@ impl<A: AgentPort> Engine<A> {
             Way::Sent => FileState::Failed,
             Way::Received => FileState::Offered,
         };
-        self.put(&keys::file(friend, item), &rec)?;
-        if let Err(e) = self.show_file(friend, item, &rec, state) {
+        self.put(&keys::file(owner(chat), item), &rec)?;
+        if let Err(e) = self.show_file(chat, item, &rec, state) {
             self.log
                 .line(format_args!("a cut-short transfer not shown: {}", e.detail));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn own_relays_without_an_own_file_server_get_no_preset_file_server() {
+        let relay = "smp://hpq7_4gGJiilmz5Rf-CswuU5kZGkm_zOIooSw6yALRg=@relay.test".to_owned();
+        let files = "xftp://hpq7_4gGJiilmz5Rf-CswuU5kZGkm_zOIooSw6yALRg=@files.test".to_owned();
+        assert_eq!(servers_of(&[]), preset_servers());
+        assert!(servers_of(std::slice::from_ref(&relay)).is_empty());
+        assert_eq!(
+            servers_of(&[relay, files.clone()]),
+            [files.parse().unwrap()]
+        );
     }
 }

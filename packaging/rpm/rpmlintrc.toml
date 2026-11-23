@@ -3,13 +3,6 @@ Filters = [
     # The in-sandbox init shim is static on purpose (ARCHITECTURE §12): it is bind-mounted
     # into every sandbox and must not depend on the sandbox's libraries.
     "statically-linked-binary",
-    # The Chat engine's prebuilt libraries (ADR-0033), private to the Chat helper.
-    "unstripped-binary-or-object .*/libexec/zaun/simplex/",
-    "shared-library-without-dependency-information .*/libexec/zaun/simplex/",
-    "binary-or-shlib-defines-rpath .*/libexec/zaun/simplex/",
-    "missing-call-to-setgroups-before-setuid .*/libexec/zaun/simplex/",
-    "missing-call-to-chdir-with-chroot .*/libexec/zaun/simplex/",
-    "no-soname .*/libexec/zaun/simplex/",
     # FFmpeg's licence text as FFmpeg ships it, with the FSF's old postal address.
     "incorrect-fsf-address .*/licenses/zaun/LGPL-2.1-FFmpeg.txt",
     # Names, not misspellings.

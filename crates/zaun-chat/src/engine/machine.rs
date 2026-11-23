@@ -10,6 +10,7 @@ use super::clock::Clock;
 use super::files::Files;
 use super::jobs::Jobs;
 use super::log::Log;
+use super::relays::Relays;
 use super::state::State;
 use crate::store::Store;
 
@@ -31,6 +32,7 @@ pub struct Engine<A: AgentPort> {
     pub(crate) log: Log,
     pub(crate) files: Files,
     pub(crate) jobs: Jobs,
+    pub(crate) relays: Relays,
     out: VecDeque<Event>,
 }
 
@@ -44,6 +46,7 @@ impl<A: AgentPort> Engine<A> {
             log,
             files: Files::default(),
             jobs: Jobs::default(),
+            relays: Relays::default(),
             out: VecDeque::new(),
         }
     }
@@ -103,7 +106,11 @@ impl<A: AgentPort> Engine<A> {
     /// How long the loop may sleep before the agent has timers to run, at most `IDLE`.
     #[must_use]
     pub fn sleep_for(&self) -> Duration {
-        let wake = [self.agent.next_wake(), self.next_call_wake()];
+        let wake = [
+            self.agent.next_wake(),
+            self.next_call_wake(),
+            self.next_relay_wake(),
+        ];
         let Some(at) = wake.into_iter().flatten().min() else {
             return IDLE;
         };
@@ -115,6 +122,7 @@ impl<A: AgentPort> Engine<A> {
         let now = self.clock.wall_ms();
         self.agent.on_tick(&mut self.store, now);
         self.expire_calls(now);
+        self.relay_tick(now);
         self.pump();
     }
 }

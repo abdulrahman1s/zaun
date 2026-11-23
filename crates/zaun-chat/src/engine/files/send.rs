@@ -1,43 +1,24 @@
-//! SendFile: the message goes at once with the file's invitation, the upload runs on the pool, and the description follows in parts (Commands.hs `APISendMessages` with `xftpSndFileTransfer`; Subscriber.hs `SFDONE`).
+//! SendFile: the message goes at once with the file's invitation and the upload runs on the pool (Commands.hs `APISendMessages` with `xftpSndFileTransfer`); the description follows (`uploaded.rs`).
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use zaun_chat_wire::model::{ChatRef, FileState, Media, MessageAuthor};
 use zaun_chat_wire::{Event, FileKind};
 
 use super::body::{content, show};
-use super::transfers::{FileKey, Sent, UploadReq};
+use super::offer::checked;
+use super::transfers::{FileKey, UploadReq};
 use crate::chat::container::MsgContainer;
-use crate::chat::file::{FileDescr, FileInvitation};
-use crate::chat::ids::SharedMsgId;
-use crate::chat::{ChatEvent, ChatMessage, encode_chat_message};
+use crate::chat::file::FileInvitation;
+use crate::chat::{ChatEvent, ChatMessage};
 use crate::engine::agent_port::AgentPort;
 use crate::engine::error::{Code, Result, fail};
 use crate::engine::machine::Engine;
 use crate::engine::records::file::{FileRecord, Way};
 use crate::engine::records::{ItemRecord, keys};
-use crate::engine::time::iso;
-use crate::xftp::MAX_FILE_SIZE;
-use crate::xftp::description::{DESCR_PART_SIZE, split_description};
 
-/// Every connection this engine makes is PQ.
-const PQ: bool = true;
-
-/// The file as the engine may send it: inside its own data folder (a path from outside is
-/// never read), a regular file, not empty, within the size limit (`checkSndFile`).
-fn checked(dir: &Path, path: &Path) -> Result<(PathBuf, u64)> {
-    let own = fs::canonicalize(dir).map_err(|_| fail(Code::RequestFailed, "no data folder"))?;
-    let file = fs::canonicalize(path).map_err(|_| fail(Code::RequestFailed, "file not found"))?;
-    if !file.starts_with(&own) {
-        return Err(fail(Code::RequestFailed, "file is outside the data folder"));
-    }
-    let meta = fs::metadata(&file).map_err(|_| fail(Code::RequestFailed, "file not found"))?;
-    if !meta.is_file() || meta.len() == 0 || meta.len() > MAX_FILE_SIZE {
-        return Err(fail(Code::RequestFailed, "file size is not allowed"));
-    }
-    Ok((file, meta.len()))
-}
+/// Every friend's connection this engine makes is PQ.
+pub(super) const PQ: bool = true;
 
 impl<A: AgentPort> Engine<A> {
     pub(crate) fn send_file(
@@ -49,11 +30,10 @@ impl<A: AgentPort> Engine<A> {
         duration: Option<u32>,
         text: &str,
     ) -> Result<()> {
-        let friend = Self::friend_of_chat(chat)?;
-        let f = self.friend(friend)?;
-        if !f.reachable() {
-            return Err(fail(Code::RequestFailed, "not connected"));
+        if self.files.servers.is_empty() {
+            return Err(fail(Code::RequestFailed, "no file server"));
         }
+        self.may_send_file(chat)?;
         self.room_for_transfer()?;
         let (source, size) = checked(&self.files.dir, path)?;
         let name = source
@@ -63,9 +43,7 @@ impl<A: AgentPort> Engine<A> {
         let mut container = MsgContainer::simple(content(kind, text, preview, duration));
         container.file = Some(FileInvitation::xftp(&name, size));
         let msg = ChatMessage::new(ChatEvent::MsgNew(container))?;
-        let agent_id = self
-            .agent
-            .send(&mut self.store, &f.conn, encode_chat_message(&msg, PQ)?)?;
+        let sent = self.send_offer(chat, &msg)?;
         let media = Media {
             name: name.clone(),
             size,
@@ -77,20 +55,37 @@ impl<A: AgentPort> Engine<A> {
         };
         let mut item = ItemRecord::new(MessageAuthor::Me, show(kind, media), self.clock.wall_ms());
         item.shared_id = msg.msg_id.map(|m| m.0);
-        let m = self.add_item(friend, &item)?;
-        self.put_index(&keys::sent(&f.conn, agent_id), m.id)?;
+        let m = self.add_item(chat, &item)?;
+        for (_, conn, agent_id) in &sent {
+            self.put_index(&keys::sent(conn, *agent_id), m.id)?;
+        }
         self.emit(Event::Messages(vec![m.clone()]));
         let mut rec = FileRecord::new(Way::Sent, kind, Some(source.clone()));
         rec.active = true;
-        self.save_file(friend, m.id, &rec)?;
-        self.start_upload(FileKey { friend, item: m.id }, source, name);
+        self.save_file(chat, m.id, &rec)?;
+        let members = match chat {
+            ChatRef::Direct(_) => None,
+            ChatRef::Group(g) => {
+                let to: Vec<i64> = sent.iter().map(|(member, _, _)| *member).collect();
+                self.put(&keys::file_members(g, m.id), &to)?;
+                Some(to.len())
+            }
+        };
+        self.start_upload(FileKey::of(chat, m.id), source, name, members);
         Ok(())
     }
 
-    fn start_upload(&mut self, key: FileKey, source: PathBuf, name: String) {
+    fn start_upload(
+        &mut self,
+        key: FileKey,
+        source: PathBuf,
+        name: String,
+        members: Option<usize>,
+    ) {
         let (job, cancel) = self.files.start(key);
         let req = UploadReq {
             key,
+            members,
             job,
             source,
             name,
@@ -106,43 +101,5 @@ impl<A: AgentPort> Engine<A> {
             return Err(fail(Code::RequestFailed, "too many files in transfer"));
         }
         Ok(())
-    }
-
-    /// The upload is up: the recipient description goes to the friend in parts, and the file is sent.
-    pub(super) fn on_uploaded(&mut self, key: FileKey, sent: Sent) -> Result<()> {
-        let FileKey { friend, item } = key;
-        let (it, mut rec) = self.file_of(friend, item)?;
-        if Self::file_state(&it, &rec).is_none() {
-            // Deleted while it went up: the friend gets no description (`itemDeleted`).
-            rec.active = false;
-            return self.save_file(friend, item, &rec);
-        }
-        let shared = it
-            .shared_id
-            .clone()
-            .ok_or_else(|| fail(Code::RequestFailed, "file message has no id"))?;
-        let f = self.friend(friend)?;
-        // A time on a whole second has no fraction in Haskell's JSON.
-        let expires = sent
-            .expires
-            .map(|s| iso(s.saturating_mul(1000)).replace(".000Z", "Z"));
-        let parts = split_description(&sent.description, DESCR_PART_SIZE, DESCR_PART_SIZE);
-        for p in parts {
-            let part = ChatEvent::MsgFileDescr {
-                msg_id: SharedMsgId(shared.clone()),
-                file_descr: FileDescr {
-                    file_descr_text: p.text,
-                    file_descr_part_no: i64::from(p.part_no),
-                    file_descr_complete: p.complete,
-                },
-                file_expires: expires.clone(),
-                file_badge: None,
-            };
-            let body = encode_chat_message(&ChatMessage::new(part)?, PQ)?;
-            self.agent.send(&mut self.store, &f.conn, body)?;
-        }
-        rec.active = false;
-        self.save_file(friend, item, &rec)?;
-        self.show_file(friend, item, &rec, FileState::Sent)
     }
 }

@@ -117,6 +117,10 @@ pub(super) fn event(e: Native, log: &Log) -> Option<AgentEvent> {
             ));
             return None;
         }
+        Native::RatchetSync { conn, state } => AgentEvent::RatchetSync {
+            conn: conn_id(conn),
+            state,
+        },
         Native::Address { conn, full, short } => AgentEvent::Address {
             conn: conn_id(conn),
             full,

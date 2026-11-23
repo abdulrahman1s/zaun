@@ -55,10 +55,6 @@ if [[ -n "$tarball" ]]; then
     for f in zaun-init zaun-overlay zaun-chat; do
         install -Dm755 "$tarball/libexec/zaun/$f" "$stage/usr/libexec/zaun/$f"
     done
-    if [[ -d "$tarball/libexec/zaun/simplex" ]]; then
-        install -d "$stage/usr/libexec/zaun/simplex"
-        install -m644 "$tarball/libexec/zaun/simplex"/* "$stage/usr/libexec/zaun/simplex/"
-    fi
     cp -R "$tarball/share" "$stage/usr/"
 fi
 [[ -n "$stage" ]] || die "--stage or --from-tarball is required"
@@ -116,12 +112,6 @@ zaun: statically-linked-binary [usr/libexec/zaun/zaun-init]
 # FFmpeg's two hardware H.264 encoders are built in, so Zaun runs with any system FFmpeg
 # (ADR-0041).
 zaun: embedded-library libavutil [usr/bin/zaun]
-# The Chat engine (ADR-0033): SimpleX's prebuilt libraries, shipped as SimpleX builds them
-# and loaded only by the Chat helper from this private folder.
-zaun: unstripped-binary-or-object [usr/libexec/zaun/simplex/*]
-zaun: embedded-library *[usr/libexec/zaun/simplex/*]
-zaun: hardening-no-fortify-functions [usr/libexec/zaun/simplex/*]
-zaun: custom-library-search-path *[usr/libexec/zaun/simplex/*]
 EOF
 
 # libc6: the newest GLIBC_ symbol version the binary references.

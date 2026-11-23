@@ -12,6 +12,7 @@ mod gifs;
 mod groups;
 mod links;
 mod messages;
+mod old_data;
 mod overlay;
 mod picture;
 mod preview;

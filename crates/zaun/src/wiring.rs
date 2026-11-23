@@ -309,12 +309,9 @@ fn media_factory() -> Arc<dyn zaun_core::chat::media::MediaFactory> {
     Arc::new(zaun_media::RtcMedia::new(Arc::new(zaun_media::PulseAudio)))
 }
 
-/// The Chat engine (ADR-0033), when this build has one: `zaun-chat` beside
-/// this program or in the libexec folder, and `libsimplex.so` from `ZAUN_SIMPLEX_LIB`
-/// (the Nix package sets it), `simplex/` beside this program (the tarball and the bundle,
-/// ADR-0041) or `<libexec>/simplex/`. `ZAUN_SIMPLEX_LIBRARY_PATH` is passed to the helper as
-/// `LD_LIBRARY_PATH`. `None` when either is missing: the Chat page then says this build
-/// does not include it.
+/// The Chat engine (ADR-0042), when this build has one: `zaun-chat` beside this program (the
+/// tarball and the bundle, ADR-0041) or in the libexec folder. `None` when it is missing: the
+/// Chat page then says this build does not include it.
 fn chat_factory(
     env: &PathEnv,
     fs: &dyn Fs,
@@ -335,25 +332,11 @@ fn chat_factory(
         .map(|d| d.join(HELPER))
         .chain([PathBuf::from(LIBEXEC_DIR).join(HELPER)])
         .find(|p| executable(p))?;
-    let library = match env.get("ZAUN_SIMPLEX_LIB") {
-        Some(p) => PathBuf::from(p),
-        None => exe_dir
-            .iter()
-            .chain([&PathBuf::from(LIBEXEC_DIR)])
-            .map(|d| d.join("simplex").join("libsimplex.so"))
-            .find(|p| fs.metadata_follow(p).is_ok_and(|m| m.is_file()))
-            .unwrap_or_else(|| PathBuf::from(LIBEXEC_DIR).join("simplex/libsimplex.so")),
-    };
-    // The bundle's `simplex` is a link to a shared folder: the helper's sandbox binds the
-    // real one.
-    let library = fs.canonicalize(&library).unwrap_or(library);
     let bwrap = bwrap.or_else(|| zaun_core::host::bwrap_probe::locate_bwrap(fs, env.get("PATH")));
-    Some(Arc::new(zaun_core::chat::SimplexFactory {
+    Some(Arc::new(zaun_core::chat::NativeFactory {
         helper,
-        library,
         bwrap,
-        library_path: env.get("ZAUN_SIMPLEX_LIBRARY_PATH").map(Into::into),
-        log: paths.logs_dir.join(zaun_core::chat::simplex::LOG_NAME),
+        log: Some(paths.logs_dir.join(zaun_core::chat::native::LOG_NAME)),
     }))
 }
 

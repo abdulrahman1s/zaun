@@ -49,7 +49,7 @@ LAYER5_ALLOWED = {
     ("session", "stats"), ("session", "runtime"),
     ("library", "artwork"),
     ("diagnostics", "runtime"),
-    # The Chat engine starts its helper through `session::spawn` (ARCH-002, ADR-0033).
+    # The Chat engine starts its helper through `session::spawn` (ARCH-002, ADR-0042).
     ("chat", "session"),
     # Updates reach the network only through the one HTTP client (ADR-0018, ADR-0040).
     ("update", "artwork"),
@@ -103,16 +103,12 @@ UNSAFE_ALLOWED = (
     "crates/zaun-init/",
     "crates/zaun-core/src/session/sys.rs",
     "crates/zaun-core/src/sandbox/fd.rs",
-    # The FFI to libsimplex (ADR-0033).
-    "crates/zaun-chat/",
     # The wgpu surface on libwayland's display and surface pointers (ADR-0037).
     "crates/zaun-overlay/src/surface.rs",
     # FFmpeg frame and packet planes for the hardware encoder (ADR-0036).
     "crates/zaun-media/src/video/hw/planes.rs",
     # Test programs run inside the sandbox or in place of bwrap (PROC-013, SEC-002).
     "crates/zaun-testkit/src/bin/",
-    # A counting allocator proving that label lookups do not allocate (AGENTS.md §6).
-    "crates/zaun-ui/tests/i18n_alloc.rs",
     "fuzz/",
 )
 

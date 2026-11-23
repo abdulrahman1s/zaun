@@ -270,6 +270,10 @@ fn offers_answers_extra_candidates_and_the_end_become_signals() {
     let out = says(&mut t, &conn, ChatEvent::CallEnd { call_id: id });
     assert_eq!(signals(&out), [CallSignal::Ended(bob)]);
     assert!(t.e.state.calls.calls.is_empty());
+    // The call ends before its line shows, as with the old engine.
+    let ended = out.iter().position(|e| matches!(e, Event::Call(_)));
+    let line = out.iter().position(|e| matches!(e, Event::Messages(_)));
+    assert!(ended < line, "{out:?}");
 }
 
 #[test]
@@ -698,6 +702,9 @@ fn a_ringing_call_the_user_placed_tells_the_friend_when_it_is_let_go() {
     let out = t.out();
     assert_eq!(record(&line(&out)).kind, CallKind::Missed);
     assert!(matches!(sent(&t).last(), Some(ChatEvent::CallEnd { .. })));
+    let ended = out.iter().position(|e| matches!(e, Event::Call(_)));
+    let line = out.iter().position(|e| matches!(e, Event::Messages(_)));
+    assert!(ended < line, "the call ends before its line shows: {out:?}");
 }
 
 #[test]

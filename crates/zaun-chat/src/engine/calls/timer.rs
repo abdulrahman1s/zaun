@@ -25,11 +25,12 @@ impl<A: AgentPort> Engine<A> {
             if call.outgoing {
                 self.send_end(friend, &call.id);
             }
-            self.close_call(friend, &call, Over::Ended);
+            // The signal before the line, as on a hang-up (`inbound::on_end`).
             self.emit(match call.kind {
                 Kind::Voice => Event::Call(CallSignal::Ended(friend)),
                 Kind::Stream => Event::Stream(StreamSignal::Ended(friend)),
             });
+            self.close_call(friend, &call, Over::Ended);
         }
     }
 }

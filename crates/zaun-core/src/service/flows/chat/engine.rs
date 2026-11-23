@@ -11,6 +11,7 @@ use crate::service::prelude::*;
 impl AppService {
     /// Start-up: run the engine when Chat is on.
     pub(crate) fn chat_start(&mut self) {
+        self.chat_check_old_data();
         self.chat_preference_changed();
         if self.flow.chat.engine.is_none() {
             // Off: publish the build's features once, for Settings.
@@ -160,6 +161,7 @@ impl AppService {
         }
         // Calls need call media (ADR-0035).
         self.flow.chat.snapshot.features.calls &= self.deps.media.is_some();
+        self.flow.chat.snapshot.old_data = self.flow.chat.old_data;
         // Streams need media that can stream (ADR-0036).
         self.flow.chat.snapshot.features.share &= self
             .deps

@@ -24,6 +24,7 @@ impl<A: AgentPort> Engine<A> {
         });
         self.emit(Event::Ready(self.state.user.to_wire()));
         self.configure_files(hello)?;
+        self.configure_relays(hello);
         if let Err(e) = self.agent.subscribe_all(&mut self.store) {
             self.log
                 .line(format_args!("subscribing failed: {}", e.detail()));
@@ -34,6 +35,7 @@ impl<A: AgentPort> Engine<A> {
         let chats = self.chats();
         self.emit(chats);
         self.announce_address();
+        self.start_check();
         Ok(())
     }
 }

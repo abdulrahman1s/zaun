@@ -128,9 +128,9 @@ fn the_users_own_link_and_a_known_one_connect_nothing() {
 }
 
 #[test]
-fn group_links_are_refused_as_links_for_now() {
+fn channel_links_are_refused_as_links() {
     let mut t = T::started();
-    let out = t.req(Request::Connect(ADDRESS.replace("/a#", "/g#")));
+    let out = t.req(Request::Connect(ADDRESS.replace("/a#", "/c#")));
     assert_eq!(failed(&out), (RequestKind::Connect, "ZN-CHT-005".into()));
 }
 

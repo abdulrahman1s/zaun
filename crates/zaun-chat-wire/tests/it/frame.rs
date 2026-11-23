@@ -69,3 +69,16 @@ fn native_features_match_what_the_swift_engine_offers_today() {
     assert!(f.block && f.verify && f.mentions && f.calls && f.share);
     assert!(!f.presence && !f.voice && !f.group_voice && !f.link_previews);
 }
+
+#[test]
+fn own_relays_without_an_own_file_server_carry_no_files() {
+    let relay = "smp://k@relay.test".to_owned();
+    let files = "xftp://k@files.test".to_owned();
+    assert!(!features_with(std::slice::from_ref(&relay)).files);
+    assert!(!features_with(std::slice::from_ref(&relay)).gifs);
+    assert!(features_with(&[relay, files.clone()]).files);
+    assert!(
+        features_with(&[files]).files,
+        "an own file server with the preset relays"
+    );
+}

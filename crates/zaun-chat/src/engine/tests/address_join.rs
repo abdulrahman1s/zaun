@@ -65,17 +65,6 @@ fn a_full_address_link_connects_too_and_each_connect_has_its_own_request_id() {
 }
 
 #[test]
-fn group_links_are_still_refused_as_links() {
-    let mut t = T::started();
-    let group_data = "&data=%7B%22groupLinkId%22%3A%22abc%22%7D";
-    for link in [SHORT.replace("/a#", "/g#"), format!("{FULL}{group_data}")] {
-        let out = t.req(Request::Connect(link));
-        assert_eq!(failed(&out), (RequestKind::Connect, "ZN-CHT-005".into()));
-    }
-    assert!(joins(&t).is_empty());
-}
-
-#[test]
 fn the_users_own_address_connects_nothing() {
     let mut t = T::started();
     t.req(Request::CreateAddress);

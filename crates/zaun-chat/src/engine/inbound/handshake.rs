@@ -1,6 +1,6 @@
 //! The invitation handshake (Agent.hs `CONF`/`INFO`/`CON`): our link out, their profile in, ready.
 
-use zaun_chat_wire::model::{ChatNotice, MessageAuthor, MessageBody};
+use zaun_chat_wire::model::{ChatNotice, ChatRef, MessageAuthor, MessageBody};
 use zaun_chat_wire::{Event, RequestKind};
 
 use crate::chat::profile::Profile;
@@ -9,6 +9,7 @@ use crate::engine::error::{Code, EngineError, Result, fail};
 use crate::engine::machine::Engine;
 use crate::engine::profile::{conn_info, received_profile};
 use crate::engine::records::{ConnKind, ConnRecord, FriendRecord, ItemRecord, keys};
+use crate::engine::relays::Retry;
 
 pub(crate) fn apply_profile(f: &mut FriendRecord, p: &Profile) {
     f.name.clone_from(&p.display_name);
@@ -28,6 +29,9 @@ impl<A: AgentPort> Engine<A> {
         full: String,
         short: Option<String>,
     ) -> Result<()> {
+        if let Some((group, member)) = self.state.member_of(conn) {
+            return self.on_member_invitation(group, member, conn, full, short);
+        }
         let mut rec = self.state.conns.get(conn).cloned().ok_or_else(unknown)?;
         let ConnKind::Invitation { created, .. } = rec.kind else {
             return Err(unknown());
@@ -49,6 +53,12 @@ impl<A: AgentPort> Engine<A> {
 
     /// Someone joined our invitation: they become a friend, and we answer with our profile.
     pub(crate) fn on_conf(&mut self, conn: &ConnId, info: &[u8]) -> Result<()> {
+        if let Some((group, member)) = self.state.member_of(conn) {
+            return self.on_member_conf(group, member, conn, info);
+        }
+        if let Some(r) = self.on_link_join_conf(conn, info) {
+            return r;
+        }
         // A connection we made for a request to an address: the owner accepted it.
         if let Some(friend) = self.state.friend_of(conn) {
             return self.on_owner_conf(friend, conn, info);
@@ -77,6 +87,9 @@ impl<A: AgentPort> Engine<A> {
 
     /// The inviting side's profile, on a link we joined.
     pub(crate) fn on_info(&mut self, conn: &ConnId, info: &[u8]) -> Result<()> {
+        if let Some((group, member)) = self.state.member_of(conn) {
+            return self.on_member_info(group, member, conn, info);
+        }
         let id = self.state.friend_of(conn).ok_or_else(unknown)?;
         let profile = received_profile(info)
             .ok_or_else(|| fail(Code::RequestFailed, "conn-info without a profile"))?;
@@ -88,6 +101,9 @@ impl<A: AgentPort> Engine<A> {
     }
 
     pub(crate) fn on_con(&mut self, conn: &ConnId) -> Result<()> {
+        if let Some((group, member)) = self.state.member_of(conn) {
+            return self.on_member_con(group, member, conn);
+        }
         let id = self.state.friend_of(conn).ok_or_else(unknown)?;
         let mut f = self.friend(id)?;
         if f.ready {
@@ -97,7 +113,7 @@ impl<A: AgentPort> Engine<A> {
         self.save_friend(f)?;
         let notice = MessageBody::Notice(ChatNotice::Connected);
         let item = ItemRecord::new(MessageAuthor::Friend, notice, self.clock.wall_ms());
-        let m = self.add_item(id, &item)?;
+        let m = self.add_item(ChatRef::Direct(id), &item)?;
         self.emit(Event::Messages(vec![m]));
         self.state.chats_dirty = true;
         Ok(())
@@ -109,8 +125,17 @@ impl<A: AgentPort> Engine<A> {
         if let Some(r) = self.on_address_error(conn, err) {
             return r;
         }
+        if let Some((group, member)) = self.state.member_of(conn) {
+            return self.on_member_error(group, member, conn, err);
+        }
+        if let Some(ConnKind::GroupLink { group }) = self.state.conns.get(conn).map(|c| &c.kind) {
+            return self.on_group_link_error(*group, err);
+        }
         let e = EngineError::from(err.clone());
         if self.state.inviting.as_ref() == Some(conn) {
+            if self.retry_after_check(Retry::Invite, conn, err) {
+                return Ok(());
+            }
             self.state.inviting = None;
             return self.fail_event(RequestKind::CreateInvite, e);
         }

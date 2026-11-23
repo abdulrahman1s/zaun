@@ -180,6 +180,12 @@ fn an_address_that_fails_while_it_is_made_is_reported_and_forgotten() {
     t.req(Request::CreateAddress);
     let conn = t.e.state.address.creating.unwrap();
     let err = AgentFailure::Network("down".into());
+    let out = t.agent(AgentEvent::Err {
+        conn,
+        err: err.clone(),
+    });
+    assert!(out.is_empty(), "made once more first (relays tests)");
+    let conn = t.e.state.address.creating.unwrap();
     let out = t.agent(AgentEvent::Err { conn, err });
     assert_eq!(failed(&out), (RequestKind::Address, "ZN-CHT-004".into()));
     assert!(t.e.state.address.creating.is_none());

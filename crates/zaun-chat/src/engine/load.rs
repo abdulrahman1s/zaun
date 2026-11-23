@@ -7,7 +7,8 @@ use zaun_chat_wire::model::ChatRef;
 use super::agent_port::AgentPort;
 use super::machine::Engine;
 use super::records::{
-    ConnRecord, FriendRecord, ItemRecord, NS, SettingsRecord, UserRecord, decode, encode, keys,
+    ConnRecord, FriendRecord, GroupRecord, ItemRecord, MemberRecord, NS, SettingsRecord,
+    UserRecord, decode, encode, keys,
 };
 use super::state::State;
 use crate::store::{Store, StoreError};
@@ -24,6 +25,19 @@ fn all<T: DeserializeOwned>(store: &mut Store, prefix: &[u8]) -> Result<Vec<T>, 
     Ok(out)
 }
 
+fn last_item(
+    store: &mut Store,
+    state: &mut State,
+    chat: ChatRef,
+    read_up_to: i64,
+) -> Result<(), StoreError> {
+    if let Some((id, bytes)) = store.page(&keys::chat(chat), None, 1)?.pop() {
+        let item: ItemRecord = decode(&bytes)?;
+        state.last.insert(chat, item.to_wire(id, chat, read_up_to));
+    }
+    Ok(())
+}
+
 /// The state as the store has it. `None` for the user on a first start.
 pub fn load(store: &mut Store) -> Result<(State, Option<UserRecord>), StoreError> {
     let mut state = State {
@@ -34,13 +48,15 @@ pub fn load(store: &mut Store) -> Result<(State, Option<UserRecord>), StoreError
         state.conns.insert(c.conn, c);
     }
     for f in all::<FriendRecord>(store, keys::FRIEND_PREFIX)? {
-        let chat = keys::direct_chat(f.id);
-        if let Some((id, bytes)) = store.page(&chat, None, 1)?.pop() {
-            let item: ItemRecord = decode(&bytes)?;
-            let m = item.to_wire(id, ChatRef::Direct(f.id), f.read_up_to);
-            state.last.insert(f.id, m);
-        }
+        last_item(store, &mut state, ChatRef::Direct(f.id), f.read_up_to)?;
         state.friends.insert(f.id, f);
+    }
+    for g in all::<GroupRecord>(store, keys::GROUP_PREFIX)? {
+        last_item(store, &mut state, ChatRef::Group(g.id), g.read_up_to)?;
+        state.groups.insert(g.id, g);
+    }
+    for m in all::<MemberRecord>(store, keys::MEMBER_PREFIX)? {
+        state.members.insert((m.group, m.id), m);
     }
     let user = get::<UserRecord>(store, keys::USER)?;
     Ok((state, user))
@@ -55,6 +71,18 @@ impl<A: AgentPort> Engine<A> {
     pub(crate) fn save_friend(&mut self, f: FriendRecord) -> Result<(), StoreError> {
         self.put(&keys::friend(f.id), &f)?;
         self.state.friends.insert(f.id, f);
+        Ok(())
+    }
+
+    pub(crate) fn save_group(&mut self, g: GroupRecord) -> Result<(), StoreError> {
+        self.put(&keys::group(g.id), &g)?;
+        self.state.groups.insert(g.id, g);
+        Ok(())
+    }
+
+    pub(crate) fn save_member(&mut self, m: MemberRecord) -> Result<(), StoreError> {
+        self.put(&keys::member(m.group, m.id), &m)?;
+        self.state.members.insert((m.group, m.id), m);
         Ok(())
     }
 

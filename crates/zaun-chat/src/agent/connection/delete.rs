@@ -32,6 +32,8 @@ impl AgentClient {
         for c in self.conns.values() {
             used.extend(c.rec.rcv.iter().map(|q| q.server.clone()));
             used.extend(c.rec.snd.iter().map(|q| q.server.clone()));
+            // A switch's new or old queue: its server must stay open between the switch's requests.
+            used.extend(c.rec.switch.iter().map(|s| s.queue().server.clone()));
             used.extend(c.rec.request.iter().map(|r| r.queue.address.server.clone()));
             if let Ok((s, _)) = super::steps::short_target(&c.rec) {
                 used.insert(s);

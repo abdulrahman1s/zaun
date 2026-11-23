@@ -575,6 +575,17 @@ fn chat(ui: &mut Ui, state: &mut UiState, env: &mut Env<'_>) {
         |p| p.chat.notify_preview,
         |p, v| p.chat.notify_preview = v,
     );
+    if let Some(size) = env.bridge.chat().old_data
+        && button_row(
+            ui,
+            c::OLD_DATA(),
+            &c::old_data_help(size),
+            true,
+            Button::ghost(c::OLD_DATA_DELETE()).accessible_name(c::OLD_DATA()),
+        )
+    {
+        state.show_dialog(Dialog::Confirm(Confirm::ForgetOldChatData { size }));
+    }
 }
 
 /// Settings › Chat (chat.html SETTINGS `chat`, image 40): Chat itself, what friends see,

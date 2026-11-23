@@ -50,7 +50,7 @@ impl Native {
     }
 
     /// One turn of the run loop, at most `wait` long.
-    fn step(&mut self, wait: Duration) {
+    pub(super) fn step(&mut self, wait: Duration) {
         let mut sel = Select::new();
         let net = sel.recv(&self.smp);
         let job = sel.recv(&self.jobs);
@@ -122,7 +122,7 @@ pub(super) fn engine_msg(n: &mut Native, f: impl Fn(&ChatMessage) -> bool) -> Op
     }
 }
 
-fn cli_event(c: &mut Cli, k: &str, f: impl Fn(&Value) -> bool) -> Option<Value> {
+pub(super) fn cli_event(c: &mut Cli, k: &str, f: impl Fn(&Value) -> bool) -> Option<Value> {
     c.take(|e| (kind(e) == k && f(e)).then(|| e.clone()))
 }
 
@@ -131,7 +131,7 @@ fn item_text(e: &Value) -> Option<&str> {
         .as_str()
 }
 
-fn connect(n: &mut Native, c: &mut Cli) -> (i64, i64) {
+pub(super) fn connect(n: &mut Native, c: &mut Cli) -> (i64, i64) {
     n.req(Request::CreateInvite);
     let link = until(n, c, "the invitation", |n, _| {
         n.events.iter().find_map(|e| {

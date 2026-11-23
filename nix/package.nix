@@ -32,10 +32,6 @@
   libva,
   aws-lc,
   zstd,
-  appimageTools,
-  runCommand,
-  simplex-chat-desktop,
-  gmp,
   zlib,
   rustToolchain,
   src,
@@ -77,7 +73,6 @@ let
     stdenv.cc.cc.lib
     libva
     zlib
-    gmp
   ];
 
   # Host tools Zaun executes (RELEASE_STRATEGY §2: bubblewrap and umu-launcher on PATH).
@@ -93,51 +88,6 @@ let
     license = lib.licenses.gpl3Plus;
     platforms = lib.platforms.linux;
   };
-
-  # The Chat engine (ADR-0033): the SimpleX chat core, `libsimplex.so` (AGPL-3.0), with the
-  # GHC runtime and Haskell libraries it is linked against (`libHS*.so`) and the libffi and
-  # libcrypto it was built with. nixpkgs has no library package for it, so it is taken from
-  # the official desktop AppImage that nixpkgs already pins for simplex-chat-desktop (same
-  # pname/version/src, so the extraction is the one nixpkgs itself builds). The AppImage is
-  # published for x86_64-linux and aarch64-linux only; elsewhere this is null and the Chat
-  # page says this build does not include it.
-  #
-  # The prebuilt objects are copied as they are (runCommand has no fixup phase: nothing is
-  # stripped or patched). libsimplex lists every libHS*.so, libffi and libcrypto as DT_NEEDED
-  # with `$ORIGIN` in its RUNPATH, so they resolve beside it; the only libraries it needs from
-  # outside are libgmp.so.10 and libz.so.1, passed to the helper as `simplexLibraryPath`.
-  simplexLib =
-    let
-      inherit (stdenv.hostPlatform) system;
-      appimage = appimageTools.extract {
-        inherit (simplex-chat-desktop) pname version;
-        src = simplex-chat-desktop.passthru.sources.${system};
-      };
-    in
-    if simplex-chat-desktop.passthru.sources ? ${system} then
-      runCommand "zaun-simplex-lib-${simplex-chat-desktop.version}"
-        {
-          meta = {
-            description = "SimpleX chat core library for Zaun's Chat helper";
-            homepage = "https://github.com/simplex-chat/simplex-chat";
-            license = lib.licenses.agpl3Only;
-            sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
-            platforms = simplex-chat-desktop.meta.platforms;
-          };
-        }
-        ''
-          # Not vlc/ (the desktop app's media player) and not libapp-lib.so (its JNI glue).
-          res=${appimage}/usr/lib/app/resources
-          mkdir -p $out/lib
-          cp $res/libsimplex.so $res/libHS*.so $res/libffi.so.8 $res/libcrypto.so.3 $out/lib/
-          chmod 0555 $out/lib/*
-        ''
-    else
-      null;
-  simplexLibraryPath = lib.makeLibraryPath [
-    gmp
-    zlib
-  ];
 
   rustPlatform = makeRustPlatform {
     cargo = rustToolchain;
@@ -222,8 +172,7 @@ rustPlatform.buildRustPackage {
     # The in-game overlay (ADR-0037), started by Zaun from libexec.
     "-p"
     "zaun-overlay"
-  ]
-  ++ lib.optionals (simplexLib != null) [
+    # The Chat helper (ADR-0042), started by Zaun from libexec under bwrap.
     "-p"
     "zaun-chat"
   ];
@@ -262,20 +211,10 @@ rustPlatform.buildRustPackage {
     install -Dm755 $out/bin/zaun-overlay $out/libexec/zaun/zaun-overlay
     rm $out/bin/zaun-overlay
     remove-references-to -t ${rustToolchain} $out/libexec/zaun/zaun-overlay
-  ''
-  # The Chat helper is AGPL-3.0 (it loads libsimplex into its process); Zaun talks to it
-  # over pipes only. Its library folder holds links into simplexLib, so the helper's sandbox
-  # binds a real directory (SimplexFactory binds the library's parent folder).
-  + lib.optionalString (simplexLib != null) ''
+    # The Chat helper is AGPL-3.0 (the native engine, ADR-0042); Zaun talks to it over pipes only.
     install -Dm755 $out/bin/zaun-chat $out/libexec/zaun/zaun-chat
     rm $out/bin/zaun-chat
-    # The native engine's development binary (ADR-0042) does not ship until the switch.
-    rm -f $out/bin/zaun-chat-native
     remove-references-to -t ${rustToolchain} $out/libexec/zaun/zaun-chat
-    mkdir -p $out/libexec/zaun/simplex
-    ln -s ${simplexLib}/lib/* $out/libexec/zaun/simplex/
-  ''
-  + ''
 
     # Desktop entry, icons and AppStream metadata, when the source tree has them.
     if [ -d assets/share ]; then
@@ -329,11 +268,7 @@ rustPlatform.buildRustPackage {
     wrapProgram $out/bin/zaun \
       --set DISABLE_MANGOHUD 1 \
       --prefix PATH : ${lib.makeBinPath hostTools} \
-      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath runtimeLibs} \
-      ${lib.optionalString (simplexLib != null) ''
-        --set ZAUN_SIMPLEX_LIB $out/libexec/zaun/simplex/libsimplex.so \
-        --set ZAUN_SIMPLEX_LIBRARY_PATH ${simplexLibraryPath}
-      ''}
+      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath runtimeLibs}
   '';
 
   # The wrapper's LD_LIBRARY_PATH reaches only the process it starts: the session supervisor
@@ -355,13 +290,15 @@ rustPlatform.buildRustPackage {
       runtimeLibs
       bundleLibs
       hostTools
-      simplexLib
       ;
   };
 
   meta = meta // {
-    # libexec/zaun/zaun-chat is AGPL-3.0-only (ADR-0033); everything else GPL-3.0+.
-    license = [ meta.license ] ++ lib.optional (simplexLib != null) lib.licenses.agpl3Only;
+    # libexec/zaun/zaun-chat is AGPL-3.0-only (ADR-0042); everything else GPL-3.0+.
+    license = [
+      meta.license
+      lib.licenses.agpl3Only
+    ];
     mainProgram = "zaun";
   };
 }

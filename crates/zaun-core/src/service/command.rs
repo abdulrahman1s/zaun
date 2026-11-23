@@ -176,6 +176,8 @@ pub enum ChatCommand {
     },
     /// Change the name friends see.
     SetName(String),
+    /// Delete the databases the old Chat engine left (`ChatSnapshot::old_data`).
+    ForgetOldData,
     /// Make a one-time invitation link (`ChatSnapshot::invite`).
     CreateInvite,
     /// Use a friend's link.

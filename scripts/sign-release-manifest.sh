@@ -6,7 +6,8 @@
 #
 # Reads, in DIR, the gzip-compressed files of the bundle:
 #   zaun-VERSION-ARCH-linux.{zaun,zaun-init,zaun-overlay,zaun-chat}.gz
-#   zaun-simplex-SIMPLEXVERSION-ARCH.tar.gz   (the Chat engine folder, a GNU tar of plain files)
+#   zaun-simplex-*-ARCH.tar.gz   (the old Chat engine's simplex/ folder, a GNU tar of plain
+#                                files: a stub that copies up to 0.4.2 require, ADR-0042)
 # and writes DIR/bundle.json (format 2, read by Zaun from 0.3 on) and DIR/manifest.json
 # (format 1: zaun and zaun-init only, for copies from before, which update a tarball in
 # place), each with a .sig: the base64 Ed25519 signature over the file's exact bytes, which

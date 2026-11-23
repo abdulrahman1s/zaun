@@ -8,6 +8,8 @@ use super::request::ContactRequest;
 use super::status::ConnStatus;
 use crate::agent::client::ConnId;
 use crate::agent::queue_info::SmpQueueInfo;
+use crate::agent::resync::RatchetSync;
+use crate::agent::rotation::Switch;
 
 /// The ids and hashes that chain each side's agent messages (`APrivHeader`, `checkMsgIntegrity`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -56,6 +58,13 @@ pub struct ConnRecord {
     pub new_link: Option<NewLink>,
     /// Requester: the request to an address, until the address has taken it.
     pub request: Option<ContactRequest>,
+    /// Address owner: the `clientData` of its link, until the server answers. Only a group's link
+    /// has one (`{"groupLinkId":…}`), and it makes the short link a `/g#` one.
+    pub client_data: Option<String>,
+    /// Sender: the peer is moving its queue (`QADD`) and we follow.
+    pub switch: Option<Switch>,
+    /// The ratchet-sync state and what a re-sync keeps; `None` is `RSOk`.
+    pub sync: Option<RatchetSync>,
 }
 
 impl ConnRecord {
@@ -78,6 +87,9 @@ impl ConnRecord {
             peer_reply: None,
             new_link: None,
             request: None,
+            client_data: None,
+            switch: None,
+            sync: None,
         }
     }
 }

@@ -4,6 +4,7 @@ use zaun_chat_wire::model::Delivery;
 
 use crate::engine::agent_port::{AgentEvent, AgentPort};
 use crate::engine::machine::Engine;
+use crate::engine::records::ConnKind;
 
 impl<A: AgentPort> Engine<A> {
     pub(crate) fn on_agent(&mut self, event: AgentEvent) {
@@ -36,7 +37,15 @@ impl<A: AgentPort> Engine<A> {
                 Ok(())
             }
             AgentEvent::Err { conn, err } => self.on_conn_error(&conn, &err),
-            e @ (AgentEvent::Address { .. } | AgentEvent::Req { .. }) => self.on_address_event(e),
+            AgentEvent::RatchetSync { conn, state } => self.on_ratchet_sync(&conn, state),
+            e @ (AgentEvent::Address { conn, .. } | AgentEvent::Req { conn, .. }) => {
+                match self.state.conns.get(&conn).map(|c| &c.kind) {
+                    Some(&ConnKind::GroupLink { group }) => {
+                        self.on_group_link_agent_event(group, e)
+                    }
+                    _ => self.on_address_event(e),
+                }
+            }
         };
         if let Err(e) = r {
             self.log

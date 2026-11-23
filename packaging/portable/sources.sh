@@ -10,13 +10,6 @@ NVCODEC_VERSION=n12.1.14.0
 NVCODEC_URL="https://github.com/FFmpeg/nv-codec-headers/archive/refs/tags/${NVCODEC_VERSION}.tar.gz"
 NVCODEC_SHA256=2fefaa227d2a3b4170797796425a59d1dd2ed5fd231db9b4244468ba327acd0b
 
-# The Chat engine (ADR-0033): the official desktop AppImage, the same file nixpkgs pins for
-# simplex-chat-desktop.
-SIMPLEX_VERSION=7.0.3
-SIMPLEX_URL="https://github.com/simplex-chat/simplex-chat/releases/download/v${SIMPLEX_VERSION}/simplex-desktop-x86_64.AppImage"
-SIMPLEX_SHA256=404220f16f1c03879b8d7402e31e8ce525dc3ce7a6904637bd48e19974f2536a
-SIMPLEX_SOURCE="https://github.com/simplex-chat/simplex-chat/tree/v${SIMPLEX_VERSION}"
-
 # Download $1 to $2 unless it is there with sha256 $3; fail on a mismatch.
 fetch() {
     local url="$1" out="$2" sum="$3"

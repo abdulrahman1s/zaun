@@ -11,6 +11,12 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 
 ### For users
 
+- Chat has a new engine, written for Zaun, in place of the 240 MB one it borrowed from the
+  SimpleX apps. Friends and groups do not carry over: add your friends again with a new
+  invitation or your address. Settings › Chat offers to delete the old chat data, with its
+  size; files you received stay in the Chat folder. With relays of your own and no file
+  server of your own, files are off, as before. A copy older than 0.3 gets Chat back with the
+  update after the one that brings this.
 - Updates, the way Steam and Discord do them: Settings › About › Updates has a "Check for
   updates" switch. It is off until you turn it on, and it says that Zaun then asks github.com
   once a day and that GitHub learns only your IP address and the time. With it on, a new
@@ -19,7 +25,7 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   a game runs. A version that fails to start three times is removed and the previous one comes
   back. This works for the tarball, the .deb, the .rpm, the Arch package and, with
   `programs.zaun.selfUpdate`, NixOS. The installed copy stays as it is and runs itself
-  whenever it is the newer one. The Chat engine is downloaded only when it changes. Flatpak,
+  whenever it is the newer one. Flatpak,
   and Nix without that option, say how to update instead. `zaun update check|apply|on|off`
   does the same from a terminal (`check` exits with 10 when a newer version is available).
 - Release builds start on any x86_64 distribution with glibc 2.35 or newer (Ubuntu 22.04 and
@@ -195,15 +201,21 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
 
 ### For packagers
 
+- The Chat engine is native (ADR-0042): `zaun-chat` is the whole engine, in Rust, and the
+  libsimplex folder (`libexec/zaun/simplex/`, about 237 MiB of Haskell libraries) is gone,
+  with `ZAUN_SIMPLEX_LIB`, `ZAUN_SIMPLEX_LIBRARY_PATH`, `build-release.sh --simplex` and
+  `packaging/portable/simplex.sh`. `zaun-chat` links zstd (bundled, or the system's through
+  pkg-config) and is started under bwrap, as before. Releases still list a
+  `simplex/` stub of one note in `bundle.json`, because copies up to 0.4.2 refuse a bundle
+  without it; newer copies skip it.
 - Release binaries come from `packaging/portable/build.sh` in a Debian 12 container (ADR-0041).
   It builds a minimal static FFmpeg with only the NVENC and VA-API H.264 encoders, links
   libva, PipeWire, PulseAudio, Opus and udev from the system, and needs glibc 2.35. It takes
-  the Chat engine from SimpleX's pinned desktop AppImage. `scripts/build-release.sh` now
-  also builds `zaun-overlay` and `zaun-chat`, and `--simplex DIR` ships the engine in
-  `LIBEXEC_DIR/simplex`. The .deb, .rpm (back again) and Arch package carry both helpers
-  and the engine; their dependencies list the libraries above.
+  `scripts/build-release.sh` now also builds `zaun-overlay` and `zaun-chat`. The .deb,
+  .rpm (back again) and Arch package carry both helpers; their dependencies list the
+  libraries above.
 - Releases carry the self-update bundle: `zaun-V-x86_64-linux.{zaun,zaun-init,zaun-overlay,zaun-chat}.gz`
-  and `zaun-simplex-S-x86_64.tar.gz`, listed in the signed `bundle.json`. `manifest.json`
+  and the `simplex/` stub above, listed in the signed `bundle.json`. `manifest.json`
   (format 1) is still published for copies from before. The release job needs the Actions
   secret `ZAUN_UPDATE_SIGNING_KEY`; tags with a pre-release suffix are published as
   pre-releases. Third-party actions are pinned by commit.
@@ -232,14 +244,11 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   `zaun`. Without it, or without a Wayland session, there is simply no overlay.
 
 - New build dependency `strum` (MIT, derive macros only). `anyhow` is no longer used.
-- Chat (ADR-0033) adds the crate `zaun-chat`, licensed **AGPL-3.0-only** (the rest is
-  GPL-3.0-or-later; GPLv3 §13 permits the combination), the only code that links the SimpleX
-  chat engine. Install the binary to `libexec/zaun/`, and `libsimplex.so` with the
-  libraries it needs to `libexec/zaun/simplex/` (about 237 MiB; chat core 7.0.0.12 was
-  the one tested). Elsewhere: `ZAUN_SIMPLEX_LIB` names `libsimplex.so`;
-  `ZAUN_SIMPLEX_LIBRARY_PATH` becomes the helper's `LD_LIBRARY_PATH` (needed on NixOS).
-  Without the helper or the library the Chat page says "not included in this build" and
-  nothing else changes; the AGPL source of the helper must be offered with the package.
+- Chat (ADR-0033, ADR-0042) adds the crate `zaun-chat`, licensed **AGPL-3.0-only** (the rest
+  is GPL-3.0-or-later; GPLv3 §13 permits the combination): the SimpleX protocols, ported from
+  simplexmq and simplex-chat. Install the binary to `libexec/zaun/`. Without it the Chat
+  page says "not included in this build" and nothing else changes; the AGPL source of the
+  helper must be offered with the package.
 - Chat ships Twemoji's PNG emoji (`twemoji-assets`, CC-BY 4.0; credited in Settings → About →
   Licences, text in `assets/licenses/CC-BY-4.0-Twemoji.txt`). It adds about 5.6 MB to the
   binary. The `image` crate gains its `gif` feature.

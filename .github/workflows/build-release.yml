@@ -381,7 +381,7 @@ jobs:
 
       - name: Build, check and stage the tarball
         # packaging/portable/build.sh installs the build packages and the toolchain, builds
-        # FFmpeg and takes the Chat engine from its pinned release, then runs
+        # FFmpeg, then runs
         # scripts/build-release.sh --tarball (PKG-001): --locked, no dev-inspection, size
         # budgets, static shim, desktop/AppStream validation.
         id: tarball
@@ -398,22 +398,24 @@ jobs:
         run: env -i dist/zaun-*-x86_64-linux/libexec/zaun/zaun --version
 
       - name: Files of the self-update bundle (ADR-0041)
-        # Each binary gzip-compressed, and the Chat engine as a GNU tar of plain files; the
-        # release job lists and signs them in bundle.json (and zaun, zaun-init in the
-        # manifest.json of older copies).
+        # Each binary gzip-compressed; the release job lists and signs them in bundle.json (and
+        # zaun, zaun-init in the manifest.json of older copies). Copies up to 0.4.2 refuse a
+        # bundle without the old Chat engine's simplex/ folder, so it goes on as a stub of one
+        # note, which newer copies skip (ADR-0042).
         if: ${{ startsWith(github.ref, 'refs/tags/v') || needs.prepare-release.outputs.released == 'true' }}
         env:
           VERSION: ${{ steps.tarball.outputs.version }}
         run: |
           set -euo pipefail
-          . packaging/portable/sources.sh
           tree="dist/zaun-${VERSION}-x86_64-linux"
           for name in zaun zaun-init zaun-overlay zaun-chat; do
             gzip -9 -n -c "${tree}/libexec/zaun/${name}" > "dist/zaun-${VERSION}-x86_64-linux.${name}.gz"
           done
+          stub="$(mktemp -d)"
+          printf 'The Chat engine is built into zaun-chat. This folder is here only so that\nolder copies of Zaun can update; nothing reads it.\n' > "${stub}/README"
           tar --format=gnu --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 \
-            -C "${tree}/libexec/zaun/simplex" -cf - . \
-            | gzip -9 -n > "dist/zaun-simplex-${SIMPLEX_VERSION}-x86_64.tar.gz"
+            -C "${stub}" -cf - . \
+            | gzip -9 -n > "dist/zaun-simplex-retired-x86_64.tar.gz"
 
       - name: Vendored crates for offline source builds (RPM/COPR)
         if: ${{ startsWith(github.ref, 'refs/tags/v') || needs.prepare-release.outputs.released == 'true' }}

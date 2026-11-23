@@ -99,7 +99,7 @@ fn preferences_decide_for_each_side_as_prefenabled_does() {
 }
 
 fn shared_of(t: &mut T, friend: i64, item: i64) -> SharedMsgId {
-    let it = t.e.item(friend, item).unwrap().unwrap();
+    let it = t.e.item(ChatRef::Direct(friend), item).unwrap().unwrap();
     SharedMsgId(it.shared_id.unwrap())
 }
 
@@ -186,11 +186,11 @@ fn deleting_removes_the_item_for_good_when_the_preferences_allow_full_delete() {
     let [d] = messages(&out).try_into().unwrap();
     assert_eq!((d.id, d.body), (kept.id, MessageBody::Deleted));
     assert!(
-        t.e.item(bob, kept.id).unwrap().is_none(),
+        t.e.item(ChatRef::Direct(bob), kept.id).unwrap().is_none(),
         "gone from the store"
     );
     let ids: Vec<_> =
-        t.e.items_page(bob, None, 50)
+        t.e.items_page(ChatRef::Direct(bob), None, 50)
             .unwrap()
             .iter()
             .map(|m| m.id)
@@ -212,7 +212,7 @@ fn deleting_only_marks_the_item_while_the_friend_has_not_allowed_full_delete() {
         item: m.id,
     });
     assert_eq!(
-        t.e.item(bob, m.id).unwrap().unwrap().body,
+        t.e.item(ChatRef::Direct(bob), m.id).unwrap().unwrap().body,
         MessageBody::Deleted
     );
 }
@@ -240,5 +240,8 @@ fn a_friends_delete_only_marks_the_item_while_the_users_full_delete_is_off() {
         },
     );
     assert_eq!(messages(&out)[0].body, MessageBody::Deleted);
-    assert!(t.e.item(bob, m.id).unwrap().is_some(), "kept, marked");
+    assert!(
+        t.e.item(ChatRef::Direct(bob), m.id).unwrap().is_some(),
+        "kept, marked"
+    );
 }

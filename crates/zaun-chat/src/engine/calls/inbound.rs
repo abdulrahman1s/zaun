@@ -250,12 +250,13 @@ impl<A: AgentPort> Engine<A> {
         } else {
             Over::Ended
         };
-        self.close_call(friend, &call, over);
+        // The signal first, as the old engine did: the call ends before its line is shown.
         self.emit(match (call.kind, declined) {
             (Kind::Voice, true) => Event::Call(CallSignal::Declined(friend)),
             (Kind::Voice, false) => Event::Call(CallSignal::Ended(friend)),
             (Kind::Stream, _) => Event::Stream(StreamSignal::Ended(friend)),
         });
+        self.close_call(friend, &call, over);
         Ok(())
     }
 

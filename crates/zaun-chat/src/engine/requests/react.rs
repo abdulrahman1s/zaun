@@ -1,4 +1,4 @@
-//! React: the user adds or takes back a reaction (Commands.hs `APIChatItemReaction`).
+//! React: the user adds or takes back a reaction, to a friend or a group (Commands.hs `APIChatItemReaction`).
 
 use zaun_chat_wire::model::{ChatRef, Reaction};
 
@@ -7,6 +7,7 @@ use crate::chat::ids::SharedMsgId;
 use crate::chat::reaction::{MsgReaction, REACTION_EMOJI};
 use crate::engine::agent_port::AgentPort;
 use crate::engine::error::{Code, Result, fail};
+use crate::engine::groups::policy;
 use crate::engine::machine::Engine;
 use crate::engine::records::friend::Feature;
 
@@ -48,9 +49,16 @@ fn react_mine(reactions: &mut Vec<Reaction>, emoji: String, on: bool) {
 }
 
 impl<A: AgentPort> Engine<A> {
+    /// Whether the user may react in the chat: the friend's preferences, or the group's.
+    fn reactions_on(&self, chat: ChatRef) -> Result<bool> {
+        Ok(match chat {
+            ChatRef::Direct(friend) => self.friend(friend)?.enabled(Feature::Reactions).for_user,
+            ChatRef::Group(group) => policy::on(&self.group(group)?, policy::Feature::Reactions),
+        })
+    }
+
     pub(crate) fn react(&mut self, chat: ChatRef, item: i64, emoji: &str, on: bool) -> Result<()> {
-        let friend = Self::direct_friend(chat)?;
-        if !self.friend(friend)?.enabled(Feature::Reactions).for_user {
+        if !self.reactions_on(chat)? {
             return Err(fail(Code::RequestFailed, "feature not allowed: reactions"));
         }
         let c = wire_emoji(emoji).ok_or_else(|| {
@@ -60,7 +68,7 @@ impl<A: AgentPort> Engine<A> {
             )
         })?;
         let mut it = self
-            .item(friend, item)?
+            .item(chat, item)?
             .ok_or_else(|| fail(Code::RequestFailed, "no such item"))?;
         let shown = c.to_string().replace('\u{2764}', "\u{2764}\u{fe0f}");
         let mine: Vec<&Reaction> = it.reactions.iter().filter(|r| r.mine).collect();
@@ -70,17 +78,25 @@ impl<A: AgentPort> Engine<A> {
             Some(s) if has_content(&it.body) && had != on && !full => s,
             Some(_) | None => return Err(fail(Code::RequestFailed, "reaction not allowed")),
         };
-        self.send_event(
-            friend,
+        // In a group the reaction names the item's author (Commands.hs `chatItemMember`).
+        let member_id = match chat {
+            ChatRef::Direct(_) => None,
+            ChatRef::Group(group) => {
+                let g = self.group(group)?;
+                Some(self.member_id_of(&g, it.member.unwrap_or(0))?)
+            }
+        };
+        self.send_to_chat(
+            chat,
             ChatEvent::MsgReact {
                 msg_id: SharedMsgId(shared),
-                member_id: None,
+                member_id,
                 scope: None,
                 reaction: MsgReaction::Emoji(c),
                 add: on,
             },
         )?;
         react_mine(&mut it.reactions, shown, on);
-        self.save_changed(friend, item, &it)
+        self.save_changed(chat, item, &it)
     }
 }

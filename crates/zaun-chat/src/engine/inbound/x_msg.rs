@@ -1,7 +1,7 @@
 //! A friend's messages: `x.msg.new` (with its quote), and their edits, deletions and reactions.
 
 use zaun_chat_wire::Event;
-use zaun_chat_wire::model::{MessageAuthor, MessageBody, Quote, Reaction};
+use zaun_chat_wire::model::{ChatRef, MessageAuthor, MessageBody, Quote, Reaction};
 
 use crate::chat::container::{MsgContainer, QuotedMsg};
 use crate::chat::content::MsgContent;
@@ -58,7 +58,9 @@ impl<A: AgentPort> Engine<A> {
         }
         // A message not acked before a restart comes again; it is kept once.
         if let Some(s) = &shared
-            && self.item_by_shared(friend, s)?.is_some()
+            && self
+                .item_by_shared(ChatRef::Direct(friend), None, s)?
+                .is_some()
         {
             return Ok(());
         }
@@ -78,7 +80,7 @@ impl<A: AgentPort> Engine<A> {
             .quote
             .map(|q| self.incoming_quote(friend, &q))
             .transpose()?;
-        let m = self.add_item(friend, &item)?;
+        let m = self.add_item(ChatRef::Direct(friend), &item)?;
         f.unread += 1;
         self.save_friend(f)?;
         let id = m.id;
@@ -92,7 +94,9 @@ impl<A: AgentPort> Engine<A> {
     /// `sent` is from the sender's side: true means the friend wrote the quoted message.
     fn incoming_quote(&mut self, friend: i64, q: &QuotedMsg) -> Result<Quote> {
         let id = match &q.msg_ref.msg_id {
-            Some(shared) => self.item_by_shared(friend, &shared.0)?.map(|(id, _)| id),
+            Some(shared) => self
+                .item_by_shared(ChatRef::Direct(friend), None, &shared.0)?
+                .map(|(id, _)| id),
             None => None,
         };
         let author = if q.msg_ref.sent {
@@ -110,14 +114,15 @@ impl<A: AgentPort> Engine<A> {
         shared: &[u8],
         f: impl FnOnce(&mut ItemRecord),
     ) -> Result<()> {
-        let Some((id, mut item)) = self.item_by_shared(friend, shared)? else {
+        let Some((id, mut item)) = self.item_by_shared(ChatRef::Direct(friend), None, shared)?
+        else {
             return Ok(());
         };
         if item.author != MessageAuthor::Friend || item.body == MessageBody::Deleted {
             return Ok(());
         }
         f(&mut item);
-        let m = self.change_item(friend, id, &item)?;
+        let m = self.change_item(ChatRef::Direct(friend), id, &item)?;
         self.emit(Event::Updated(vec![m]));
         Ok(())
     }
@@ -137,7 +142,7 @@ impl<A: AgentPort> Engine<A> {
 
     /// Subscriber.hs `messageDelete`: gone for good when the preferences allow their full delete.
     pub(crate) fn on_msg_del(&mut self, friend: i64, shared: &[u8]) -> Result<()> {
-        let Some((id, item)) = self.item_by_shared(friend, shared)? else {
+        let Some((id, item)) = self.item_by_shared(ChatRef::Direct(friend), None, shared)? else {
             return Ok(());
         };
         if item.author != MessageAuthor::Friend || item.body == MessageBody::Deleted {
@@ -164,14 +169,15 @@ impl<A: AgentPort> Engine<A> {
         if !self.friend(friend)?.enabled(Feature::Reactions).for_contact {
             return Ok(());
         }
-        let Some((id, mut item)) = self.item_by_shared(friend, shared)? else {
+        let Some((id, mut item)) = self.item_by_shared(ChatRef::Direct(friend), None, shared)?
+        else {
             return Ok(());
         };
         if item.body == MessageBody::Deleted {
             return Ok(());
         }
         react(&mut item.reactions, emoji, add);
-        let m = self.change_item(friend, id, &item)?;
+        let m = self.change_item(ChatRef::Direct(friend), id, &item)?;
         self.emit(Event::Updated(vec![m]));
         Ok(())
     }

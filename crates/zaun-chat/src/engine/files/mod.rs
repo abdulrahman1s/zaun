@@ -1,4 +1,4 @@
-//! Files over XFTP (Phase 2): sending, fetching, cancelling, opening and locating a message's file, and the friend's file offers (Commands.hs `APISendMessages`, `CancelFile`; Subscriber.hs `processFileInvitation`, `processFDMessage`, `xFileCancel`).
+//! Files over XFTP (Phase 2, groups in Phase 4): sending, fetching, cancelling, opening and locating a message's file, and the friend's or member's file offers (Commands.hs `APISendMessages`, `CancelFile`; Subscriber.hs `processFileInvitation`, `processFDMessage`, `xFileCancel`).
 
 mod body;
 mod cancel;
@@ -8,11 +8,13 @@ mod done;
 mod forget;
 mod inbound;
 mod locate;
+mod offer;
 mod real;
 mod receive;
 mod send;
 mod state;
 pub(crate) mod transfers;
+mod uploaded;
 
 use std::collections::HashMap;
 use std::path::PathBuf;

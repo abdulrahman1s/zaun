@@ -29,28 +29,13 @@ impl AgentClient {
     ) -> Result<AgentMsgId> {
         let (mut rec, ratchet) = self.editable(id)?;
         let mut ratchet = ratchet.ok_or(AgentError::Prohibited("no ratchet"))?;
+        rec.ensure_can_send()?;
         let sq = rec
             .snd
             .clone()
             .ok_or(AgentError::Prohibited("no send queue"))?;
-        let snd_msg_id = rec.chain.snd_id + 1;
-        let header = APrivHeader {
-            snd_msg_id,
-            prev_msg_hash: rec.chain.snd_hash.clone(),
-        };
-        let plain = AgentMessage::Message {
-            header,
-            message: msg,
-        }
-        .to_bytes()?;
-        let len = e2e_enc_agent_msg_length(ratchet.pq_support());
-        let env = AgentMsgEnvelope::Message {
-            agent_version: rec.agent_version,
-            enc_agent_message: ratchet.encrypt(&plain, len, None)?,
-        };
-        let body = seal(&sq, &env.to_bytes()?, false)?;
-        rec.chain.snd_id = snd_msg_id;
-        rec.chain.snd_hash = msg_hash(&plain).to_vec();
+        let body = seal(&sq, &agent_envelope(&mut rec, &mut ratchet, msg)?, false)?;
+        let snd_msg_id = rec.chain.snd_id;
         let mut b = Batch::default();
         if kind == SendKind::Msg {
             let sent = SentMsg {
@@ -89,4 +74,30 @@ impl AgentClient {
         self.kick(store, conn);
         Ok(id)
     }
+}
+
+/// The next agent message of our chain as an envelope, before the per-queue box; moves the chain on.
+pub(crate) fn agent_envelope(
+    rec: &mut ConnRecord,
+    ratchet: &mut Ratchet,
+    msg: AMessage,
+) -> Result<Vec<u8>> {
+    let snd_msg_id = rec.chain.snd_id + 1;
+    let header = APrivHeader {
+        snd_msg_id,
+        prev_msg_hash: rec.chain.snd_hash.clone(),
+    };
+    let plain = AgentMessage::Message {
+        header,
+        message: msg,
+    }
+    .to_bytes()?;
+    let len = e2e_enc_agent_msg_length(ratchet.pq_support());
+    let env = AgentMsgEnvelope::Message {
+        agent_version: rec.agent_version,
+        enc_agent_message: ratchet.encrypt(&plain, len, None)?,
+    };
+    rec.chain.snd_id = snd_msg_id;
+    rec.chain.snd_hash = msg_hash(&plain).to_vec();
+    Ok(env.to_bytes()?)
 }

@@ -8,9 +8,11 @@ use crate::agent::records::{self, Batch, ConnStatus, PendingSend, SendKind};
 
 impl AgentClient {
     pub(super) fn on_sent(&mut self, store: &mut Store, id: ConnId, p: &PendingSend) -> Result<()> {
-        let mut b = Batch::default();
-        b.delete(records::send_key(id, p.id));
-        b.apply(store)?;
+        if !self.switch_sent(store, id, p)? {
+            let mut b = Batch::default();
+            b.delete(records::send_key(id, p.id));
+            b.apply(store)?;
+        }
         self.pop_send(id);
         match p.kind {
             SendKind::Msg => self.emit(AgentEvent::Sent {
@@ -23,7 +25,12 @@ impl AgentClient {
                 self.save(store, rec, None, Batch::default())?;
                 self.emit(AgentEvent::Con { conn: id });
             }
-            SendKind::Confirmation | SendKind::Receipt | SendKind::Qcont => {}
+            SendKind::Confirmation
+            | SendKind::Receipt
+            | SendKind::Qcont
+            | SendKind::Resync
+            | SendKind::Switch
+            | SendKind::Quiet => {}
         }
         Ok(())
     }
@@ -46,8 +53,10 @@ impl AgentClient {
                 msg_id: p.id,
                 err,
             }),
-            SendKind::Confirmation => self.emit(AgentEvent::Err { conn: id, err }),
-            SendKind::Receipt | SendKind::Qcont => {}
+            SendKind::Confirmation | SendKind::Resync | SendKind::Switch => {
+                self.emit(AgentEvent::Err { conn: id, err })
+            }
+            SendKind::Receipt | SendKind::Qcont | SendKind::Quiet => {}
         }
         Ok(())
     }

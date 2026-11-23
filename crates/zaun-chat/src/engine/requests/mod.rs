@@ -3,6 +3,7 @@
 mod change;
 mod codes;
 mod connect;
+mod delete;
 mod dispatch;
 mod history;
 mod invite;
@@ -14,3 +15,5 @@ mod react;
 mod read;
 mod remove;
 mod send;
+
+pub(crate) use change::has_content;

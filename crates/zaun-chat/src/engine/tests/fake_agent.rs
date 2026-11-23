@@ -11,6 +11,10 @@ pub enum Call {
         short: bool,
         user_data: Vec<u8>,
     },
+    CreateGroupAddress {
+        user_data: Vec<u8>,
+        client_data: String,
+    },
     AcceptRequest {
         invitation: Vec<u8>,
         conn_info: Vec<u8>,
@@ -39,6 +43,10 @@ pub enum Call {
         conn: ConnId,
     },
     SubscribeAll,
+    SynchronizeRatchet {
+        conn: ConnId,
+    },
+    SetDisabledRelays(Vec<String>),
 }
 
 #[derive(Debug, Default)]
@@ -51,6 +59,8 @@ pub struct FakeAgent {
     pub on_subscribe: Vec<AgentEvent>,
     /// What `ratchet_ad` answers.
     pub ratchet_ad: Vec<u8>,
+    /// The PQ flag of each `join` and `accept_request`, in order.
+    pub pq_seen: Vec<(&'static str, bool)>,
     conns: i64,
     msgs: AgentMsgId,
 }
@@ -100,13 +110,27 @@ impl AgentPort for FakeAgent {
         self.conn()
     }
 
+    fn create_group_address(
+        &mut self,
+        _: &mut Store,
+        user_data: Vec<u8>,
+        client_data: String,
+    ) -> Result<ConnId, AgentFailure> {
+        self.calls.push(Call::CreateGroupAddress {
+            user_data,
+            client_data,
+        });
+        self.conn()
+    }
+
     fn accept_request(
         &mut self,
         _: &mut Store,
         invitation: &[u8],
         conn_info: Vec<u8>,
-        _: bool,
+        pq: bool,
     ) -> Result<ConnId, AgentFailure> {
+        self.pq_seen.push(("accept", pq));
         self.calls.push(Call::AcceptRequest {
             invitation: invitation.to_vec(),
             conn_info,
@@ -126,8 +150,9 @@ impl AgentPort for FakeAgent {
         _: &mut Store,
         link: &ConnectionLink,
         conn_info: Vec<u8>,
-        _: bool,
+        pq: bool,
     ) -> Result<ConnId, AgentFailure> {
+        self.pq_seen.push(("join", pq));
         self.calls.push(Call::Join {
             link: link.to_uri(),
             conn_info,
@@ -202,6 +227,15 @@ impl AgentPort for FakeAgent {
     fn ratchet_ad(&mut self, _: &mut Store, _: &ConnId) -> Result<Vec<u8>, AgentFailure> {
         self.fail_next.take().map_or(Ok(()), Err)?;
         Ok(self.ratchet_ad.clone())
+    }
+
+    fn synchronize_ratchet(&mut self, _: &mut Store, conn: &ConnId) -> Result<(), AgentFailure> {
+        self.calls.push(Call::SynchronizeRatchet { conn: *conn });
+        self.fail_next.take().map_or(Ok(()), Err)
+    }
+
+    fn set_disabled_relays(&mut self, disabled: &[String]) {
+        self.calls.push(Call::SetDisabledRelays(disabled.to_vec()));
     }
 
     fn drain_events(&mut self) -> Vec<AgentEvent> {

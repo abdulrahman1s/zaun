@@ -1,7 +1,0 @@
-{
-  "result": {
-    "type": "hostConnected",
-    "protocol": "smp",
-    "transportHost": "127.0.0.1"
-  }
-}

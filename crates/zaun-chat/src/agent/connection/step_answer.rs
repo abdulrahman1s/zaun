@@ -30,7 +30,9 @@ impl AgentClient {
                 OpKind::Lget => self.on_contact_resolved(store, id, r),
                 OpKind::Skey => self.on_secured(store, id),
                 OpKind::Request => self.on_request_sent(store, id),
-                OpKind::Sub | OpKind::Ack | OpKind::Send(_) | OpKind::Del => Ok(()),
+                OpKind::Sub | OpKind::Ack | OpKind::Send(_) | OpKind::Del | OpKind::Switch(_) => {
+                    Ok(())
+                }
             },
         };
         if r.is_err()

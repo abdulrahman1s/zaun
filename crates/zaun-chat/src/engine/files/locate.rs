@@ -14,8 +14,7 @@ impl<A: AgentPort> Engine<A> {
         chat: ChatRef,
         item: i64,
     ) -> Option<(std::path::PathBuf, zaun_chat_wire::FileKind)> {
-        let friend = Self::friend_of_chat(chat).ok()?;
-        let rec = self.file_record(friend, item).ok()??;
+        let rec = self.file_record(chat, item).ok()??;
         let path = rec.local.filter(|p| p.is_file())?;
         Some((path, rec.kind))
     }

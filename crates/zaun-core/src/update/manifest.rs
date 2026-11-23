@@ -7,7 +7,8 @@ use serde::Deserialize;
 
 use super::UpdateError;
 use super::source::{
-    BUNDLE_CHANNEL, BUNDLE_FILES, DOWNLOAD_PREFIX, MAX_FILE, MAX_FOLDER, MAX_MANIFEST, NOTES_PREFIX,
+    BUNDLE_CHANNEL, BUNDLE_FILES, DOWNLOAD_PREFIX, MAX_FILE, MAX_FOLDER, MAX_MANIFEST,
+    NOTES_PREFIX, RETIRED_FILES,
 };
 use super::version::Version;
 
@@ -34,7 +35,8 @@ struct Raw {
 pub struct Artifact {
     pub channel: String,
     pub arch: String,
-    /// Where it goes in a version folder (one of `BUNDLE_FILES`; a folder ends in `/`).
+    /// Where it goes in a version folder (one of `BUNDLE_FILES` or `RETIRED_FILES`; a folder
+    /// ends in `/`).
     pub path: String,
     pub url: String,
     /// Bytes downloaded (gzip).
@@ -51,7 +53,7 @@ impl Artifact {
         self.path.ends_with('/')
     }
 
-    /// The name in a version folder (`simplex/` → `simplex`).
+    /// The name in a version folder (`dir/` → `dir`).
     pub fn name(&self) -> &str {
         self.path.trim_end_matches('/')
     }
@@ -121,7 +123,8 @@ pub fn verify(
 
 fn check_artifact(a: &Artifact) -> Result<(), UpdateError> {
     let bad = |why: &str| UpdateError::BadManifest(format!("{}: {why}", a.path));
-    if !BUNDLE_FILES.contains(&a.path.as_str()) {
+    let path = a.path.as_str();
+    if !BUNDLE_FILES.contains(&path) && !RETIRED_FILES.contains(&path) {
         return Err(bad("unknown path"));
     }
     if !safe_url(&a.url, DOWNLOAD_PREFIX) {
@@ -161,7 +164,8 @@ fn clean(s: &str, max: usize) -> String {
 }
 
 impl Release {
-    /// The bundle's files for `arch`; each of `BUNDLE_FILES` must be there exactly once.
+    /// The bundle's files for `arch`; each of `BUNDLE_FILES` must be there exactly once, and
+    /// `RETIRED_FILES` are left out.
     pub fn files(&self, arch: &str) -> Result<Vec<&Artifact>, UpdateError> {
         BUNDLE_FILES
             .iter()

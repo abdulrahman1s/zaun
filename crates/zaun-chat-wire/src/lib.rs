@@ -8,7 +8,7 @@ pub mod model;
 pub mod request;
 
 pub use event::Event;
-pub use features::{REACTION_EMOJI, features_with};
+pub use features::{REACTION_EMOJI, features_with, has_file_servers};
 pub use frame::{EvLine, Hello, ReqLine, WireError, decode_line, encode_line};
 pub use kind::{FileKind, RequestKind};
 pub use request::Request;

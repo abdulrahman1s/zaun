@@ -1,0 +1,58 @@
+//! Classic groups (Phase 4): members and introductions, messages and forwarding, links and admin events (simplex-chat 7.1.4 Subscriber.hs, Commands.hs, Internal.hs; fact sheet §11).
+
+mod add;
+mod admin;
+mod admin_group;
+mod admin_member;
+mod batch_out;
+mod compose;
+mod con;
+mod conn;
+mod conn_host;
+mod conn_info;
+mod conn_joiner;
+mod conn_peer;
+mod create;
+mod delete_items;
+mod element;
+mod forward;
+pub(crate) mod fwd_batch;
+mod inbound;
+mod incoming;
+mod info;
+mod intro;
+mod introduced;
+mod invitation;
+mod join;
+mod leave;
+mod link;
+mod link_accept;
+mod link_data;
+mod link_event;
+mod link_join;
+mod link_request;
+mod list;
+mod lookup;
+mod member_info;
+mod members;
+mod mention;
+mod messages;
+mod msg_change;
+mod msg_new;
+mod notice;
+mod page;
+pub(crate) mod policy;
+mod profile_update;
+mod rank;
+mod reactions;
+mod relations;
+pub(crate) mod relay;
+mod role;
+mod send;
+mod unknown;
+pub(crate) mod verify;
+
+#[cfg(test)]
+pub(crate) use inbound::GroupCtx;
+pub(crate) use invitation::Via;
+pub(crate) use link_join::group_contact_info;

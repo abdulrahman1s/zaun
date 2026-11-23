@@ -1,4 +1,4 @@
-//! The native chat engine (ADR-0033): `zaun-chat` run under Bubblewrap, spoken to in
+//! The native chat engine (ADR-0042): `zaun-chat` run under Bubblewrap, spoken to in
 //! `zaun-chat-wire` lines over its standard input and output.
 //!
 //! - [`factory`]: [`NativeFactory`], which starts the helper.
@@ -17,4 +17,4 @@ mod status;
 mod tests;
 mod to_wire;
 
-pub use factory::NativeFactory;
+pub use factory::{LOG_NAME, NativeFactory};

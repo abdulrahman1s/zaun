@@ -19,6 +19,9 @@ pub(crate) enum OpKind {
     Ack,
     Send(AgentMsgId),
     Del,
+    /// A queue rotation's own request (SKEY, the confirmation, QEND on the old queue), tagged with
+    /// its queue's `switch_tag` so that an answer for a replaced switch is not taken for the current one.
+    Switch(u64),
 }
 
 #[derive(Debug, Clone)]

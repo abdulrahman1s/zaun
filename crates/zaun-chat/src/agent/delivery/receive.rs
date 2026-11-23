@@ -90,8 +90,11 @@ impl AgentClient {
             AgentMsgEnvelope::ContactRequest { .. } => {
                 Err(AgentError::Prohibited("request with unknown ratchet keys"))
             }
-            // TODO(phase 5): ratchet re-synchronisation (`EREADY`).
-            AgentMsgEnvelope::RatchetKey { .. } => Err(AgentError::Unsupported("ratchet re-sync")),
+            AgentMsgEnvelope::RatchetKey {
+                agent_version,
+                e2e_encryption,
+                info,
+            } => self.on_ratchet_key(store, id, agent_version, e2e_encryption, info),
             AgentMsgEnvelope::Confirmation { .. }
             | AgentMsgEnvelope::Message { .. }
             | AgentMsgEnvelope::Invitation { .. } => {

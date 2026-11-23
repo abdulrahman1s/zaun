@@ -1,4 +1,4 @@
-//! A voice call end to end (ADR-0035): two real chat engines (`zaun-chat` + libsimplex)
+//! A voice call end to end (ADR-0035): two real chat engines (the native `zaun-chat`)
 //! signal the call through a local SMP relay, and their call media connect and carry a tone
 //! each way; then the call's line reads "Call ended" on both sides.
 //!
@@ -6,7 +6,6 @@
 //! (a local recipe kept by the maintainer):
 //!
 //! ```text
-//! ZAUN_SIMPLEX_LIB=/…/libsimplex.so ZAUN_SIMPLEX_LIBRARY_PATH=/…/gmp/lib:/…/zlib/lib \
 //! ZAUN_TEST_SMP='smp://<fingerprint>@127.0.0.1:5223' \
 //! ZAUN_TEST_TURN='turn:u:p@127.0.0.1:3478' \   # optional: relay-only media
 //! cargo test -p zaun-media --test it call_e2e -- --ignored
@@ -19,7 +18,7 @@ use std::time::Duration;
 
 use zaun_core::chat::media::{CallRequest, CallSignal, Negotiation};
 use zaun_core::chat::{
-    ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, Request, SimplexFactory,
+    ChatEvent, Engine, EngineConfig, EngineFactory, EventSink, NativeFactory, Request,
 };
 use zaun_core::model::{CallKind, MessageAuthor, MessageBody};
 use zaun_media::{RtcMedia, ToneAudio, tone_strength};
@@ -33,19 +32,21 @@ fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set (see the file's header)"))
 }
 
-pub(super) fn engines(log: PathBuf) -> SimplexFactory {
+pub(super) fn engines(log: PathBuf) -> NativeFactory {
     let helper = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/zaun-chat");
     assert!(helper.is_file(), "build it first: cargo build -p zaun-chat");
     let path = std::env::var_os("PATH").unwrap_or_default();
     let bwrap = std::env::split_paths(&path)
         .map(|d| d.join("bwrap"))
         .find(|b| b.is_file());
-    SimplexFactory {
+    assert!(
+        bwrap.is_some(),
+        "the helper runs sandboxed here: put bwrap on PATH"
+    );
+    NativeFactory {
         helper,
-        library: env("ZAUN_SIMPLEX_LIB").into(),
         bwrap,
-        library_path: std::env::var_os("ZAUN_SIMPLEX_LIBRARY_PATH"),
-        log,
+        log: Some(log),
     }
 }
 
@@ -55,7 +56,7 @@ pub(super) struct Peer {
 }
 
 impl Peer {
-    pub(super) fn start(f: &SimplexFactory, dir: PathBuf, name: &str) -> Peer {
+    pub(super) fn start(f: &NativeFactory, dir: PathBuf, name: &str) -> Peer {
         std::fs::create_dir_all(&dir).unwrap();
         let (tx, rx) = channel();
         let tx = Mutex::new(tx);
@@ -148,7 +149,7 @@ fn media(audio: &ToneAudio) -> (RtcMedia, bool, Vec<zaun_core::chat::media::IceS
 }
 
 #[test]
-#[ignore = "needs libsimplex and a local SMP relay (see the file's header)"]
+#[ignore = "needs a local SMP relay (see the file's header)"]
 fn two_engines_place_a_call_and_hear_each_others_tone() {
     let tmp = tempfile::tempdir().unwrap();
     let f = engines(tmp.path().join("engine.log"));

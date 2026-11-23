@@ -107,8 +107,9 @@ GNOME can't show overlays; there, messages and calls arrive as notifications ins
 
 ## How Chat stays private
 
-Zaun's chat runs on the [SimpleX](https://simplex.chat) messaging protocol and its open-source
-engine, the same one the SimpleX Chat apps use. What that means for you:
+Zaun's chat speaks the [SimpleX](https://simplex.chat) messaging protocol, so friends can also
+use the SimpleX Chat apps. Its engine is Zaun's own, written in Rust from SimpleX's
+open-source code. What that means for you:
 
 - **No identifiers at all.** SimpleX has no user IDs: not a phone number, not a username,
   not even a random number. Each conversation uses its own one-way message queues on the
@@ -374,9 +375,9 @@ sudo cp -a staging/usr/local/. /usr/local/
 tarball). With Nix, `nix build` produces the same layout in `./result`, and `nix develop`
 gives a shell with every tool.
 
-Chat needs the SimpleX chat engine (`libsimplex.so`). The Nix package includes it. For other
-builds, see the packager notes in [CHANGELOG.md](CHANGELOG.md). Without it, Zaun builds
-and runs normally, and the Chat page says it is not included.
+Chat runs in the `zaun-chat` helper, which `scripts/build-release.sh` and the Nix package
+build with the rest; it needs nothing else. Without it, Zaun runs normally and the Chat page
+says it is not included.
 
 To try the interface with sample games, friends, calls and streams, without touching your
 own library or contacting anyone, run `zaun --preview`.
@@ -392,8 +393,8 @@ own library or contacting anyone, run `zaun --preview`.
 ## Licence
 
 Zaun is free software under the GNU General Public License, version 3 or later
-([LICENSE](LICENSE)). The chat helper `zaun-chat`, the only part that links the SimpleX
-chat engine, is under the GNU Affero General Public License, version 3.
+([LICENSE](LICENSE)). The chat helper `zaun-chat`, a port of SimpleX's chat engine, is under
+the GNU Affero General Public License, version 3.
 
 Zaun bundles these:
 

@@ -50,7 +50,7 @@ fn media() -> (RtcMedia, bool, Vec<zaun_core::model::IceServer>) {
 }
 
 #[test]
-#[ignore = "needs libsimplex and a local SMP relay (see the file's header)"]
+#[ignore = "needs a local SMP relay (see the file's header)"]
 fn two_engines_carry_a_stream_and_the_friend_sees_the_test_picture() {
     let tmp = tempfile::tempdir().unwrap();
     let f = engines(tmp.path().join("engine.log"));

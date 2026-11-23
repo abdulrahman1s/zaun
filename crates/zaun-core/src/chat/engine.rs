@@ -1,6 +1,6 @@
 //! The seam between the service and a chat protocol (ADR-0033): requests in the terms of
-//! the Chat page, events back in the types of `model::chat`. The SimpleX engine is the
-//! one implementation; tests use [`super::fake::FakeEngine`].
+//! the Chat page, events back in the types of `model::chat`. The native helper
+//! (`super::native`, ADR-0042) is the one implementation; tests use [`super::fake::FakeEngine`].
 
 use std::path::PathBuf;
 use std::sync::Arc;

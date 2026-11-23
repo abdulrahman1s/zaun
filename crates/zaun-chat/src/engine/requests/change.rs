@@ -1,28 +1,28 @@
-//! Edit and Delete: the user changes a message both sides know (Commands.hs
-//! `APIUpdateChatItem`, `APIDeleteChatItem` broadcast).
+//! Edit: the user changes a message the others know, in a direct chat or a group, and what
+//! Edit and Delete share (Commands.hs `APIUpdateChatItem`).
 
 use zaun_chat_wire::Event;
 use zaun_chat_wire::model::{ChatRef, MessageAuthor, MessageBody};
 
 use crate::chat::container::MsgMentions;
 use crate::chat::content::MsgContent;
+use crate::chat::group::GroupMemberRole;
 use crate::chat::ids::SharedMsgId;
 use crate::chat::{ChatEvent, ChatMessage, encode_chat_message};
 use crate::engine::agent_port::AgentPort;
-use crate::engine::error::{Code, Result, fail, not_yet};
+use crate::engine::error::{Code, Result, fail};
 use crate::engine::machine::Engine;
-use crate::engine::records::friend::Feature;
-use crate::engine::records::{ItemRecord, NS, keys};
+use crate::engine::records::ItemRecord;
 
 use super::invite::PQ;
 
 const DAY_MS: i64 = 24 * 3600 * 1000;
 /// Messages.hs `deletable'`: a day to edit; deleting gets six hours more (`assertDeletable`).
 const EDIT_MS: i64 = DAY_MS;
-const DELETE_MS: i64 = DAY_MS + 6 * 3600 * 1000;
+pub(super) const DELETE_MS: i64 = DAY_MS + 6 * 3600 * 1000;
 
 /// Messages.hs `ciMsgContent`: what a message carries, not a notice, call line or deletion.
-pub(super) fn has_content(body: &MessageBody) -> bool {
+pub(crate) fn has_content(body: &MessageBody) -> bool {
     match body {
         MessageBody::Text(_)
         | MessageBody::Voice { .. }
@@ -38,17 +38,15 @@ pub(super) fn has_content(body: &MessageBody) -> bool {
 }
 
 impl<A: AgentPort> Engine<A> {
-    pub(super) fn direct_friend(chat: ChatRef) -> Result<i64> {
-        match chat {
-            ChatRef::Direct(id) => Ok(id),
-            ChatRef::Group(_) => Err(not_yet(Code::RequestFailed)),
-        }
-    }
-
     /// One of the user's own messages, still within `window` of being sent: its shared id.
-    fn own_item(&mut self, friend: i64, item: i64, window: i64) -> Result<(ItemRecord, Vec<u8>)> {
+    pub(super) fn own_item(
+        &mut self,
+        chat: ChatRef,
+        item: i64,
+        window: i64,
+    ) -> Result<(ItemRecord, Vec<u8>)> {
         let it = self
-            .item(friend, item)?
+            .item(chat, item)?
             .ok_or_else(|| fail(Code::RequestFailed, "no such item"))?;
         let fresh = self.clock.wall_ms().saturating_sub(it.at) < window;
         let own = it.author == MessageAuthor::Me && has_content(&it.body);
@@ -68,23 +66,44 @@ impl<A: AgentPort> Engine<A> {
         Ok(())
     }
 
-    pub(super) fn save_changed(&mut self, friend: i64, item: i64, it: &ItemRecord) -> Result<()> {
-        let m = self.change_item(friend, item, it)?;
+    /// To the friend, or to every member of the group reachable now.
+    pub(super) fn send_to_chat(&mut self, chat: ChatRef, event: ChatEvent) -> Result<()> {
+        match chat {
+            ChatRef::Direct(friend) => self.send_event(friend, event),
+            ChatRef::Group(group) => {
+                self.send_to_group(group, &ChatMessage::new(event)?, None)?;
+                Ok(())
+            }
+        }
+    }
+
+    pub(crate) fn save_changed(&mut self, chat: ChatRef, item: i64, it: &ItemRecord) -> Result<()> {
+        let m = self.change_item(chat, item, it)?;
+        let m = self.shown_last(chat, it, m);
         self.emit(Event::Updated(vec![m]));
         Ok(())
     }
 
+    /// In a group, the user must still be in it with `min` (Commands.hs `assertUserGroupRole`).
+    pub(super) fn may_change(&self, chat: ChatRef, min: &GroupMemberRole) -> Result<()> {
+        match chat {
+            ChatRef::Direct(_) => Ok(()),
+            ChatRef::Group(g) => Self::assert_my_role(&self.group(g)?, min),
+        }
+    }
+
     pub(crate) fn edit(&mut self, chat: ChatRef, item: i64, text: &str) -> Result<()> {
-        let friend = Self::direct_friend(chat)?;
-        let (mut it, shared) = self.own_item(friend, item, EDIT_MS)?;
+        self.may_change(chat, &GroupMemberRole::Author)?;
+        let (mut it, shared) = self.own_item(chat, item, EDIT_MS)?;
         if it.body == MessageBody::Text(text.to_owned()) {
             return Ok(());
         }
         let MessageBody::Text(_) = it.body else {
             return Err(fail(Code::RequestFailed, "only text can be edited"));
         };
-        self.send_event(
-            friend,
+        let in_group = matches!(chat, ChatRef::Group(_));
+        self.send_to_chat(
+            chat,
             ChatEvent::MsgUpdate {
                 msg_id: SharedMsgId(shared),
                 content: MsgContent::Text {
@@ -94,55 +113,13 @@ impl<A: AgentPort> Engine<A> {
                 ttl: None,
                 live: None,
                 scope: None,
-                as_group: None,
+                as_group: in_group.then_some(false),
             },
         )?;
         it.body = MessageBody::Text(text.to_owned());
         it.edited = true;
-        self.save_changed(friend, item, &it)
-    }
-
-    /// Commands.hs `APIDeleteChatItem` broadcast: the item goes for good when the preferences
-    /// allow full deletion for the user, else it stays, marked deleted.
-    pub(crate) fn delete(&mut self, chat: ChatRef, item: i64) -> Result<()> {
-        let friend = Self::direct_friend(chat)?;
-        let (it, shared) = self.own_item(friend, item, DELETE_MS)?;
-        self.send_event(
-            friend,
-            ChatEvent::MsgDel {
-                msg_id: SharedMsgId(shared),
-                member_id: None,
-                scope: None,
-                only_history: false,
-            },
-        )?;
-        let full = self.friend(friend)?.enabled(Feature::FullDelete).for_user;
-        self.finish_delete(friend, item, it, full)
-    }
-
-    /// Marks the item deleted, or removes it from the store; the page is told it is deleted either way.
-    pub(crate) fn finish_delete(
-        &mut self,
-        friend: i64,
-        item: i64,
-        mut it: ItemRecord,
-        full: bool,
-    ) -> Result<()> {
-        it.body = MessageBody::Deleted;
-        it.reactions.clear();
-        if !full {
-            return self.save_changed(friend, item, &it);
-        }
-        self.store.delete_item(&keys::direct_chat(friend), item)?;
-        if let Some(shared) = &it.shared_id {
-            self.store.delete(NS, &keys::shared(friend, shared))?;
-        }
-        let read = self.state.friends.get(&friend).map_or(0, |f| f.read_up_to);
-        let m = it.to_wire(item, ChatRef::Direct(friend), read);
-        if self.state.last.get(&friend).is_some_and(|l| l.id == item) {
-            self.state.last.insert(friend, m.clone());
-        }
-        self.emit(Event::Updated(vec![m]));
-        Ok(())
+        // The edit carries no mentions, so the item has none after it (`updateGroupCIMentions`).
+        it.mentions.clear();
+        self.save_changed(chat, item, &it)
     }
 }

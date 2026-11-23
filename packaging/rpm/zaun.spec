@@ -36,11 +36,6 @@ Source2:        %{url}/releases/download/v%{upstream_version}/%{name}-%{upstream
 
 ExclusiveArch:  x86_64
 
-# The Chat engine's prebuilt libraries (ADR-0033) are private to the Chat helper: they
-# neither provide nor require anything for the rest of the system.
-%global __provides_exclude_from ^%{_libexecdir}/%{name}/simplex/.*$
-%global __requires_exclude_from ^%{_libexecdir}/%{name}/simplex/.*$
-
 %if %{without prebuilt}
 BuildRequires:  cargo >= 1.95
 BuildRequires:  rust >= 1.95
@@ -119,8 +114,6 @@ install -Dm755 libexec/zaun/zaun %{buildroot}%{_bindir}/zaun
 for f in zaun-init zaun-overlay zaun-chat; do
     install -Dm755 libexec/zaun/$f %{buildroot}%{_libexecdir}/%{name}/$f
 done
-install -d %{buildroot}%{_libexecdir}/%{name}/simplex
-install -m644 libexec/zaun/simplex/* %{buildroot}%{_libexecdir}/%{name}/simplex/
 mkdir -p %{buildroot}%{_datadir}
 cp -R share/. %{buildroot}%{_datadir}/
 %else
@@ -147,9 +140,6 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/%{appid}.metai
 %{_libexecdir}/%{name}/zaun-init
 %{_libexecdir}/%{name}/zaun-overlay
 %{_libexecdir}/%{name}/zaun-chat
-%if %{with prebuilt}
-%{_libexecdir}/%{name}/simplex/
-%endif
 %{_datadir}/applications/%{appid}.desktop
 %{_metainfodir}/%{appid}.metainfo.xml
 %{_datadir}/icons/hicolor/*/apps/%{appid}.png

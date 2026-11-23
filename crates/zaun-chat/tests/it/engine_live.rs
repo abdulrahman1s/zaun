@@ -40,7 +40,7 @@ impl Drop for Dir {
     }
 }
 
-/// One `zaun-chat-native` process and what it said.
+/// One `zaun-chat` process and what it said.
 struct Helper {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -49,7 +49,7 @@ struct Helper {
 
 impl Helper {
     fn spawn(dir: &Path, name: &str) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_zaun-chat-native"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_zaun-chat"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

@@ -1,6 +1,6 @@
 //! A ratchet-encrypted agent message: decrypt, check the chain, then by kind; only `A_MSG` waits for the engine's ack (Agent.hs `agentClientMsg`, `A_DUPLICATE`, `checkMsgIntegrity`).
 use crate::encoding::Decode;
-use crate::ratchet::{Ratchet, RatchetError};
+use crate::ratchet::Ratchet;
 use crate::store::Store;
 
 use super::receive::Handled;
@@ -8,6 +8,7 @@ use crate::agent::client::{AgentClient, AgentEvent, AgentMsgId, ConnId};
 use crate::agent::error::{AgentError, Result};
 use crate::agent::message::{AMessage, AgentMessage};
 use crate::agent::records::{self, Batch, ConnRecord, Unacked};
+use crate::agent::resync::{BeforeDecrypt, DecryptFailure};
 use crate::agent::{check_msg_integrity, msg_hash};
 
 /// `rcvExpireCount` and `rcvExpireInterval`: an unacked message stops being handed out again after both.
@@ -25,12 +26,14 @@ impl AgentClient {
     ) -> Result<Handled> {
         let (mut rec, ratchet) = self.editable(id)?;
         let mut ratchet = ratchet.ok_or(AgentError::Prohibited("message before the ratchet"))?;
+        let before = BeforeDecrypt::of(&rec, &ratchet);
         let Some(plain) = self.decrypt(store, &rec, &mut ratchet, enc)? else {
             return Ok(Handled::Ack);
         };
         let AgentMessage::Message { header, message } = AgentMessage::from_bytes(&plain)? else {
             return Err(AgentError::Prohibited("expected AgentMessage"));
         };
+        self.sync_decrypted(&mut rec);
         let c = &rec.chain;
         let integrity = check_msg_integrity(
             c.rcv_id,
@@ -64,19 +67,20 @@ impl AgentClient {
             AMessage::ARcvd(receipts) => self.on_receipts(store, id, receipts, &mut b)?,
             AMessage::AQcont(_) => self.on_qcont(id),
             AMessage::Hello => Handled::Ack,
-            // TODO(phase 5): queue rotation (QADD…QEND) and ratchet re-sync (EREADY).
-            AMessage::Qadd(_)
-            | AMessage::Qkey(_)
-            | AMessage::Quse(_)
-            | AMessage::Qtest(_)
-            | AMessage::Qend(_)
-            | AMessage::Eready(_) => Handled::Ack,
+            AMessage::Qadd(qs) => self.on_qadd(store, &mut rec, &mut b, qs)?,
+            AMessage::Qkey(qs) => self.on_qkey(store, &mut rec, &mut b, qs)?,
+            AMessage::Quse(qs) => self.on_quse(store, &mut rec, &mut b, qs)?,
+            AMessage::Qtest(qs) => self.on_qtest(store, &mut rec, &mut b, qs)?,
+            AMessage::Qend(qs) => self.on_qend(store, &mut rec, &mut b, qs)?,
+            AMessage::Eready(_) => self.on_eready(&mut rec, &mut ratchet, &mut b, &before)?,
         };
         self.save(store, rec, Some(ratchet), b)?;
         Ok(handled)
     }
 
-    /// The ratchet is stored after every attempt. `None` is a message processed before whose ACK was lost (`A_DUPLICATE`).
+    /// The ratchet is stored after every attempt. `None` is acked without a word: a message
+    /// processed before whose ACK was lost (`A_DUPLICATE`), or one that failed before. Any other
+    /// failure is acked and reported, and a crypto error moves the ratchet-sync state (`A_CRYPTO`).
     fn decrypt(
         &mut self,
         store: &mut Store,
@@ -84,14 +88,20 @@ impl AgentClient {
         ratchet: &mut Ratchet,
         enc: &[u8],
     ) -> Result<Option<Vec<u8>>> {
-        let r = ratchet.decrypt(enc);
-        if r.is_err() {
-            self.save(store, rec.clone(), Some(ratchet.clone()), Batch::default())?;
-        }
-        match r {
-            Ok(p) => Ok(Some(p)),
-            Err(RatchetError::DuplicateMessage | RatchetError::EarlierMessage(_)) => Ok(None),
-            Err(e) => Err(e.into()),
+        let e = match ratchet.decrypt(enc) {
+            Ok(p) => return Ok(Some(p)),
+            Err(e) => e,
+        };
+        let mut rec = rec.clone();
+        let failure = rec.decrypt_failed(enc, &e);
+        let conn = rec.id;
+        self.save(store, rec, Some(ratchet.clone()), Batch::default())?;
+        match failure {
+            DecryptFailure::Ignore => Ok(None),
+            DecryptFailure::Report(state) => {
+                self.tell_sync(conn, state);
+                Err(e.into())
+            }
         }
     }
 

@@ -2,7 +2,7 @@
 # Release build of Zaun (PKG-001, RELEASE_STRATEGY §2.1).
 #
 # Builds `zaun` (glibc, dynamic), its helpers `zaun-overlay` and `zaun-chat` (ADR-0037,
-# ADR-0033) and `zaun-init` (static), checks them, and stages the install tree of
+# ADR-0042) and `zaun-init` (static), checks them, and stages the install tree of
 # DESKTOP_INTEGRATION §10. Every package format starts from this script:
 #
 #   scripts/build-release.sh --prefix /usr --destdir pkgroot        # distribution packages
@@ -18,7 +18,7 @@
 # - Embedded build metadata is the version and the commit only; source paths are remapped
 #   and the tarball has fixed owners, order and mtimes (SOURCE_DATE_EPOCH = commit time).
 # - Binary sizes within PERFORMANCE §1: zaun <= 64 MB, zaun-overlay <= 32 MB, zaun-chat
-#   <= 4 MB, zaun-init <= 1 MB.
+#   <= 10 MB, zaun-init <= 1 MB.
 # - zaun-init is static (no program interpreter, no DT_NEEDED).
 set -euo pipefail
 
@@ -33,8 +33,6 @@ Layout
                        --tarball; Arch uses /usr/lib/zaun)
   --destdir DIR        Stage into DIR/PREFIX (default dist/stage)
   --tarball            Build the relocatable tarball in dist/ instead of a staged tree
-  --simplex DIR        Ship the Chat engine: the libraries in DIR (packaging/portable/
-                       simplex.sh) go to LIBEXEC_DIR/simplex
   --licenses DIR       Also ship DIR/*.txt in share/licenses/zaun (notices of what the
                        portable build links in, e.g. FFmpeg)
 
@@ -66,7 +64,6 @@ prefix=""
 libexec_dir=""
 destdir=""
 tarball=0
-simplex=""
 extra_licenses=""
 target="${ARCH}-unknown-linux-gnu"
 init_target="${ARCH}-unknown-linux-musl"
@@ -83,7 +80,6 @@ while (($#)); do
         --libexec-dir) libexec_dir="${2:?}"; shift ;;
         --destdir) destdir="${2:?}"; shift ;;
         --tarball) tarball=1 ;;
-        --simplex) simplex="${2:?}"; shift ;;
         --licenses) extra_licenses="${2:?}"; shift ;;
         --target) target="${2:?}"; shift ;;
         --init-target) init_target="${2:?}"; shift ;;
@@ -156,10 +152,6 @@ zaun_bin="$target_dir/$target/release/zaun"
 init_bin="$target_dir/$init_target/init-release/zaun-init"
 overlay_bin="$target_dir/$target/release/zaun-overlay"
 chat_bin="$target_dir/$target/release/zaun-chat"
-if [[ -n "$simplex" ]]; then
-    simplex="$(cd "$simplex" && pwd)"
-    [[ -f "$simplex/libsimplex.so" ]] || die "--simplex $simplex has no libsimplex.so"
-fi
 
 # Budgets of PERFORMANCE §1 (decimal megabytes).
 # 64 MB since calls and game streams (ADR-0035/0036): WebRTC and its crypto, OpenH264, the
@@ -167,7 +159,9 @@ fi
 max_zaun=$((64 * 1000 * 1000))
 max_init=$((1000 * 1000))
 max_overlay=$((32 * 1000 * 1000))
-max_chat=$((4 * 1000 * 1000))
+# 10 MB since the native Chat engine (ADR-0042): TLS, SMP, the ratchet, XFTP and SQLite took
+# the stripped, fat-LTO helper to 7.7 MB.
+max_chat=$((10 * 1000 * 1000))
 
 cargo_common=(--locked)
 ((offline)) && cargo_common+=(--offline)
@@ -321,16 +315,12 @@ validate_metadata() {
     fi
 }
 
-# The shim, the helpers and the Chat engine into the libexec folder $1.
+# The shim and the helpers into the libexec folder $1.
 stage_libexec() {
     local dir="$1"
     install -Dm755 "$init_bin" "$dir/zaun-init"
     install -Dm755 "$overlay_bin" "$dir/zaun-overlay"
     install -Dm755 "$chat_bin" "$dir/zaun-chat"
-    if [[ -n "$simplex" ]]; then
-        install -d "$dir/simplex"
-        install -m644 "$simplex"/* "$dir/simplex/"
-    fi
 }
 
 # Distribution layout: DESTDIR/PREFIX/bin/zaun, DESTDIR/LIBEXEC_DIR/zaun-init and helpers.

@@ -3,24 +3,38 @@
 use zaun_chat_wire::model::ChatRef;
 
 use crate::engine::agent_port::AgentPort;
-use crate::engine::error::{Code, Result, not_yet};
+use crate::engine::error::Result;
 use crate::engine::machine::Engine;
 
 impl<A: AgentPort> Engine<A> {
     pub(crate) fn mark_read(&mut self, chat: ChatRef) -> Result<()> {
-        let id = match chat {
-            ChatRef::Direct(id) => id,
-            ChatRef::Group(_) => return Err(not_yet(Code::RequestFailed)),
+        let (read_up_to, unread) = match chat {
+            ChatRef::Direct(id) => {
+                let f = self.friend(id)?;
+                (f.read_up_to, f.unread)
+            }
+            ChatRef::Group(id) => {
+                let g = self.group(id)?;
+                (g.read_up_to, g.unread)
+            }
         };
-        let mut f = self.friend(id)?;
-        let newest = self.state.last.get(&id).map_or(f.read_up_to, |m| m.id);
-        if f.unread == 0 && f.read_up_to >= newest {
+        let newest = self.state.last.get(&chat).map_or(read_up_to, |m| m.id);
+        if unread == 0 && read_up_to >= newest {
             return Ok(());
         }
-        f.read_up_to = newest;
-        f.unread = 0;
-        self.save_friend(f)?;
-        if let Some(last) = self.state.last.get_mut(&id) {
+        match chat {
+            ChatRef::Direct(id) => {
+                let mut f = self.friend(id)?;
+                (f.read_up_to, f.unread) = (newest, 0);
+                self.save_friend(f)?;
+            }
+            ChatRef::Group(id) => {
+                let mut g = self.group(id)?;
+                (g.read_up_to, g.unread) = (newest, 0);
+                self.save_group(g)?;
+            }
+        }
+        if let Some(last) = self.state.last.get_mut(&chat) {
             last.unread = false;
         }
         Ok(())

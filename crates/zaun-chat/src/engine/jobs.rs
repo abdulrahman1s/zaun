@@ -6,10 +6,12 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use super::agent_port::AgentPort;
 use super::files::FileDone;
 use super::machine::Engine;
+use super::relays::RelayDone;
 
 #[derive(Debug)]
 pub enum JobDone {
     File(FileDone),
+    Relay(RelayDone),
 }
 
 /// The channel jobs answer on. Unbounded, but bounded in practice: one result per job, and the
@@ -31,6 +33,7 @@ impl<A: AgentPort> Engine<A> {
     pub fn on_job(&mut self, done: JobDone) {
         match done {
             JobDone::File(d) => self.on_file_done(d),
+            JobDone::Relay(d) => self.on_relay_done(d),
         }
         self.pump();
     }

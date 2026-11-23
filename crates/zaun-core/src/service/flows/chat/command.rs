@@ -7,6 +7,7 @@ impl AppService {
         match c {
             ChatCommand::SetEnabled { on, name } => self.chat_set_enabled(on, name),
             ChatCommand::SetName(name) => self.chat_set_name(&name),
+            ChatCommand::ForgetOldData => self.chat_forget_old_data(),
             ChatCommand::SetProfile(p) => {
                 if !p.name.trim().is_empty() {
                     self.chat_set_profile(p);

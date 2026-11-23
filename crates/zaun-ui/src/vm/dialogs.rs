@@ -65,6 +65,11 @@ pub enum Confirm {
     ResetGameStatistics(GameId),
     /// Turn on Developer Mode.
     DeveloperMode,
+    /// Delete the old Chat engine's databases (ADR-0042).
+    ForgetOldChatData {
+        /// Size freed.
+        size: u64,
+    },
 }
 
 /// A queued dialog.

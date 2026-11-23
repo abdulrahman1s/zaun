@@ -47,13 +47,11 @@ sha256sums=('SKIP')
 
 package() {
   cd "$_pkgname-$_upstreamver-x86_64-linux"
-  # The release binary finds its shim, helpers and Chat engine next to itself.
+  # The release binary finds its shim and helpers next to itself.
   local f
   for f in zaun zaun-init zaun-overlay zaun-chat; do
     install -Dm755 "libexec/zaun/$f" "$pkgdir/usr/lib/zaun/$f"
   done
-  install -d "$pkgdir/usr/lib/zaun/simplex"
-  install -m644 libexec/zaun/simplex/* "$pkgdir/usr/lib/zaun/simplex/"
   install -d "$pkgdir/usr/bin"
   ln -s ../lib/zaun/zaun "$pkgdir/usr/bin/zaun"
   cp -R --no-preserve=ownership share "$pkgdir/usr/"

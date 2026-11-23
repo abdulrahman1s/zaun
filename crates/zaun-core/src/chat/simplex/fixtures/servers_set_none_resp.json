@@ -1,9 +1,0 @@
-{
-  "error": {
-    "type": "error",
-    "errorType": {
-      "type": "commandError",
-      "message": "user servers validation error(s): [USENoServers {protocol = AProtocolType SPSMP, user = Nothing}]"
-    }
-  }
-}

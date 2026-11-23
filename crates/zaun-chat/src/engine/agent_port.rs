@@ -90,6 +90,11 @@ pub enum AgentEvent {
         full: String,
         short: Option<String>,
     },
+    /// `RSYNC`: the ratchet-sync state of `conn` changed (Agent/Protocol.hs `RatchetSyncState`).
+    RatchetSync {
+        conn: ConnId,
+        state: crate::agent::resync::SyncState,
+    },
     /// `REQ`: someone used the address `conn`; `invitation` names the request to
     /// `accept_request`/`reject_request`, `conn_info` is their `x.contact`.
     Req {
@@ -162,6 +167,15 @@ pub trait AgentPort {
         user_data: Vec<u8>,
     ) -> Result<ConnId, AgentFailure>;
 
+    /// A group's link (`APICreateGroupLink`): a contact address whose `clientData` is
+    /// `client_data` and whose short link is a `/g#` one; answered by `AgentEvent::Address`.
+    fn create_group_address(
+        &mut self,
+        store: &mut Store,
+        user_data: Vec<u8>,
+        client_data: String,
+    ) -> Result<ConnId, AgentFailure>;
+
     /// `acceptContact`: a new connection that answers the request, our `x.info` in `conn_info`.
     fn accept_request(
         &mut self,
@@ -177,4 +191,13 @@ pub trait AgentPort {
     /// The ratchet's associated data of `conn` (`getConnectionRatchetAdHash` hashes it):
     /// what the security code is made from.
     fn ratchet_ad(&mut self, store: &mut Store, conn: &ConnId) -> Result<Vec<u8>, AgentFailure>;
+
+    /// `synchronizeRatchet` without force: offers `conn`'s peer a new ratchet, allowed while
+    /// its sync state is `Allowed` or `Required`.
+    fn synchronize_ratchet(&mut self, store: &mut Store, conn: &ConnId)
+    -> Result<(), AgentFailure>;
+
+    /// Keeps new queues off the relays in `disabled` (addresses as the Hello gave them) while
+    /// any other relay is configured; queues already on them stay. An empty list enables all.
+    fn set_disabled_relays(&mut self, disabled: &[String]);
 }

@@ -18,6 +18,9 @@ pub struct ItemRecord {
     pub mentions: Vec<Mention>,
     /// The `SharedMsgId` bytes both sides know the message by; notices have none.
     pub shared_id: Option<Vec<u8>>,
+    /// In a group, the author's member number; `None` for the user's own and in a direct chat.
+    #[serde(default)]
+    pub member: Option<i64>,
 }
 
 impl ItemRecord {
@@ -37,6 +40,7 @@ impl ItemRecord {
             edited: false,
             mentions: Vec::new(),
             shared_id: None,
+            member: None,
         }
     }
 

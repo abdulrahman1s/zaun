@@ -2,7 +2,7 @@
 
 use zaun_chat_wire::Event;
 use zaun_chat_wire::model::{
-    CallKind, CallRecord, ChatMessage, Delivery, MessageAuthor, MessageBody,
+    CallKind, CallRecord, ChatMessage, ChatRef, Delivery, MessageAuthor, MessageBody,
 };
 
 use super::state::{Call, Kind, Phase};
@@ -58,7 +58,7 @@ impl<A: AgentPort> Engine<A> {
         if call.outgoing {
             item.delivery = Delivery::Sent;
         }
-        let mut m = self.add_item(friend, &item)?;
+        let mut m = self.add_item(ChatRef::Direct(friend), &item)?;
         if author == MessageAuthor::Friend {
             self.count_call_line(friend, &mut m, rec.kind != CallKind::Missed)?;
         }
@@ -74,7 +74,7 @@ impl<A: AgentPort> Engine<A> {
         if read && f.unread == 0 {
             f.read_up_to = m.id;
             m.unread = false;
-            self.state.last.insert(friend, m.clone());
+            self.state.last.insert(ChatRef::Direct(friend), m.clone());
         } else {
             f.unread += 1;
         }

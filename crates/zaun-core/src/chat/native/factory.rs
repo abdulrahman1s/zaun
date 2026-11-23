@@ -1,4 +1,4 @@
-//! Starts the helper (ADR-0033).
+//! Starts the helper (ADR-0042).
 
 use std::path::{Path, PathBuf};
 
@@ -13,6 +13,8 @@ use crate::error::Result;
 use crate::model::ChatFeatures;
 use crate::session::{PipedHelper, spawn_piped_helper};
 
+/// The helper's log, inside Zaun's logs folder.
+pub const LOG_NAME: &str = "chat-engine.log";
 /// Where the helper's standard error goes when there is no log.
 const NO_LOG: &str = "/dev/null";
 

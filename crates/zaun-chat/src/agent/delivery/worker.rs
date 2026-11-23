@@ -10,6 +10,7 @@ use crate::agent::records::{self, PendingSend, SendKind};
 impl AgentClient {
     /// Sends the head of the connection's queue unless one is in flight or waiting for its retry.
     pub(crate) fn kick(&mut self, store: &mut Store, id: ConnId) {
+        self.drive_switch(store, id);
         let now = self.now();
         let Some(c) = self.conns.get(&id) else { return };
         let Some(&head) = c.sends.front() else { return };

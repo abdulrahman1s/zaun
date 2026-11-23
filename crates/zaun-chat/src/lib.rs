@@ -1,6 +1,8 @@
 //! The native SimpleX engine run by the Chat helper (ADR-0042): the protocols ported from
 //! simplexmq and simplex-chat (AGPL-3.0-only), spoken to Zaun over `zaun-chat-wire`.
 
+#![forbid(unsafe_code)]
+
 pub mod agent;
 pub mod chat;
 pub mod crypto;

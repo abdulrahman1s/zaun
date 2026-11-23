@@ -1,4 +1,4 @@
-//! The chat list: every friend, and a conversation for each one not blocked (codec `parse_chats`).
+//! The chat list: every friend and group, and a conversation for each friend not blocked and each group (codec `parse_chats`).
 
 use zaun_chat_wire::Event;
 use zaun_chat_wire::model::{ChatPreview, ChatRef, Friend, FriendRequest};
@@ -27,7 +27,7 @@ impl<A: AgentPort> Engine<A> {
     pub(crate) fn chats(&self) -> Event {
         let friends = self.state.friends.values().map(friend).collect();
         // A blocked friend is reachable from "Blocked", not from the list.
-        let chats = self
+        let direct = self
             .state
             .friends
             .values()
@@ -35,10 +35,23 @@ impl<A: AgentPort> Engine<A> {
             .map(|f| ChatPreview {
                 chat: ChatRef::Direct(f.id),
                 name: f.name.clone(),
-                last: self.state.last.get(&f.id).cloned(),
+                last: self.state.last.get(&ChatRef::Direct(f.id)).cloned(),
                 unread: f.unread,
                 muted: f.muted,
-            })
+            });
+        let in_groups = self.state.groups.values().map(|g| ChatPreview {
+            chat: ChatRef::Group(g.id),
+            name: g.profile.display_name.clone(),
+            last: self.state.last.get(&ChatRef::Group(g.id)).cloned(),
+            unread: g.unread,
+            muted: g.muted,
+        });
+        let chats = direct.chain(in_groups).collect();
+        let groups = self
+            .state
+            .groups
+            .values()
+            .map(|g| self.group_wire(g))
             .collect();
         let requests = self
             .state
@@ -52,7 +65,7 @@ impl<A: AgentPort> Engine<A> {
             .collect();
         Event::Chats {
             friends,
-            groups: Vec::new(),
+            groups,
             requests,
             chats,
         }

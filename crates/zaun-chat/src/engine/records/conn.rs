@@ -1,4 +1,4 @@
-//! What an agent connection is to the engine: an invitation not answered yet, or a friend's.
+//! What an agent connection is to the engine: an invitation not answered yet, a friend's, a group member's, or a group link.
 
 use serde::{Deserialize, Serialize};
 
@@ -22,5 +22,15 @@ pub enum ConnKind {
     },
     Friend {
         id: i64,
+    },
+    /// A group connection with a member, from its invitation (made or joined) on. It never
+    /// shows as an invitation, takes no part in `inviting`, and is not evicted with them.
+    Member {
+        group: i64,
+        member: i64,
+    },
+    /// The contact address of a group's link.
+    GroupLink {
+        group: i64,
     },
 }

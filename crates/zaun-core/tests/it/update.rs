@@ -60,6 +60,7 @@ const FILES: [&str; 5] = [
     "zaun-9.9.9-x86_64-linux.zaun-chat.gz",
     "zaun-simplex-7.0.3-x86_64.tar.gz",
 ];
+/// The old Chat engine's folder, still in the manifest for copies up to 0.4.2.
 const ENGINE: &str = "zaun-simplex-7.0.3-x86_64.tar.gz";
 
 fn fixture(name: &str) -> Vec<u8> {
@@ -196,7 +197,7 @@ fn staged_store() -> (MemFs, Store, Arc<Net>) {
     (fs, store, net)
 }
 
-/// An older version, current already, with its own copy of the engine.
+/// An older version, current already, with the old Chat engine's folder.
 fn with_current(fs: &MemFs, store: &Store, version: &str) {
     let dir = store.versions.join(version);
     fs.file(dir.join("zaun"), format!("zaun {version}\n"));
@@ -244,7 +245,8 @@ fn a_bundle_manifest_signed_by_the_release_script_verifies() {
     let files = r.files("x86_64").unwrap();
     assert_eq!(
         files.iter().map(|a| a.path.as_str()).collect::<Vec<_>>(),
-        ["zaun", "zaun-init", "zaun-overlay", "zaun-chat", "simplex/"]
+        ["zaun", "zaun-init", "zaun-overlay", "zaun-chat"],
+        "the old Chat engine's folder is in the manifest only for older copies"
     );
     assert!(
         r.files("aarch64").is_err(),
@@ -370,7 +372,7 @@ fn a_file_larger_than_signed_is_never_read_whole() {
 }
 
 #[test]
-fn a_download_fills_a_version_folder_and_shares_the_engine() {
+fn a_download_fills_a_version_folder_and_skips_the_old_engines_folder() {
     let (fs, store, net) = staged_store();
     let dir = store.versions.join("9.9.9");
     assert_eq!(linked(&fs, &store.staged()).as_deref(), Some("9.9.9"));
@@ -387,27 +389,9 @@ fn a_download_fills_a_version_folder_and_shares_the_engine() {
     ] {
         assert!(fs.exists(&dir.join(f)), "{f}");
     }
-    let engine = linked(&fs, &dir.join("simplex")).unwrap();
-    assert!(engine.starts_with("../../components/simplex-"), "{engine}");
-    let real = fs.canonicalize(&dir.join("simplex/libsimplex.so")).unwrap();
-    assert!(real.starts_with(&store.components), "{}", real.display());
-    assert_eq!(fs.contents(&real).unwrap(), b"simplex fixture\n");
-    assert_eq!(net.asked_for(ENGINE), 1);
-
-    // Downloading again (a retry, or the next version with the same engine) reuses it.
-    stage::download(
-        &UpdateDeps::files_client(&base(&net)),
-        &fs,
-        &store,
-        &release(&net),
-        "x86_64",
-    )
-    .unwrap();
-    assert_eq!(
-        net.asked_for(ENGINE),
-        1,
-        "the engine is not downloaded twice"
-    );
+    assert!(!fs.exists(&dir.join("simplex")));
+    assert!(!fs.exists(&store.components));
+    assert_eq!(net.asked_for(ENGINE), 0);
 }
 
 #[test]
@@ -633,9 +617,8 @@ fn a_confirmed_version_keeps_only_itself() {
     assert!(!fs.exists(&store.versions.join("9.9.8")));
     assert!(
         !fs.exists(&store.components.join("simplex-old")),
-        "its engine was unused"
+        "the old engine is unused"
     );
-    assert!(fs.exists(&store.versions.join("9.9.9/simplex/libsimplex.so")));
     // Later starts count nothing.
     let c = trial::choose(&fs, &store, &v("0.3.0"), true).unwrap();
     assert_eq!(c.rolled_back, None);
@@ -870,8 +853,8 @@ fn a_newer_version_is_found_at_start_and_announced_once() {
     let evs = w.drain();
     assert_eq!(World::announced(&evs), vec!["9.9.9".to_owned()]);
     // The check, then the background download: the manifest and its signature again, and the
-    // bundle's five files.
-    assert_eq!(w.net.calls(), 2 + 2 + 5);
+    // bundle's four files (not the old Chat engine's folder).
+    assert_eq!(w.net.calls(), 2 + 2 + 4);
     let u = w.svc.hub().updates.load();
     assert_eq!(
         u.available.as_ref().map(|a| a.version.as_str()),

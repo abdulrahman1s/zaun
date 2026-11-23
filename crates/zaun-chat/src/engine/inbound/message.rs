@@ -4,10 +4,11 @@
 use crate::chat::{ChatEvent, ChatMessage, parse_chat_elements};
 use crate::engine::agent_port::{AgentMsgId, AgentPort, ConnId};
 use crate::engine::error::Result;
+use crate::engine::groups::Via;
 use crate::engine::machine::Engine;
 
 /// `hasDeliveryReceipt` (Protocol.hs): only these events are acknowledged with a receipt.
-fn asks_receipt(e: &ChatEvent) -> bool {
+pub(crate) fn asks_receipt(e: &ChatEvent) -> bool {
     matches!(
         e,
         ChatEvent::MsgNew(_) | ChatEvent::GrpInv(_) | ChatEvent::CallInv { .. }
@@ -17,9 +18,10 @@ fn asks_receipt(e: &ChatEvent) -> bool {
 impl<A: AgentPort> Engine<A> {
     pub(crate) fn on_msg(&mut self, conn: &ConnId, msg_id: AgentMsgId, body: &[u8]) {
         let friend = self.state.friend_of(conn);
-        let receipt = match friend {
-            Some(friend) => self.on_body(friend, body),
-            None => {
+        let receipt = match (friend, self.state.member_of(conn)) {
+            (Some(friend), _) => self.on_body(friend, body),
+            (None, Some((group, member))) => self.on_group_body(group, member, body),
+            (None, None) => {
                 self.log
                     .line(format_args!("a message on a connection with no friend"));
                 false
@@ -83,11 +85,11 @@ impl<A: AgentPort> Engine<A> {
             | ChatEvent::CallAnswer { .. }
             | ChatEvent::CallExtra { .. }
             | ChatEvent::CallEnd { .. }) => self.on_call_event(friend, shared, e),
+            ChatEvent::GrpInv(inv) => self.on_grp_inv(Via::Friend(friend), inv),
             // Not carried yet, or never acted on in a direct chat (fact sheet §14): ignored.
             ChatEvent::MsgDeleted
             | ChatEvent::Contact { .. }
             | ChatEvent::Member { .. }
-            | ChatEvent::GrpInv(_)
             | ChatEvent::GrpAcpt { .. }
             | ChatEvent::GrpLinkInv(_)
             | ChatEvent::GrpLinkReject(_)

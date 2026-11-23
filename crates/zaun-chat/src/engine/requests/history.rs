@@ -21,10 +21,12 @@ impl<A: AgentPort> Engine<A> {
         let messages = match chat {
             ChatRef::Direct(id) => {
                 self.friend(id)?;
-                self.items_page(id, before, count.min(MAX_PAGE))?
+                self.items_page(chat, before, count.min(MAX_PAGE))?
             }
-            // No groups yet: nothing to read.
-            ChatRef::Group(_) => Vec::new(),
+            ChatRef::Group(id) => {
+                self.group(id)?;
+                self.group_page(id, before, count.min(MAX_PAGE))?
+            }
         };
         self.emit(Event::History {
             tag,

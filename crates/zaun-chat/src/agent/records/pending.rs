@@ -11,6 +11,12 @@ pub enum SendKind {
     Msg,
     Receipt,
     Qcont,
+    /// Our `AgentRatchetKey` or `EREADY` during a ratchet re-sync.
+    Resync,
+    /// `QADD`, `QKEY`, `QUSE`, `QTEST`: a dropped one is reported (`qError`).
+    Switch,
+    /// `QEND`, and a message sent again on the new queue after a switch: never reported, as the engine heard of it already.
+    Quiet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,8 +34,8 @@ impl SendKind {
     #[must_use]
     pub const fn notifies(self) -> bool {
         match self {
-            Self::Confirmation | Self::Msg => true,
-            Self::Receipt | Self::Qcont => false,
+            Self::Confirmation | Self::Msg | Self::Resync => true,
+            Self::Receipt | Self::Qcont | Self::Switch | Self::Quiet => false,
         }
     }
 
@@ -39,6 +45,9 @@ impl SendKind {
             Self::Msg => b'M',
             Self::Receipt => b'V',
             Self::Qcont => b'Q',
+            Self::Resync => b'R',
+            Self::Switch => b'W',
+            Self::Quiet => b'D',
         }
     }
 }
@@ -63,6 +72,9 @@ impl Decode for PendingSend {
             SendKind::Msg,
             SendKind::Receipt,
             SendKind::Qcont,
+            SendKind::Resync,
+            SendKind::Switch,
+            SendKind::Quiet,
         ]
         .into_iter()
         .find(|k| k.code() == code)

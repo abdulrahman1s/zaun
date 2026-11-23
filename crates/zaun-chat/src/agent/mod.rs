@@ -22,6 +22,8 @@ pub mod delivery;
 pub mod links;
 pub mod message;
 pub mod records;
+pub mod resync;
+pub mod rotation;
 pub mod short_link;
 #[cfg(test)]
 mod testing;

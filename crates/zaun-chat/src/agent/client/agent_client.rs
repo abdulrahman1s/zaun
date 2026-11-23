@@ -26,6 +26,9 @@ pub struct AgentClient {
     pub(crate) by_rcv: HashMap<Vec<u8>, ConnId>,
     /// Eviction: emptied by `drain_events`, which the engine calls after each call into the agent.
     pub(crate) events: Vec<AgentEvent>,
+    /// Tests stop a queue rotation between its stored steps, to restart there.
+    #[cfg(test)]
+    pub(crate) hold_switch: bool,
 }
 
 impl AgentClient {
@@ -59,6 +62,8 @@ impl AgentClient {
             conns: HashMap::new(),
             by_rcv: HashMap::new(),
             events: Vec::new(),
+            #[cfg(test)]
+            hold_switch: false,
         }
     }
 

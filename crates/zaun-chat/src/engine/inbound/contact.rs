@@ -1,7 +1,7 @@
 //! A friend's own changes: a new profile (`x.info`), the contact deleted (`x.direct.del`).
 
 use zaun_chat_wire::Event;
-use zaun_chat_wire::model::{ChatNotice, MessageAuthor, MessageBody};
+use zaun_chat_wire::model::{ChatNotice, ChatRef, MessageAuthor, MessageBody};
 
 use super::handshake::apply_profile;
 use crate::chat::profile::Profile;
@@ -17,7 +17,7 @@ impl<A: AgentPort> Engine<A> {
             MessageBody::Notice(notice),
             self.clock.wall_ms(),
         );
-        let m = self.add_item(friend, &item)?;
+        let m = self.add_item(ChatRef::Direct(friend), &item)?;
         self.emit(Event::Messages(vec![m]));
         Ok(())
     }

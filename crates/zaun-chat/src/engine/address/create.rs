@@ -6,6 +6,7 @@ use crate::engine::agent_port::{AgentEvent, AgentFailure, AgentPort, ConnId};
 use crate::engine::error::{Code, EngineError, Result, fail};
 use crate::engine::machine::Engine;
 use crate::engine::records::{AddressRecord, keys};
+use crate::engine::relays::Retry;
 
 use super::info::link_data;
 
@@ -51,7 +52,8 @@ impl<A: AgentPort> Engine<A> {
             | AgentEvent::Rcvd { .. }
             | AgentEvent::Up { .. }
             | AgentEvent::Down { .. }
-            | AgentEvent::Err { .. } => Ok(()),
+            | AgentEvent::Err { .. }
+            | AgentEvent::RatchetSync { .. } => Ok(()),
         }
     }
 
@@ -84,6 +86,9 @@ impl<A: AgentPort> Engine<A> {
     ) -> Option<Result<()>> {
         if self.state.address.creating != Some(*conn) {
             return None;
+        }
+        if self.retry_after_check(Retry::Address, conn, err) {
+            return Some(Ok(()));
         }
         self.state.address.creating = None;
         let e: EngineError = err.clone().into();

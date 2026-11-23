@@ -14,7 +14,7 @@ use zaun_chat_wire::{EvLine, Event, Hello, ReqLine, Request, decode_line, encode
 fn the_helper_starts_answers_and_exits_zero_when_stdin_closes() {
     let dir = std::env::temp_dir().join(format!("zaun-engine-pipe-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_zaun-chat-native"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_zaun-chat"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

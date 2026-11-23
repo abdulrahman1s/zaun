@@ -36,6 +36,8 @@ pub(crate) enum ChatDone {
     Call(super::calls::CallDone),
     /// A stream's media or timer (ADR-0036).
     Stream(super::share::ShareDone),
+    /// The old engine's databases measured, after deleting them when asked (ADR-0042).
+    OldData(Result<Option<u64>, Error>),
 }
 
 #[derive(Default)]
@@ -61,6 +63,9 @@ pub(crate) struct ChatState {
     pub(super) next_save: u64,
     /// The call, ringing or under way (ADR-0035).
     pub(super) call: Option<super::calls::CallFlow>,
+    /// The bytes the old engine left in the Chat folder (`ChatSnapshot::old_data`); kept here
+    /// because a stopped engine resets the snapshot.
+    pub(super) old_data: Option<u64>,
     /// Numbers calls.
     pub(super) next_call: u64,
     /// The microphone test, with its number (events of an earlier one are ignored).

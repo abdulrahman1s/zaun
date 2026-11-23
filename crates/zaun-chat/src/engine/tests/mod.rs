@@ -8,15 +8,24 @@ mod codes;
 mod contact;
 mod fake_agent;
 mod files;
+mod groups;
 mod handshake;
 mod inbound;
 mod live_address;
+mod live_call;
 mod live_cli;
+mod live_group;
+mod live_offline;
+mod live_repair;
 mod local;
 mod pipe;
 mod prefs;
 mod profile;
+mod relays;
+mod relays_fake;
+mod relays_retry;
 mod restart;
+mod resync;
 mod send;
 mod start;
 mod streams;
@@ -86,6 +95,24 @@ impl T {
     pub fn started() -> T {
         let mut t = T::new();
         t.e.start(&t.dir.hello("alice")).unwrap();
+        t.out();
+        t
+    }
+
+    /// The same store with a new engine, started, a minute later; what the start put out taken.
+    pub fn restarted(self) -> T {
+        let T { e, clock, dir } = self;
+        drop(e);
+        clock.advance(std::time::Duration::from_secs(60));
+        let store = Store::open(&dir.0.join("chat.db"), KEY).unwrap();
+        let mut e = Engine::new(
+            store,
+            FakeAgent::default(),
+            Box::new(clock.clone()),
+            Log::discard(),
+        );
+        e.start(&dir.hello("alice")).unwrap();
+        let mut t = T { e, clock, dir };
         t.out();
         t
     }
