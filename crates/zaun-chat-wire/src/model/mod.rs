@@ -5,6 +5,7 @@ pub mod bytes;
 pub mod call;
 pub mod chat_features;
 pub mod chat_ref;
+pub mod conn_event;
 pub mod friend;
 pub mod group;
 pub mod message;
@@ -17,6 +18,7 @@ pub use body::{CallKind, CallRecord, ChatNotice, FileState, Media, MessageBody, 
 pub use call::{CallKey, CallRequest, CallSignal};
 pub use chat_features::ChatFeatures;
 pub use chat_ref::ChatRef;
+pub use conn_event::{DecryptError, IntegrityError, SwitchPhase, SyncStatus};
 pub use friend::{Friend, FriendRequest};
 pub use group::{ChatGroup, GroupMember, Membership};
 pub use message::{ChatMessage, Delivery, Mention, MessageAuthor, Quote, Reaction};

@@ -373,6 +373,59 @@ pub enum ChatNotice {
     },
     /// The security code with this friend changed (compare it again).
     CodeChanged,
+    /// A moderator blocked or unblocked a member for everyone.
+    MemberBlocked {
+        /// Who did it (`None` = the user).
+        by: Option<String>,
+        who: String,
+        blocked: bool,
+    },
+    /// The connection is moving to another relay address, or has moved (`done`).
+    AddressChanged {
+        /// The user's side moved; otherwise the friend's or member's.
+        by_you: bool,
+        done: bool,
+        /// In a group, whose connection the user's move is with.
+        member: Option<String>,
+    },
+    /// The connection's encryption fell out of step, or is being or was put back in step.
+    Encryption(EncryptionState),
+    /// A group message whose signature did not check out; it is not shown.
+    BadSignature,
+    /// The relay lost, reordered, changed or repeated messages before this one.
+    Integrity(IntegrityProblem),
+    /// Messages in a row that could not be decrypted.
+    Undecryptable {
+        count: u32,
+    },
+    /// A group member asked to talk directly (their name); the invitation waits with the
+    /// friend requests.
+    DirectInvitation(String),
+}
+
+/// Where repairing a connection's encryption stands (SimpleX `RatchetSyncState`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EncryptionState {
+    /// In step again.
+    Repaired,
+    /// Messages did not decrypt; a repair may be started.
+    Allowed,
+    /// Messages did not decrypt; only a repair brings the connection back.
+    Required,
+    Started,
+    /// Both sides agreed on the repair.
+    Agreed,
+}
+
+/// What went wrong between one received message and the one before it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntegrityProblem {
+    /// This many messages never arrived.
+    Skipped(u64),
+    OutOfOrder,
+    /// It is not the message that was sent.
+    Altered,
+    Duplicate,
 }
 
 /// A picture, video or file in a message.
@@ -475,6 +528,8 @@ pub enum Delivery {
     Sent,
     /// The friend's device has it.
     Delivered,
+    /// The friend's device has it, but says it is not the message that was sent.
+    DeliveredAltered,
     /// It could not be sent.
     Failed,
     /// A message the user received.

@@ -3,6 +3,7 @@
 //! its menu, the transcript's rows, the message menu and what a screen reader says.
 
 use crate::i18n::plural::{counted, counted_args};
+use zaun_core::model::{EncryptionState, IntegrityProblem};
 
 texts! {
     /// The narrow window's back button.
@@ -75,6 +76,8 @@ texts! {
     WAITING_THEY = "chat.conversation.waiting_they";
     /// Under a message that could not be sent.
     NOT_SENT = "chat.conversation.not_sent";
+    /// Under a message the friend's device says it got changed.
+    DELIVERED_ALTERED = "chat.conversation.delivered_altered";
     /// Message menu.
     REPLY = "chat.conversation.reply";
     /// Message menu (opens the emoji picker).
@@ -289,6 +292,55 @@ pub fn notice(n: &zaun_core::model::ChatNotice, friend: &str) -> String {
             t(&k("you_invited"), &[("name", friend), ("group", group)])
         }
         N::CodeChanged => t(&k("code_changed"), &[]),
+        N::MemberBlocked { by, who, blocked } => {
+            let key = match (by.is_some(), blocked) {
+                (true, true) => "member_blocked",
+                (true, false) => "member_unblocked",
+                (false, true) => "you_blocked",
+                (false, false) => "you_unblocked",
+            };
+            let by = by.as_deref().unwrap_or_default();
+            t(&k(key), &[("by", by), ("who", who)])
+        }
+        N::AddressChanged {
+            by_you,
+            done,
+            member,
+        } => address_changed(*by_you, *done, member.as_deref()),
+        N::Encryption(state) => t(&k(encryption_key(*state)), &[]),
+        N::BadSignature => t(&k("bad_signature"), &[]),
+        N::Integrity(IntegrityProblem::Skipped(n)) => counted(&k("skipped"), *n),
+        N::Integrity(IntegrityProblem::OutOfOrder) => t(&k("out_of_order"), &[]),
+        N::Integrity(IntegrityProblem::Altered) => t(&k("altered"), &[]),
+        N::Integrity(IntegrityProblem::Duplicate) => t(&k("duplicate"), &[]),
+        N::Undecryptable { count } => counted(&k("undecryptable"), u64::from(*count)),
+        N::DirectInvitation(name) => t(&k("direct_invitation"), &[("name", name)]),
+    }
+}
+
+/// "You changed your address", "Their address is changing…".
+fn address_changed(by_you: bool, done: bool, member: Option<&str>) -> String {
+    let key = match (by_you, member.is_some(), done) {
+        (false, _, false) => "their_address_changing",
+        (false, _, true) => "their_address_changed",
+        (true, false, false) => "your_address_changing",
+        (true, false, true) => "your_address_changed",
+        (true, true, false) => "your_address_changing_for",
+        (true, true, true) => "your_address_changed_for",
+    };
+    t(
+        &format!("chat.conversation.notice.{key}"),
+        &[("member", member.unwrap_or_default())],
+    )
+}
+
+const fn encryption_key(state: EncryptionState) -> &'static str {
+    match state {
+        EncryptionState::Repaired => "encryption_repaired",
+        EncryptionState::Allowed => "encryption_allowed",
+        EncryptionState::Required => "encryption_required",
+        EncryptionState::Started => "encryption_started",
+        EncryptionState::Agreed => "encryption_agreed",
     }
 }
 
@@ -506,5 +558,71 @@ mod tests {
         );
         assert_eq!(size(2_400_000), "2.4 MB");
         assert_eq!(size(640_000), "640 KB");
+    }
+
+    /// The notices simplex-client added: their keys are built with `format!`, so only this
+    /// says a key is missing in a language.
+    #[test]
+    fn connection_notices_have_words_in_every_language() {
+        use crate::i18n::{Language, lookup};
+        let plain = [
+            "member_blocked",
+            "member_unblocked",
+            "you_blocked",
+            "you_unblocked",
+            "their_address_changing",
+            "their_address_changed",
+            "your_address_changing",
+            "your_address_changed",
+            "your_address_changing_for",
+            "your_address_changed_for",
+            "encryption_repaired",
+            "encryption_allowed",
+            "encryption_required",
+            "encryption_started",
+            "encryption_agreed",
+            "bad_signature",
+            "skipped.one",
+            "skipped.other",
+            "out_of_order",
+            "altered",
+            "duplicate",
+            "undecryptable.one",
+            "undecryptable.other",
+            "direct_invitation",
+        ];
+        for language in Language::ALL {
+            for key in plain {
+                let key = format!("chat.conversation.notice.{key}");
+                assert!(lookup(language, &key).is_some(), "{language:?}: {key}");
+            }
+            let key = "chat.conversation.delivered_altered";
+            assert!(lookup(language, key).is_some(), "{language:?}: {key}");
+        }
+    }
+
+    #[test]
+    fn connection_notices_read_as_sentences() {
+        crate::i18n::set(crate::i18n::Language::English);
+        let changed = N::AddressChanged {
+            by_you: true,
+            done: true,
+            member: Some("Mira".into()),
+        };
+        assert_eq!(notice(&changed, ""), "You changed your address for Mira");
+        let blocked = N::MemberBlocked {
+            by: Some("Jonas".into()),
+            who: "Rex".into(),
+            blocked: true,
+        };
+        assert_eq!(notice(&blocked, ""), "Jonas blocked Rex");
+        let skipped = N::Integrity(IntegrityProblem::Skipped(2));
+        assert_eq!(notice(&skipped, ""), "2 messages were lost on the way");
+        let one = N::Undecryptable { count: 1 };
+        assert_eq!(notice(&one, ""), "1 message couldn't be decrypted");
+        let repaired = N::Encryption(EncryptionState::Repaired);
+        assert_eq!(notice(&repaired, ""), "Encryption repaired");
+        let asked = N::DirectInvitation("Aiko".into());
+        assert_eq!(notice(&asked, ""), "Aiko wants to talk with you directly");
     }
 }

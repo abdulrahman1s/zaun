@@ -18,6 +18,9 @@ pub enum Delivery {
     Sending,
     Sent,
     Delivered,
+    /// Delivered, but the peer's receipt says the message it got hashes differently
+    /// (`CISSndRcvd MRBadMsgHash`).
+    DeliveredBadHash,
     Failed,
     Received,
 }

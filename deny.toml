@@ -72,3 +72,6 @@ deny = [
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# The Chat helper's engine (ADR-0042), extracted from zaun-chat into its own repository and
+# pinned by tag.
+allow-git = ["https://github.com/abdulrahman1s/simplex-client"]

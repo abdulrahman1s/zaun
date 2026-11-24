@@ -2,6 +2,7 @@
 
 mod command;
 mod event;
+mod notice;
 mod picture;
 mod process;
 mod request;

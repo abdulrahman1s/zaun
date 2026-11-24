@@ -73,7 +73,7 @@ pub const BUNDLE_CHANNEL: &str = "bundle";
 /// whose copy has the same hash (`store::Store::component`).
 pub const BUNDLE_FILES: [&str; 4] = ["zaun", "zaun-init", "zaun-overlay", "zaun-chat"];
 /// Paths a manifest still carries for older copies, which this one accepts and skips.
-/// `simplex/` is the old Chat engine's folder: copies up to 0.4.2 refuse a release without it,
+/// `simplex/` is the old Chat engine's folder: copies up to 0.5.0 refuse a release without it,
 /// so releases ship it as a one-file stub (ADR-0042).
 pub const RETIRED_FILES: [&str; 1] = ["simplex/"];
 /// The program a version folder starts with.

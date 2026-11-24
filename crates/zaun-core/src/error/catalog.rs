@@ -639,6 +639,36 @@ pub const fn entry(code: ErrorCode) -> Entry {
             "The game's stream could not start or was cut off. The details say why.",
             &[A::CopyDetails],
         ),
+        C::ChtReactionNotAllowed => e(
+            "That reaction cannot be added",
+            "A message takes up to 3 of the 8 chat reactions from each person.",
+            &[A::Dismiss],
+        ),
+        C::ChtFileTooLarge => e(
+            "This file is too large to send",
+            "Files of up to 1 GB can be sent in a chat.",
+            &[A::Dismiss],
+        ),
+        C::ChtTextTooLong => e(
+            "This text is too long",
+            "Shorten it, then send it again.",
+            &[A::Dismiss],
+        ),
+        C::ChtTooManyMentions => e(
+            "Too many mentions",
+            "A message can mention up to 3 members.",
+            &[A::Dismiss],
+        ),
+        C::ChtInvalidName => e(
+            "This name cannot be used",
+            "Use up to 50 characters and one space between words, and leave out full stops, commas, quotes, slashes, # and @.",
+            &[A::Dismiss],
+        ),
+        C::ChtNotAllowed => e(
+            "That is not allowed here",
+            "Your role in the group or the chat's settings do not allow it, or the time for it has passed.",
+            &[A::Dismiss],
+        ),
 
         // ---- Updates ----
         C::UpdChecksOff => e(

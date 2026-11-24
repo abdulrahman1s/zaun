@@ -24,7 +24,7 @@ fn every_event_survives_a_json_line() {
 }
 
 #[test]
-fn every_message_body_notice_and_file_state_survives_a_json_line() {
+fn every_message_body_notice_file_state_and_delivery_survives_a_json_line() {
     for body in samples::bodies() {
         let msg = samples::message(body);
         let back: ChatMessage = decode_line(&encode_line(&msg).unwrap()).unwrap();
@@ -37,6 +37,10 @@ fn every_message_body_notice_and_file_state_survives_a_json_line() {
     for state in samples::states() {
         let back: FileState = decode_line(&encode_line(&state).unwrap()).unwrap();
         assert_eq!(back, state);
+    }
+    for delivery in samples::deliveries() {
+        let back: Delivery = decode_line(&encode_line(&delivery).unwrap()).unwrap();
+        assert_eq!(back, delivery);
     }
 }
 

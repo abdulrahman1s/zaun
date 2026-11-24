@@ -291,6 +291,20 @@ error_codes! {
     /// A stream could not start or was cut off: no connection to the friend's app, the
     /// engine refused it, a group, or a call with the same friend (ADR-0036).
     ChtStreamFailed = "ZN-CHT-017", Warning;
+    /// Not one of the 8 reactions, already given or taken back, or a fourth reaction from the
+    /// user on one message (simplex-client `limits`).
+    ChtReactionNotAllowed = "ZN-CHT-018", Warning;
+    /// A file over the 1 GiB the chat sends (simplex-client `limits`).
+    ChtFileTooLarge = "ZN-CHT-019", Warning;
+    /// A message, caption or line about the user longer than a message carries.
+    ChtTextTooLong = "ZN-CHT-020", Warning;
+    /// More than 3 members mentioned in one message.
+    ChtTooManyMentions = "ZN-CHT-021", Warning;
+    /// A display or group name the chat would change: over 50 characters, leading punctuation,
+    /// more than one space between words, or one of `.,;/\#@'"`~`.
+    ChtInvalidName = "ZN-CHT-022", Warning;
+    /// The user's group role or the chat's settings do not allow it, or its time has passed.
+    ChtNotAllowed = "ZN-CHT-023", Warning;
 
     // ---- Updates — ZN-UPD (ADR-0040) ---------------------------------------------------
     /// Update checks are off (`updates.check`), so nothing was asked.

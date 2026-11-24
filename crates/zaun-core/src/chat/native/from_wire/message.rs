@@ -3,9 +3,10 @@
 use zaun_chat_wire::model as wm;
 
 use super::model::{chat_ref, time};
+use super::notice::notice;
 use crate::model::{
-    CallKind, CallRecord, ChatMessage, ChatNotice, ChatPreview, Delivery, FileState, Media,
-    Mention, MessageAuthor, MessageBody, Quote, Reaction, StreamRecord,
+    CallKind, CallRecord, ChatMessage, ChatPreview, Delivery, FileState, Media, Mention,
+    MessageAuthor, MessageBody, Quote, Reaction, StreamRecord,
 };
 
 fn author(a: wm::MessageAuthor) -> MessageAuthor {
@@ -13,28 +14,6 @@ fn author(a: wm::MessageAuthor) -> MessageAuthor {
         wm::MessageAuthor::Me => MessageAuthor::Me,
         wm::MessageAuthor::Friend => MessageAuthor::Friend,
         wm::MessageAuthor::Member(name) => MessageAuthor::Member(name),
-    }
-}
-
-fn notice(n: wm::ChatNotice) -> ChatNotice {
-    match n {
-        wm::ChatNotice::Connected => ChatNotice::Connected,
-        wm::ChatNotice::GroupCreated => ChatNotice::GroupCreated,
-        wm::ChatNotice::YouJoined => ChatNotice::YouJoined,
-        wm::ChatNotice::MemberJoined(n) => ChatNotice::MemberJoined(n),
-        wm::ChatNotice::MemberAdded { by, who } => ChatNotice::MemberAdded { by, who },
-        wm::ChatNotice::MemberLeft(n) => ChatNotice::MemberLeft(n),
-        wm::ChatNotice::MemberRemoved { by, who } => ChatNotice::MemberRemoved { by, who },
-        wm::ChatNotice::YouLeft => ChatNotice::YouLeft,
-        wm::ChatNotice::YouRemoved(n) => ChatNotice::YouRemoved(n),
-        wm::ChatNotice::GroupDeleted => ChatNotice::GroupDeleted,
-        wm::ChatNotice::GroupNameChanged(n) => ChatNotice::GroupNameChanged(n),
-        wm::ChatNotice::NameChanged { from, to } => ChatNotice::NameChanged { from, to },
-        wm::ChatNotice::FriendDeleted => ChatNotice::FriendDeleted,
-        wm::ChatNotice::GroupInvitation { group, sent } => {
-            ChatNotice::GroupInvitation { group, sent }
-        }
-        wm::ChatNotice::CodeChanged => ChatNotice::CodeChanged,
     }
 }
 
@@ -62,10 +41,10 @@ fn media(m: wm::Media) -> Media {
     }
 }
 
-fn body(b: wm::MessageBody) -> MessageBody {
+fn body(b: wm::MessageBody, by: &wm::MessageAuthor) -> MessageBody {
     match b {
         wm::MessageBody::Text(t) => MessageBody::Text(t),
-        wm::MessageBody::Notice(n) => MessageBody::Notice(notice(n)),
+        wm::MessageBody::Notice(n) => MessageBody::Notice(notice(n, by)),
         wm::MessageBody::Voice { secs, wave } => MessageBody::Voice { secs, wave },
         wm::MessageBody::Gif(name) => MessageBody::Gif(name),
         wm::MessageBody::Image(m) => MessageBody::Image(media(m)),
@@ -94,6 +73,7 @@ fn delivery(d: wm::Delivery) -> Delivery {
         wm::Delivery::Sending => Delivery::Sending,
         wm::Delivery::Sent => Delivery::Sent,
         wm::Delivery::Delivered => Delivery::Delivered,
+        wm::Delivery::DeliveredBadHash => Delivery::DeliveredAltered,
         wm::Delivery::Failed => Delivery::Failed,
         wm::Delivery::Received => Delivery::Received,
     }
@@ -103,8 +83,8 @@ pub(super) fn message(m: wm::ChatMessage) -> ChatMessage {
     ChatMessage {
         id: m.id,
         chat: chat_ref(m.chat),
+        body: body(m.body, &m.author),
         author: author(m.author),
-        body: body(m.body),
         at: time(m.at),
         delivery: delivery(m.delivery),
         unread: m.unread,

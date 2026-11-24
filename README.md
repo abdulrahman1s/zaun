@@ -393,8 +393,9 @@ own library or contacting anyone, run `zaun --preview`.
 ## Licence
 
 Zaun is free software under the GNU General Public License, version 3 or later
-([LICENSE](LICENSE)). The chat helper `zaun-chat`, a port of SimpleX's chat engine, is under
-the GNU Affero General Public License, version 3.
+([LICENSE](LICENSE)). The chat helper `zaun-chat` is built on
+[simplex-client](https://github.com/abdulrahman1s/simplex-client), a port of SimpleX's chat
+engine, and is under the GNU Affero General Public License, version 3.
 
 Zaun bundles these:
 

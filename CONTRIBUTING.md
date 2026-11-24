@@ -118,8 +118,7 @@ The interface's text lives in `crates/zaun-ui/locales/<code>.yml` (ADR-0032).
 
 ## Rules enforced by the build
 
-- No `unsafe` outside `zaun-init`, `zaun-chat` (the engine's C interface),
-  `core::session::sys` and `core::sandbox::fd`.
+- No `unsafe` outside `zaun-init`, `core::session::sys` and `core::sandbox::fd`.
 - Time only through `zaun_core::clock::Clock`; files in core only through
   `zaun_core::fsx::Fs`; processes only through `host::runner` and `session::spawn`
   (`clippy.toml`), plus the supervisor start in `session::launcher` and the detached

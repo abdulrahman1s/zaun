@@ -93,7 +93,11 @@ let
     cargo = rustToolchain;
     rustc = rustToolchain;
   };
-  cargoDeps = rustPlatform.importCargoLock { lockFile = cargoLockFile; };
+  cargoDeps = rustPlatform.importCargoLock {
+    lockFile = cargoLockFile;
+    # The Chat helper's engine, a git dependency (ADR-0042); bump with its tag in Cargo.toml.
+    outputHashes."simplex-client-0.1.0" = "sha256-3+lMbAnyhdVP+IPRCZD8P8IbZ+zJef3eshVDpBMZVCM=";
+  };
 
   # The shim is bind-mounted into every sandbox, so it is linked statically against musl
   # (ARCHITECTURE §12) and depends on nothing from the store at run time. Rust's musl

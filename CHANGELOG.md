@@ -17,6 +17,21 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   size; files you received stay in the Chat folder. With relays of your own and no file
   server of your own, files are off, as before. A copy older than 0.3 gets Chat back with the
   update after the one that brings this.
+- Chat's engine now comes from simplex-client, the same engine as a library of its own, and
+  catches up with the SimpleX apps (7.1.4):
+  - Messages to a relay that isn't one of yours go through one of yours first, so that relay
+    never sees your IP address (private routing, on as in the apps).
+  - Members still connecting get the messages sent meanwhile, new members get the group's
+    history, and new groups have history and direct messages on.
+  - Older connections are upgraded, and the preset relays are checked.
+  - The conversation says when an address moves to another relay, when the encryption falls
+    out of step and is repaired, when messages were lost, reordered, changed or repeated on
+    the way or can't be decrypted, when a group message fails its signature check (it is
+    hidden), when a member is blocked for everyone, and when a member asks to talk directly.
+    A sent message your friend got changed says so.
+  - Sending checks the apps' limits first and says which one stopped it: the 8 reactions and
+    3 per person on a message, files up to 1 GB, the length of a message, 3 mentions, and
+    names.
 - Updates, the way Steam and Discord do them: Settings › About › Updates has a "Check for
   updates" switch. It is off until you turn it on, and it says that Zaun then asks github.com
   once a day and that GitHub learns only your IP address and the time. With it on, a new
@@ -206,8 +221,11 @@ the release workflow; this file is written by hand for each release (RELEASE_STR
   with `ZAUN_SIMPLEX_LIB`, `ZAUN_SIMPLEX_LIBRARY_PATH`, `build-release.sh --simplex` and
   `packaging/portable/simplex.sh`. `zaun-chat` links zstd (bundled, or the system's through
   pkg-config) and is started under bwrap, as before. Releases still list a
-  `simplex/` stub of one note in `bundle.json`, because copies up to 0.4.2 refuse a bundle
+  `simplex/` stub of one note in `bundle.json`, because copies up to 0.5.0 refuse a bundle
   without it; newer copies skip it.
+- `zaun-chat` is built on the simplex-client crate (AGPL-3.0-only), a git dependency pinned
+  by tag (`Cargo.toml`): an offline build needs it vendored, and the Nix package pins its hash
+  in `outputHashes`. The stripped, fat-LTO helper is 8.3 MB.
 - Release binaries come from `packaging/portable/build.sh` in a Debian 12 container (ADR-0041).
   It builds a minimal static FFmpeg with only the NVENC and VA-API H.264 encoders, links
   libva, PipeWire, PulseAudio, Opus and udev from the system, and needs glibc 2.35. It takes

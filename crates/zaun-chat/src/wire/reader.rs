@@ -3,9 +3,11 @@
 use std::io::{BufRead, BufReader, Read};
 
 use crossbeam_channel::{Receiver, Sender, bounded};
-use zaun_chat_wire::{Hello, ReqLine, Request, decode_line};
+use simplex_client::engine::log::Log;
+use simplex_client::types::Request;
+use zaun_chat_wire::{Hello, decode_line};
 
-use crate::engine::log::Log;
+use super::lines::ReqLine;
 
 /// Requests read ahead of the engine; a full channel stops reading, which holds up core's writer.
 pub const REQUESTS: usize = 256;

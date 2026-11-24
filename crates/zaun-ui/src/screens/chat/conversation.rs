@@ -2421,6 +2421,7 @@ fn note(ui: &mut Ui, p: &theme::Palette, snap: &ChatSnapshot, chat: ChatRef, msg
             (icons::CLOCK, s::waiting_for(&name), p.t3)
         }
         Delivery::Failed => (icons::WARNING, s::NOT_SENT().to_owned(), p.coral),
+        Delivery::DeliveredAltered => (icons::WARNING, s::DELIVERED_ALTERED().to_owned(), p.coral),
         _ => return,
     };
     ui.add_space(m::NOTE_TOP);

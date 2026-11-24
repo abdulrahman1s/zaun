@@ -60,7 +60,7 @@ const FILES: [&str; 5] = [
     "zaun-9.9.9-x86_64-linux.zaun-chat.gz",
     "zaun-simplex-7.0.3-x86_64.tar.gz",
 ];
-/// The old Chat engine's folder, still in the manifest for copies up to 0.4.2.
+/// The old Chat engine's folder, still in the manifest for copies up to 0.5.0.
 const ENGINE: &str = "zaun-simplex-7.0.3-x86_64.tar.gz";
 
 fn fixture(name: &str) -> Vec<u8> {

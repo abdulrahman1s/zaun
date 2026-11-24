@@ -1,13 +1,13 @@
 //! The bundle store (ADR-0041 §2): `<data>/versions/` holds one folder per downloaded
 //! version and the links that choose between them; `<data>/components/` holds the folders
-//! versions share, named by their hash (none now: copies up to 0.4.2 kept the old Chat engine
+//! versions share, named by their hash (none now: copies up to 0.5.0 kept the old Chat engine
 //! there, and `prune` removes it).
 //!
 //! ```text
-//! versions/0.5.0/{zaun, zaun-init, zaun-overlay, zaun-chat}
-//! versions/current -> 0.5.0     what the installed copy starts
-//! versions/previous -> 0.4.2    until 0.5.0 is confirmed
-//! versions/staged -> 0.5.1      downloaded and verified, switched to at the next start
+//! versions/0.6.0/{zaun, zaun-init, zaun-overlay, zaun-chat}
+//! versions/current -> 0.6.0     what the installed copy starts
+//! versions/previous -> 0.5.0    until 0.6.0 is confirmed
+//! versions/staged -> 0.6.1      downloaded and verified, switched to at the next start
 //! ```
 
 use std::path::{Path, PathBuf};

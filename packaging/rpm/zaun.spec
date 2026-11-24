@@ -91,6 +91,12 @@ cat >>.cargo/config.toml <<'EOF'
 [source.crates-io]
 replace-with = "vendored-sources"
 
+# The Chat helper's engine, a git dependency: keep in step with crates/zaun-chat/Cargo.toml.
+[source."git+https://github.com/abdulrahman1s/simplex-client?tag=v0.1.0"]
+git = "https://github.com/abdulrahman1s/simplex-client"
+tag = "v0.1.0"
+replace-with = "vendored-sources"
+
 [source.vendored-sources]
 directory = "vendor"
 EOF

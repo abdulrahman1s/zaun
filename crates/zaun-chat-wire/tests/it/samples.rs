@@ -121,6 +121,44 @@ pub fn notices() -> Vec<ChatNotice> {
             sent: true,
         },
         ChatNotice::CodeChanged,
+        ChatNotice::MemberBlocked {
+            by: Some("b".into()),
+            who: "a".into(),
+            blocked: true,
+        },
+        ChatNotice::AddressSwitch {
+            phase: SwitchPhase::Started,
+            member: Some("a".into()),
+        },
+        ChatNotice::AddressSwitch {
+            phase: SwitchPhase::Completed,
+            member: None,
+        },
+        ChatNotice::RatchetSync {
+            status: SyncStatus::Required,
+            member: None,
+        },
+        ChatNotice::BadSignature,
+        ChatNotice::Integrity(IntegrityError::Skipped { from: 3, to: 5 }),
+        ChatNotice::Integrity(IntegrityError::BadId(9)),
+        ChatNotice::Integrity(IntegrityError::BadHash),
+        ChatNotice::Integrity(IntegrityError::Duplicate),
+        ChatNotice::DecryptionError {
+            error: DecryptError::TooManySkipped,
+            count: 2,
+        },
+        ChatNotice::DirectInvitation,
+    ]
+}
+
+pub fn deliveries() -> Vec<Delivery> {
+    vec![
+        Delivery::Sending,
+        Delivery::Sent,
+        Delivery::Delivered,
+        Delivery::DeliveredBadHash,
+        Delivery::Failed,
+        Delivery::Received,
     ]
 }
 

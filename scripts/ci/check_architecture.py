@@ -114,8 +114,8 @@ UNSAFE_ALLOWED = (
 
 ASYNC_RUNTIMES = ("tokio", "async-std", "smol", "futures-executor")
 # The one module per crate that may drive a private runtime behind a synchronous API
-# (ADR-0017; ADR-0042 for the Chat helper's store).
-ASYNC_ALLOWED = {"zaun-core": "storage", "zaun-chat": "store"}
+# (ADR-0017). The Chat helper's store now lives in simplex-client (ADR-0042).
+ASYNC_ALLOWED = {"zaun-core": "storage"}
 
 # ---- Helpers --------------------------------------------------------------------------------
 

@@ -399,7 +399,7 @@ jobs:
 
       - name: Files of the self-update bundle (ADR-0041)
         # Each binary gzip-compressed; the release job lists and signs them in bundle.json (and
-        # zaun, zaun-init in the manifest.json of older copies). Copies up to 0.4.2 refuse a
+        # zaun, zaun-init in the manifest.json of older copies). Copies up to 0.5.0 refuse a
         # bundle without the old Chat engine's simplex/ folder, so it goes on as a stub of one
         # note, which newer copies skip (ADR-0042).
         if: ${{ startsWith(github.ref, 'refs/tags/v') || needs.prepare-release.outputs.released == 'true' }}

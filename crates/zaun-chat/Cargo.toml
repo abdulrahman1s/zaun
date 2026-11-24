@@ -1,11 +1,11 @@
 [package]
 name = "zaun-chat"
-description = "Zaun's Chat helper: the native SimpleX protocol engine behind stdin/stdout"
+description = "Zaun's Chat helper: the simplex-client engine behind stdin/stdout"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-# The engine is ported from simplexmq and simplex-chat (AGPL-3.0), so it is distributed under
-# the AGPL; Zaun itself stays GPL-3.0-or-later and only talks to it over pipes (ADR-0042).
+# The engine (simplex-client) is ported from simplexmq and simplex-chat (AGPL-3.0), so the helper
+# is distributed under the AGPL; Zaun itself stays GPL-3.0-or-later and only talks to it over pipes (ADR-0042).
 license = "AGPL-3.0-only"
 repository.workspace = true
 authors.workspace = true
@@ -18,38 +18,14 @@ path = "src/lib.rs"
 name = "zaun-chat"
 path = "src/main.rs"
 
-# Only the wire crate from the workspace (ADR-0042): Zaun's neutral vocabulary on the pipe.
+# Only the wire crate from the workspace (ADR-0042): Zaun's neutral vocabulary on the pipe. The
+# engine itself is the simplex-client crate, extracted from this helper and kept there.
 [dependencies]
 zaun-chat-wire = { path = "../zaun-chat-wire" }
+simplex-client = { git = "https://github.com/abdulrahman1s/simplex-client", tag = "v0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
-# Crates chosen by the native engine's Phase 0 spikes (ADR-0042).
-base64 = { workspace = true }
 crossbeam-channel = { workspace = true }
-aes = "0.9.4"
-aes-gcm = "0.11.1"
-chacha20poly1305 = "0.11.0"
-ed25519-dalek = "3.0.0"
-ed448-goldilocks = "=0.14.0-pre.15"
-cipher = "0.5"
-getrandom = "0.3"
-hkdf = "0.13.0"
-hmac = "0.13"
-ormlite = { workspace = true }
-poly1305 = "0.9"
-ruzstd = "0.9.1"
-salsa20 = "0.11.0"
-sha2 = { workspace = true }
-sha3 = "0.12.0"
-sntrup761 = "=0.4.0"
-subtle = "2"
-thiserror = { workspace = true }
-tokio = { workspace = true }
-x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
-x448 = "=0.14.0-pre.12"
-zeroize = "1"
-zstd = { version = "0.13.5", default-features = false }
-lz-str.workspace = true
 rustix.workspace = true
 
 [lints]

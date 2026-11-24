@@ -73,9 +73,29 @@ pub(in crate::chat::native) fn event(e: W) -> ChatEvent {
     }
 }
 
+/// The engine's codes (simplex-client `ErrorCode`) as Zaun's.
+fn engine_code(code: &str) -> Option<ErrorCode> {
+    Some(match code {
+        "SX-CHT-004" => ErrorCode::ChtNoConnection,
+        "SX-CHT-005" => ErrorCode::ChtBadLink,
+        "SX-CHT-006" => ErrorCode::ChtRequestFailed,
+        "SX-CHT-012" => ErrorCode::ChtCallFailed,
+        "SX-CHT-017" => ErrorCode::ChtStreamFailed,
+        "SX-CHT-018" => ErrorCode::ChtReactionNotAllowed,
+        "SX-CHT-019" => ErrorCode::ChtFileTooLarge,
+        "SX-CHT-020" => ErrorCode::ChtTextTooLong,
+        "SX-CHT-021" => ErrorCode::ChtTooManyMentions,
+        "SX-CHT-022" => ErrorCode::ChtInvalidName,
+        "SX-CHT-023" => ErrorCode::ChtNotAllowed,
+        "SX-CHT-024" => ErrorCode::ChtPictureTooLarge,
+        _ => return None,
+    })
+}
+
 /// An unknown code is the generic one; what the helper said stays in the log.
 fn failed(request: crate::chat::engine::RequestKind, code: &str, detail: String) -> ChatEvent {
-    let code = code.parse::<ErrorCode>().unwrap_or_else(|_| {
+    let known = engine_code(code).or_else(|| code.parse::<ErrorCode>().ok());
+    let code = known.unwrap_or_else(|| {
         tracing::warn!(
             code,
             detail,

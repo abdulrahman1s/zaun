@@ -28,10 +28,10 @@ pub use artwork::{ArtOrigin, ArtSlot, ArtworkRef};
 pub use chat::{
     AudioDevice, AudioDevices, Call, CallKind, CallLevels, CallLink, CallQuality, CallRecord,
     ChatFeatures, ChatGroup, ChatLive, ChatMessage, ChatNotice, ChatPreview, ChatProfile, ChatRef,
-    ChatSnapshot, ChatStatus, Delivery, FileState, Friend, FriendRequest, GroupMember, Media,
-    Membership, Mention, MessageAuthor, MessageBody, MyStatus, Picture, PictureCrop, PictureSource,
-    Playing, Presence, Quote, Reaction, Ringing, Share, StreamInfo, StreamLive, StreamRecord,
-    VideoEncoding, Watching,
+    ChatSnapshot, ChatStatus, Delivery, EncryptionState, FileState, Friend, FriendRequest,
+    GroupMember, IntegrityProblem, Media, Membership, Mention, MessageAuthor, MessageBody,
+    MyStatus, Picture, PictureCrop, PictureSource, Playing, Presence, Quote, Reaction, Ringing,
+    Share, StreamInfo, StreamLive, StreamRecord, VideoEncoding, Watching,
 };
 pub use doc::{DocError, UpgradeStep, parse_launch_config, parse_policy};
 pub use executable::{
